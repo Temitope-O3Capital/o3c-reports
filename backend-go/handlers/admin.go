@@ -240,8 +240,8 @@ func createUser(db *core.DB) http.HandlerFunc {
 		newUID := toInt64(result["id"])
 		go NotifyRoles(r.Context(), db, []string{"admin", "it_admin"}, NotifPayload{
 			EventType: EvtNewAccountCreated,
-			Title:     "New account created",
-			Body:      fmt.Sprintf("%s (%s) was added with role %s.", fullName, b.Email, b.Role),
+			Title:     "New Account Created",
+			Body:      fmt.Sprintf("%s (%s) now has a workspace account, with the %s role.", fullName, b.Email, b.Role),
 			ActionURL: "/admin/users/" + fmt.Sprint(newUID),
 			EntityRef: fmt.Sprint(newUID),
 		})
@@ -1125,7 +1125,7 @@ func testApiKey(db *core.DB) http.HandlerFunc {
 		row := rows[0]
 		encVal, _ := row["encrypted_value"].(string)
 		if encVal == "" {
-			respondErr(w, 422, "No value stored for this key — save a value first")
+			respondErr(w, 422, "Nothing is stored for this key yet. Save a value first.")
 			return
 		}
 		plaintext, err := decryptValue(encVal)
@@ -1546,7 +1546,7 @@ func pingIntegration(db *core.DB) http.HandlerFunc {
 			go NotifyRoles(r.Context(), db, []string{"it_admin", "admin"}, NotifPayload{
 				EventType: EvtSystemAlert,
 				Title:     "Integration Down: " + integrationName,
-				Body:      fmt.Sprintf("Health check failed for %s (HTTP %d). Manual investigation required.", integrationName, statusCode),
+				Body:      fmt.Sprintf("The health check for %s came back HTTP %d. Open the integration and check its credentials.", integrationName, statusCode),
 				ActionURL: "/admin/integrations",
 			})
 		}

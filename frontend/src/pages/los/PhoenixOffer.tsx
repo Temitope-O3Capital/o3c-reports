@@ -214,7 +214,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
       await apiPost(`/api/los/${appId}/offers/${offer.id}/${action}`,
         action === 'decline' ? { reason: declineReason.trim() } : {})
       toast.success(action === 'accept'
-        ? `Acceptance recorded — ${offer.reference} activated in Phoenix`
+        ? `Acceptance recorded: ${offer.reference} activated in Phoenix`
         : `Decline recorded against ${offer.reference}`)
       setDeclining(false)
       setDeclineReason('')
@@ -297,7 +297,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
               {expiringSoon ? 'alarm' : 'schedule'}
             </span>
             {left !== null && left > 0
-              ? `Expires in ${left} day${left === 1 ? '' : 's'} — ${fmtDatetime(current.expires_at)}`
+              ? `Expires in ${left} day${left === 1 ? '' : 's'}, ${fmtDatetime(current.expires_at)}`
               : `Expired ${fmtDatetime(current.expires_at)}`}
           </div>
         )}

@@ -242,7 +242,7 @@ export default function CallCenterOverview() {
           </SectionCard>
 
           {/* ── Calls by type / purpose ───────────────────────────────────── */}
-          <SectionCard title="Calls by Type" subtitle="What the calls were for — volume, mix & connect rate per book" style={{ marginBottom: SP[4] }}>
+          <SectionCard title="Calls by Type" subtitle="What the calls were for: volume, mix & connect rate per book" style={{ marginBottom: SP[4] }}>
             {byPurpose.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No Calls in This Range</div>
             ) : (

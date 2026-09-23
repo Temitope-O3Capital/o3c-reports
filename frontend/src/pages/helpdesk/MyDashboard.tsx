@@ -329,7 +329,7 @@ export default function CallCenterMyDashboard() {
         const col = BAND_COLOR[qaBand(avg)] ?? NAVY
         const latest = qa.recent?.[0]
         return (
-          <SectionCard title="My Rated Calls" subtitle="Calls your supervisor scored — click a row to play the recording" style={{ marginTop: SP[4] }}
+          <SectionCard title="My Rated Calls" subtitle="Calls your supervisor scored. Click a row to play the recording" style={{ marginTop: SP[4] }}
             badge={Number(qa.summary?.evaluations ?? 0)}>
             <div style={{ display: 'grid', gridTemplateColumns: '190px 1fr', gap: SP[4] }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: `${col}0d`, border: `1px solid ${col}30`, borderRadius: RADIUS.lg }}>

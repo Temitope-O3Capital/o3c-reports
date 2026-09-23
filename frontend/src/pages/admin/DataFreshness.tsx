@@ -54,12 +54,12 @@ interface Alert {
 }
 
 const STATE: Record<string, { c: string; label: string; hint: string }> = {
-  stale:    { c: RED,       label: 'No Data',   hint: 'Past its stale threshold — treat as an outage' },
+  stale:    { c: RED,       label: 'No Data',   hint: 'Past its stale threshold: treat as an outage' },
   never:    { c: RED,       label: 'Never',     hint: 'This source has never delivered anything' },
   taper:    { c: '#EA580C', label: 'Collapsed', hint: 'Still arriving, but volume has fallen off a cliff' },
   warn:     { c: AMBER,     label: 'Delayed',   hint: 'Later than expected, not yet an outage' },
   ok:       { c: GREEN,     label: 'Fresh',     hint: 'Delivering as expected' },
-  disabled: { c: '#94A3B8', label: 'Not Watched', hint: 'Deliberately excluded — see the note' },
+  disabled: { c: '#94A3B8', label: 'Not Watched', hint: 'Deliberately excluded: see the note' },
 }
 const sInfo = (s: string) => STATE[s] ?? STATE.disabled
 
@@ -147,7 +147,7 @@ export default function DataFreshness() {
     <Page
       back={{ label: 'Admin', to: '/admin' }}
       title="Data Freshness"
-      subtitle="Is each source still sending data? Run status answers a different question — a job over an empty folder succeeds."
+      subtitle="Is each source still sending data? Run status answers a different question. A job over an empty folder succeeds."
       loading={loading && sources.length === 0}
       skeletonKpis={4}
       actions={
@@ -184,7 +184,7 @@ export default function DataFreshness() {
             <KpiCard label="Jobs Stopped" value={fmtNum(jobsDead.length)} sub="ingest not running" icon="motion_photos_off" accent={BLUE} />
           </div>
 
-          <SectionCard title="Sources" subtitle="Data age is measured from ingest timestamps — never from dates the source supplies, which run into the future">
+          <SectionCard title="Sources" subtitle="Data age is measured from ingest timestamps. Never from dates the source supplies, which run into the future">
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -259,7 +259,7 @@ export default function DataFreshness() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: INTER }}>
                           {a.label ?? a.source_key} · {a.level}
-                          {!isOpen && <span style={{ color: GREEN, fontWeight: FW.normal }}> — recovered</span>}
+                          {!isOpen && <span style={{ color: GREEN, fontWeight: FW.normal }}>, recovered</span>}
                         </div>
                         {a.detail && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.5 }}>{a.detail}</div>}
                         <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3, fontFamily: INTER }}>

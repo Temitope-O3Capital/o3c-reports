@@ -1797,8 +1797,52 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 			}
 		}
 
+		// The repayment SCHEDULE and the repayments actually POSTED. Both were being
+		// captured and shown on no screen at all: the schedule sits in
+		// app.cbs_loan_schedules (202 instalments over 40 loans) and the postings in
+		// app.loan_repayments (41 legs, N645,900,821.65). Every existing reader of the
+		// latter joins on application_id or loan_id, and a Udara loan has neither — so a
+		// credit file could show a Defaulting borrower with no sign of what was due, when,
+		// or what they had already paid.
+		//
+		// Both are keyed by the Udara loan account number, through this customer's loans.
+		schedule := queryRows(ctx, db, `
+			SELECT s.loan_account_number, s.payment_date,
+			       s.principal_kobo, s.interest_kobo, COALESCE(s.fee_kobo,0) AS fee_kobo,
+			       (s.principal_kobo + s.interest_kobo + COALESCE(s.fee_kobo,0)) AS total_kobo,
+			       s.payment_status,
+			       (s.payment_date < CURRENT_DATE
+			        AND s.payment_status IN ('DueAndUnpaid','PartiallyPaid')) AS is_overdue
+			FROM app.cbs_loan_schedules s
+			WHERE s.loan_account_number IN (
+			        SELECT cl.cbs_account_number FROM cbs_loans cl WHERE cl.cbs_customer_id = $1)
+			ORDER BY s.payment_date`, cif)
+
+		repayments := queryRows(ctx, db, `
+			SELECT lr.financial_date, lr.posted_at, lr.cbs_loan_account,
+			       lr.entry_code, lr.component,
+			       lr.amount_kobo, lr.principal_kobo, lr.interest_kobo, lr.posting_reference
+			FROM app.loan_repayments lr
+			WHERE lr.ledger_key IS NOT NULL
+			  AND lr.cbs_loan_account IN (
+			        SELECT cl.cbs_account_number FROM cbs_loans cl WHERE cl.cbs_customer_id = $1)
+			ORDER BY lr.financial_date DESC, lr.posted_at DESC`, cif)
+
+		var repaidKobo int64
+		for _, p := range repayments {
+			repaidKobo += toInt64(p["amount_kobo"])
+		}
+
 		respond(w, map[string]any{
+			// The id this file was opened with. On this deployment the loan book is
+			// Udara's, so it is a UDARA customer id, not a cards CIF — the two namespaces
+			// collide on the same 8-digit shape for different people. The key stays "cif"
+			// for existing callers; id_namespace is what the UI captions from.
 			"cif":                    cif,
+			"id_namespace":           "udara",
+			"schedule":               schedule,
+			"repayments":             repayments,
+			"total_repaid_kobo":      repaidKobo,
 			"customer_name":          custName,
 			"phone":                  phone,
 			"eye_score":              eyeScore,

@@ -141,7 +141,7 @@ export default function Interswitch() {
       )}
 
       {/* Channel breakdown bar chart */}
-      <SectionCard title="Channel Breakdown" subtitle="Volume by what the customer did — cash, purchase, transfer, bills, repayment, charges" style={{ marginBottom: 14 }}>
+      <SectionCard title="Channel Breakdown" subtitle="Volume by what the customer did. Cash, purchase, transfer, bills, repayment, charges" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[6], alignItems: 'center' }}>
           <EBar
             data={data.channel_breakdown}

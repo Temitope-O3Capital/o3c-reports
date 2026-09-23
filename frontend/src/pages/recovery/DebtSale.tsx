@@ -111,7 +111,7 @@ function CreateModal({ open, onClose, onDone }: {
         sale_price_kobo: salePrice ? Math.round(parseFloat(salePrice) * 100) : 0,
         notes: notes.trim(),
       })
-      toast.success('Debt sale submitted — pending approval')
+      toast.success('Debt sale submitted: pending approval')
       reset(); onDone()
     } catch (e: any) {
       setErr(e.message ?? 'Failed to record sale')
@@ -211,7 +211,7 @@ function makeCols(role: string, onApprove: (r: DebtSale) => void, onReject: (r: 
       render: r => (
         <ActionRow actions={[
           ...(canApprove(r) ? [
-            { icon: 'check_circle', label: r.required_role === FINAL_ROLE ? 'Approve & Post Debt Sale' : 'Approve — Send to Next Approver', onClick: () => onApprove(r), danger: true },
+            { icon: 'check_circle', label: r.required_role === FINAL_ROLE ? 'Approve & Post Debt Sale' : 'Approve: Send to Next Approver', onClick: () => onApprove(r), danger: true },
             { icon: 'cancel',       label: 'Reject Debt Sale', onClick: () => onReject(r) },
           ] : []),
           ...(canDelete(r) ? [
@@ -280,7 +280,7 @@ export default function DebtSales() {
     try {
       if (action.type === 'approve') {
         await apiPut(`/api/recovery/debt-sales/${action.sale.id}/approve`, {})
-        toast.success(action.sale.required_role === FINAL_ROLE ? 'Debt sale approved & posted' : 'Approved — sent to the next approver')
+        toast.success(action.sale.required_role === FINAL_ROLE ? 'Debt sale approved & posted' : 'Approved: sent to the next approver')
       } else {
         await apiPut(`/api/recovery/debt-sales/${action.sale.id}/reject`, { rejection_reason: rejectReason.trim() || 'Rejected on review' })
         toast.success('Debt sale rejected')
@@ -407,7 +407,7 @@ export default function DebtSales() {
               value={rejectReason}
               onChange={e => setRejectReason(e.target.value)}
               rows={3}
-              placeholder="Why is this debt sale being rejected? (optional — defaults to “Rejected on review”)"
+              placeholder="Why is this debt sale being rejected? (optional. Defaults to “Rejected on review”)"
               style={{ ...filterInputStyle, width: '100%', height: 'auto', padding: '8px 10px', resize: 'vertical', boxSizing: 'border-box' }}
             />
           </div>

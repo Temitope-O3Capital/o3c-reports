@@ -173,6 +173,14 @@ func main() {
 	// keyed on the GL entry, so the overlapping hourly windows never double-count.
 	go cbssync.StartRepaymentWorker(cbsClient, db)
 
+	// Collections queue — recompute outstanding/DPD on rows already being worked, and seed
+	// a row for any delinquent customer who has none. This was a head-gated button, and the
+	// credit activity log showed it had been pressed ZERO times ever, while 255 card
+	// assignments drifted N90,186,756.95 from their live balances. New rows are created
+	// UNASSIGNED, so distributing work to named agents is still a human decision — only the
+	// arithmetic is automated. Hourly; COLLECTIONS_QUEUE_WORKER=off disables it.
+	go handlers.StartCollectionsQueueWorker(db)
+
 	// Customer feed — ingest the 15-minute cust_file drops into app.customers. This is
 	// where new customers come from; Udara holds only the loan and FD books. Without
 	// it the customer master stays frozen at the mssql_baseline snapshot and every

@@ -155,7 +155,7 @@ export default function SurveyBuilder() {
             </div>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm, color: 'var(--txt)', cursor: 'pointer' }}>
               <input type="checkbox" checked={meta.is_anonymous} onChange={e => setMeta({ ...meta, is_anonymous: e.target.checked })} style={{ accentColor: RED, width: 15, height: 15 }} />
-              Anonymous — don't store the respondent's identity with their answers
+              Anonymous: don't store the respondent's identity with their answers
             </label>
           </div>
         </SectionCard>
@@ -165,7 +165,7 @@ export default function SurveyBuilder() {
           {locked && (
             <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: RADIUS.md, background: `${NAVY}0D`, border: `1px solid ${NAVY}22`, display: 'flex', alignItems: 'center', gap: 10, fontSize: TEXT.sm, color: 'var(--txt)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 18, color: NAVY }}>lock</span>
-              Questions are locked because this survey already has responses — changing them would corrupt the results. You can still edit the details above. To change questions, create a new survey.
+              Questions are locked because this survey already has responses. Changing them would corrupt the results. You can still edit the details above. To change questions, create a new survey.
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

@@ -373,10 +373,10 @@ export default function BlinkCard() {
 
       {/* The two axes */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-        <SectionCard title="Status" subtitle="Lifecycle — where the card is in its life">
+        <SectionCard title="Status" subtitle="Lifecycle: where the card is in its life">
           <BreakdownBars rows={statusRows} colors={CARD_STATE_COLORS} emptyText="No Status Data" />
         </SectionCard>
-        <SectionCard title="Activity" subtitle="Usage — how recently the card was spent on">
+        <SectionCard title="Activity" subtitle="Usage: how recently the card was spent on">
           <BreakdownBars rows={activityRows} colors={CARD_ACTIVITY_COLORS} hints={CARD_ACTIVITY_HINTS} emptyText="No Activity Data" />
         </SectionCard>
       </div>

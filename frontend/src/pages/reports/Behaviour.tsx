@@ -13,7 +13,7 @@ export default function BehaviourAnalytics() {
   return (
     <Page
       title="Customer Behaviour"
-      subtitle="Where the book spends, on what, how and where — windowed metrics count cards; the activity cohort is all-time"
+      subtitle="Where the book spends, on what, how and where. Windowed metrics count cards; the activity cohort is all-time"
       actions={
         <div style={{ display: 'flex', gap: 2, background: 'var(--chip-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: 3 }}>
           {WINDOWS.map(m => (

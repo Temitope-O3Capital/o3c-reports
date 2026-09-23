@@ -229,7 +229,7 @@ export default function CollectionsOverview() {
               ))
             })()}
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
-              PAR bands are cumulative — every PAR90 balance is also inside PAR60 and PAR30.
+              PAR bands are cumulative: every PAR90 balance is also inside PAR60 and PAR30.
             </div>
           </div>
         </SectionCard>

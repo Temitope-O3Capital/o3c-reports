@@ -243,7 +243,7 @@ export default function VintageAnalysis() {
                       <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
                         <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(row.cohort_count)}</span>
                         {row.cohort_count > 0 && row.cohort_count < 5 && (
-                          <span title="Small cohort — one loan moves the rate by 20%+ so these are noisy" style={{ marginLeft: 4, fontSize: 11, color: AMBER, fontWeight: FW.bold, cursor: 'help' }}>*</span>
+                          <span title="Small cohort: one loan moves the rate by 20%+ so these are noisy" style={{ marginLeft: 4, fontSize: 11, color: AMBER, fontWeight: FW.bold, cursor: 'help' }}>*</span>
                         )}
                       </td>
                       <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>

@@ -134,7 +134,7 @@ function SourceBadge({ source, product }: { source: string | null; product?: str
   if (uploaded) {
     label = product === 'loan' ? 'Uploaded Loan' : 'Manual Upload'
     color = AMBER; txt = DARKRED; icon = 'upload_file'
-    title = 'Uploaded from a spreadsheet — not from CCS or Udara'
+    title = 'Uploaded from a spreadsheet. Not from CCS or Udara'
   } else if (product === 'card') {
     label = 'CCS'; color = BLUE; txt = BLUE; icon = 'credit_card'
     title = 'From the CCS card system'

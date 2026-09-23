@@ -208,7 +208,7 @@ export default function Treasury() {
           <StatTile label="FD Book" value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)} color={AMBER} sub={`${fmtNum(data?.active_fds ?? 0)} active deposits`} />
           <StatTile label="Accrued FD Interest" value={fmtKoboExact(data?.fd_accrued_kobo ?? 0)} color={AMBER} sub="cost of funds owed · not income" />
           <StatTile
-            label="Past Due — Payable Now"
+            label="Past Due: Payable Now"
             value={fmtKoboExact(data?.past_due_kobo ?? 0)}
             color={(data?.past_due_fds ?? 0) > 0 ? RED : 'var(--txt)'}
             sub={`${fmtNum(data?.past_due_fds ?? 0)} deposit${(data?.past_due_fds ?? 0) === 1 ? '' : 's'} past maturity, still active`}

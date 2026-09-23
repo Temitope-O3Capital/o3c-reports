@@ -201,7 +201,7 @@ function SendGridSuppressions() {
   ]
 
   return (
-    <SectionCard title="SendGrid Suppressions" subtitle="Live from SendGrid — addresses it will not deliver to until removed" badge={shown.length} padding={false}>
+    <SectionCard title="SendGrid Suppressions" subtitle="Live from SendGrid: addresses it will not deliver to until removed" badge={shown.length} padding={false}>
       {/* Lookup */}
       <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderBottom: '1px solid var(--card-bdr)', flexWrap: 'wrap' }}>
         <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Check an Address:</span>
@@ -216,7 +216,7 @@ function SendGridSuppressions() {
           <div style={{ flexBasis: '100%', display: 'flex', gap: SP[2], flexWrap: 'wrap', alignItems: 'center', paddingTop: SP[1] }}>
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{lookupRes.email}:</span>
             {!lookupRes.suppressed
-              ? <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.bold }}>Clear — Not Suppressed</span>
+              ? <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.bold }}>Clear: Not Suppressed</span>
               : SG_TABS.filter(t => lookupRes.on[t.key]).map(t => (
                   <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, background: 'var(--chip-bg)', color: RED, borderRadius: RADIUS.sm, padding: '3px 10px', fontWeight: FW.bold }}>
                     {t.label}

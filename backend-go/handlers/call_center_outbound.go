@@ -64,7 +64,7 @@ func StartCallbackReminderWorker(db *core.DB) {
 			Notify(context.WithoutCancel(ctx), db, NotifPayload{
 				EventType: EvtCallbackDue,
 				UserID:    agentID,
-				Title:     fmt.Sprintf("%d call-back(s) due now", due),
+				Title:     fmt.Sprintf("%d Call-Back(s) Due Now", due),
 				Body:      fmt.Sprintf("%d of your scheduled call-backs are due. Open the queue to return them.", due),
 				ActionURL: "/call-center/queue?bucket=ready",
 				EntityRef: "callback:due",
@@ -1017,7 +1017,7 @@ func ccAddDNC(db *core.DB) http.HandlerFunc {
 		// entry that silently suppresses nothing while looking like an opt-out.
 		np := normalizePhone(b.Phone)
 		if len(np) != 10 {
-			respondErr(w, 422, "That is not a number we can suppress — 10 digits are required")
+			respondErr(w, 422, "That is not a number we can suppress. It needs 10 digits.")
 			return
 		}
 		rows, err := db.PGQuery(r.Context(),
@@ -1181,7 +1181,7 @@ func ccAssignBatch(db *core.DB) http.HandlerFunc {
 			go Notify(context.WithoutCancel(r.Context()), db, NotifPayload{
 				EventType: "queue_contacts_assigned",
 				UserID:    b.AgentID,
-				Title:     fmt.Sprintf("%d contacts assigned to you", len(res)),
+				Title:     fmt.Sprintf("%d Contacts Assigned to You", len(res)),
 				Body:      "New contacts are waiting in your outbound queue.",
 				ActionURL: "/call-center/queue?bucket=mine",
 				EntityRef: "queue:assigned",
@@ -1273,7 +1273,7 @@ func ccDistributeQueue(db *core.DB) http.HandlerFunc {
 			go Notify(context.WithoutCancel(ctx), db, NotifPayload{
 				EventType: "queue_contacts_assigned",
 				UserID:    agentID,
-				Title:     fmt.Sprintf("%d contacts assigned to you", cnt),
+				Title:     fmt.Sprintf("%d Contacts Assigned to You", cnt),
 				Body:      "New contacts are waiting in your outbound queue.",
 				ActionURL: "/call-center/queue?bucket=mine",
 				EntityRef: "queue:assigned",
@@ -1328,7 +1328,7 @@ func ccBulkAssign(db *core.DB) http.HandlerFunc {
 			go Notify(context.WithoutCancel(r.Context()), db, NotifPayload{
 				EventType: "leads_assigned",
 				UserID:    b.AgentID,
-				Title:     fmt.Sprintf("%d lead(s) assigned to you", len(rows)),
+				Title:     fmt.Sprintf("%d Lead(s) Assigned to You", len(rows)),
 				Body:      "New leads are waiting in your list.",
 				ActionURL: "/call-center/leads",
 				EntityRef: "leads:assigned",
@@ -1498,7 +1498,7 @@ func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
 			go Notify(context.WithoutCancel(r.Context()), db, NotifPayload{
 				EventType: "leads_assigned",
 				UserID:    b.AgentID,
-				Title:     fmt.Sprintf("%d lead(s) assigned to you", len(res)),
+				Title:     fmt.Sprintf("%d Lead(s) Assigned to You", len(res)),
 				Body:      "New leads are waiting in your list.",
 				ActionURL: "/call-center/leads",
 				EntityRef: "leads:assigned",
@@ -1665,7 +1665,7 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 			go Notify(context.WithoutCancel(ctx), db, NotifPayload{
 				EventType: "leads_assigned",
 				UserID:    agentID,
-				Title:     fmt.Sprintf("%d lead(s) assigned to you", cnt),
+				Title:     fmt.Sprintf("%d Lead(s) Assigned to You", cnt),
 				Body:      "New leads are waiting in your list.",
 				ActionURL: "/call-center/leads",
 				EntityRef: "leads:assigned",
@@ -2272,7 +2272,7 @@ func ccAddCallback(db *core.DB) http.HandlerFunc {
 		// so it was a way to put a listed number in front of an agent.
 		np := normalizePhone(phone)
 		if len(np) != 10 {
-			respondErr(w, 422, "That is not a number we can call — 10 digits are required")
+			respondErr(w, 422, "That is not a number we can call. It needs 10 digits.")
 			return
 		}
 		if listed, _ := db.PGQuery(r.Context(),
@@ -3655,8 +3655,8 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 	// of this function.
 	go NotifyRoles(context.WithoutCancel(ctx), db, []string{"sales_head"}, NotifPayload{
 		EventType: "cc_lead_forwarded",
-		Title:     "Lead forwarded from the call centre",
-		Body:      "A call-centre call qualified a lead. Open the hand-off tracker to assign it.",
+		Title:     "Lead Forwarded From the Call Centre",
+		Body:      "A call-centre agent qualified a lead. Assign it in the hand-off tracker.",
 		ActionURL: "/call-center/forwards",
 		EntityRef: fmt.Sprintf("cc_forward:lead:%d", leadID),
 		GroupKey:  "cc:forwarded",

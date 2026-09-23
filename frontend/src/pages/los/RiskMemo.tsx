@@ -224,7 +224,7 @@ export function deriveMemo(app: AppLike, eye: EyeDecisionDetail | null): MemoFac
   const incomeKobo = phxIncome ?? stSalary ?? declaredIncomeKobo
   const incomeFromPhoenix = phxIncome !== null
   const incomeSource = phxIncome !== null
-    ? (stSalary !== null && Math.abs(stSalary - phxIncome) < 100 ? 'used by Phoenix — the salary it predicted from the statement' : 'used by Phoenix')
+    ? (stSalary !== null && Math.abs(stSalary - phxIncome) < 100 ? 'used by Phoenix: the salary it predicted from the statement' : 'used by Phoenix')
     : stSalary !== null ? 'predicted from the statement' : declaredIncomeKobo !== null ? 'declared by the applicant' : ''
 
   // Existing obligations — Phoenix's DTI numerator is the loan repayments it found in
@@ -304,7 +304,7 @@ export function deriveMemo(app: AppLike, eye: EyeDecisionDetail | null): MemoFac
   }
   const auth = num(S.auth_risk_score)
   if (auth !== null && auth >= 0.5) {
-    flags.push({ tone: 'stop', text: `Statement tamper risk ${pct(auth)} — confirm the document is genuine before relying on it.` })
+    flags.push({ tone: 'stop', text: `Statement tamper risk ${pct(auth)}. Confirm the document is genuine before relying on it.` })
   }
   if (str(S.parser_method) === 'failed') {
     flags.push({
@@ -327,7 +327,7 @@ export function deriveMemo(app: AppLike, eye: EyeDecisionDetail | null): MemoFac
     flags.push({
       tone: 'warn',
       text: identityStatus === 'not_enabled'
-        ? 'Identity not verified — no identity provider is enabled in Phoenix.'
+        ? 'Identity not verified: no identity provider is enabled in Phoenix.'
         : sentence(`Identity check: ${humanise(identityStatus)}`),
     })
   }
@@ -424,7 +424,7 @@ const OUTCOME: Record<string, { label: string; tone: 'red' | 'green' | 'amber' }
   DECLINE: { label: 'decline', tone: 'red' },
   REFER: { label: 'refer to a person', tone: 'amber' },
   REQUEST_MORE_INFORMATION: { label: 'ask for more information', tone: 'amber' },
-  ERROR: { label: 'no decision — the engine errored', tone: 'amber' },
+  ERROR: { label: 'no decision: the engine errored', tone: 'amber' },
 }
 const TONE_VAR = { red: 'var(--sd-red)', green: 'var(--sd-green)', amber: 'var(--sd-amber)' }
 
@@ -494,7 +494,7 @@ export function AffordabilityPanel({ facts }: { facts: MemoFacts }) {
     note: facts.incomeSource || 'not recorded',
   })
   if (facts.declaredIncomeKobo !== null && facts.incomeKobo !== null && Math.abs(facts.declaredIncomeKobo - facts.incomeKobo) >= 100) {
-    rows.push({ k: 'Declared Income', v: fmtKobo(facts.declaredIncomeKobo), note: 'what the applicant told us — not the figure Phoenix used' })
+    rows.push({ k: 'Declared Income', v: fmtKobo(facts.declaredIncomeKobo), note: 'what the applicant told us. Not the figure Phoenix used' })
   }
   if (facts.obligationsKobo !== null) {
     rows.push({
@@ -515,7 +515,7 @@ export function AffordabilityPanel({ facts }: { facts: MemoFacts }) {
     total: true,
     color: dti === null ? undefined : dti > 50 ? 'var(--sd-red)' : dti > 33 ? 'var(--sd-amber)' : undefined,
     note: facts.dtiExplained
-      ? 'existing repayments ÷ income — this matches Phoenix’s figure'
+      ? 'existing repayments ÷ income. This matches Phoenix’s figure'
       : facts.dtiSource ? `from the ${facts.dtiSource}` : 'not assessed',
   })
   rows.push({
@@ -527,7 +527,7 @@ export function AffordabilityPanel({ facts }: { facts: MemoFacts }) {
     rows.push({
       k: 'Phoenix Would Lend Up To',
       v: fmtKobo(facts.maxLendKobo),
-      note: facts.maxLendKobo === 0 && facts.hardGate ? 'nothing — the hard gate applies' : 'the affordability ceiling from the scorecard',
+      note: facts.maxLendKobo === 0 && facts.hardGate ? 'nothing: the hard gate applies' : 'the affordability ceiling from the scorecard',
     })
   }
   return (
@@ -609,7 +609,7 @@ export function StatementPanel({ facts }: { facts: MemoFacts }) {
   const ratio = (k: string) => { const v = num(S[k]); return v === null ? null : pct(v) }
   const conf = num(S.confidence)
   const readBy = failed
-    ? (viaPericulum ? 'Periculum — Phoenix’s parser failed' : 'nothing — the parser failed')
+    ? (viaPericulum ? 'Periculum: Phoenix’s parser failed' : 'nothing: the parser failed')
     : `Phoenix parser${str(S.parser_method) ? ` (${humanise(str(S.parser_method))}` : ' ('}${conf !== null ? `, ${pct(conf)} confidence)` : ')'}`
   const salaryCount = num(S.salary_payment_count)
   const period = str(S.period_start) && str(S.period_end) ? `${str(S.period_start)} to ${str(S.period_end)}` : undefined

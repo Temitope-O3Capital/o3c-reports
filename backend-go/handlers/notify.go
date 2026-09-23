@@ -274,7 +274,7 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	// ── SMS ────────────────────────────────────────────────────────────────────
 	if channelOn("sms") {
 		if phone := str(u["phone"]); phone != "" {
-			msg := fmt.Sprintf("O3 Capital: %s — %s", p.Title, p.Body)
+			msg := fmt.Sprintf("O3 Capital: %s. %s", p.Title, p.Body)
 			if len(msg) > 160 {
 				msg = msg[:157] + "..."
 			}
@@ -408,43 +408,4 @@ func activeAgentIDs(ctx context.Context, db *core.DB, role string) []int64 {
 		}
 	}
 	return out
-}
-
-func buildNotifEmail(title, body, actionURL, logoURL string) string {
-	appURL := workspaceURL() // APP_BASE_URL → https://crm.o3cards.pri:8443
-	prefsURL := appURL + "/settings/notifications"
-
-	logoTag := ""
-	if logoURL != "" {
-		logoTag = fmt.Sprintf(
-			`<img src="%s" alt="O3 Capital" height="32" style="display:block;margin-bottom:12px" />`,
-			logoURL)
-	}
-
-	btn := ""
-	if actionURL != "" {
-		btn = fmt.Sprintf(
-			`<a href="%s%s" style="display:inline-block;background:#0E2841;color:white;`+
-				`padding:10px 20px;border-radius:6px;text-decoration:none;`+
-				`font-size:13px;font-weight:600;margin-top:16px">View Details →</a>`,
-			appURL, actionURL)
-	}
-	return fmt.Sprintf(`
-<div style="font-family:DM Sans,sans-serif;max-width:560px;margin:0 auto;padding:24px">
-  <div style="background:#0E2841;color:white;padding:16px 24px;border-radius:8px 8px 0 0">
-    %s
-    <h2 style="margin:0;font-size:16px;font-weight:600">%s</h2>
-  </div>
-  <div style="background:#F4F6F8;padding:20px 24px;border-radius:0 0 8px 8px">
-    <p style="margin:0;color:#334155;font-size:14px;line-height:1.6">%s</p>
-    %s
-    <hr style="border:none;border-top:1px solid #E2E8F0;margin:24px 0 16px" />
-    <p style="margin:0;font-size:11px;color:#94A3B8;line-height:1.6">
-      This notification was sent by O3 Capital.<br/>
-      <a href="%s" style="color:#0E2841;text-decoration:underline">Manage notification preferences</a>
-      &nbsp;&middot;&nbsp;
-      You received this because you are a staff member of O3 Capital.
-    </p>
-  </div>
-</div>`, logoTag, title, body, btn, prefsURL)
 }

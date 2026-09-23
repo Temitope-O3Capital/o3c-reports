@@ -97,6 +97,13 @@ type facility struct {
 	Branch         string `json:"branch_name"`
 	AlsoInUdara    bool   `json:"also_in_udara"` // uploaded mirror of a core-banking loan
 
+	// Restructure lineage (migration 277). A facility is not new money just because it is
+	// a new account number: Udara books a restructure as the previous account's suffix + 1.
+	IsRestructure  bool   `json:"is_restructure"`          // this facility continues an earlier one
+	RestructuredFr string `json:"restructured_from"`       // the account it continues
+	RestructuredFrK int64 `json:"restructured_from_kobo"`  // what that facility was originally
+	WasRestructured bool  `json:"was_restructured_into"`   // this one was replaced by a later facility
+
 	ScheduledK   int64      `json:"scheduled_kobo"` // total of the schedule
 	ExpectedK    int64      `json:"expected_kobo"`  // scheduled and already due
 	PaidK        int64      `json:"paid_kobo"`      // matched against the schedule
@@ -396,8 +403,18 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			       COALESCE(cl.collateral_type,'')          AS collateral_type,
 			       COALESCE(cl.collateral_valuation_kobo,0) AS collateral_valuation_kobo,
 			       COALESCE(cl.economic_sector,'')          AS economic_sector,
-			       COALESCE(cl.branch_name,'')              AS branch_name
+			       COALESCE(cl.branch_name,'')              AS branch_name,
+			       -- Restructure lineage (migration 277). On a collections call this is the
+			       -- difference between "you took a second loan" and "this is the same debt,
+			       -- restructured" — and the borrower already knows which. Getting it wrong
+			       -- on the phone costs the agent the conversation.
+			       (r.successor_account IS NOT NULL)        AS is_restructure,
+			       COALESCE(r.prior_account,'')             AS restructured_from,
+			       COALESCE(r.prior_amount_kobo,0)          AS restructured_from_kobo,
+			       (EXISTS (SELECT 1 FROM app.loan_restructure_links x
+			                 WHERE x.prior_account = cl.cbs_account_number)) AS was_restructured_into
 			  FROM cbs_loans cl
+			  LEFT JOIN app.loan_restructure_links r ON r.successor_account = cl.cbs_account_number
 			 -- Udara customer ids live in their OWN namespace and COLLIDE with card CIFs
 			 -- (Udara 00000424 is FINTRAK; card CIF 00000424 is Adetunji Taiwo). They must
 			 -- be resolved through the curated party crosswalk, never by matching
@@ -432,6 +449,10 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				CollateralK:    toInt64(l["collateral_valuation_kobo"]),
 				Sector:         str(l["economic_sector"]),
 				Branch:         str(l["branch_name"]),
+				IsRestructure:   toBool(l["is_restructure"]),
+				RestructuredFr:  str(l["restructured_from"]),
+				RestructuredFrK: toInt64(l["restructured_from_kobo"]),
+				WasRestructured: toBool(l["was_restructured_into"]),
 			}
 			f.Schedule, f.ScheduleNote = udaraSchedule(ctx, db, acct)
 			rollUpFacility(&f)

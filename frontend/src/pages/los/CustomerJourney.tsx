@@ -279,7 +279,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         <span className="sd-panel-hint">
           {phoenixStage
             ? <>Phoenix stage: <b style={{ color: "var(--txt)" }}>{phoenixStage.replace(/_/g, " ").toLowerCase()}</b></>
-            : "Phoenix owns these steps — taken here, recorded there"}
+            : "Phoenix owns these steps: taken here, recorded there"}
         </span>
       </div>
       <div className="sd-panel-body">
@@ -290,9 +290,9 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
           title="Consent (NDPA)"
           sub={consentDone === true
             ? <>Phoenix has NDPA consent on file{consent?.readable && consent.at ? <> since <b>{fmtDay(consent.at)}</b></> : null}.
-                {!consent?.readable ? ' This is inferred from its stage — the consent ledger could not be read.' : null}</>
+                {!consent?.readable ? ' This is inferred from its stage. The consent ledger could not be read.' : null}</>
             : consentDone === false
-              ? 'Phoenix has no NDPA consent for this applicant. It will not run a bureau check against them without it — capture it when the customer gives it.'
+              ? 'Phoenix has no NDPA consent for this applicant. It will not run a bureau check against them without it. Capture it when the customer gives it.'
               : `Consent could not be confirmed${consent?.note ? ` — ${consent.note}` : ''}.`}
           status={
             consentDone === true ? <Pill text="On File" tone="good" />

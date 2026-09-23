@@ -107,13 +107,13 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
     }
     if (isDocument) {
       if (file) {
-        if (file.size > MAX_MB * 1024 * 1024) return `That file is ${(file.size / 1024 / 1024).toFixed(1)}MB — the limit is ${MAX_MB}MB.`
+        if (file.size > MAX_MB * 1024 * 1024) return `That file is ${(file.size / 1024 / 1024).toFixed(1)}MB. The limit is ${MAX_MB}MB.`
         if (!OK_EXT.test(file.name)) return 'Attach a PDF, image, Office document or CSV.'
       }
       return null
     }
     if (isTask) {
-      if (!subject.trim()) return 'Give the follow-up a title — it is what you will see in your queue.'
+      if (!subject.trim()) return 'Give the follow-up a title. It is what you will see in your queue.'
       if (!dueDate)        return 'A follow-up needs a date, or it is just a note.'
       return null
     }
@@ -131,7 +131,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
       const res = await apiPost<{ id: number; notified?: number }>('/api/activities', {
         ...anchor,
         type,
-        subject: isDocument ? `Document collected — ${docType}` : subject.trim(),
+        subject: isDocument ? `Document collected: ${docType}` : subject.trim(),
         body: body.trim(),
         target_team: isHandoff ? targetTeam : undefined,
         // A follow-up is a real task: due by close of business on the day chosen, so it
@@ -142,8 +142,8 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
       if (isHandoff) {
         const team = TEAMS.find(t => t.v === targetTeam)?.label ?? targetTeam
         const n = res?.notified ?? 0
-        if (n > 0) toast.success(`Handed to ${team} — ${n} ${n === 1 ? 'person' : 'people'} notified`)
-        else toast.warning(`Handed to ${team}, but nobody on that team is set up to be notified — it is waiting in their hand-off inbox`)
+        if (n > 0) toast.success(`Handed to ${team}: ${n} ${n === 1 ? 'person' : 'people'} notified`)
+        else toast.warning(`Handed to ${team}, but nobody on that team is set up to be notified. It is waiting in their hand-off inbox`)
       } else if (isTask) {
         toast.success(`Follow-up set for ${fmtDate(dueDate)}`)
       } else {
@@ -210,7 +210,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
     <Modal
       open={open}
       onClose={onClose}
-      title={about ? `Log an Activity — ${about}` : 'Log an Activity'}
+      title={about ? `Log an Activity: ${about}` : 'Log an Activity'}
       width={520}
       footer={
         <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -257,7 +257,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
               {TEAMS.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
             </select>
             <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>
-              Going to Sales? Use Forward to Sales on the lead instead — it carries the approval.
+              Going to Sales? Use Forward to Sales on the lead instead. It carries the approval.
             </div>
           </div>
         )}
@@ -277,7 +277,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
             <input
               id="la-subject" ref={firstFieldRef} value={subject} onChange={e => setSubject(e.target.value)}
               placeholder={
-                isHandoff ? 'e.g. Credit card application — documents attached'
+                isHandoff ? 'e.g. Credit card application. Documents attached'
                 : isTask  ? 'e.g. Call back after payday to confirm the limit'
                 : 'Short summary'
               }
@@ -310,7 +310,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
 
         {isDocument && (
           <div>
-            <label style={label} htmlFor="la-file">File (Optional — Attach The Document)</label>
+            <label style={label} htmlFor="la-file">File (Optional: Attach The Document)</label>
             <input id="la-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.doc,.docx,.xls,.xlsx,.csv,.txt"
               onChange={e => { setFile(e.target.files?.[0] ?? null); setErr(null) }}
               style={{ ...field, padding: '7px 10px' }} />

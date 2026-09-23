@@ -175,7 +175,7 @@ export default function CardsOverview() {
       {balanceRows.length > 0 && (
         <SectionCard
           title="Balances on the Book"
-          subtitle="What customers owe O3, and customer money O3 is holding — kept apart, and per currency"
+          subtitle="What customers owe O3, and customer money O3 is holding. Kept apart, and per currency"
           style={{ marginBottom: SP[5] }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>

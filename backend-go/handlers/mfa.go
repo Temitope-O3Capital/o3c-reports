@@ -122,7 +122,7 @@ func mfaVerify(db *core.DB) http.HandlerFunc {
 		}
 
 		if !totpVerify(secret, b.Code) {
-			respondErr(w, 400, "Invalid code — check your authenticator app and try again")
+			respondErr(w, 400, "That code is wrong. Check your authenticator app and try again.")
 			return
 		}
 
@@ -201,7 +201,7 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 
 		mfaClaims, err := core.VerifyMFATokenClaims(b.MFAToken)
 		if err != nil {
-			respondErr(w, 401, "MFA session expired — please log in again")
+			respondErr(w, 401, "Your MFA session has expired. Sign in again.")
 			return
 		}
 		userID := mfaClaims.ID

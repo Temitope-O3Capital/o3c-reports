@@ -77,9 +77,9 @@ const PURPOSE_COPY: Record<string, {
 }> = {
   '':          { label: 'Support / Service', accent: BLUE,  notesLabel: 'Customer Complaint / Summary', notesPh: 'What the customer called about…', resLabel: 'Agent Response / Resolution', resPh: 'What you did / how it was resolved…' },
   support:     { label: 'Support / Service', accent: BLUE,  notesLabel: 'Customer Complaint / Summary', notesPh: 'What the customer called about…', resLabel: 'Agent Response / Resolution', resPh: 'What you did / how it was resolved…' },
-  marketing:   { label: 'Marketing / Leads', accent: AMBER, notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step — send info, follow up, book a callback…' },
-  sales:       { label: 'Outbound Sales',    accent: NAVY,  notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step — send info, follow up, book a callback…' },
-  collections: { label: 'Collections',       accent: RED,   notesLabel: 'Account Discussion / Reason Unpaid', notesPh: 'The customer’s situation · reason for non-payment…', resLabel: 'Outcome & Agreement', resPh: 'What was agreed — amount, date, dispute raised…' },
+  marketing:   { label: 'Marketing / Leads', accent: AMBER, notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step: send info, follow up, book a callback…' },
+  sales:       { label: 'Outbound Sales',    accent: NAVY,  notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step: send info, follow up, book a callback…' },
+  collections: { label: 'Collections',       accent: RED,   notesLabel: 'Account Discussion / Reason Unpaid', notesPh: 'The customer’s situation · reason for non-payment…', resLabel: 'Outcome & Agreement', resPh: 'What was agreed: amount, date, dispute raised…' },
 }
 export function purposeCopy(purpose: string) { return PURPOSE_COPY[purpose] ?? PURPOSE_COPY[''] }
 
@@ -93,7 +93,7 @@ const DISPOSITION_COPY: Record<string, DispCopy> = {
   'Interested':              { notesLabel: 'What Interested Them',        notesPh: 'Product/offer they liked · what they asked about…', resLabel: 'Next Step',              resPh: 'Send details, book a demo, follow up on…' },
   'Not Ready Yet':           { notesLabel: 'Why Not Now',                  notesPh: 'Their timing · what’s holding them back…',          resLabel: 'What to Revisit',        resPh: 'What to raise when you circle back…' },
   'Not Interested':          { notesLabel: 'Objection / Reason',          notesPh: 'Why they declined · the main objection…',           resLabel: '', resPh: '', hideRes: true },
-  'Not Eligible':            { notesLabel: 'Why Not Eligible',            notesPh: 'Which criterion — age, employer, exposure…',        resLabel: '', resPh: '', hideRes: true },
+  'Not Eligible':            { notesLabel: 'Why Not Eligible',            notesPh: 'Which criterion: age, employer, exposure…',        resLabel: '', resPh: '', hideRes: true },
   'Converted':               { notesLabel: 'What Won Them Over',          notesPh: 'Product taken · what closed it…',                   resLabel: 'Next / Onboarding Step', resPh: 'What happens next to onboard them…' },
   'Callback Scheduled':      { notesLabel: 'What Was Discussed',          notesPh: 'Where the conversation got to…',                    resLabel: 'To Cover on the Callback', resPh: 'What to pick up when you call back…' },
   'Promise to Pay':          { notesLabel: 'Reason Unpaid / Situation',   notesPh: 'The customer’s situation · why it lapsed…',         resLabel: 'Agreement',              resPh: 'What was agreed beyond the amount & date…' },
@@ -457,7 +457,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
     // The disposition drives the whole queue state machine — what happens to this
     // customer next is decided by it — so it is required, not merely offered.
     if (!form.disposition) {
-      toast.error('Pick the disposition — it decides what happens to this customer next'); return
+      toast.error('Pick the disposition: it decides what happens to this customer next'); return
     }
     if (createTicket && !form.ticket_type) {
       toast.error('Pick a ticket type to open a linked ticket'); return
@@ -482,7 +482,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
       if (createTicket && !ticketRef) {
         const tRes = await apiPost<{ ticket?: { ticket_ref?: string } }>('/api/helpdesk/tickets', {
           channel:        'phone',
-          subject:        `${form.ticket_type} — ${form.customer_name || form.phone || 'caller'}`,
+          subject:        `${form.ticket_type}: ${form.customer_name || form.phone || 'caller'}`,
           ticket_type:    form.ticket_type,
           priority:       dispositionPriority(form.disposition),
           customer_name:  form.customer_name || undefined,
@@ -560,7 +560,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         : 'Call logged')
       // A date the agent chose must never just vanish.
       if (wantsCallback && !callbackScheduled) {
-        toast.warning('The call-back time was not scheduled — add a phone number and log it again')
+        toast.warning('The call-back time was not scheduled. Add a phone number and log it again')
       }
       resetAndClose()
       // Hand the disposition back so a caller can react to it — e.g. the Leads page

@@ -107,9 +107,27 @@ func cbsLoanBook(db *core.DB) http.HandlerFunc {
 			       (r.successor_account IS NOT NULL) AS is_restructure,
 			       r.prior_account,
 			       r.prior_amount_kobo,
-			       COALESCE(r.new_lending_kobo, cl.loan_amount_kobo) AS new_lending_kobo
+			       COALESCE(r.new_lending_kobo, cl.loan_amount_kobo) AS new_lending_kobo,
+			       -- What has actually been PAID on this loan, from the GL call-over
+			       -- ledger. Every other reader of app.loan_repayments joins on
+			       -- application_id or loan_id, and a Udara loan has neither — so these
+			       -- postings were captured and displayed nowhere at all. The link the
+			       -- capture really writes is cbs_loan_account, so that is what is used.
+			       COALESCE(rp.principal_kobo, 0) AS repaid_principal_kobo,
+			       COALESCE(rp.interest_kobo, 0)  AS repaid_interest_kobo,
+			       COALESCE(rp.legs, 0)           AS repayment_legs,
+			       rp.last_repaid_on
 			FROM cbs_loans cl
 			LEFT JOIN app.loan_restructure_links r ON r.successor_account = cl.cbs_account_number
+			LEFT JOIN LATERAL (
+			    SELECT SUM(lr.principal_kobo) AS principal_kobo,
+			           SUM(lr.interest_kobo)  AS interest_kobo,
+			           COUNT(*)               AS legs,
+			           MAX(lr.financial_date) AS last_repaid_on
+			    FROM app.loan_repayments lr
+			    WHERE lr.cbs_loan_account = cl.cbs_account_number
+			      AND lr.ledger_key IS NOT NULL
+			) rp ON TRUE
 			ORDER BY cl.outstanding_principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
@@ -277,25 +295,76 @@ func cbsCustomerDetail(db *core.DB) http.HandlerFunc {
 			SELECT 'CUST-' || LPAD(p.party_id::text, 6, '0') AS cust_id, p.party_id,
 			       p.full_name AS party_name, p.party_type,
 			       p.primary_phone, p.primary_email, p.bvn AS party_bvn,
-			       COALESCE(p.card_count, 0)::bigint AS card_count
+			       -- app.parties.card_count is NOT a count of cards. assign_parties() sets
+			       -- it to the number of app.customers ROWS in the party, so a borrower
+			       -- with one customer record and no card at all reads "Cards Held 1" —
+			       -- which is what PAUBEE GLOBAL VENTURE showed while Collections
+			       -- correctly said they hold none. 1,409 parties disagree with their real
+			       -- card count this way. Counted here from app.accounts, which is the
+			       -- actual card book, and the customer-record count is returned
+			       -- separately under its own honest name.
+			       COALESCE(p.card_count, 0)::bigint AS customer_record_count,
+			       (SELECT COUNT(*) FROM app.accounts a
+			          JOIN app.customers c ON c.cif = a.cif
+			         WHERE c.party_id = p.party_id)::bigint AS card_count
 			FROM app.cbs_links l
 			JOIN app.parties p ON p.party_id = l.entity_id AND l.entity_type = 'party'
 			WHERE l.cbs_customer_id = $1
 			LIMIT 1`, cif))
+		// Lineage is carried on the per-customer lists too: this modal is where someone
+		// looks at one borrower's facilities, and it is exactly where "why does this
+		// customer have two loans?" gets asked. Migrations 276/277.
 		loans := queryRows(ctx, db, `
-			SELECT cbs_account_number, product_name, status, outstanding_principal_kobo,
-			       loan_amount_kobo, maturity_date, officer_name
-			FROM cbs_loans WHERE cbs_customer_id = $1 ORDER BY outstanding_principal_kobo DESC`, cif)
+			SELECT cl.cbs_account_number, cl.product_name, cl.status, cl.outstanding_principal_kobo,
+			       cl.loan_amount_kobo, cl.maturity_date, cl.officer_name,
+			       (r.successor_account IS NOT NULL) AS is_restructure,
+			       r.prior_account, r.prior_amount_kobo, r.new_lending_kobo,
+			       (EXISTS (SELECT 1 FROM app.loan_restructure_links x
+			                 WHERE x.prior_account = cl.cbs_account_number)) AS was_restructured_into
+			FROM cbs_loans cl
+			LEFT JOIN app.loan_restructure_links r ON r.successor_account = cl.cbs_account_number
+			WHERE cl.cbs_customer_id = $1 ORDER BY cl.outstanding_principal_kobo DESC`, cif)
 		fds := queryRows(ctx, db, `
-			SELECT cbs_account_number, product_name, status, principal_kobo,
-			       accrued_interest_kobo, maturity_date, officer_name
-			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1 ORDER BY principal_kobo DESC`, cif)
+			SELECT cf.cbs_account_number, cf.product_name, cf.status, cf.principal_kobo,
+			       cf.accrued_interest_kobo, cf.maturity_date, cf.officer_name,
+			       (l.successor_account IS NOT NULL) AS is_rollover,
+			       l.prior_account, l.prior_matures,
+			       (EXISTS (SELECT 1 FROM app.fd_rollover_links x
+			                 WHERE x.prior_account = cf.cbs_account_number)) AS was_rolled_into,
+			       (SELECT a.reason FROM app.fd_rollover_ambiguous a
+			         WHERE a.successor_account = cf.cbs_account_number
+			            OR a.prior_account     = cf.cbs_account_number
+			         LIMIT 1) AS lineage_ambiguous_reason
+			FROM cbs_fixed_deposits cf
+			LEFT JOIN app.fd_rollover_links l ON l.successor_account = cf.cbs_account_number
+			WHERE cf.cbs_customer_id = $1 ORDER BY cf.principal_kobo DESC`, cif)
+		// What this borrower has actually PAID, from the GL call-over ledger
+		// (cbssync/repayments.go). These rows carry no application_id and no loan_id —
+		// a Udara loan is not a workspace loan application — so every existing reader of
+		// app.loan_repayments, which joins on one or the other, silently drops them. The
+		// money was being captured and shown nowhere: 41 legs, N645,900,821.65 across 16
+		// borrowers, including N268,720,000 from FOLTI TECHNOLOGIES.
+		//
+		// Joined through cbs_loan_account -> cbs_loans, which is the link the capture
+		// actually writes, and scoped to this customer's own loans.
+		repayments := queryRows(ctx, db, `
+			SELECT lr.financial_date, lr.posted_at, lr.cbs_loan_account,
+			       lr.entry_code, lr.component,
+			       lr.amount_kobo, lr.principal_kobo, lr.interest_kobo,
+			       lr.posting_reference,
+			       cl.product_name
+			FROM app.loan_repayments lr
+			JOIN cbs_loans cl ON cl.cbs_account_number = lr.cbs_loan_account
+			WHERE cl.cbs_customer_id = $1 AND lr.ledger_key IS NOT NULL
+			ORDER BY lr.financial_date DESC, lr.posted_at DESC`, cif)
+
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
 			"cbs":            cbs,
 			"workspace":      ws,
 			"in_workspace":   len(ws) > 0,
 			"loans":          loans,
 			"fixed_deposits": fds,
+			"repayments":     repayments,
 		})
 	}
 }

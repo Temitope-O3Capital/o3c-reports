@@ -40,6 +40,7 @@ interface CustomerDetail {
   in_workspace: boolean
   loans: Money[]
   fixed_deposits: Money[]
+  repayments: Money[]
 }
 interface SyncStatus {
   last_run?: { status?: string; kind?: string; finished_at?: string; loans?: number; fds?: number; products?: number; error?: string }
@@ -217,10 +218,20 @@ function LoanTab({ data, loading, onOpen }: { data: LoanBook | null; loading: bo
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'outstanding_principal_kobo', label: 'Outstanding', align: 'right', render: r => fmtKobo(r.outstanding_principal_kobo) },
     { key: 'loan_amount_kobo', label: 'Disbursed', align: 'right', render: r => fmtKobo(r.loan_amount_kobo) },
+    // What the borrower has actually paid, from the Udara general ledger. Everything
+    // else on this row is the loan's own snapshot; this is the only observed fact.
+    { key: 'repaid_principal_kobo', label: 'Repaid', align: 'right', render: r =>
+        n(r.repayment_legs) > 0
+          ? <span title={`${n(r.repayment_legs)} ledger posting(s)${r.last_repaid_on ? `, last ${fmtDate(r.last_repaid_on)}` : ''}${n(r.repaid_interest_kobo) > 0 ? ` · interest ${fmtKobo(r.repaid_interest_kobo)}` : ''}`}
+                  style={{ color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.repaid_principal_kobo)}</span>
+          : <span style={{ color: TXT3 }}>—</span> },
     { key: 'interest_rate', label: 'Rate', align: 'right', render: r => fmtPct(r.interest_rate, 1) },
     { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.start_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
     { key: 'officer_name', label: 'Officer' },
+    { key: 'is_restructure', label: 'Lineage', render: r => r.is_restructure
+        ? <LineageTag kind="restructure" prior={r.prior_account} priorAmount={r.prior_amount_kobo} />
+        : <span style={{ color: TXT3 }}>—</span> },
   ]
   return (
     <>
@@ -261,6 +272,19 @@ function FDTab({ data, loading, onOpen }: { data: FDBook | null; loading: boolea
     { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.commencement_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
     { key: 'officer_name', label: 'Officer', render: r => (r.officer_name || '').trim() || '—' },
+    { key: 'is_rollover', label: 'Lineage', render: r => r.is_rollover
+        ? <LineageTag kind="rollover" prior={r.prior_account} />
+        : r.lineage_ambiguous_reason
+          // The chain could not be drawn — one deposit split into several, or several
+          // merged into one. Shown rather than left blank, because a blank here reads as
+          // "fresh money" and this is the one case where we know it might not be.
+          ? <span
+              title={`Rollover chain unclear: ${r.lineage_ambiguous_reason}. This deposit is not counted as a rollover, so some of it may be money that was already on the book.`}
+              style={{ background: AMBER + '18', color: AMBER, padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: FW.semibold, whiteSpace: 'nowrap' }}
+            >
+              Chain Unclear
+            </span>
+          : <span style={{ color: TXT3 }}>—</span> },
   ]
   return (
     <>
@@ -368,7 +392,7 @@ function CustomerModal({ udaraId, onClose }: { udaraId: string | null; onClose: 
             {c.customer_type && <Badge variant="default">{c.customer_type}</Badge>}
             {data.in_workspace
               ? <Badge variant="success" dot>In Workspace · {w.cust_id}</Badge>
-              : <Badge variant="warning" dot>Udara Only — No Workspace Profile Yet</Badge>}
+              : <Badge variant="warning" dot>Udara Only: No Workspace Profile Yet</Badge>}
             <span style={{ color: TXT3, fontSize: 12, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>Udara ID {c.cbs_customer_id}</span>
           </div>
 
@@ -415,14 +439,50 @@ function CustomerModal({ udaraId, onClose }: { udaraId: string | null; onClose: 
                 <FacilityList title="Loans" rows={data.loans.map(l => ({
                   acct: l.cbs_account_number, product: l.product_name, status: l.status,
                   amount: l.outstanding_principal_kobo, sub: l.officer_name,
+                  lineage: l.is_restructure ? 'restructure' : undefined,
+                  prior: l.prior_account, priorAmount: l.prior_amount_kobo,
+                  superseded: l.was_restructured_into,
                 }))} />
               )}
               {data.fixed_deposits?.length > 0 && (
                 <FacilityList title="Fixed Deposits" rows={data.fixed_deposits.map(f => ({
                   acct: f.cbs_account_number, product: f.product_name, status: f.status,
                   amount: f.principal_kobo, sub: f.maturity_date ? `matures ${fmtDate(f.maturity_date)}` : '',
+                  lineage: f.is_rollover ? 'rollover' : undefined,
+                  prior: f.prior_account,
+                  superseded: f.was_rolled_into,
                 }))} />
               )}
+            </div>
+          )}
+
+          {/* Money actually received, straight off the Udara general ledger. Held back
+              from every screen until now because these postings carry no workspace loan
+              application to join to. */}
+          {data.repayments?.length > 0 && (
+            <div style={{ marginTop: SP[3] }}>
+              <Panel title="Repayments Received" accent={GREEN}>
+                {data.repayments.map((p: Money, i: number) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: TXT2 }}>
+                      {fmtDate(p.financial_date)}
+                      <span style={{ color: TXT3 }}>
+                        {' · '}{p.component === 'interest' ? 'Interest' : 'Principal'}
+                        {p.posting_reference ? ` · ${p.posting_reference}` : ''}
+                      </span>
+                    </span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: FW.semibold, color: GREEN }}>
+                      {fmtKobo(p.amount_kobo)}
+                    </span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--bdr)', paddingTop: 8, marginTop: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: FW.semibold, color: TXT2 }}>Total Received</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: FW.semibold }}>
+                    {fmtKobo(data.repayments.reduce((s: number, p: Money) => s + n(p.amount_kobo), 0))}
+                  </span>
+                </div>
+              </Panel>
             </div>
           )}
         </div>
@@ -450,20 +510,46 @@ function Field({ label, value }: { label: string; value: any }) {
   )
 }
 
-function FacilityList({ title, rows }: { title: string; rows: { acct: any; product: any; status: any; amount: any; sub: any }[] }) {
+// LineageTag marks a facility that continues an earlier one, or was itself continued.
+// This is the answer to "why does this customer have two loans?" — usually they do not:
+// they have one loan, twice. Amber for the live successor, which is what people act on;
+// grey for the retired predecessor.
+function LineageTag({ kind, prior, priorAmount }: { kind: 'restructure' | 'rollover' | 'superseded'; prior?: any; priorAmount?: any }) {
+  const meta = {
+    restructure: { label: 'Restructured', color: AMBER, tip: prior ? `Continues ${prior}${priorAmount ? ` · originally ${fmtKobo(priorAmount)}` : ''}: existing debt on new terms, not new lending` : 'Existing debt on new terms' },
+    rollover:    { label: 'Rollover',     color: AMBER, tip: prior ? `Continues ${prior}: the same money rolled, not a new deposit` : 'The same money rolled forward' },
+    superseded:  { label: 'Superseded',   color: TXT3,  tip: 'Replaced by a later facility for the same customer' },
+  }[kind]
+  return (
+    <span title={meta.tip} style={{
+      background: meta.color === TXT3 ? 'var(--chip-bg)' : meta.color + '18',
+      color: meta.color, padding: '2px 8px', borderRadius: 999,
+      fontSize: 11, fontWeight: FW.semibold, whiteSpace: 'nowrap', cursor: 'help',
+    }}>{meta.label}</span>
+  )
+}
+
+function FacilityList({ title, rows }: { title: string; rows: { acct: any; product: any; status: any; amount: any; sub: any; lineage?: any; prior?: any; priorAmount?: any; superseded?: any }[] }) {
   return (
     <div>
       <div style={{ fontSize: 12, fontWeight: FW.semibold, color: TXT2, marginBottom: 6 }}>{title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {rows.map((r, i) => (
-          <div key={r.acct || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13 }}>
+          <div key={r.acct || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, flexWrap: 'wrap' }}>
             <span style={{ fontVariantNumeric: 'tabular-nums', color: TXT2 }}>{r.acct}</span>
             <span style={{ fontWeight: FW.medium }}>{r.product}</span>
             <StatusTag s={r.status} />
+            {r.lineage && <LineageTag kind={r.lineage} prior={r.prior} priorAmount={r.priorAmount} />}
+            {r.superseded && !r.lineage && <LineageTag kind="superseded" />}
             <span style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
               <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: FW.semibold }}>{fmtKobo(r.amount)}</span>
               {r.sub && <span style={{ color: TXT3, fontSize: 11 }}>{r.sub}</span>}
             </span>
+            {r.prior && (
+              <div style={{ flexBasis: '100%', color: TXT3, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+                continues {r.prior}{r.priorAmount ? ` · originally ${fmtKobo(r.priorAmount)}` : ''}
+              </div>
+            )}
           </div>
         ))}
       </div>

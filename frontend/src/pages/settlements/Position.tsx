@@ -152,7 +152,7 @@ export default function SettlementPosition() {
 
       <SectionCard
         title="Daily Flow"
-        subtitle="Funding in, transfers out and settlements to the bank — all in naira, one scale"
+        subtitle="Funding in, transfers out and settlements to the bank. All in naira, one scale"
         style={{ marginBottom: SP[4] }}
         actions={
           <Button variant="secondary" size="sm" icon={showTable ? 'show_chart' : 'table_rows'}
@@ -202,7 +202,7 @@ export default function SettlementPosition() {
 
       <SectionCard
         title="Funding Completion by Channel"
-        subtitle="Share of funding attempts that complete — the gap here is lost revenue, not a settlement problem"
+        subtitle="Share of funding attempts that complete. The gap here is lost revenue, not a settlement problem"
       >
         {loading && !channels.length ? (
           <div style={{ padding: SP[5], textAlign: 'center' }}><Spinner /></div>

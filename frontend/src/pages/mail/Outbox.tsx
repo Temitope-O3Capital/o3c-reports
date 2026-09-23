@@ -121,7 +121,7 @@ export default function MailOutbox() {
       toast.success('Message recalled')
       await load({ silent: true })
     } catch (ex: any) {
-      toast.error(ex?.message ?? 'Could not recall — it may already have sent')
+      toast.error(ex?.message ?? 'Could not recall: it may already have sent')
       await load({ silent: true })
     } finally {
       setRecalling(prev => { const n = new Set(prev); n.delete(id); return n })
@@ -142,7 +142,7 @@ export default function MailOutbox() {
   }
 
   return (
-    <Page title="Outbox" subtitle="Messages held briefly so you can undo — recall before they send">
+    <Page title="Outbox" subtitle="Messages held briefly so you can undo. Recall before they send">
       <ErrBanner error={err} onRetry={() => load()} />
 
       <div style={{

@@ -58,7 +58,7 @@ const INGESTS: Ingest[] = [
     description: 'Monthly Udara card billing-cycle reports (balances, charges, interest, locations).',
     to: '/reports/uploads/card-cycle', target: 'card_cycle_data', icon: 'credit_card', accent: PURPLE },
   { key: 'interswitch', title: 'Interswitch EODTXN',
-    description: 'Daily Interswitch CCS Report 620 files — card transactions for reconciliation.',
+    description: 'Daily Interswitch CCS Report 620 files. Card transactions for reconciliation.',
     to: '/reports/uploads/interswitch', target: 'interswitch_txns', icon: 'sync_alt', accent: BLUE },
   { key: 'settlement', title: 'Interswitch Settlement',
     description: "Interswitch settlement reports into the reconciliation ledger (drop a whole day's folder).",
@@ -93,7 +93,7 @@ function OverduePanel({ rows, onOpen }: { rows: Overdue[]; onOpen: (to: string) 
     <SectionCard
       title="Upload Status"
       subtitle={late.length > 0
-        ? `${late.length} of ${rows.length} datasets are overdue — the people who upload them are alerted by role`
+        ? `${late.length} of ${rows.length} datasets are overdue. The people who upload them are alerted by role`
         : 'Every manual dataset is within its expected window'}
       style={{ marginBottom: SP[5] }}
     >
@@ -201,7 +201,7 @@ export default function ReportsUploads() {
 
       <OverduePanel rows={overdue} onOpen={navigate} />
 
-      <SectionCard title="Upload a Dataset" subtitle="Every workspace data ingest lives here — pick a dataset to import">
+      <SectionCard title="Upload a Dataset" subtitle="Every workspace data ingest lives here. Pick a dataset to import">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: SP[4] }}>
           {INGESTS.map(ing => <IngestCard key={ing.key} ingest={ing} onOpen={navigate} />)}
         </div>
@@ -209,7 +209,7 @@ export default function ReportsUploads() {
           Merchant names arrive truncated and are merged back together —{' '}
           <a href="/reports/merchant-names" style={{ color: BLUE, fontWeight: FW.semibold }}>review those merges</a>.
           <br />
-          End-of-Day is no longer uploaded — it is derived automatically from live data. Credit-card statement
+          End-of-Day is no longer uploaded. It is derived automatically from live data. Credit-card statement
           generation and document/email attachments are handled within their own modules and are not dataset uploads.
         </p>
       </SectionCard>

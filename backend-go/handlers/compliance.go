@@ -600,7 +600,7 @@ func complianceSARCreate(db *core.DB) http.HandlerFunc {
 		go NotifyRole(ctx, db, "compliance_head", NotifPayload{
 			EventType: EvtSARFiled,
 			Title:     "New SAR Filed: " + sarRef,
-			Body:      "A suspicious activity report has been submitted and requires review.",
+			Body:      "A suspicious activity report is waiting for your review.",
 			ActionURL: fmt.Sprintf("/compliance/sars/%d", newID),
 			EntityRef: sarRef,
 		})
@@ -691,7 +691,7 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
-			respondErr(w, 409, "SAR status has changed — please refresh and retry")
+			respondErr(w, 409, "This SAR has changed since you opened it. Refresh and try again.")
 			return
 		}
 
@@ -803,7 +803,7 @@ func complianceWatchListAdd(db *core.DB) http.HandlerFunc {
 		payload := NotifPayload{
 			EventType: EvtAMLWatchlistHit,
 			Title:     fmt.Sprintf("Watchlist entry added: %s", b.EntityName),
-			Body:      fmt.Sprintf("%s (%s) has been added to the AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
+			Body:      fmt.Sprintf("%s (%s) is now on the AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
 			ActionURL: fmt.Sprintf("/compliance/watch-list/%d", entryID),
 			EntityRef: b.IDValue,
 		}
@@ -811,7 +811,7 @@ func complianceWatchListAdd(db *core.DB) http.HandlerFunc {
 		go NotifyRole(notifCtx, db, "compliance_head", NotifPayload{
 			EventType: EvtAMLWatchlistHit,
 			Title:     fmt.Sprintf("Watchlist entry added: %s", b.EntityName),
-			Body:      fmt.Sprintf("%s (%s) added to AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
+			Body:      fmt.Sprintf("%s (%s) is now on the AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
 			ActionURL: fmt.Sprintf("/compliance/watch-list/%d", entryID),
 			EntityRef: b.IDValue,
 		})
@@ -984,7 +984,7 @@ func complianceFindingCreate(db *core.DB) http.HandlerFunc {
 		go NotifyRole(ctx, db, "compliance_officer", NotifPayload{
 			EventType: EvtFindingCreated,
 			Title:     "New Audit Finding: " + findingRef,
-			Body:      fmt.Sprintf("Severity: %s — %s", b.Severity, b.Description),
+			Body:      fmt.Sprintf("Severity %s. %s", b.Severity, b.Description),
 			ActionURL: fmt.Sprintf("/compliance/findings/%d", newID),
 			EntityRef: findingRef,
 		})
@@ -1078,7 +1078,7 @@ func complianceFindingClose(db *core.DB) http.HandlerFunc {
 				EventType: EvtFindingClosed,
 				UserID:    assignedBy,
 				Title:     "Audit Finding Closed: " + ref,
-				Body:      "The audit finding has been marked as resolved/closed.",
+				Body:      "The audit finding is now closed.",
 				ActionURL: fmt.Sprintf("/compliance/findings/%d", id),
 				EntityRef: ref,
 			})
@@ -1465,7 +1465,7 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 			go NotifyRole(ctx, db, "compliance_head", NotifPayload{
 				EventType: "prudential_breach",
 				Title:     fmt.Sprintf("%d Prudential Ratio Breach(es) Detected", len(breaches)),
-				Body:      "One or more CBN prudential thresholds have been breached. Review required.",
+				Body:      "At least one CBN prudential threshold is breached. Open the ratios page to see which.",
 				ActionURL: "/compliance/prudential-ratios",
 			})
 		}
@@ -2056,9 +2056,9 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 // ndprSubjectPhones returns the subject's phone numbers in app.norm_phone() form —
 // exactly 10 digits, nothing else.
 //
-// This guard matters more than it looks. app.norm_phone() returns '' (never NULL) for
+// This guard matters more than it looks. app.norm_phone() returns ” (never NULL) for
 // anything it cannot parse, so a naive `norm_phone(col) = norm_phone($subject)` match
-// degenerates to '' = '' and hits EVERY row with a blank or malformed phone — of which
+// degenerates to ” = ” and hits EVERY row with a blank or malformed phone — of which
 // the call tables hold plenty. Mass-anonymising unrelated customers inside a compliance
 // worker is irreversible, so: every number is length-checked here, every query below
 // re-checks the column side with length(...) = 10, and the phone branch is skipped
@@ -2793,7 +2793,7 @@ func complianceCreateBreachIncident(db *core.DB) http.HandlerFunc {
 		go NotifyRole(r.Context(), db, "head_compliance", NotifPayload{
 			EventType: "data_breach",
 			Title:     fmt.Sprintf("Data Breach Incident Reported: %s", b.Title),
-			Body:      fmt.Sprintf("A data breach incident has been reported. NDPC must be notified within 72 hours. Severity: %s", b.Severity),
+			Body:      fmt.Sprintf("Someone reported a data breach, severity %s. The NDPC must hear from us within 72 hours.", b.Severity),
 		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -2989,12 +2989,9 @@ func complianceBoardPack(db *core.DB) http.HandlerFunc {
 			)
 		}
 
-		// Collections: overdue accounts
-		if rows, err := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS dpd30 FROM loan_applications
-			WHERE status='active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30`); err == nil && len(rows) > 0 {
-			metrics = append(metrics, Metric{"Accounts DPD>30", fmt.Sprintf("%d", toInt64(rows[0]["dpd30"]))})
-		}
+		// Accounts DPD>30 is reported with the loan book above, on the canonical
+		// arrears rule. It used to be counted here off loan_applications, which
+		// books no loans, so it read 0 forever.
 
 		// Open support tickets
 		if rows, err := db.PGQuery(ctx, `

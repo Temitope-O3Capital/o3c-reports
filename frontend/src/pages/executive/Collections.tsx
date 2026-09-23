@@ -120,7 +120,7 @@ export default function ExecCollections() {
 
       {/* ── Loan Repayment Status (Udara installment schedule) ────────────── */}
       {(data.loan_overdue_kobo > 0 || data.loan_due_30d_kobo > 0 || data.loan_collected_kobo > 0) && (
-      <SectionCard title="Loan Repayment Status" subtitle="Installment-level dues from the Udara repayment schedule — overdue is what is genuinely past due (not the whole book)" style={{ marginBottom: 14 }}>
+      <SectionCard title="Loan Repayment Status" subtitle="Installment-level dues from the Udara repayment schedule. Overdue is what is genuinely past due (not the whole book)" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3] }}>
           <KpiCard label="Overdue" value={fmtKobo(data.loan_overdue_kobo)} sub={`${fmtNum(data.loan_overdue_count)} unpaid installment${data.loan_overdue_count === 1 ? '' : 's'}`} icon="error" accent={RED} />
           <KpiCard label="Due Next 7 Days" value={fmtKobo(data.loan_due_7d_kobo)} icon="event_upcoming" accent={AMBER} />

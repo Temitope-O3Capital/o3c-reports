@@ -428,8 +428,8 @@ func surveyPublicSubmit(db *core.DB) http.HandlerFunc {
 			Notify(context.Background(), db, NotifPayload{
 				EventType: EvtSurveyLowScore,
 				UserID:    ownerID,
-				Title:     "Low feedback on " + str(snd["survey_title"]),
-				Body:      fmt.Sprintf("%s left low scores (%s). Review and follow up.", who, strings.Join(parts, ", ")),
+				Title:     "Low Feedback on " + str(snd["survey_title"]),
+				Body:      fmt.Sprintf("%s scored us low on %s. Call them.", who, strings.Join(parts, ", ")),
 				ActionURL: fmt.Sprintf("/feedback/surveys/%d", surveyID),
 				EntityRef: fmt.Sprintf("survey:%d", surveyID),
 				Priority:  "high",
@@ -734,7 +734,7 @@ func surveyPutQuestions(db *core.DB) http.HandlerFunc {
 		// so replacing the question set after responses exist would wipe collected
 		// answers. Lock the structure once there's data.
 		if rr, _ := db.PGQuery(ctx, `SELECT count(*) AS n FROM survey_responses WHERE survey_id=$1`, id); len(rr) > 0 && toInt64(rr[0]["n"]) > 0 {
-			respondErr(w, 409, "This survey already has responses — its questions can't be changed. Create a new survey to change the questions.")
+			respondErr(w, 409, "This survey already has responses, so its questions can't be changed. Create a new survey instead.")
 			return
 		}
 		var b struct {
@@ -1197,7 +1197,7 @@ func surveyDispatch(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		id := chi.URLParam(r, "id")
 		if surveyBaseURL(ctx, db) == "" {
-			respondErr(w, 422, "Public app base URL is not configured (settings.app_base_url) — cannot build survey links")
+			respondErr(w, 422, "The public app base URL is not configured (settings.app_base_url), so survey links cannot be built.")
 			return
 		}
 		// Don't send a survey nobody can answer.
@@ -1269,13 +1269,13 @@ func surveyTestSend(db *core.DB) http.HandlerFunc {
 
 func sendSurveyEmail(ctx context.Context, db *core.DB, survey core.Row, name, email, base, token string, sendID int64) SendMailResult {
 	if name == "" {
-		name = "Valued Customer"
+		name = "Customer"
 	}
 	url := base + "/s/" + token
 	title := str(survey["title"])
 	intro := str(survey["intro"])
 	if intro == "" {
-		intro = "Your experience matters to us. Please take a few minutes to share your feedback — it directly shapes how we serve you."
+		intro = "Tell us how we did. It takes about three minutes, and we read every answer."
 	}
 	accent := str(survey["accent_color"])
 	if accent == "" {
@@ -1301,14 +1301,14 @@ func sendSurveyEmail(ctx context.Context, db *core.DB, survey core.Row, name, em
 	var tb strings.Builder
 	tb.WriteString("Dear " + name + ",\n\n" + intro + "\n\n")
 	if headline != "" {
-		tb.WriteString("You can rate us right from this email — tap a number and complete the rest on the next page.\n\n")
+		tb.WriteString("You can answer the first question here in the email. Tap a number, then finish the rest on the next page.\n\n")
 	}
 	tb.WriteString("Open the survey:\n" + url + "\n\n")
 	tb.WriteString("The survey takes about three minutes and your responses are confidential.\n\n")
 	if signName != "" {
 		tb.WriteString("With appreciation,\n" + signName + "\n" + signTitle + "\n")
 	}
-	tb.WriteString("O3 Capital Nigeria Limited — You deserve more.")
+	tb.WriteString("O3 Capital Nigeria Limited. You deserve more.")
 
 	return SendMail(ctx, db, SendMailOptions{
 		To:          []MailAddress{{Email: email, Name: name}},
@@ -1353,7 +1353,7 @@ func premiumSurveyEmailHTML(title, intro, accent, dept, name, url, signName, sig
 	}
 	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>` +
 		`<body style="margin:0;padding:0;background:#EEF0F4;">` +
-		`<div style="display:none;max-height:0;overflow:hidden;opacity:0;">A few minutes of your time — your feedback shapes how we serve you.</div>` +
+		`<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Three minutes, and we read every answer.</div>` +
 		`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF0F4;padding:28px 12px;"><tr><td align="center">` +
 		`<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:6px;overflow:hidden;box-shadow:0 4px 24px rgba(14,40,65,.10);">` +
 		`<tr><td align="center" style="background:#0E2841;padding:30px 24px 26px;">` +
@@ -1441,7 +1441,7 @@ func surveyEmailHeadlineHTML(ctx context.Context, db *core.DB, base, token, acce
 	var b strings.Builder
 	b.WriteString(`<tr><td style="padding:26px 44px 0;font-family:Segoe UI,Arial,sans-serif;">`)
 	b.WriteString(`<div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:` + accent + `;">Answer in one tap</div>`)
-	b.WriteString(`<div style="font-size:13.5px;line-height:1.6;color:#6e7889;margin-top:6px;">Rate us right here — tap a number below and it's recorded straight away, then finish the rest on the next page.</div>`)
+	b.WriteString(`<div style="font-size:13.5px;line-height:1.6;color:#6e7889;margin-top:6px;">Tap a number below. We record it straight away, then you finish the rest on the next page.</div>`)
 	b.WriteString(`</td></tr>`)
 	for _, q := range picks {
 		qid := toInt64(q["id"])

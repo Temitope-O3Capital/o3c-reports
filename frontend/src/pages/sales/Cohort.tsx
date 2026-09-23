@@ -242,7 +242,7 @@ export default function SalesCohort() {
           for it, so the toggle showed an empty column. */}
       <SectionCard
         title="Cohort Retention Heatmap"
-        subtitle="Of each acquisition cohort, the % still transacting at each age — read across a row to see how a cohort ages"
+        subtitle="Of each acquisition cohort, the % still transacting at each age. Read across a row to see how a cohort ages"
         badge={cohorts.length}
         padding={false}
       >

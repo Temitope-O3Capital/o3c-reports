@@ -165,7 +165,7 @@ export default function Surveys() {
         {loading ? (
           <div style={{ padding: 40, display: 'grid', placeItems: 'center' }}><Spinner /></div>
         ) : rows.length === 0 ? (
-          <EmptyState icon="reviews" title="No Surveys Yet" description="Create your first customer feedback survey — start from a blank canvas or the seeded Card Services template."
+          <EmptyState icon="reviews" title="No Surveys Yet" description="Create your first customer feedback survey. Start from a blank canvas or the seeded Card Services template."
             action={{ label: 'New Survey', icon: 'add', onClick: () => setShowNew(true) }} />
         ) : (
           <DataTable cols={cols} rows={rows} keyFn={r => r.id} onRowClick={r => nav(`/feedback/surveys/${r.id}`)} pageSize={15} />

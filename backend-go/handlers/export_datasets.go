@@ -103,7 +103,7 @@ var exportDatasets = []exportDataset{
 		DateLabel: "Date Booked",
 		Cols: []exportCol{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "cl.cbs_account_number"},
-			{Key: "cif", Label: "CIF", Type: colText, Expr: "cl.cbs_customer_id"},
+			{Key: "cif", Label: "Udara ID", Type: colText, Expr: "cl.cbs_customer_id"}, // NOT a cards CIF: cbs_customer_id is Udara's own namespace and collides with CCS CIFs on a different person
 			{Key: "customer_name", Label: "Customer Name", Type: colText,
 				Expr: `cl.raw->>'name'`}, // Udara's own name (cbs_customer_id != app.customers.cif)
 			{Key: "product_name", Label: "Product", Type: colText, Expr: "cl.product_name"},
@@ -347,7 +347,7 @@ var exportDatasets = []exportDataset{
 		// re-add the column under the same "rollover_count" key.
 		Cols: []exportCol{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "fd.cbs_account_number"},
-			{Key: "cif", Label: "CIF", Type: colText, Expr: "fd.cbs_customer_id"},
+			{Key: "cif", Label: "Udara ID", Type: colText, Expr: "fd.cbs_customer_id"},
 			{Key: "customer_name", Label: "Customer Name", Type: colText,
 				Expr: `fd.raw->>'name'`}, // Udara's own name (cbs_customer_id != app.customers.cif)
 			{Key: "product_name", Label: "Product", Type: colText, Expr: "fd.product_name"},
@@ -383,7 +383,7 @@ var exportDatasets = []exportDataset{
 		DateCol:   "ca.created_at::date",
 		DateLabel: "Assigned",
 		Cols: []exportCol{
-			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "ca.cif_number"},
+			{Key: "cif_number", Label: "Customer ID", Type: colText, Expr: "ca.cif_number"}, // three namespaces share this column: bare 8-digit cards CIFs, UD- Udara ids and W- uploaded-sheet keys, so "CIF" is wrong for 77 of the rows
 			{Key: "customer_name", Label: "Customer Name", Type: colText, Expr: "ca.customer_name"},
 			{Key: "dpd_bucket", Label: "DPD Bucket", Type: colText, Expr: "ca.dpd_bucket"},
 			{Key: "outstanding", Label: "Outstanding (NGN)", Type: colKobo, Expr: "ca.outstanding_kobo"},
@@ -411,7 +411,7 @@ var exportDatasets = []exportDataset{
 		DateCol:   "cp.payment_date",
 		DateLabel: "Payment Date",
 		Cols: []exportCol{
-			{Key: "account_cif", Label: "CIF", Type: colText, Expr: "cp.account_cif"},
+			{Key: "account_cif", Label: "Customer ID", Type: colText, Expr: "cp.account_cif"},
 			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "cp.amount_kobo"},
 			{Key: "payment_date", Label: "Payment Date", Type: colDate, Expr: "cp.payment_date"},
 			{Key: "channel", Label: "Channel", Type: colText, Expr: "cp.channel"},
@@ -727,7 +727,7 @@ var exportDatasets = []exportDataset{
 		DateLabel: "Opened",
 		Cols: []exportCol{
 			{Key: "case_ref", Label: "Case Ref", Type: colText, Expr: "rc.case_ref"},
-			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "COALESCE(rc.cif_number, rc.account_cif)"},
+			{Key: "cif_number", Label: "Customer ID", Type: colText, Expr: "COALESCE(rc.cif_number, rc.account_cif)"},
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "rc.account_number"},
 			{Key: "status", Label: "Status", Type: colText, Expr: "rc.status"},
 			{Key: "legal_stage", Label: "Legal Stage", Type: colText, Expr: "rc.legal_stage"},
@@ -878,7 +878,7 @@ var exportDatasets = []exportDataset{
 		DateLabel: "Due Date",
 		Cols: []exportCol{
 			{Key: "loan_account", Label: "Loan Account", Type: colText, Expr: "s.loan_account_number"},
-			{Key: "cif", Label: "CIF", Type: colText, Expr: "s.cbs_customer_id"},
+			{Key: "cif", Label: "Udara ID", Type: colText, Expr: "s.cbs_customer_id"},
 			{Key: "payment_date", Label: "Due Date", Type: colDate, Expr: "s.payment_date"},
 			{Key: "principal", Label: "Principal (NGN)", Type: colKobo, Expr: "s.principal_kobo"},
 			{Key: "interest", Label: "Interest (NGN)", Type: colKobo, Expr: "s.interest_kobo"},

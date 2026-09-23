@@ -100,7 +100,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   function initSDK(sipUsername: string, sipPassword: string, _agentName: string) {
     if (clientRef.current) return
 
-    addLog(`Connecting — user: ${sipUsername}`)
+    addLog(`Connecting. User: ${sipUsername}`)
 
     const client = new TelnyxRTC({
       login:    sipUsername,
@@ -371,9 +371,9 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   // agent can act on, so each state maps to plain words with the action attached. The
   // verbatim error stays in the trace, which only the people who debug it can see.
   const statusLabel  = sdkReady ? 'Ready'
-    : sdkError ? (sipTimedOut ? 'Phone not connected — use Retry Connection' : 'Phone unavailable — contact IT')
+    : sdkError ? (sipTimedOut ? 'Phone not connected: use Retry Connection' : 'Phone unavailable: contact IT')
     : configured ? 'Connecting…'
-    : 'Phone not set up — contact IT'
+    : 'Phone not set up: contact IT'
 
   // Every hook above has run, so leaving now cannot change the hook count.
   if (!canCall) return null

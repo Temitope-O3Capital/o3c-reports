@@ -162,14 +162,14 @@ export default function MailCompose() {
         // Transient "Sending… Undo" affordance. Recall cancels the parked send.
         const outboxId = res.outbox_id
         toast('Sending…', {
-          description: 'Message queued — undo it within a few seconds.',
+          description: 'Message queued: undo it within a few seconds.',
           duration: 8000,
           action: {
             label: 'Undo',
             onClick: () => {
               apiPost(`/api/mail/outbox/${outboxId}/cancel`, {})
                 .then(() => toast.success('Message recalled'))
-                .catch((ex: any) => toast.error(ex?.message ?? 'Could not recall — it may already have sent'))
+                .catch((ex: any) => toast.error(ex?.message ?? 'Could not recall: it may already have sent'))
             },
           },
         })

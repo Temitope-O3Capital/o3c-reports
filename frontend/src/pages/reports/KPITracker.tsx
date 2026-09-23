@@ -75,7 +75,7 @@ const KPI_DEFS: KPIDef[] = [
   { key: 'new_customers',       label: 'New Customers',   format: 'num',  metric: 'new_customers' },
   { key: 'active_loans',        label: 'Active Loans',    format: 'num',  metric: 'active_loans', snapshot: true },
   { key: 'total_disbursed_kobo', label: 'Total Disbursed', format: 'kobo', metric: 'disbursed_kobo',
-    emptyHint: 'No loans disbursed through the workspace yet — the book is synced from Udara.' },
+    emptyHint: 'No loans disbursed through the workspace yet. The book is synced from Udara.' },
   { key: 'npl_ratio_pct',       label: 'NPL Ratio',       format: 'pct',  metric: 'npl_pct',        lowerIsBetter: true, snapshot: true },
   { key: 'par30_pct',           label: 'PAR30',           format: 'pct',  metric: 'par30_pct',      lowerIsBetter: true, snapshot: true },
   { key: 'collection_rate_pct', label: 'Collection Rate', format: 'pct',  metric: 'collection_pct',
@@ -181,7 +181,7 @@ function KPICard({ def, values, loading }: { def: KPIDef; values: KPIValues; loa
           letterSpacing: '0.3px', textTransform: 'uppercase', flex: 1,
         }}>{def.label}</span>
         {def.snapshot && (
-          <span title="Point-in-time — the live book right now, not a sum over the selected period"
+          <span title="Point-in-time: the live book right now, not a sum over the selected period"
             style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Now</span>
         )}
         {!loading && <RagDot value={val} target={target} lowerIsBetter={def.lowerIsBetter} />}
@@ -276,7 +276,7 @@ function TargetsModal({ open, onClose, values, onSaved }: {
     <Modal open={open} onClose={onClose} title="KPI Targets" width={520}>
       <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6, marginBottom: SP[4] }}>
         Targets are stored per month. Leave a field blank to leave that metric
-        untargeted — it will show a hollow indicator rather than a misleading
+        untargeted: it will show a hollow indicator rather than a misleading
         green one. Amounts are in naira.
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2], maxHeight: 380, overflowY: 'auto' }}>
@@ -315,7 +315,7 @@ function TargetsModal({ open, onClose, values, onSaved }: {
 // tooltip flags it rather than letting the chart imply a real dip.
 function feedNote(row: HistoryRow | undefined): ReactNode {
   if (!row || row.data_complete) return null
-  return `Card feed incomplete this month (${fmtNum(row.txn_count)} txns) — figures understate.`
+  return `Card feed incomplete this month (${fmtNum(row.txn_count)} txns). Figures understate.`
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -433,7 +433,7 @@ export default function KPITracker() {
 
       <SectionCard
         title="Revenue & Acquisition"
-        subtitle={`Last ${months} months — fee, interest and penalty income against new customers`}
+        subtitle={`Last ${months} months: fee, interest and penalty income against new customers`}
         actions={
           <select value={months} onChange={e => setMonths(Number(e.target.value))} style={{
             height: 28, padding: '0 8px', border: '1px solid var(--input-bdr)',

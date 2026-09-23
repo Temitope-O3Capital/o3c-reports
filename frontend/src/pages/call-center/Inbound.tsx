@@ -220,7 +220,7 @@ function CallFlow({ call, legs, loading }: { call: InboundCall; legs: RingLeg[] 
         />
       ) : (
         <FlowStep color={RED}
-          title="Missed — no agent answered"
+          title="Missed: no agent answered"
           detail={call.wait_sec != null ? `rang ${fmtWait(call.wait_sec)}` : undefined}
         />
       )}
@@ -236,7 +236,7 @@ function CallFlow({ call, legs, loading }: { call: InboundCall; legs: RingLeg[] 
         last
         color={call.returned || call.queued ? GREEN : answered ? GREEN : 'var(--txt3)'}
         title={
-          call.returned ? 'Returned — an outbound call reached this number within 48h'
+          call.returned ? 'Returned: an outbound call reached this number within 48h'
           : call.queued ? 'Call-back queued in the outbound list'
           : answered ? 'Handled on the call'
           : 'No follow-up yet'
@@ -410,7 +410,7 @@ export default function CallCenterInbound() {
           </button>
           <button
             onClick={() => setLogFor(c)}
-            title="Write up this call — disposition, notes, and link it to the customer"
+            title="Write up this call: disposition, notes, and link it to the customer"
             style={{
               fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '3px 9px',
               borderRadius: RADIUS.full, border: '1px solid var(--bdr)',
@@ -506,7 +506,7 @@ export default function CallCenterInbound() {
           borderRadius: RADIUS.md, background: `${AMBER}14`, border: `1px solid ${AMBER}40` }}>
           <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 16, color: AMBER }}>info</span>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-            Showing the {fmtCount(ROW_CAP)} most recent calls in this range — the figures above still cover the whole window. Narrow the dates or pick a status to see the rest.
+            Showing the {fmtCount(ROW_CAP)} most recent calls in this range. The figures above still cover the whole window. Narrow the dates or pick a status to see the rest.
           </span>
         </div>
       )}
@@ -536,7 +536,7 @@ export default function CallCenterInbound() {
       <Modal
         open={!!flowFor}
         onClose={() => setFlowFor(null)}
-        title={flowFor ? `Call Flow — ${flowFor.matched_customer || flowFor.customer_name || flowFor.customer_phone || 'inbound call'}` : 'Call Flow'}
+        title={flowFor ? `Call Flow: ${flowFor.matched_customer || flowFor.customer_name || flowFor.customer_phone || 'inbound call'}` : 'Call Flow'}
         width={620}
       >
         {flowFor && <CallFlow call={flowFor} legs={legsCache[flowFor.id]} loading={legsLoading === flowFor.id} />}
@@ -573,7 +573,7 @@ function RaiseTicketModal({ call, onClose, onDone }: {
 
   useEffect(() => {
     if (call) {
-      setSubject(`Inbound call — ${call.matched_customer || call.customer_name || call.customer_phone || 'unknown caller'}`)
+      setSubject(`Inbound call: ${call.matched_customer || call.customer_name || call.customer_phone || 'unknown caller'}`)
       setBody('')
     }
   }, [call])

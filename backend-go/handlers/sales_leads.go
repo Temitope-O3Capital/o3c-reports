@@ -609,7 +609,7 @@ func createLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if req.LeadSource == "" {
-			respondErr(w, 400, "lead_source is required — origination cannot be credited without it")
+			respondErr(w, 400, "lead_source is required. Without it nobody can be credited for the origination.")
 			return
 		}
 		var validSource bool
@@ -980,11 +980,11 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if req.Stage == "converted" {
-			respondErr(w, 400, "Use /leads/{id}/convert — conversion needs a CIF")
+			respondErr(w, 400, "Use /leads/{id}/convert instead. Conversion needs a CIF.")
 			return
 		}
 		if req.Stage == "disqualified" {
-			respondErr(w, 400, "Use /leads/{id}/disqualify — a reason is required")
+			respondErr(w, 400, "Use /leads/{id}/disqualify instead. It needs a reason.")
 			return
 		}
 

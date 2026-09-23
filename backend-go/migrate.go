@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
@@ -91,7 +92,9 @@ func runMigrations(db *core.DB) error {
 		}
 	}
 
-	// Run unapplied migrations; warn and skip on error (don't crash the server)
+	// Run unapplied migrations. A failure stops the boot by default: serving handlers
+	// against a half-applied schema is worse than not serving at all. A migration that
+	// only moves data can opt out with @nonblocking (see below).
 	for _, name := range files {
 		if applied[name] {
 			continue
@@ -102,6 +105,13 @@ func runMigrations(db *core.DB) error {
 		}
 		slog.Info("running migration", "file", name)
 		if _, err := db.PGExec(ctx, string(data)); err != nil {
+			if migrationIsNonBlocking(data) {
+				// Deliberately not recorded as applied, so it runs again on the next
+				// boot and heals itself once the file is corrected.
+				slog.Error("migration failed; continuing because it is marked @nonblocking",
+					"file", name, "err", err)
+				continue
+			}
 			return fmt.Errorf("migration %s failed: %w", name, err)
 		}
 		if _, err := db.PGExec(ctx,
@@ -110,4 +120,29 @@ func runMigrations(db *core.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrationIsNonBlocking reports whether a migration opts out of halting startup.
+//
+// Schema changes must keep the default: if a column fails to appear, every handler
+// that expects it breaks at runtime, and a server that refuses to start is the
+// louder and safer failure. A pure data backfill is a different animal. It alters
+// no structure, so the application runs correctly without it, and taking the whole
+// workspace down over one is a poor trade.
+//
+// 281_backfill_duplicate_call_records.sql proved the point on 2026-09-23: it named a
+// column that does not exist, and the workspace was unreachable for nine minutes
+// while the keep-alive task restarted it into the same failure twelve times.
+//
+// Mark such a migration by putting @nonblocking in a comment near the top:
+//
+//	-- 284 — Collapse duplicate X. @nonblocking: data only, safe to retry.
+//
+// Only use it for work that is idempotent and structure-free.
+func migrationIsNonBlocking(sql []byte) bool {
+	head := sql
+	if len(head) > 4000 {
+		head = head[:4000]
+	}
+	return bytes.Contains(head, []byte("@nonblocking"))
 }

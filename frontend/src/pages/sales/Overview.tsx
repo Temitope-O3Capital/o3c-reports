@@ -501,7 +501,7 @@ export default function SalesOverview() {
 
       {/* Pipeline by product + team targets (current state — not window-scoped) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: SP[4] }}>
-        <SectionCard title="Open Pipeline by Product" subtitle="Leads in play, by line — click to filter">
+        <SectionCard title="Open Pipeline by Product" subtitle="Leads in play, by line: click to filter">
           {!loading && PRODUCT_LINES.every(pl => (mix[pl.line]?.count ?? 0) === 0) && (mix.unclassified?.count ?? 0) > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 8, padding: `${SP[5]} ${SP[4]}`, minHeight: 150 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>sell</span>
@@ -615,7 +615,7 @@ export default function SalesOverview() {
             <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No staff are mapped to an office yet</div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', maxWidth: 380, lineHeight: 1.5 }}>
               Set each staff member’s office (Lagos, Abuja, …) in Admin → Users. Once mapped,
-              this splits the book and acquisition by branch — a customer belongs to the branch
+              this splits the book and acquisition by branch. A customer belongs to the branch
               of their account officer.
             </div>
             <button onClick={() => navigate('/admin/users')}

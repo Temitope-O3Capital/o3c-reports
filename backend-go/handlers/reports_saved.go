@@ -753,7 +753,7 @@ func reportHTMLTable(cols []exportCol, rows []map[string]any, limit int) string 
 	}
 	b.WriteString(`</tbody></table>`)
 	if len(rows) > limit {
-		b.WriteString(fmt.Sprintf(`<p style="font-size:12px;color:#6B7280;margin-top:6px">Showing %d of %d rows — the full report is attached.</p>`, limit, len(rows)))
+		b.WriteString(fmt.Sprintf(`<p style="font-size:12px;color:#6B7280;margin-top:6px">Showing %d of %d rows. The full report is attached.</p>`, limit, len(rows)))
 	}
 	return b.String()
 }

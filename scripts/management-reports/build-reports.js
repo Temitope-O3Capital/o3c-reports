@@ -499,10 +499,10 @@ const SECTIONS = {
     return [
       L.section('Sales', c.salesLabel.toUpperCase(), 'Against target. Company total, then the sales team within it.'),
       L.rows([
-        { k: 'Fixed deposits — company', sub: 'everything booked', v: L.auto(mtd.fd), note: `of ${L.auto(tgt.fd)} · ${L.pct(mtd.fd, tgt.fd)}`, tone: mtd.fd >= tgt.fd ? L.UP : L.DOWN },
+        { k: 'Fixed deposits, company', sub: 'everything booked', v: L.auto(mtd.fd), note: `of ${L.auto(tgt.fd)} · ${L.pct(mtd.fd, tgt.fd)}`, tone: mtd.fd >= tgt.fd ? L.UP : L.DOWN },
         { k: 'of which, sales team', sub: `${tgt.officers} officers carry a target`, v: L.auto(fdAtt), note: `${L.pct(fdAtt, tgt.fd)} of target` },
         { k: 'booked outside sales', sub: 'no target held', v: L.auto(Math.max(0, mtd.fd - fdAtt)), noteTone: L.BRASS },
-        { k: 'Loans — company', v: L.auto(mtd.loan), note: `of ${L.auto(tgt.loan)} · ${L.pct(mtd.loan, tgt.loan)}`, tone: mtd.loan >= tgt.loan ? L.UP : L.DOWN },
+        { k: 'Loans, company', v: L.auto(mtd.loan), note: `of ${L.auto(tgt.loan)} · ${L.pct(mtd.loan, tgt.loan)}`, tone: mtd.loan >= tgt.loan ? L.UP : L.DOWN },
       ]),
     ].join('');
   },
@@ -762,7 +762,9 @@ const SECTIONS = {
     // A sales officer with no target row is a missing target, not somebody outside sales.
     // Blessing Obi and Oghenefejiro Odometa were appearing under "outside sales" purely
     // because nobody had set them one.
-    const isSales = (r) => /^(sales|bd)_(officer|head)$/.test(r.role) || /sales/i.test(r.department || '');
+    // Role only, never department: Doris Nnakwe sits in "Sales & BD" but is the CMO, and
+    // matching on department filed her under sales officers who need a target set.
+    const isSales = (r) => /^(sales|bd)_(officer|head)$/.test(r.role);
     const line = (r) => ({
       k: r.person, sub: L.roleLabel(r.role), v: L.auto(r.v),
       note: `${plural(r.n, 'deposit')}${r.cards ? ` &middot; ${plural(r.cards, 'card')}` : ''}`,
@@ -974,7 +976,7 @@ function managementFrame(def, c) {
   return {
     title: def.builtin ? title : L.esc(title),
     dateline,
-    subject: def.builtin ? `${MANAGEMENT_SUBJECTS[c.kind]} — ${subjectPeriod}` : `${def.name} — ${subjectPeriod}`,
+    subject: def.builtin ? `${MANAGEMENT_SUBJECTS[c.kind]} · ${subjectPeriod}` : `${def.name} · ${subjectPeriod}`,
     preheader: `Reached ${L.n0(o.mk.people + o.sup.people + o.col.people)} · converted ${L.n0(o.f.converted)} · FD ${L.auto(o.bk.fd).replace(/<[^>]+>/g, '').replace(/&#8358;|₦/g, 'N')} booked`,
     text: `O3 CAPITAL - ${title.toUpperCase()}\n${subjectPeriod}\n\n`
       + `Customers reached  ${L.n0(o.mk.people + o.sup.people + o.col.people)} (mkt ${L.n0(o.mk.people)}, sup ${L.n0(o.sup.people)}, coll ${L.n0(o.col.people)})\n`
@@ -994,8 +996,8 @@ function salesFrame(def, c) {
     title: def.builtin ? 'Sales Performance' : L.esc(def.name),
     dateline: `${label}${days ? ` &nbsp;&middot;&nbsp; ${days} working days left` : ''}`,
     subject: def.builtin
-      ? `Sales Performance ${cadenceWord} — ${label} · FD ${L.pct(fdAtt, tgt.fd)}, loans ${L.pct(loanAtt, tgt.loan)}`
-      : `${def.name} — ${label}`,
+      ? `Sales Performance ${cadenceWord} · ${label} · FD ${L.pct(fdAtt, tgt.fd)}, loans ${L.pct(loanAtt, tgt.loan)}`
+      : `${def.name} · ${label}`,
     preheader: `FD ${L.pct(fdAtt, tgt.fd)} · loans ${L.pct(loanAtt, tgt.loan)}${days ? ` · ${days} days left` : ''}`,
     text: `O3 CAPITAL - SALES PERFORMANCE (${c.kind})\n${label}\n\n`
       + `  FD    N${L.n0(fdAtt)} of N${L.n0(tgt.fd)}  (${L.pct(fdAtt, tgt.fd)})\n`
@@ -1013,7 +1015,7 @@ function customFrame(def, c) {
   return {
     title: L.esc(def.name),
     dateline,
-    subject: `${def.name} — ${subjectPeriod}`,
+    subject: `${def.name} · ${subjectPeriod}`,
     preheader: def.description || `${def.name}, ${subjectPeriod}`,
     text: `O3 CAPITAL - ${def.name.toUpperCase()}\n${subjectPeriod}\n\nIn this report:\n`
       + def.sections.map((id) => `  ${(CATALOGUE_BY_ID[id] || { title: id }).title}`).join('\n')

@@ -8,6 +8,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { LiveBadge } from '../../components/MyWorkspace'
+import { isUdaraKey } from '../../components/CreditFile'
 import { apiFetch, apiPut } from '../../lib/api'
 import { useFocusParam } from '../../hooks/useFocusParam'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
@@ -64,7 +65,7 @@ function ReviewModal({ payment, onClose, onSuccess }: {
     try {
       if (action === 'approve') {
         await apiPut(`/api/collections-ops/payments/${payment.id}/approve`, {})
-        toast.success(isFinal ? 'Payment approved — GL posted' : 'Approved — sent to the next approver')
+        toast.success(isFinal ? 'Payment approved: GL posted' : 'Approved: sent to the next approver')
       } else {
         await apiPut(`/api/collections-ops/payments/${payment.id}/reject`, { rejection_reason: reason })
         toast.success('Payment rejected')
@@ -79,7 +80,7 @@ function ReviewModal({ payment, onClose, onSuccess }: {
     <Modal
       open={payment !== null}
       onClose={() => { reset(); onClose() }}
-      title={`Review Collection Payment — ${payment?.customer_name ?? payment?.account_cif ?? ''}`}
+      title={`Review Collection Payment: ${payment?.customer_name ?? payment?.account_cif ?? ''}`}
       width={480}
       footer={
         <div style={{ display: 'flex', gap: 8 }}>
@@ -87,7 +88,7 @@ function ReviewModal({ payment, onClose, onSuccess }: {
             <button onClick={submit} disabled={saving}
               style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: accent, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={13} color="#fff" />}
-              {action === 'approve' ? (isFinal ? 'Approve & Post to Account' : 'Approve — Send to Next') : 'Reject Payment'}
+              {action === 'approve' ? (isFinal ? 'Approve & Post to Account' : 'Approve: Send to Next') : 'Reject Payment'}
             </button>
           )}
           <button onClick={() => { reset(); onClose() }}
@@ -106,7 +107,11 @@ function ReviewModal({ payment, onClose, onSuccess }: {
 
           <div style={{ background: 'var(--canvas)', borderRadius: RADIUS.md, padding: `${SP[3]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[
-              ['CIF', payment.account_cif],
+              // Not hard-labelled "CIF": a Udara-sourced collections row is keyed
+              // 'UD-<udara id>' (migration 267), and printing that as a CIF points the
+              // approver at a different person's cards record.
+              [isUdaraKey(payment.account_cif) ? 'Udara ID' : 'CIF',
+               isUdaraKey(payment.account_cif) ? (payment.account_cif ?? '').slice(3) : payment.account_cif],
               ['Payment Date', fmtDate(payment.payment_date)],
               ['Channel', prettyChannel(payment.channel)],
               ['Reference', payment.reference ?? '—'],
@@ -142,7 +147,7 @@ function ReviewModal({ payment, onClose, onSuccess }: {
 
           {!canAct ? (
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: 'var(--canvas)', borderRadius: RADIUS.md, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-              This payment is {payment.stage_label.toLowerCase()} — not your stage to action. You can review the record above.
+              This payment is {payment.stage_label.toLowerCase()}, which is not your stage to action. You can review the record above.
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 7 }}>

@@ -994,7 +994,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			creator := toInt64(apps[0]["created_by"])
 			if (salesOfficerID != 0 && salesOfficerID == user.ID) || (creator != 0 && creator == user.ID) {
 				if !strings.Contains(strings.ToLower(user.Role), "admin") {
-					respondErr(w, 403, "You raised this application, so you cannot also approve it — it needs a second pair of eyes.")
+					respondErr(w, 403, "You raised this application, so you cannot also approve it. It needs a second pair of eyes.")
 					return
 				}
 				makerCheckerOverride = true
@@ -1060,7 +1060,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			             WHERE id = $3 AND stage = $4 RETURNING id`, extra),
 			b.ToStage, losStageToStatus(b.ToStage), id, fromStage).Scan(&updatedID)
 		if err == sql.ErrNoRows {
-			respondErr(w, 409, "Application stage changed concurrently — please refresh and try again")
+			respondErr(w, 409, "Someone else moved this application while you were working. Refresh and try again.")
 			return
 		}
 		if err != nil {
@@ -1173,7 +1173,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			go NotifyRoles(context.Background(), db, []string{"risk_officer", "risk_head"}, NotifPayload{
 				EventType: EvtLoanSubmitted,
 				Title:     "New Loan Application Submitted",
-				Body:      fmt.Sprintf("Application %s is ready for risk review", loanRef),
+				Body:      fmt.Sprintf("Application %s is ready for risk review.", loanRef),
 				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
@@ -1182,8 +1182,8 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 				go Notify(context.Background(), db, NotifPayload{
 					EventType: EvtLoanStageChanged,
 					UserID:    salesOfficerID,
-					Title:     "Application sent to Risk Review",
-					Body:      fmt.Sprintf("Application %s has been sent to risk review", loanRef),
+					Title:     "Application Sent to Risk Review",
+					Body:      fmt.Sprintf("Application %s is with risk review now.", loanRef),
 					ActionURL: fmt.Sprintf("/sales/applications/%d", id),
 					EntityRef: fmt.Sprintf("loan_application:%d", id),
 				})
@@ -1206,24 +1206,24 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		case "pending_conditions":
 			go NotifyRole(context.Background(), db, "risk_head", NotifPayload{
 				EventType: EvtLoanStageChanged,
-				Title:     "Application ready for condition tracking",
-				Body:      fmt.Sprintf("Application %s is ready for condition tracking", loanRef),
+				Title:     "Application Ready for Condition Tracking",
+				Body:      fmt.Sprintf("Application %s is ready for condition tracking.", loanRef),
 				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
 		case "finance_approval":
 			go NotifyRole(context.Background(), db, "finance_officer", NotifPayload{
 				EventType: EvtLoanStageChanged,
-				Title:     "Application ready for finance approval",
-				Body:      fmt.Sprintf("Application %s is ready for finance approval", loanRef),
+				Title:     "Application Ready for Finance Approval",
+				Body:      fmt.Sprintf("Application %s is ready for finance approval.", loanRef),
 				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
 		case "booking":
 			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 				EventType: EvtLoanStageChanged,
-				Title:     "Application approved — ready for booking",
-				Body:      fmt.Sprintf("Application %s has been approved and is ready for booking", loanRef),
+				Title:     "Application Approved, Ready for Booking",
+				Body:      fmt.Sprintf("Application %s is approved and ready to book.", loanRef),
 				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
@@ -1231,7 +1231,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 				EventType: EvtLoanApproved,
 				Title:     "Loan Disbursed",
-				Body:      fmt.Sprintf("Application %s has been disbursed", loanRef),
+				Body:      fmt.Sprintf("Application %s is disbursed.", loanRef),
 				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
@@ -1240,7 +1240,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 					EventType: EvtLoanApproved,
 					UserID:    salesOfficerID,
 					Title:     "Loan Application Disbursed",
-					Body:      fmt.Sprintf("Application %s has been approved and disbursed", loanRef),
+					Body:      fmt.Sprintf("Application %s is approved and disbursed.", loanRef),
 					ActionURL: fmt.Sprintf("/sales/applications/%d", id),
 					EntityRef: fmt.Sprintf("loan_application:%d", id),
 				})
@@ -1345,7 +1345,7 @@ func losDecline(db *core.DB) http.HandlerFunc {
 				EventType: EvtLoanRejected,
 				UserID:    declSalesID,
 				Title:     "Loan Application Declined",
-				Body:      fmt.Sprintf("Application %s has been declined: %s", loanRefDecl, b.Reason),
+				Body:      fmt.Sprintf("Application %s is declined. Reason: %s", loanRefDecl, b.Reason),
 				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
@@ -1396,7 +1396,7 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 		// below — so the old default resurrected a declined, or already disbursed,
 		// application back into document_collection on one API call.
 		if fromStage == "declined" || fromStage == "active" || fromStage == "closed" {
-			respondErr(w, 409, "This application is closed — it cannot be sent back for more information")
+			respondErr(w, 409, "This application is closed, so it cannot be sent back for more information.")
 			return
 		}
 
@@ -1415,7 +1415,7 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 		// default of "document_collection" standing, so "send back for more information"
 		// pushed a draft FORWARD two stages, past submitted, with no permission check.
 		if idx <= 0 {
-			respondErr(w, 422, "This application is still a draft — there is nothing to send it back to")
+			respondErr(w, 422, "This application is still a draft, so there is nothing to send it back to.")
 			return
 		}
 		prevStage := stageOrder[idx-1]
@@ -1431,7 +1431,7 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if n, rerr := res.RowsAffected(); rerr == nil && n == 0 {
-			respondErr(w, 409, "Application stage changed concurrently — please refresh and try again")
+			respondErr(w, 409, "Someone else moved this application while you were working. Refresh and try again.")
 			return
 		}
 
@@ -1448,7 +1448,7 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 			NotifPayload{
 				EventType: EvtLoanStageChanged,
 				Title:     "More Information Needed",
-				Body:      fmt.Sprintf("Application %s was sent back for more information: %s", str(apps[0]["reference"]), b.Notes),
+				Body:      fmt.Sprintf("Application %s came back for more information. %s", str(apps[0]["reference"]), b.Notes),
 				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
@@ -2093,7 +2093,7 @@ func losPostMessage(db *core.DB) http.HandlerFunc {
 			go Notify(context.Background(), db, NotifPayload{
 				EventType: EvtLoanStageChanged,
 				UserID:    mid,
-				Title:     fmt.Sprintf("You were mentioned in %s", loanRef),
+				Title:     fmt.Sprintf("You Were Mentioned in %s", loanRef),
 				Body:      fmt.Sprintf("%s mentioned you: %.100s", user.FullName, b.Body),
 				ActionURL: actionURL,
 				EntityRef: fmt.Sprintf("loan_application:%d", id),

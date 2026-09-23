@@ -209,7 +209,7 @@ func notifyTaskAssigned(ctx context.Context, db *core.DB, taskID, assignee int64
 	Notify(ctx, db, NotifPayload{
 		EventType: EvtTaskAssigned,
 		UserID:    assignee,
-		Title:     "Task assigned to you",
+		Title:     "Task Assigned to You",
 		Body:      body,
 		ActionURL: url,
 		EntityRef: fmt.Sprintf("task:%d", taskID),

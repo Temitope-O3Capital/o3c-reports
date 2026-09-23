@@ -157,7 +157,7 @@ function ApprovalsPane() {
         // final (CFO) stage — posts the GL write-off. The backend enforces the role.
         await apiPut(`/api/recovery-ops/write-off/${modal.row.id}/approve`, {})
         const isFinal = modal.row.required_role === WRITEOFF_CHAIN[WRITEOFF_CHAIN.length - 1].role
-        toast.success(isFinal ? 'Write-off approved and posted' : 'Approved — sent to the next approver')
+        toast.success(isFinal ? 'Write-off approved and posted' : 'Approved: sent to the next approver')
       } else if (modal.type === 'reject') {
         await apiPut(`/api/recovery-ops/write-off/${modal.row.id}/reject`, {})
         toast.success('Write-off rejected')
@@ -182,7 +182,7 @@ function ApprovalsPane() {
           // signing — Customer 360 is reachable by every approver (HOP/COO/CFO).
           { icon: 'person_search', label: 'Review Debtor (Customer 360)', onClick: () => navigate(`/customers/${r.account_cif}`) },
           ...(canApproveRow(r) ? [
-            { icon: 'check_circle', label: r.required_role === 'cfo' ? 'Approve & Post Write-off' : 'Approve — Send to Next Approver', onClick: () => setModal({ type: 'approve', row: r }), danger: true },
+            { icon: 'check_circle', label: r.required_role === 'cfo' ? 'Approve & Post Write-off' : 'Approve: Send to Next Approver', onClick: () => setModal({ type: 'approve', row: r }), danger: true },
             { icon: 'cancel',       label: 'Reject Write-Off',onClick: () => setModal({ type: 'reject', row: r }) },
           ] : []),
         ]} />

@@ -213,7 +213,7 @@ function Step2({ data, onChange }: { data: Employment; onChange: (d: Employment)
           style={inputStyle}
           value={data.monthly_obligation}
           onChange={set('monthly_obligation')}
-          placeholder="e.g. 40000 — leave blank if none"
+          placeholder="e.g. 40000: leave blank if none"
           min={0}
         />
       </Field>

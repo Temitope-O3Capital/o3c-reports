@@ -171,7 +171,7 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
         {/* Fixed once the application exists: the draft update does not change it, so
             an editable box here would promise something the save never does. */}
         <Input label={draft ? 'Customer CIF (Fixed on This Application)' : leadId ? 'Customer CIF (Optional)' : 'Customer CIF'}
-          value={draft && !cif ? 'none yet — links once the customer exists' : cif}
+          value={draft && !cif ? 'none yet: links once the customer exists' : cif}
           onChange={e => setCif(e.target.value)} disabled={!!draft}
           placeholder={leadId ? 'blank = prospect, links later' : 'e.g. 21013'} />
         <Input label="Customer Name (Optional)" value={name} onChange={e => setName(e.target.value)} />
@@ -196,7 +196,7 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
               ? 'Submitting sends this to Operations for booking.'
               : 'Save a draft now and submit once the details are complete.'}
         {' '}{leadId
-          ? 'Raised from this lead — no CIF yet is fine, it lands provisional and links to the customer once they exist.'
+          ? 'Raised from this lead: no CIF yet is fine, it lands provisional and links to the customer once they exist.'
           : 'The customer must be on your book.'}
         {' '}<strong style={{ color: 'var(--txt2)', fontWeight: FW.semibold }}>Save Draft</strong> keeps it private until you submit.
       </div>

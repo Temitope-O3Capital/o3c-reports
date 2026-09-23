@@ -614,7 +614,7 @@ func mailSendTest(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		res := SendMail(r.Context(), db, SendMailOptions{
 			To:      []MailAddress{{Email: b.To, Name: b.To}},
-			Subject: "O3C Mail Health — Test Email",
+			Subject: "O3C Mail Health Test",
 			HTMLBody: `<p>This is a test email sent from the <strong>O3 Capital Mail Health</strong> dashboard.</p>
 <p>If you received this, your SendGrid integration is working correctly.</p>`,
 			TextBody:     "This is a test email from O3 Capital Mail Health. If you received this, your SendGrid integration is working.",
@@ -1060,18 +1060,16 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 }
 
 func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, tempPassword string, userID int64) SendMailResult {
-	inner := fmt.Sprintf(`
-		<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Your O3 Capital Workspace Login</h1>
-		<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Hello %s,</p>
-		<p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#374151;">Use the temporary password below to sign in to the O3 Capital Workspace. You'll be asked to set your own password on first sign-in.</p>
-		%s
-		%s
-		<p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#6b7280;">If you weren't expecting this email, please contact your administrator.</p>`,
+	inner := o3Headline("Your O3 Capital Workspace Login") + fmt.Sprintf(
+		o3Para("Hello %s,")+
+			o3Para("Sign in with the temporary password below. The workspace will ask you to choose your own password straight away.")+
+			"%s%s"+
+			`<p class="fine">If you were not expecting this email, tell your administrator.</p>`,
 		escapeMailHTML(coalesce(name, "there")),
-		emailHighlight("Temporary password", escapeMailHTML(tempPassword)),
-		emailButton("Sign in to Workspace", workspaceURL()))
+		o3Highlight("Temporary Password", escapeMailHTML(tempPassword)),
+		o3Button("Sign in to the workspace", workspaceURL()))
 	html := wrapBrandedEmail("Your O3 Capital Workspace login is ready", inner)
-	text := fmt.Sprintf("Hello %s,\n\nUse the temporary password below to sign in to the O3 Capital Workspace, then set your own password.\n\nTemporary password: %s\n\nSign in: %s\n\nIf you weren't expecting this email, contact your administrator.\n\n— O3 Capital Workspace (no-reply)",
+	text := fmt.Sprintf("Hello %s,\n\nSign in with the temporary password below. The workspace will ask you to choose your own password straight away.\n\nTemporary password: %s\n\nSign in: %s\n\nIf you were not expecting this email, tell your administrator.\n\nO3 Capital Workspace\nThis address does not take replies.",
 		coalesce(name, "there"), tempPassword, workspaceURL())
 	res := SendMail(ctx, db, SendMailOptions{
 		To:          []MailAddress{{Email: email, Name: name}},
@@ -1084,7 +1082,6 @@ func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, t
 		Kind:        "password_reset",
 		RelatedType: "o3c_users",
 		RelatedID:   userID,
-		Attachments: []MailAttachment{brandedLogoAttachment()},
 		CustomArgs:  map[string]string{"o3c_template": "password_reset"},
 	})
 	if !res.OK {
@@ -1103,8 +1100,8 @@ func alertMailFailure(ctx context.Context, db *core.DB, recipient, kind, reason 
 	}
 	NotifyRoles(ctx, db, []string{"admin", "it_admin"}, NotifPayload{
 		EventType: EvtSystemAlert,
-		Title:     "Email delivery failed",
-		Body:      fmt.Sprintf("The %s to %s could not be sent: %s", kind, recipient, reason),
+		Title:     "Email Delivery Failed",
+		Body:      fmt.Sprintf("The %s to %s did not send. %s", kind, recipient, reason),
 		ActionURL: "/admin/mail-health",
 		EntityRef: recipient,
 	})

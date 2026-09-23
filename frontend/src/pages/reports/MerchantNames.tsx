@@ -110,7 +110,7 @@ export default function MerchantNames() {
 
       <SectionCard
         title="Mappings"
-        subtitle="Each row says: this spelling is counted as that one. Approving changes nothing in the data — it records that someone checked."
+        subtitle="Each row says: this spelling is counted as that one. Approving changes nothing in the data. It records that someone checked."
         actions={
           <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
             <Input placeholder="Search a merchant…" value={search} onChange={e => setSearch(e.target.value)} style={{ minWidth: 200 }} />
@@ -195,7 +195,7 @@ export default function MerchantNames() {
 
         <p style={{ margin: `${SP[4]} 0 0`, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.6 }}>
           <strong>Separate</strong> removes the mapping, so the two spellings count as different merchants again.
-          The daily job can propose the same merge later — it will come back unchecked, never silently applied as
+          The daily job can propose the same merge later. It will come back unchecked, never silently applied as
           confirmed. To make a decision permanent, write it by hand with <strong>Add Mapping</strong>: the job never
           overwrites those.
         </p>
@@ -210,7 +210,7 @@ export default function MerchantNames() {
         }>
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           <p style={{ margin: 0, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
-            Use this for merges the automatic rule cannot see — a misspelling, or a trading name that is not a
+            Use this for merges the automatic rule cannot see. A misspelling, or a trading name that is not a
             prefix of the full one. Names are cleaned the same way the feed's are (upper case, LIMITED → LTD)
             before being stored.
           </p>
@@ -226,7 +226,7 @@ export default function MerchantNames() {
         color: 'var(--txt2)', fontFamily: INTER, lineHeight: 1.6,
       }}>
         Only card <strong>purchases</strong> are counted here. On other transaction types that same field holds a
-        transfer narrative, the staff member who posted a payment, or an ATM location — which is why they are
+        transfer narrative, the staff member who posted a payment, or an ATM location, which is why they are
         excluded from merchant rankings entirely.
       </div>
     </Page>

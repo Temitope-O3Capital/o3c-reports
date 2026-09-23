@@ -114,7 +114,7 @@ export default function ExecRecovery() {
           <Note tone={RED}>
             <b>No recovery payments have been logged in this period.</b> {fmtNum(data.open_cases)} cases worth{' '}
             {fmtKobo(data.open_outstanding_kobo)} are open, but nothing has been recorded as recovered in the
-            selected window. Either recovery is happening off-system or it has stalled — both are worth knowing.
+            selected window. Either recovery is happening off-system or it has stalled. Both are worth knowing.
           </Note>
         </div>
       )}

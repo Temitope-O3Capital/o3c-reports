@@ -24,38 +24,3 @@ func workspaceURL() string {
 	}
 	return "https://crm.o3cards.pri:8443"
 }
-
-// emailButton renders a branded call-to-action button (bulletproof table markup).
-func emailButton(text, url string) string {
-	return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0;"><tr>` +
-		`<td align="center" style="border-radius:8px;background:#C00000;">` +
-		`<a href="` + url + `" target="_blank" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;font-family:Segoe UI,Arial,sans-serif;">` +
-		text + `</a></td></tr></table>`
-}
-
-// emailHighlight renders a labelled highlight box (e.g. a temporary password).
-func emailHighlight(label, value string) string {
-	return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0;"><tr>` +
-		`<td style="background:#F4F6F8;border-left:4px solid #C00000;border-radius:8px;padding:16px 20px;">` +
-		`<div style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px;font-family:Segoe UI,Arial,sans-serif;">` + label + `</div>` +
-		`<div style="font-family:Consolas,Menlo,monospace;font-size:20px;font-weight:700;color:#0E2841;letter-spacing:1px;">` + value + `</div>` +
-		`</td></tr></table>`
-}
-
-// wrapBrandedEmail wraps inner content HTML in the O3 Capital branded shell:
-// navy header with the logo, white content card, muted footer.
-func wrapBrandedEmail(preheader, innerHTML string) string {
-	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>` +
-		`<body style="margin:0;padding:0;background:#F4F6F8;">` +
-		`<div style="display:none;max-height:0;overflow:hidden;opacity:0;">` + preheader + `</div>` +
-		`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F8;padding:24px 12px;"><tr><td align="center">` +
-		`<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(14,40,65,.08);">` +
-		`<tr><td align="center" style="background:#0E2841;padding:26px 24px;">` +
-		`<img src="cid:o3logo" width="128" alt="O3 Capital" style="display:block;border:0;width:128px;height:auto;">` +
-		`</td></tr>` +
-		`<tr><td style="padding:34px 38px;font-family:Segoe UI,Arial,sans-serif;">` + innerHTML + `</td></tr>` +
-		`<tr><td style="padding:20px 38px;background:#F4F6F8;color:#6b7280;font-size:12px;line-height:1.6;font-family:Segoe UI,Arial,sans-serif;">` +
-		`O3 Capital Workspace &middot; Automated message from <strong>no-reply@o3cards.com</strong> &mdash; please do not reply.` +
-		`</td></tr>` +
-		`</table></td></tr></table></body></html>`
-}

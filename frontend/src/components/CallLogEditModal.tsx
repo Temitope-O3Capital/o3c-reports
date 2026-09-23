@@ -127,7 +127,7 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
 
   return (
     <Modal open onClose={onClose} width={520}
-      title={`Correct Call Log — ${call.customer_name || call.phone || 'call'}`}
+      title={`Correct Call Log: ${call.customer_name || call.phone || 'call'}`}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
@@ -152,7 +152,7 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
         {mode === 'void' ? (
           <>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
-              The call itself stays in the record — what you are withdrawing is the
+              The call itself stays in the record. What you are withdrawing is the
               write-up. It disappears from the call log and the lead's history, and
               a supervisor can see it and put it back.
             </div>

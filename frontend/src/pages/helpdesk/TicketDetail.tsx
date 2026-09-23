@@ -1331,7 +1331,7 @@ export default function TicketDetail() {
                     date_from: stmtDateFrom,
                     date_to: stmtDateTo,
                     recipient_email: stmtEmail,
-                    subject: `Account Statement — ${ticket.customer_name ?? ticket.customer_cif}`,
+                    subject: `Account Statement: ${ticket.customer_name ?? ticket.customer_cif}`,
                     message: `Requested via helpdesk ticket ${ticket.ticket_ref ?? id}.`,
                   })
                   await apiPost(`/api/helpdesk/tickets/${id}/messages`, {

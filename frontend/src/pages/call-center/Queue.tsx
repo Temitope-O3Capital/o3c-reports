@@ -809,7 +809,7 @@ export default function CallCenterQueue() {
           if (rows.length < SEEK_PAGE) break
         } catch { break }
       }
-      if (!cancelled) setOpenMiss(`That call-back's contact (#${openId}) is no longer in the queue — it may have been called, skipped or reassigned.`)
+      if (!cancelled) setOpenMiss(`That call-back's contact (#${openId}) is no longer in the queue. It may have been called, skipped or reassigned.`)
     })()
     return () => { cancelled = true }
   }, [openId, items])
@@ -879,7 +879,7 @@ export default function CallCenterQueue() {
       if (offset + PAGE_SIZE < bucketTotal) { setSelected(null); setOffset(offset + PAGE_SIZE); return }
       setSelected(null)
       setQueueDone(true)
-      toast.success('Queue cleared — nothing left to call right now')
+      toast.success('Queue cleared: nothing left to call right now')
       return
     }
     setSelected(next)
@@ -1010,12 +1010,12 @@ export default function CallCenterQueue() {
               <StatChip
                 label="Ready" value={summary?.ready ?? 0} color={GREEN}
                 active={bucket === 'ready'} onClick={() => setBucket(bucket === 'ready' ? '' : 'ready')}
-                title="Ready to call — cold dials: never called, or rested past the 7-day cooldown, and not exhausted"
+                title="Ready to call. Cold dials: never called, or rested past the 7-day cooldown, and not exhausted"
               />
               <StatChip
                 label="Uncalled" value={summary?.uncalled ?? 0} color={BLUE}
                 active={bucket === 'uncalled'} onClick={() => setBucket(bucket === 'uncalled' ? '' : 'uncalled')}
-                title="Never called — no call to this number exists in the call ledger"
+                title="Never called: no call to this number exists in the call ledger"
               />
               <StatChip
                 label="Cooling" value={summary?.cooling ?? 0} color={AMBER}

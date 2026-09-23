@@ -216,7 +216,7 @@ export default function CollectionsDueSchedule() {
   const kpiLabel = calMode === 'week' ? (weekOffset === 0 ? 'Due This Week' : 'Due (Week Shown)') : (monthOffset === 0 ? 'Due This Month' : 'Due (Month Shown)')
 
   return (
-    <Page title="Repayments Due" subtitle="Loans and credit cards due this week, and everything already overdue — across CCS, Udara and uploaded">
+    <Page title="Repayments Due" subtitle="Loans and credit cards due this week, and everything already overdue. Across CCS, Udara and uploaded">
       <ErrBanner error={error} onRetry={() => (tab === 'week' ? loadDue() : loadOverdue())} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: SP[4] }}>

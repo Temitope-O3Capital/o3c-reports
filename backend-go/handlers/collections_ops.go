@@ -131,7 +131,17 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 			    WHERE rc.account_cif = ca.account_cif
 			    ORDER BY rc.updated_at DESC LIMIT 1
 			) rec ON TRUE
-			WHERE ca.status = 'active'`
+			-- A superseded row is a facility that has been REPLACED — the pre-restructure
+			-- half of a pair migration 221 linked precisely so the two would not be read
+			-- as two live loans. It must never be worked.
+			--
+			-- Marking it was not enough. Migration 268 taught the delinquency VIEW to skip
+			-- these, but this queue reads collection_assignments DIRECTLY, so the marked
+			-- rows kept appearing as live work: FOLTI TECHNOLOGY sat on the queue twice,
+			-- once for the live N154,300,000 facility (id 1755, mirroring Udara) and once
+			-- for the N250,000,000 one Udara has already Closed and restructured into it
+			-- (id 1782) — one borrower chased for both halves of a single debt.
+			WHERE ca.status = 'active' AND ca.superseded_by_id IS NULL`
 		args := []any{}
 		n := 1
 
@@ -475,7 +485,7 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 		if firstStage, ok := stageProgressions[writeOffChainStart]; ok {
 			NotifyRole(ctx, db, firstStage.required, NotifPayload{
 				EventType: "payment_approval_pending",
-				Title:     "Collection payment awaiting approval",
+				Title:     "Collection Payment Awaiting Approval",
 				Body:      fmt.Sprintf("A ₦%s collection payment needs %s sign-off.", fmtKoboStr(b.AmountKobo), firstStage.label),
 				ActionURL: "/collections/payment-approvals",
 				EntityRef: fmt.Sprint(payID),
@@ -614,7 +624,7 @@ func collectionsOpsApprovePayment(db *core.DB) http.HandlerFunc {
 				prog.next, pid, cur).Scan(&updatedID)
 		}
 		if scanErr == sql.ErrNoRows {
-			respondErr(w, 409, "Payment status changed concurrently — please refresh")
+			respondErr(w, 409, "Someone else changed this payment while you were working. Refresh and try again.")
 			return
 		}
 		if scanErr != nil {
@@ -685,7 +695,7 @@ func collectionsOpsRejectPayment(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(ctx, `UPDATE app.collection_payments SET status='rejected', approved_by=$1, approved_at=NOW(), rejection_reason=$2 WHERE id=$3 AND status=$4 RETURNING id, status`,
 			user.ID, b.RejectionReason, pid, cur)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 409, "Payment status changed — please refresh")
+			respondErr(w, 409, "This payment has changed since you opened it. Refresh and try again.")
 			return
 		}
 		if rb := toInt64(prows[0]["received_by"]); rb > 0 {
@@ -875,15 +885,15 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			go Notify(context.Background(), db, NotifPayload{
 				EventType: EvtPTPBroken,
 				UserID:    agentID,
-				Title:     "PTP broken — " + cif,
-				Body:      fmt.Sprintf("Customer %s missed their promise-to-pay due %v.", cif, p["promised_date"]),
+				Title:     "Broken PTP: " + cif,
+				Body:      fmt.Sprintf("Customer %s missed their promise to pay, due %v.", cif, p["promised_date"]),
 				ActionURL: "/collections",
 				EntityRef: fmt.Sprint(pid),
 			})
 			go NotifyRole(context.Background(), db, "collections_head", NotifPayload{
 				EventType: EvtPTPBroken,
-				Title:     "PTP broken — " + cif,
-				Body:      fmt.Sprintf("Customer %s missed their promise-to-pay due %v.", cif, p["promised_date"]),
+				Title:     "Broken PTP: " + cif,
+				Body:      fmt.Sprintf("Customer %s missed their promise to pay, due %v.", cif, p["promised_date"]),
 				ActionURL: "/collections",
 				EntityRef: fmt.Sprint(pid),
 			})
@@ -1068,10 +1078,25 @@ func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstan
 		return "", 0, fmt.Errorf("failed to generate case reference")
 	}
 	caseRef := "RC-" + str(refRows[0]["ref"])
+	// product_type was never written here, and recovery reads it as
+	// COALESCE(product_type,'card') — so EVERY case handed over from a loan arrived in
+	// recovery labelled a card. All 9 cases opened from a loan assignment carried that
+	// label, ODOMETA ONOME's among them: a N31,600,000 loan, filed as a card debt against
+	// someone who holds no card at all. An agent then works it as a card, looks for a
+	// card balance that does not exist, and the legal and write-off paths treat it as the
+	// wrong product.
+	//
+	// Taken from the source assignment where there is one, since that row already knows
+	// which arm it came from. Where there is none (watchlist escalation passes nil) it is
+	// inferred from the key: a 'UD-' key is Udara, which on this deployment means a loan.
 	rows, err := db.PGQuery(ctx, `
 		INSERT INTO recovery_cases
-		  (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
-		VALUES ($1,$2,$2,$3,$3,$4,$5,'open',NOW(),NOW(),NOW())
+		  (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, product_type, status, opened_at, created_at, updated_at)
+		VALUES ($1,$2,$2,$3,$3,$4,$5,
+		        COALESCE(
+		          (SELECT ca.product_type FROM collection_assignments ca WHERE ca.id = $4),
+		          CASE WHEN $2 LIKE '`+udaraCIFPrefix+`%' THEN 'loan' ELSE 'card' END),
+		        'open',NOW(),NOW(),NOW())
 		RETURNING id`,
 		caseRef, cif, outstanding, sourceAssignmentID, dpd)
 	if err != nil || len(rows) == 0 {
@@ -1123,9 +1148,14 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 
 		var caseID any
 		if err = tx.QueryRowContext(ctx,
+			// product_type carried over from the assignment — see openRecoveryCase for why
+			// omitting it filed every loan hand-off in recovery as a card.
 			`INSERT INTO recovery_cases
-			   (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
-			 VALUES ($1,$2,$2,$3,$3,$4,$5,'open',NOW(),NOW(),NOW())
+			   (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, product_type, status, opened_at, created_at, updated_at)
+			 VALUES ($1,$2,$2,$3,$3,$4,$5,
+			         COALESCE((SELECT ca.product_type FROM collection_assignments ca WHERE ca.id = $4),
+			                  CASE WHEN $2 LIKE '`+udaraCIFPrefix+`%' THEN 'loan' ELSE 'card' END),
+			         'open',NOW(),NOW(),NOW())
 			 RETURNING id`,
 			caseRef, accountCIF, outstanding, id, dpd).Scan(&caseID); err != nil {
 			tx.Rollback() //nolint:errcheck
@@ -1434,8 +1464,8 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 		go Notify(context.Background(), db, NotifPayload{
 			EventType: EvtRepaymentPlanCreated,
 			UserID:    user.ID,
-			Title:     "Repayment plan created — " + b.AccountCIF,
-			Body:      fmt.Sprintf("Account %s: %d-instalment plan for ₦%.2f created.", b.AccountCIF, len(instalments), float64(total)/100),
+			Title:     "Repayment Plan Created: " + b.AccountCIF,
+			Body:      fmt.Sprintf("Account %s now has a %d-instalment plan for ₦%.2f.", b.AccountCIF, len(instalments), float64(total)/100),
 			ActionURL: "/collections/repayment-plans",
 			EntityRef: fmt.Sprint(planID),
 		})
@@ -1840,8 +1870,8 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 			EventType: EvtWriteoffApproved,
-			Title:     "Write-off approved",
-			Body:      fmt.Sprintf("Write-off #%d approved by %s. GL entry posted.", id, user.FullName),
+			Title:     "Write-Off Approved",
+			Body:      fmt.Sprintf("%s approved write-off #%d. The GL entry is posted.", user.FullName, id),
 			ActionURL: "/collections/writeoff-queue",
 			EntityRef: fmt.Sprint(id),
 		})
@@ -1999,8 +2029,8 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 		count := len(pendingRows)
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 			EventType: EvtWriteoffApproved,
-			Title:     fmt.Sprintf("%d write-off(s) bulk approved", count),
-			Body:      fmt.Sprintf("%d write-off(s) approved by %s. GL entries posted.", count, user.FullName),
+			Title:     fmt.Sprintf("%d Write-Off(s) Approved in Bulk", count),
+			Body:      fmt.Sprintf("%s approved %d write-off(s). The GL entries are posted.", user.FullName, count),
 			ActionURL: "/collections/writeoff-queue",
 		})
 		respond(w, map[string]any{"approved": count}, "json")
@@ -2279,8 +2309,8 @@ func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
 		go Notify(context.Background(), db, NotifPayload{
 			EventType: "collections_assigned",
 			UserID:    b.AgentUserID,
-			Title:     "Collection accounts assigned to you",
-			Body:      fmt.Sprintf("%d collection account(s) have been assigned to you.", len(b.AssignmentIDs)),
+			Title:     "Collection Accounts Assigned to You",
+			Body:      fmt.Sprintf("%d collection account(s) are now in your queue.", len(b.AssignmentIDs)),
 			ActionURL: "/collections/ops",
 		})
 		respond(w, map[string]any{"updated": len(b.AssignmentIDs)}, "json")
@@ -2341,8 +2371,8 @@ func collectionsOpsDistribute(db *core.DB) http.HandlerFunc {
 		for _, aid := range b.AgentIDs {
 			go Notify(context.Background(), db, NotifPayload{ //nolint:errcheck
 				EventType: "collections_assigned", UserID: aid,
-				Title:     "Collection accounts assigned to you",
-				Body:      "New accounts from the collections queue have been assigned to you.",
+				Title:     "Collection Accounts Assigned to You",
+				Body:      "Accounts from the collections queue are now yours to work.",
 				ActionURL: "/collections/queue",
 			})
 		}
@@ -2414,8 +2444,8 @@ func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
 		go Notify(context.Background(), db, NotifPayload{
 			EventType: "collections_assigned",
 			UserID:    b.AgentUserID,
-			Title:     "Collection accounts assigned to you",
-			Body:      fmt.Sprintf("%d collection account(s) have been assigned to you.", assigned),
+			Title:     "Collection Accounts Assigned to You",
+			Body:      fmt.Sprintf("%d collection account(s) are now in your queue.", assigned),
 			ActionURL: "/collections/queue",
 		})
 		respond(w, map[string]any{"assigned": assigned, "requested": len(b.Accounts)}, "json")

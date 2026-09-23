@@ -76,7 +76,7 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 		}
 		row := cur[0]
 		if row["voided_at"] != nil {
-			respondErr(w, 409, "This log has been voided — restore it before editing")
+			respondErr(w, 409, "This log is voided. Restore it before you can edit it.")
 			return
 		}
 		// Own log, or a supervisor.
@@ -167,7 +167,7 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(upd) == 0 {
-			respondErr(w, 409, "Someone else changed this call log while you were editing it — reload it and reapply your correction")
+			respondErr(w, 409, "Someone else changed this call log while you were editing it. Reload it and reapply your correction.")
 			return
 		}
 		audited := hdRecordCallEdit(r, db, id, "edit", user, changes, b.Reason) == nil

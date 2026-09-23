@@ -43,15 +43,60 @@ const cbsLoanName = `cl.raw->>'name'`
 // forms are for queries that select from cbs_loans unaliased.
 const cbsLoanDPD = `app.cbs_loan_dpd(cl.status, cl.start_date, cl.maturity_date,
 	         cl.first_installment_date, cl.loan_amount_kobo, cl.outstanding_principal_kobo)`
-const cbsLoanArrears = `app.cbs_loan_arrears_kobo(cl.start_date, cl.maturity_date,
-	         cl.first_installment_date, cl.loan_amount_kobo, cl.outstanding_principal_kobo)`
+// Arrears come from the REAL repayment schedule Udara publishes, and fall back to the
+// straight-line model ONLY where no schedule exists.
+//
+// app.cbs_loan_arrears_kobo is a model: it assumes principal amortises in equal monthly
+// parts, computes what should still be outstanding, and calls the difference arrears. It
+// never reads the schedule, never reads a posted repayment, and — because it works off
+// loan_amount_kobo — it ignores INTEREST entirely. That makes it wrong in both
+// directions. Measured 2026-09-23 across the 41 open loans:
+//
+//	22 loans UNDERSTATED by   N100,968,119.31   (FINTRAK alone N45.6m)
+//	11 loans OVERSTATED  by    N89,672,222.20
+//	                          ---------------
+//	gross error                N190,640,341.51   — the net, N11.3m, hides all of it
+//
+// Two cases show why it matters at the desk. PAUBEE GLOBAL VENTURE is Defaulting with a
+// N13,433,333.33 instalment sitting PartiallyPaid, and the model reports N0.33 — the
+// loan reads clean. In the other direction, 10 loans whose schedule shows NOTHING
+// overdue are reported in arrears for N89,405,555.54 between them (HARRIET ODOMETA for
+// N31.6m), so a current borrower can be worked as a delinquent one.
+//
+// app.cbs_loan_schedules carries 202 instalments over 40 of the 41 open loans with
+// Udara's own per-instalment status. Past-due DueAndUnpaid and PartiallyPaid are the
+// arrears; FullyPaid and NotYetDue are not. PartiallyPaid is counted in FULL because
+// Udara does not publish how much of a part-paid instalment was paid, so that component
+// is an upper bound — still far closer than a model that cannot see the instalment.
+//
+// The EXISTS guard matters: a loan that HAS a schedule with nothing overdue is at zero
+// arrears and must not silently fall back to the model's guess.
+const cbsLoanArrears = `(CASE WHEN EXISTS (
+	         SELECT 1 FROM app.cbs_loan_schedules s
+	          WHERE s.loan_account_number = cl.cbs_account_number)
+	       THEN COALESCE((SELECT SUM(s.principal_kobo + s.interest_kobo + COALESCE(s.fee_kobo,0))
+	                        FROM app.cbs_loan_schedules s
+	                       WHERE s.loan_account_number = cl.cbs_account_number
+	                         AND s.payment_date < CURRENT_DATE
+	                         AND s.payment_status IN ('DueAndUnpaid','PartiallyPaid')), 0)
+	       ELSE app.cbs_loan_arrears_kobo(cl.start_date, cl.maturity_date,
+	         cl.first_installment_date, cl.loan_amount_kobo, cl.outstanding_principal_kobo) END)`
 const cbsLoanBand = `app.cbs_risk_band_dpd(cl.status, ` + cbsLoanDPD + `)`
 const cbsLoanScore = `app.cbs_risk_score_dpd(cl.status, ` + cbsLoanDPD + `)`
 
 const cbsLoanDPDBare = `app.cbs_loan_dpd(status, start_date, maturity_date,
 	         first_installment_date, loan_amount_kobo, outstanding_principal_kobo)`
-const cbsLoanArrearsBare = `app.cbs_loan_arrears_kobo(start_date, maturity_date,
-	         first_installment_date, loan_amount_kobo, outstanding_principal_kobo)`
+// Unaliased form of cbsLoanArrears above — same schedule-first rule, same reasoning.
+const cbsLoanArrearsBare = `(CASE WHEN EXISTS (
+	         SELECT 1 FROM app.cbs_loan_schedules s
+	          WHERE s.loan_account_number = cbs_loans.cbs_account_number)
+	       THEN COALESCE((SELECT SUM(s.principal_kobo + s.interest_kobo + COALESCE(s.fee_kobo,0))
+	                        FROM app.cbs_loan_schedules s
+	                       WHERE s.loan_account_number = cbs_loans.cbs_account_number
+	                         AND s.payment_date < CURRENT_DATE
+	                         AND s.payment_status IN ('DueAndUnpaid','PartiallyPaid')), 0)
+	       ELSE app.cbs_loan_arrears_kobo(start_date, maturity_date,
+	         first_installment_date, loan_amount_kobo, outstanding_principal_kobo) END)`
 const cbsLoanBandBare = `app.cbs_risk_band_dpd(status, ` + cbsLoanDPDBare + `)`
 const cbsLoanScoreBare = `app.cbs_risk_score_dpd(status, ` + cbsLoanDPDBare + `)`
 
@@ -64,7 +109,17 @@ func albList(db *core.DB) http.HandlerFunc {
 
 		q := `SELECT * FROM (
 		      SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
-		             cl.cbs_customer_id AS applicant_cif, ` + cbsLoanName + ` AS applicant_name,
+		             -- applicant_cif is a MISNOMER kept for compatibility: this book reads
+		             -- cbs_loans and nothing else, so the value is ALWAYS a Udara customer
+		             -- id, never a cards CIF. 271 of the 295 Udara ids also exist as a real
+		             -- CIF and 100% of those are a different person, so a screen printing
+		             -- this as "CIF" invites someone to look it up in the cards system and
+		             -- act on a stranger. id_namespace lets the UI caption it honestly;
+		             -- applicant_udara_id is what new code should read.
+		             cl.cbs_customer_id AS applicant_cif,
+		             cl.cbs_customer_id AS applicant_udara_id,
+		             'udara'::text      AS id_namespace,
+		             ` + cbsLoanName + ` AS applicant_name,
 		             NULL::text AS applicant_phone,
 		             cl.product_name AS product_type, cl.product_name AS loan_product,
 		             cl.loan_amount_kobo AS amount_approved_kobo, cl.loan_amount_kobo AS disbursed_amount_kobo,
@@ -196,7 +251,11 @@ func albGet(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
-			       cl.cbs_customer_id AS applicant_cif, `+cbsLoanName+` AS applicant_name,
+			       -- See the list query above: this is a Udara customer id, not a CIF.
+			       cl.cbs_customer_id AS applicant_cif,
+			       cl.cbs_customer_id AS applicant_udara_id,
+			       'udara'::text      AS id_namespace,
+			       `+cbsLoanName+` AS applicant_name,
 			       NULL::text AS applicant_phone,
 			       cl.product_name AS product_type, cl.product_name AS loan_product,
 			       cl.loan_amount_kobo AS amount_approved_kobo, cl.loan_amount_kobo AS disbursed_amount_kobo,

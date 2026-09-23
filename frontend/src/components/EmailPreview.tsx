@@ -20,7 +20,7 @@ function pickHeadline(qs: SurveyQuestion[]): SurveyQuestion[] {
 
 export function EmailPreview({ survey, questions = [], recipientName = 'Ada Okafor' }: { survey: SurveyMeta; questions?: SurveyQuestion[]; recipientName?: string }) {
   const accent = survey.accent_color || '#C00000'
-  const intro = survey.intro || 'Your experience matters to us. Please take a few minutes to share your feedback — it directly shapes how we serve you.'
+  const intro = survey.intro || 'Your experience matters to us. Please take a few minutes to share your feedback. It directly shapes how we serve you.'
   const eyebrow = survey.department ? `${survey.department} · Customer Experience` : 'Customer Experience'
   const headline = pickHeadline(questions)
   const hasHeadline = headline.length > 0
@@ -65,7 +65,7 @@ export function EmailPreview({ survey, questions = [], recipientName = 'Ada Okaf
           <div style={{ padding: '26px clamp(20px, 8cqi, 44px) 0' }}>
             <div style={{ fontSize: 11, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: accent }}>Answer in one tap</div>
             <div style={{ fontSize: 13.5, lineHeight: 1.6, color: '#6e7889', marginTop: 6 }}>
-              Rate us right here — tap a number below and it's recorded straight away, then finish the rest on the next page.
+              Tap a number below. We record it straight away, then you finish the rest on the next page.
             </div>
             {headline.map(q => (
               <div key={q.id} style={{ marginTop: 18 }}>

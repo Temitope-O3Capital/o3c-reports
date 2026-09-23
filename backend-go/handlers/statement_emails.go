@@ -948,7 +948,7 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
   <tbody>%s</tbody>
 </table>
 <div class="ft">
-  <div class="ft-comp">Computer generated statement &mdash; no signature or stamp required</div>
+  <div class="ft-comp">Computer generated statement. No signature or stamp required.</div>
   <div class="ft-grid">
     <div><div class="ft-col-h">Important Notice</div><div class="ft-col-b">This statement is confidential and intended solely for the named account holder. Transactions reflect activity within the stated period only.</div></div>
     <div><div class="ft-col-h">Disputes &amp; Enquiries</div><div class="ft-col-b">Email: care@o3cards.com<br>Call: +234 201 330 1070<br>App: O3 Capital mobile app</div></div>

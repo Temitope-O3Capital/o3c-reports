@@ -243,7 +243,7 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 		if dateMismatch {
 			recordUpload(r.Context(), db, r, "card_cycle", uploadFileNames(files), "",
 				map[string]any{"reports": kindsSeen}, 0, len(errs), errs)
-			respondErr(w, 400, "the uploaded reports are for different cycle dates — upload one cycle at a time")
+			respondErr(w, 400, "Those reports cover different cycle dates. Upload one cycle at a time.")
 			return
 		}
 
@@ -324,7 +324,7 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 					NotifyRoles(ctx, db, []string{"cards_ops_head", "risk_head", "head_collections", "finance_head"}, NotifPayload{
 						EventType: "card_cycle_risk",
 						Title:     fmt.Sprintf("Card cycle %s: %d overdue, %d over-limit", cycleDate.Format("2006-01-02"), overdue, overLimit),
-						Body:      fmt.Sprintf("Latest credit-card cycle imported: %d accounts overdue (₦%s), %d over their limit. Review the at-risk list.", overdue, fmtKoboStr(toInt64(ar[0]["overdue_kobo"])), overLimit),
+						Body:      fmt.Sprintf("The latest credit-card cycle is in. %d accounts are overdue, worth ₦%s, and %d are over their limit. Open the at-risk list.", overdue, fmtKoboStr(toInt64(ar[0]["overdue_kobo"])), overLimit),
 						ActionURL: "/cards/at-risk",
 						EntityRef: "card_cycle:" + cycleDate.Format("2006-01-02"),
 					})

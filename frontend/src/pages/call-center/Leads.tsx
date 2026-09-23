@@ -260,7 +260,7 @@ function ForwardToSalesModal({ open, lead, onClose, onDone }: {
     setSaving(true)
     try {
       await apiPost(`/api/call-center/leads/${lead.id}/forward`, { product_interest: product, notes })
-      toast.success('Forwarded to Sales — track it under Forwarded Leads')
+      toast.success('Forwarded to Sales: track it under Forwarded Leads')
       onDone()
     } catch (e: any) { toast.error(e.message || 'Could not forward') }
     finally { setSaving(false) }
@@ -588,7 +588,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                 if ((disposition ?? '').toLowerCase().includes('drop')) {
                   setCallKey(k => k + 1) // show the just-logged drop in the history
                   onRefresh()            // refresh the lead's own row (still pending)
-                  toast.success('Call dropped — lead kept as pending. Redial when ready.')
+                  toast.success('Call dropped: lead kept as pending. Redial when ready.')
                   return
                 }
                 // A worked call moves the agent to the next lead automatically. The panel
@@ -639,8 +639,8 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
         {shownItems.length === 0 ? (
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: '8px 0' }}>
             {tab === 'calls'    ? 'No calls logged yet.'
-           : tab === 'activity' ? 'No activity logged yet — notes, documents and hand-offs show here.'
-           : 'Nothing logged yet — calls, notes, documents and hand-offs all show here.'}
+           : tab === 'activity' ? 'No activity logged yet: notes, documents and hand-offs show here.'
+           : 'Nothing logged yet: calls, notes, documents and hand-offs all show here.'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1409,11 +1409,11 @@ export default function CallCenterLeads() {
       if (offset > 0) {
         advanceToTop.current = true
         setOffset(0)
-        toast.success('Back to the top — you’ve been through this list once')
+        toast.success('Back to the top: you’ve been through this list once')
         return
       }
       next = fresh.find(l => l.id !== prev?.id) ?? null
-      if (next) toast.success('Back to the top — you’ve been through this list once')
+      if (next) toast.success('Back to the top: you’ve been through this list once')
     }
     if (!next) { setSelected(null); return }  // list is empty / fully worked
     setSelected(next)
@@ -1573,7 +1573,7 @@ export default function CallCenterLeads() {
       const res = await apiPost<any>('/api/call-center/leads/recall', body)
       const d: any = (res as any)?.data ?? res
       if (!d.recalled) toast.info('No handed-out pending leads to recall')
-      else toast.success(`${d.recalled} lead(s) recalled to the pool — ready to redistribute`)
+      else toast.success(`${d.recalled} lead(s) recalled to the pool. Ready to redistribute`)
       load()
     } catch (ex: any) {
       toast.error(ex.message ?? 'Recall failed')

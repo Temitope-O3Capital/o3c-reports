@@ -268,7 +268,7 @@ export default function SalesBook() {
               <span key={l.label} style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'], background: `${l.c}18`, color: l.c, whiteSpace: 'nowrap' }}>{l.label}</span>
             ))}
             {crossSell && (
-              <span title="Single-product customer — cross-sell opportunity" style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'], background: `${GREEN}14`, color: GREEN, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <span title="Single-product customer: cross-sell opportunity" style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'], background: `${GREEN}14`, color: GREEN, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 12 }}>trending_up</span>Cross-Sell
               </span>
             )}
@@ -292,7 +292,7 @@ export default function SalesBook() {
     {
       key: 'card_float_kobo', label: 'Card Held', sortable: true, align: 'right',
       render: r => (
-        <span style={{ ...NUM, color: r.card_float_kobo > 0 ? GREEN : 'var(--txt3)' }} title="Customer money O3 is holding — prepaid and Blink stored value, and cards in credit">
+        <span style={{ ...NUM, color: r.card_float_kobo > 0 ? GREEN : 'var(--txt3)' }} title="Customer money O3 is holding. Prepaid and Blink stored value, and cards in credit">
           {r.card_float_kobo ? fmtKobo(r.card_float_kobo) : '—'}
           {r.card_currency && r.card_currency !== 'NGN' && r.card_float_kobo > 0 && (
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 3 }}>{r.card_currency}</span>
@@ -396,7 +396,7 @@ export default function SalesBook() {
               crossSell ? p.delete('segment') : p.set('segment', 'cross_sell')
               setParams(p); setOffset(0)
             }}
-            title="Customers on a single product line and not in arrears — expansion targets"
+            title="Customers on a single product line and not in arrears. Expansion targets"
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: RADIUS.md,
               fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',

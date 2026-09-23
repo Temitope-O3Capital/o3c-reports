@@ -108,19 +108,19 @@ export default function RiskSupervisor() {
   const actionItems: { icon: string; color: string; title: string; detail: string; onClick?: () => void }[] = []
   breaches.forEach(b => actionItems.push({
     icon: 'corporate_fare', color: RED,
-    title: `${b.name} — ${fmtPct(b.pct_of_total)} of book`,
+    title: `${b.name}: ${fmtPct(b.pct_of_total)} of book`,
     detail: `Single obligor over the ${limit}% policy limit; review the exposure`,
   }))
   if (nplRatio > 5) actionItems.push({
     icon: 'trending_down', color: RED,
     title: `NPL ratio ${fmtPct(nplRatio)} above tolerance`,
-    detail: 'Over the 5% limit — review the 90+ book to escalate to Recovery',
+    detail: 'Over the 5% limit: review the 90+ book to escalate to Recovery',
     onClick: () => navigate('/operations/risk/portfolio?dpd=npl'),
   })
   if (N(s?.npl_loans) > 0) actionItems.push({
     icon: 'block', color: RED,
     title: `${fmtNum(N(s?.npl_loans))} loans over 90 DPD`,
-    detail: `${fmtKoboExact(N(s?.npl_kobo))} at risk — review to hand off to Recovery`,
+    detail: `${fmtKoboExact(N(s?.npl_kobo))} at risk. Review to hand off to Recovery`,
     onClick: () => navigate('/operations/risk/portfolio?dpd=npl'),
   })
   if (N(s?.par30_loans) > 0) actionItems.push({
@@ -132,7 +132,7 @@ export default function RiskSupervisor() {
   if (live && N(review?.oldest_pending_days) >= 3) actionItems.push({
     icon: 'hourglass_bottom', color: AMBER,
     title: 'Review turnaround breach',
-    detail: `Oldest application waiting ${fmtNum(review?.oldest_pending_days)}d — reassign or decide`,
+    detail: `Oldest application waiting ${fmtNum(review?.oldest_pending_days)}d. Reassign or decide`,
     onClick: () => navigate('/operations/risk/applications'),
   })
 
@@ -216,7 +216,7 @@ export default function RiskSupervisor() {
             {actionItems.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '18px 0', color: GREEN, fontSize: TEXT.sm }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 18 }}>check_circle</span>
-                Nothing needs escalation — portfolio within tolerances.
+                Nothing needs escalation: portfolio within tolerances.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

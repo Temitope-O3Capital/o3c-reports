@@ -145,7 +145,7 @@ export default function CallCenterDNC() {
   async function handleRemove() {
     // Never post an empty list while claiming a count.
     if (selectedPhones.length === 0) {
-      toast.error('Nothing to remove — that selection is no longer in the list.')
+      toast.error('Nothing to remove: that selection is no longer in the list.')
       setSelectedIds(new Set())
       setRemoveConfirm(false)
       return

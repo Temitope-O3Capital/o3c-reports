@@ -91,8 +91,8 @@ func pollBounces(db *core.DB) {
 		}
 		NotifyRoles(ctx, db, []string{"admin", "it_admin"}, NotifPayload{
 			EventType: EvtSystemAlert,
-			Title:     "Email bounced — recipient did not receive it",
-			Body:      fmt.Sprintf("Mail to %s bounced: %s", b.Email, b.Reason),
+			Title:     "Email Bounced",
+			Body:      fmt.Sprintf("Mail to %s bounced. %s", b.Email, b.Reason),
 			ActionURL: "/admin/mail-health",
 			EntityRef: b.Email,
 		})

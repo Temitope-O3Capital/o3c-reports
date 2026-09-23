@@ -312,7 +312,7 @@ func resolvePipelineAlerts(ctx context.Context, db *core.DB, r core.Row, levels 
 			// Recovery goes to whoever was told it broke.
 			NotifyRoles(ctx, db, pipelineNotifyRoles(r), NotifPayload{
 				EventType: EvtSystemAlert,
-				Title:     "Data flowing again: " + str(r["label"]),
+				Title:     "Data Flowing Again: " + str(r["label"]),
 				Body: fmt.Sprintf("%s is delivering again (last data %s).",
 					str(r["label"]), pipelineAgeWords(toInt64(r["data_age_sec"]))),
 				ActionURL: "/admin/data-freshness",

@@ -373,6 +373,7 @@ export default function ReportBuilder() {
                   {loadedMine ? '' : 'Shared · '}{reportName}{isDirty ? ' · Unsaved Changes' : ''}
                 </span>
               )}
+              <span className="rb-spacer" aria-hidden="true" />
               <div className="rb-actions">
                 <button type="button" className="rb-tbtn ghost" onClick={startNew}>
                   <span className="material-symbols-rounded" aria-hidden="true">add</span>New

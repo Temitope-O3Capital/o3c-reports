@@ -130,7 +130,7 @@ export default function SettlementRuns() {
   return (
     <Page
       title="Runs & Imports"
-      subtitle="Every reconciliation, sync and file import — who ran it, when, and what it produced"
+      subtitle="Every reconciliation, sync and file import. Who ran it, when, and what it produced"
       loading={loading && !data}
       skeletonKpis={4}
       actions={

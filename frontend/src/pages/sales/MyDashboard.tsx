@@ -395,7 +395,7 @@ export default function SalesMyDashboard() {
       {/* Draft applications — parked, waiting to be completed and submitted */}
       {drafts.length > 0 && (
         <SectionCard title="Draft Applications" badge={drafts.length} style={{ marginTop: SP[4] }}
-          subtitle="Parked applications — resume to complete and submit">
+          subtitle="Parked applications: resume to complete and submit">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {drafts.map(d => (
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)' }}>

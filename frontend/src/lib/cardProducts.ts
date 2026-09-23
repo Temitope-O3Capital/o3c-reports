@@ -32,7 +32,7 @@ export const CARD_FAMILIES: CardFamilyMeta[] = [
   { key: 'credit',  label: 'Credit',  color: RED,    icon: 'credit_card',
     blurb: 'Revolving line with a credit limit, billed on a cycle and charging interest.' },
   { key: 'prepaid', label: 'Prepaid', color: NAVY,   icon: 'account_balance_wallet',
-    blurb: "Stored value — the balance is the customer's own float, so it carries no limit and no interest." },
+    blurb: "Stored value: the balance is the customer's own float, so it carries no limit and no interest." },
   { key: 'blink',   label: 'Blink',   color: PURPLE, icon: 'bolt',
     blurb: 'Temporary virtual card funded in foreign currency and credited in naira.' },
 ]

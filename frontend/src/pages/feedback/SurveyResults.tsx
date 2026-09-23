@@ -112,7 +112,7 @@ function SummaryTab({ data }: { data: Results }) {
   const ratingBars = ratingQs.map(q => ({ name: q.label.length > 42 ? q.label.slice(0, 40) + '…' : q.label, avg: Number((q.avg || 0).toFixed(2)) }))
 
   if (data.summary.responses === 0) {
-    return <EmptyState icon="insights" title="No Responses Yet" description="Once customers start completing the survey, their ratings and comments appear here — and on each customer's 360 timeline." />
+    return <EmptyState icon="insights" title="No Responses Yet" description="Once customers start completing the survey, their ratings and comments appear here. And on each customer's 360 timeline." />
   }
 
   return (

@@ -293,7 +293,7 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/accounts/{cif}/credit", collectionsCreditDossier(db))
 }
 
-// collectionsGenerateAssignments seeds/refreshes the collection_assignments work
+// runCollectionsGenerate seeds/refreshes the collection_assignments work
 // book from the unified delinquency source (both card arrears and the Udara loan
 // book, aggregated per CIF). Head-gated. It refreshes outstanding/dpd on existing
 // active assignments and creates new ones for delinquent CIFs not yet being worked
@@ -349,6 +349,254 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 // statement reads one arm at a time, the party is not inferred but looked up — cbs_links
 // for Udara, app.customers for cards — and leaving the unifying key blank was what forced
 // every downstream reader back onto the colliding CIF in the first place.
+//
+// runCollectionsGenerate is the whole of Generate Assignments, callable without an HTTP
+// request so a scheduler can run it too.
+//
+// WHY THIS WAS EXTRACTED. This job does two different things:
+//   1. REFRESH — recompute outstanding/dpd/name on rows already being worked.
+//   2. CREATE  — add a row for a delinquent customer who has none.
+// Only (2) has any human judgement in it, and even then the new row lands UNASSIGNED
+// (agent_user_id NULL) for a head to distribute. (1) is pure arithmetic over the
+// delinquency book.
+//
+// Leaving both behind a button meant neither happened: the credit activity log shows the
+// endpoint had been invoked ZERO times, while 255 card assignments drifted from their live
+// balances — N90,186,756.95 of absolute error, 141 overstated and 114 understated. A
+// balance nobody recomputes is not "slightly stale", it is wrong in whichever direction
+// the customer moved, and an agent calls on it.
+//
+// actorID is stamped into assigned_by (NOT NULL). The scheduled run passes the automation
+// service account so an automated creation is never attributed to a real person.
+func runCollectionsGenerate(ctx context.Context, db *core.DB, actorID int64) (int64, []string, error) {
+
+	// DPD -> bucket, over whichever DPD expression the statement has to hand.
+	bucketOf := func(dpd string) string {
+		return `CASE WHEN ` + dpd + `<=30 THEN '1-30' WHEN ` + dpd + `<=60 THEN '31-60' WHEN ` + dpd + `<=90 THEN '61-90'
+			WHEN ` + dpd + `<=180 THEN '91-180' WHEN ` + dpd + `<=360 THEN '181-360' ELSE '360+' END`
+	}
+	bucketExpr := bucketOf("b.dpd")
+
+	// Rows whose outstanding legitimately comes from a CIF-level aggregate:
+	// everything except the per-facility uploaded loan book.
+	const aggregateRefreshable = `(COALESCE(ca.data_source,'') <> 'manual' OR COALESCE(ca.product_type,'') <> 'loan')`
+
+	// (1) Refresh outstanding/bucket/name on card + Udara assignments still being
+	// worked — each arm against its own aggregate, matched on its own key, so a
+	// Udara borrower's loan balance can never be stamped onto the card customer who
+	// happens to share the id. `(b.arm='udara') = isUdaraRow(ca)` is the arm
+	// agreement: a Udara book row only ever updates a Udara-keyed assignment and a
+	// card book row only ever updates a card-keyed one.
+	if _, err := db.PGExec(ctx, armSplitDelinquency+`
+		UPDATE collection_assignments ca SET
+			outstanding_kobo = b.outstanding_kobo,
+			dpd_bucket       = `+bucketExpr+`,
+			customer_name    = COALESCE(NULLIF(ca.customer_name,''), b.customer_name),
+			party_id         = COALESCE(b.party_id, ca.party_id),
+			updated_at       = NOW()
+		FROM book b
+		WHERE ca.account_cif = b.key_cif AND ca.status = 'active'
+		  AND (b.arm = 'udara') = `+isUdaraRow("ca")+`
+		  AND `+udaraIdentityResolved+`
+		  AND NOT `+udaraCrossedRows("ca")+`
+		  AND `+aggregateRefreshable); err != nil {
+		return 0, nil, fmt.Errorf("refresh card and Udara assignments: %w", err)
+	}
+
+	// (2) Refresh the uploaded loan book per facility, never per customer.
+	//
+	// The allocation set deliberately includes closed and superseded rows: receipts
+	// are recorded against the CUSTOMER, not the facility, so a customer's pool is
+	// run down their loans oldest-disbursement-first and a superseded row must claim
+	// its own receipts rather than hand them to its successor. Only active rows are
+	// written back — a superseded row is history and a closed one is settled, and
+	// neither should be re-opened by a refresh. Where a customer holds several loans
+	// this is an allocation, not a fact: the ledger cannot say which facility was
+	// paid. Tagging payments with their facility is the real fix and is not
+	// attempted here — the same caveat migration 222 and the Credit Portfolio
+	// waterfall carry, and deliberately the same arithmetic, so the pages agree.
+	//
+	// dpd_bucket is re-derived from the maturity date on the basis the view uses,
+	// and left alone where there is no maturity date to derive it from.
+	uploadedDPD := `GREATEST(0, (CURRENT_DATE - ca.maturity_date))`
+	if _, err := db.PGExec(ctx, `
+		WITH cif_paid AS (
+			-- 2026-09-21: no status filter here meant the refresh netted outstanding
+			-- against money still inside the HOP -> COO -> CFO chain, writing an
+			-- outstanding balance N106,393,555.56 too low across 11 uploaded loans
+			-- (e.g. W000000000000041 would have been written down to N34,000,000
+			-- when N57,000,000 is still owed). Only an approved receipt has posted
+			-- to the GL, so only an approved receipt may reduce a balance. Filtering
+			-- TO 'approved' also keeps a future 'rejected' row out permanently.
+			-- Unapproved money is deliberately NOT written anywhere by this refresh:
+			-- it is reported on the read surfaces as a separate "awaiting approval"
+			-- figure and must never be baked into a stored balance.
+			SELECT account_cif,
+			       COALESCE(SUM(amount_kobo) FILTER (WHERE status = 'approved'), 0) AS paid
+			  FROM collection_payments GROUP BY 1
+		), al AS (
+			SELECT a.id,
+			       COALESCE(a.target_amount_kobo, a.original_outstanding_kobo, 0) AS approved,
+			       COALESCE(p.paid, 0)                                            AS pool,
+			       COALESCE(SUM(COALESCE(a.target_amount_kobo, a.original_outstanding_kobo, 0)) OVER (
+			           PARTITION BY a.account_cif
+			           ORDER BY a.disbursement_date ASC NULLS LAST, a.id ASC
+			           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0)      AS claimed_before
+			  FROM collection_assignments a
+			  LEFT JOIN cif_paid p ON p.account_cif = a.account_cif
+			 WHERE a.data_source = 'manual' AND a.product_type = 'loan'
+		), netted AS (
+			SELECT id, GREATEST(approved - LEAST(approved, GREATEST(pool - claimed_before, 0)), 0) AS outstanding
+			  FROM al
+		)
+		UPDATE collection_assignments ca SET
+			outstanding_kobo = n.outstanding,
+			dpd_bucket       = CASE WHEN ca.maturity_date IS NOT NULL
+			                        THEN `+bucketOf(uploadedDPD)+`
+			                        ELSE ca.dpd_bucket END,
+			updated_at       = NOW()
+		FROM netted n
+		WHERE ca.id = n.id
+		  AND ca.status = 'active'
+		  AND ca.data_source = 'manual' AND ca.product_type = 'loan'
+		  -- A row proven to mirror a Udara facility is NOT netted from the spreadsheet:
+		  -- statement (2b) takes its figure from Udara instead. See below.
+		  AND ca.duplicate_of_cbs_id IS NULL
+		  AND (ca.outstanding_kobo IS DISTINCT FROM n.outstanding
+		       OR ca.dpd_bucket IS DISTINCT FROM CASE WHEN ca.maturity_date IS NOT NULL
+		                                              THEN `+bucketOf(uploadedDPD)+`
+		                                              ELSE ca.dpd_bucket END)`); err != nil {
+		return 0, nil, fmt.Errorf("refresh uploaded loan book: %w", err)
+	}
+
+	// (2b) Udara is the book of record. Where migration 268 proved an uploaded row mirrors
+	// a live Udara facility, that row keeps its place on the queue — it is the work item an
+	// agent already has, and the queue reads this table directly rather than the delinquency
+	// view — but its FIGURE comes from core banking, not from the spreadsheet.
+	//
+	// Without this the two halves of the decision contradicted each other: 268 hid the row
+	// from the view as a duplicate, yet statement (2) kept rewriting it with the sheet's
+	// number, so an agent worked PAUBEE at the sheet's N51,566,667 while Udara said
+	// N54,166,667. Thirty rows carrying N543,538,634.32 were in that state.
+	//
+	// Only the amount is taken. Status, ownership and history stay with the row.
+	if _, err := db.PGExec(ctx, `
+		UPDATE collection_assignments ca SET
+			outstanding_kobo = GREATEST(
+				COALESCE(cl.outstanding_principal_kobo,0)
+			  + COALESCE(cl.outstanding_interest_kobo,0)
+			  + COALESCE(cl.outstanding_fee_kobo,0), 0),
+			updated_at       = NOW()
+		FROM cbs_loans cl
+		WHERE cl.cbs_id = ca.duplicate_of_cbs_id
+		  AND ca.duplicate_of_cbs_id IS NOT NULL
+		  AND ca.status IN ('active','sent_to_recovery')
+		  AND ca.outstanding_kobo IS DISTINCT FROM GREATEST(
+				COALESCE(cl.outstanding_principal_kobo,0)
+			  + COALESCE(cl.outstanding_interest_kobo,0)
+			  + COALESCE(cl.outstanding_fee_kobo,0), 0)`); err != nil {
+		return 0, nil, fmt.Errorf("sync mirrored rows to the Udara figure: %w", err)
+	}
+
+	// A Udara borrower is not seeded while a live assignment still holds their bare
+	// id in the cards namespace. That row names a card customer for this borrower's
+	// debt; adding the correctly-named row beside it would put the same money on two
+	// queues and leave the wrong person on one of them. Same gate the escalation
+	// applies, and it lifts itself as soon as those rows are corrected.
+	// A proven duplicate (duplicate_of_cbs_id, migration 268) DOES still block, deliberately.
+	// It is the same facility Udara reports, it is still the live work item on the agent's
+	// queue — the queue reads this table directly, not the view — and statement (2b) above
+	// keeps its figure equal to Udara's. Seeding a second row beside it would put one debt
+	// on two queue lines.
+	//
+	// What no longer blocks is a CARD row whose outstanding equals that customer's own live
+	// card balance to the kobo: that is provably card work for a different person who merely
+	// shares the eight digits — the same test migration 267 used to decide which rows NOT to
+	// re-key. The guard was over-broad without it and left real money unworked: BENLAD
+	// MULTILINKS' N29,166,666.67 was refused because Obinna Ubani, an unrelated CARD customer
+	// holding CIF 00000656, had a legitimate N1,793,333.11 card assignment on the same
+	// number. Refusing a Udara borrower because a stranger's card row exists is not caution;
+	// it is the collision winning twice.
+	const crossedAssignmentOpen = `EXISTS (
+		SELECT 1 FROM collection_assignments ca
+		 WHERE b.arm = 'udara' AND ca.account_cif = b.raw_cif
+		   AND NOT (COALESCE(ca.data_source,'') = 'udara' OR ca.account_cif LIKE '` + udaraCIFPrefix + `%')
+		   AND ca.status IN ('active','sent_to_recovery')
+		   AND NOT (
+		         COALESCE(ca.product_type,'') = 'card'
+		     AND ca.outstanding_kobo > 0
+		     AND ca.outstanding_kobo = (SELECT COALESCE(SUM(round(COALESCE(a.current_dr_balance,0) * 100)), 0)
+		                                  FROM accounts a WHERE a.cif = ca.account_cif)
+		   ))`
+
+	// Refuse-and-report, before anything is written: every delinquent Udara borrower
+	// this run will NOT seed, and why. These are skipped by the WHERE below — this
+	// query exists so the skip is LOUD rather than a row count that silently comes up
+	// short.
+	var refused []core.Row
+	if rows, uErr := db.PGQuery(ctx, armSplitDelinquency+`
+		SELECT b.raw_cif, b.key_cif, b.outstanding_kobo, b.dpd,
+		       (b.party_id IS NULL) AS unlinked,
+		       COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(p.full_name),''), b.raw_cif) AS borrower
+		  FROM book b
+		  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = b.raw_cif
+		  LEFT JOIN app.parties p ON p.party_id = b.party_id
+		 WHERE b.arm = 'udara'
+		   AND (b.party_id IS NULL OR `+crossedAssignmentOpen+`)
+		 ORDER BY b.outstanding_kobo DESC`); uErr == nil {
+		refused = rows
+	}
+	for _, u := range refused {
+		reason := "a live collection assignment still holds this borrower's bare Udara id in the cards namespace — it names a different person for this debt"
+		if toBool(u["unlinked"]) {
+			reason = "no app.cbs_links bridge for this Udara customer id — no party can be named for this debt"
+		}
+		slog.Error("collections generate REFUSED to create an assignment",
+			"reason", reason, "cbs_customer_id", str(u["raw_cif"]), "would_be_key", str(u["key_cif"]),
+			"borrower", str(u["borrower"]), "outstanding_kobo", toInt64(u["outstanding_kobo"]),
+			"dpd", toInt64(u["dpd"]), "actor_id", actorID)
+	}
+
+	// Create assignments for delinquent ids not already active or in recovery, one
+	// row per (arm, id). assigned_by records the head who ran the generation; agent
+	// stays NULL (unassigned) until a head distributes the queue. The uploaded branch
+	// is excluded here too: every row it can emit is already an active assignment (the
+	// view only shows uploaded loans with status='active'), so it can never seed a
+	// new row — it could only lend a facility total to an unrelated card CIF that
+	// happened to share the key.
+	//
+	// A Udara row is stored under key_cif = 'UD-<cbs_customer_id>' with its real
+	// party_id and data_source='udara'; a card row is unchanged.
+	res, err := db.PGExec(ctx, armSplitDelinquency+`
+		INSERT INTO collection_assignments
+		  (cif_number, account_cif, customer_name, party_id, data_source, product_type,
+		   assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+		SELECT b.key_cif, b.key_cif, b.customer_name, b.party_id, b.data_source, b.product_type,
+		       $1, `+bucketExpr+`, b.outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
+		FROM book b
+		WHERE `+udaraIdentityResolved+`
+		  AND NOT `+crossedAssignmentOpen+`
+		  AND b.key_cif NOT IN (
+			SELECT account_cif FROM collection_assignments
+			WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
+		)`, actorID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("create new assignments: %w", err)
+	}
+	created := int64(0)
+	if res != nil {
+		created, _ = res.RowsAffected()
+	}
+	refusedIDs := make([]string, 0, len(refused))
+	for _, u := range refused {
+		refusedIDs = append(refusedIDs, str(u["raw_cif"]))
+	}
+
+	return created, refusedIDs, nil
+}
+
+// collectionsGenerateAssignments is the head-gated button. The work itself lives in
+// runCollectionsGenerate, which the hourly worker calls with the automation account.
 func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -356,186 +604,17 @@ func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Only collections heads can generate assignments")
 			return
 		}
-		ctx := r.Context()
-
-		// DPD -> bucket, over whichever DPD expression the statement has to hand.
-		bucketOf := func(dpd string) string {
-			return `CASE WHEN ` + dpd + `<=30 THEN '1-30' WHEN ` + dpd + `<=60 THEN '31-60' WHEN ` + dpd + `<=90 THEN '61-90'
-				WHEN ` + dpd + `<=180 THEN '91-180' WHEN ` + dpd + `<=360 THEN '181-360' ELSE '360+' END`
-		}
-		bucketExpr := bucketOf("b.dpd")
-
-		// Rows whose outstanding legitimately comes from a CIF-level aggregate:
-		// everything except the per-facility uploaded loan book.
-		const aggregateRefreshable = `(COALESCE(ca.data_source,'') <> 'manual' OR COALESCE(ca.product_type,'') <> 'loan')`
-
-		// (1) Refresh outstanding/bucket/name on card + Udara assignments still being
-		// worked — each arm against its own aggregate, matched on its own key, so a
-		// Udara borrower's loan balance can never be stamped onto the card customer who
-		// happens to share the id. `(b.arm='udara') = isUdaraRow(ca)` is the arm
-		// agreement: a Udara book row only ever updates a Udara-keyed assignment and a
-		// card book row only ever updates a card-keyed one.
-		if _, err := db.PGExec(ctx, armSplitDelinquency+`
-			UPDATE collection_assignments ca SET
-				outstanding_kobo = b.outstanding_kobo,
-				dpd_bucket       = `+bucketExpr+`,
-				customer_name    = COALESCE(NULLIF(ca.customer_name,''), b.customer_name),
-				party_id         = COALESCE(b.party_id, ca.party_id),
-				updated_at       = NOW()
-			FROM book b
-			WHERE ca.account_cif = b.key_cif AND ca.status = 'active'
-			  AND (b.arm = 'udara') = `+isUdaraRow("ca")+`
-			  AND `+udaraIdentityResolved+`
-			  AND NOT `+udaraCrossedRows("ca")+`
-			  AND `+aggregateRefreshable); err != nil {
-			respondErr(w, 500, "Refresh failed: "+err.Error())
-			return
-		}
-
-		// (2) Refresh the uploaded loan book per facility, never per customer.
-		//
-		// The allocation set deliberately includes closed and superseded rows: receipts
-		// are recorded against the CUSTOMER, not the facility, so a customer's pool is
-		// run down their loans oldest-disbursement-first and a superseded row must claim
-		// its own receipts rather than hand them to its successor. Only active rows are
-		// written back — a superseded row is history and a closed one is settled, and
-		// neither should be re-opened by a refresh. Where a customer holds several loans
-		// this is an allocation, not a fact: the ledger cannot say which facility was
-		// paid. Tagging payments with their facility is the real fix and is not
-		// attempted here — the same caveat migration 222 and the Credit Portfolio
-		// waterfall carry, and deliberately the same arithmetic, so the pages agree.
-		//
-		// dpd_bucket is re-derived from the maturity date on the basis the view uses,
-		// and left alone where there is no maturity date to derive it from.
-		uploadedDPD := `GREATEST(0, (CURRENT_DATE - ca.maturity_date))`
-		if _, err := db.PGExec(ctx, `
-			WITH cif_paid AS (
-				-- 2026-09-21: no status filter here meant the refresh netted outstanding
-				-- against money still inside the HOP -> COO -> CFO chain, writing an
-				-- outstanding balance N106,393,555.56 too low across 11 uploaded loans
-				-- (e.g. W000000000000041 would have been written down to N34,000,000
-				-- when N57,000,000 is still owed). Only an approved receipt has posted
-				-- to the GL, so only an approved receipt may reduce a balance. Filtering
-				-- TO 'approved' also keeps a future 'rejected' row out permanently.
-				-- Unapproved money is deliberately NOT written anywhere by this refresh:
-				-- it is reported on the read surfaces as a separate "awaiting approval"
-				-- figure and must never be baked into a stored balance.
-				SELECT account_cif,
-				       COALESCE(SUM(amount_kobo) FILTER (WHERE status = 'approved'), 0) AS paid
-				  FROM collection_payments GROUP BY 1
-			), al AS (
-				SELECT a.id,
-				       COALESCE(a.target_amount_kobo, a.original_outstanding_kobo, 0) AS approved,
-				       COALESCE(p.paid, 0)                                            AS pool,
-				       COALESCE(SUM(COALESCE(a.target_amount_kobo, a.original_outstanding_kobo, 0)) OVER (
-				           PARTITION BY a.account_cif
-				           ORDER BY a.disbursement_date ASC NULLS LAST, a.id ASC
-				           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0)      AS claimed_before
-				  FROM collection_assignments a
-				  LEFT JOIN cif_paid p ON p.account_cif = a.account_cif
-				 WHERE a.data_source = 'manual' AND a.product_type = 'loan'
-			), netted AS (
-				SELECT id, GREATEST(approved - LEAST(approved, GREATEST(pool - claimed_before, 0)), 0) AS outstanding
-				  FROM al
-			)
-			UPDATE collection_assignments ca SET
-				outstanding_kobo = n.outstanding,
-				dpd_bucket       = CASE WHEN ca.maturity_date IS NOT NULL
-				                        THEN `+bucketOf(uploadedDPD)+`
-				                        ELSE ca.dpd_bucket END,
-				updated_at       = NOW()
-			FROM netted n
-			WHERE ca.id = n.id
-			  AND ca.status = 'active'
-			  AND ca.data_source = 'manual' AND ca.product_type = 'loan'
-			  AND (ca.outstanding_kobo IS DISTINCT FROM n.outstanding
-			       OR ca.dpd_bucket IS DISTINCT FROM CASE WHEN ca.maturity_date IS NOT NULL
-			                                              THEN `+bucketOf(uploadedDPD)+`
-			                                              ELSE ca.dpd_bucket END)`); err != nil {
-			respondErr(w, 500, "Uploaded loan refresh failed: "+err.Error())
-			return
-		}
-
-		// A Udara borrower is not seeded while a live assignment still holds their bare
-		// id in the cards namespace. That row names a card customer for this borrower's
-		// debt; adding the correctly-named row beside it would put the same money on two
-		// queues and leave the wrong person on one of them. Same gate the escalation
-		// applies, and it lifts itself as soon as those rows are corrected.
-		const crossedAssignmentOpen = `EXISTS (
-			SELECT 1 FROM collection_assignments ca
-			 WHERE b.arm = 'udara' AND ca.account_cif = b.raw_cif
-			   AND NOT (COALESCE(ca.data_source,'') = 'udara' OR ca.account_cif LIKE '` + udaraCIFPrefix + `%')
-			   AND ca.status IN ('active','sent_to_recovery'))`
-
-		// Refuse-and-report, before anything is written: every delinquent Udara borrower
-		// this run will NOT seed, and why. These are skipped by the WHERE below — this
-		// query exists so the skip is LOUD rather than a row count that silently comes up
-		// short.
-		var refused []core.Row
-		if rows, uErr := db.PGQuery(ctx, armSplitDelinquency+`
-			SELECT b.raw_cif, b.key_cif, b.outstanding_kobo, b.dpd,
-			       (b.party_id IS NULL) AS unlinked,
-			       COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(p.full_name),''), b.raw_cif) AS borrower
-			  FROM book b
-			  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = b.raw_cif
-			  LEFT JOIN app.parties p ON p.party_id = b.party_id
-			 WHERE b.arm = 'udara'
-			   AND (b.party_id IS NULL OR `+crossedAssignmentOpen+`)
-			 ORDER BY b.outstanding_kobo DESC`); uErr == nil {
-			refused = rows
-		}
-		for _, u := range refused {
-			reason := "a live collection assignment still holds this borrower's bare Udara id in the cards namespace — it names a different person for this debt"
-			if toBool(u["unlinked"]) {
-				reason = "no app.cbs_links bridge for this Udara customer id — no party can be named for this debt"
-			}
-			slog.Error("collections generate REFUSED to create an assignment",
-				"reason", reason, "cbs_customer_id", str(u["raw_cif"]), "would_be_key", str(u["key_cif"]),
-				"borrower", str(u["borrower"]), "outstanding_kobo", toInt64(u["outstanding_kobo"]),
-				"dpd", toInt64(u["dpd"]), "actor_id", user.ID)
-		}
-
-		// Create assignments for delinquent ids not already active or in recovery, one
-		// row per (arm, id). assigned_by records the head who ran the generation; agent
-		// stays NULL (unassigned) until a head distributes the queue. The uploaded branch
-		// is excluded here too: every row it can emit is already an active assignment (the
-		// view only shows uploaded loans with status='active'), so it can never seed a
-		// new row — it could only lend a facility total to an unrelated card CIF that
-		// happened to share the key.
-		//
-		// A Udara row is stored under key_cif = 'UD-<cbs_customer_id>' with its real
-		// party_id and data_source='udara'; a card row is unchanged.
-		res, err := db.PGExec(ctx, armSplitDelinquency+`
-			INSERT INTO collection_assignments
-			  (cif_number, account_cif, customer_name, party_id, data_source, product_type,
-			   assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
-			SELECT b.key_cif, b.key_cif, b.customer_name, b.party_id, b.data_source, b.product_type,
-			       $1, `+bucketExpr+`, b.outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
-			FROM book b
-			WHERE `+udaraIdentityResolved+`
-			  AND NOT `+crossedAssignmentOpen+`
-			  AND b.key_cif NOT IN (
-				SELECT account_cif FROM collection_assignments
-				WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
-			)`, user.ID)
+		created, refusedIDs, err := runCollectionsGenerate(r.Context(), db, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Generation failed: "+err.Error())
 			return
-		}
-		created := int64(0)
-		if res != nil {
-			created, _ = res.RowsAffected()
-		}
-		refusedIDs := make([]string, 0, len(refused))
-		for _, u := range refused {
-			refusedIDs = append(refusedIDs, str(u["raw_cif"]))
 		}
 		desc := fmt.Sprintf("Generated %d new collection assignments from the delinquency book", created)
 		if len(refusedIDs) > 0 {
 			desc += fmt.Sprintf(" — REFUSED %d Udara borrower(s) on identity: %s",
 				len(refusedIDs), strings.Join(refusedIDs, ", "))
 		}
-		logCreditEvent(ctx, db, r, "collections", "assignment", "generate", "", "assignments_generated",
+		logCreditEvent(r.Context(), db, r, "collections", "assignment", "generate", "", "assignments_generated",
 			desc, nil, map[string]any{"created": created, "refused_udara_ids": refusedIDs})
 		respond(w, map[string]any{
 			"created":           created,

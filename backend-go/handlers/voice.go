@@ -170,7 +170,7 @@ func VoiceATCapabilityToken(db *core.DB) http.HandlerFunc {
 		}
 		at := getATConfig(r.Context(), db)
 		if at.apiKey == "" || at.username == "" {
-			respondErr(w, 503, "Africa's Talking not configured — set AT_API_KEY and AT_USERNAME in Settings → Call Center")
+			respondErr(w, 503, "Africa's Talking is not configured. Set AT_API_KEY and AT_USERNAME in Settings → Call Center.")
 			return
 		}
 

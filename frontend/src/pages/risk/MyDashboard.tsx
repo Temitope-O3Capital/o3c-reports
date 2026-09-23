@@ -168,7 +168,7 @@ export default function RiskMyDashboard() {
           never a single thing they had cleared. These now come from the event trail, so
           they count this person's own decisions rather than the firm's. */}
       {live && (
-        <SectionCard title="Your Decisions" subtitle="Work you have completed — today and month to date" style={{ marginBottom: 14 }}>
+        <SectionCard title="Your Decisions" subtitle="Work you have completed: today and month to date" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', gap: SP[5], flexWrap: 'wrap', padding: '4px 2px' }}>
             {[
               { label: 'Reviewed Today', value: reviewedToday, color: BLUE },
@@ -194,7 +194,7 @@ export default function RiskMyDashboard() {
       </SectionCard>
 
       {/* ── Watchlist: the action list ── */}
-      <SectionCard title="Watchlist" subtitle="Delinquent loans, worst first — the accounts to chase" badge={watchlist.length} style={{ marginBottom: 14 }}>
+      <SectionCard title="Watchlist" subtitle="Delinquent loans, worst first. The accounts to chase" badge={watchlist.length} style={{ marginBottom: 14 }}>
         <DataTable
           cols={watchCols}
           rows={watchlist}
@@ -205,7 +205,7 @@ export default function RiskMyDashboard() {
           // is FINTRAK; card CIF 00000424 is somebody else entirely).
           onRowClick={r => navigate(`/operations/risk/portfolio?search=${encodeURIComponent(r.reference || r.name)}`)}
           pageSize={10}
-          emptyText="Nothing past due — your book is current"
+          emptyText="Nothing past due: your book is current"
         />
       </SectionCard>
 
