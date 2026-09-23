@@ -70,15 +70,30 @@ var salesHeadRoles = map[string]bool{
 // customers who have never been on the card book — they were never this book's to
 // show, and the old join invented them by landing on a stranger's CIF.
 const (
+	// Card money per CIF, from app.card_balances (migration 280) rather than a
+	// SUM over app.accounts.current_dr_balance.
+	//
+	// That column is a single SIGNED debit balance, so summing it nets what the
+	// customer owes O3 against what O3 is holding FOR them — prepaid and Blink
+	// stored value, and a credit card sitting in credit. On a relationship book
+	// those are opposite facts about the customer and must not cancel: a customer
+	// owing ₦400k on a credit card and holding ₦400k on a prepaid card used to
+	// read as a zero-balance relationship.
+	//
+	// card_balance_kobo is now unambiguously the RECEIVABLE (owed to O3) and
+	// card_float_kobo is the money held for them. card_currency comes along so a
+	// naira column never silently prints dollars — no CIF holds both today (217
+	// are USD-only, 0 mixed), but nothing enforces that, so it is carried rather
+	// than assumed. The view already stores kobo, so no ×100 here.
 	cardAggSQL = `
 	    SELECT cif,
-	           COUNT(*) FILTER (WHERE status IN ('Open','Active'))                         AS active_cards,
-	           -- current_dr_balance is stored in NAIRA on the card book, so ×100 to kobo
-	           -- (the rest of the app treats *_kobo columns as kobo and ÷100 to display).
-	           COALESCE(ROUND(SUM(current_dr_balance) FILTER (WHERE status IN ('Open','Active')) * 100), 0)::bigint
-	                                                                                       AS card_balance_kobo,
+	           MIN(currency)                                                               AS card_currency,
+	           COUNT(DISTINCT currency)                                                    AS card_currencies,
+	           COUNT(*) FILTER (WHERE is_open)                                             AS active_cards,
+	           COALESCE(SUM(receivable_kobo) FILTER (WHERE is_open), 0)::bigint            AS card_balance_kobo,
+	           COALESCE(SUM(float_kobo)      FILTER (WHERE is_open), 0)::bigint            AS card_float_kobo,
 	           COALESCE(MAX(days_overdue), 0)                                              AS max_dpd
-	      FROM app.accounts
+	      FROM app.card_balances
 	     WHERE cif IS NOT NULL AND cif <> ''
 	     GROUP BY cif`
 
@@ -260,6 +275,8 @@ func listBook(db *core.DB) http.HandlerFunc {
 			       u.full_name AS officer_name,
 			       COALESCE(k.active_cards, 0)      AS active_cards,
 			       COALESCE(k.card_balance_kobo, 0) AS card_balance_kobo,
+			       COALESCE(k.card_float_kobo, 0)   AS card_float_kobo,
+			       COALESCE(k.card_currency, 'NGN') AS card_currency,
 			       COALESCE(k.max_dpd, 0)           AS max_dpd,
 			       COALESCE(l.active_loans, 0)      AS active_loans,
 			       COALESCE(l.outstanding_kobo, 0)  AS outstanding_kobo,
@@ -330,7 +347,11 @@ func bookSummary(db *core.DB) http.HandlerFunc {
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.acquired_on >= date_trunc('year',  CURRENT_DATE))  AS acquired_ytd,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.acquired_on_source = 'unknown')   AS undated,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.account_count > 0)                AS with_accounts,
-			       COALESCE(SUM(k.card_balance_kobo), 0)                      AS card_balance_kobo,
+			       -- Naira only. The summary strip is a naira figure, and folding the
+			       -- 217 USD-only CIFs in would add dollars to it at parity.
+			       COALESCE(SUM(k.card_balance_kobo) FILTER (WHERE k.card_currency = 'NGN'), 0) AS card_balance_kobo,
+			       COALESCE(SUM(k.card_float_kobo)   FILTER (WHERE k.card_currency = 'NGN'), 0) AS card_float_kobo,
+			       COUNT(DISTINCT a.person_key) FILTER (WHERE k.card_currency <> 'NGN')         AS customers_fx_cards,
 			       COALESCE(SUM(l.outstanding_kobo) FILTER (WHERE a.cif = pa.anchor_cif), 0)
 			                                                                  AS outstanding_kobo,
 			       COALESCE(SUM(f.fd_principal_kobo) FILTER (WHERE a.cif = pa.anchor_cif), 0)

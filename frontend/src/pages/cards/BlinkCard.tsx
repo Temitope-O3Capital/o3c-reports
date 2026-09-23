@@ -4,7 +4,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtDate, fmtCurrencyMinor } from '../../lib/fmt'
+import { fmtNum, fmtDate, fmtKobo, fmtCurrencyMinor } from '../../lib/fmt'
 import { NUM, TEXT, FW, SP, RADIUS, PURPLE, GREEN, AMBER, TRANSITION } from '../../lib/design'
 import {
   CARD_STATES, CARD_STATE_COLORS,
@@ -35,6 +35,12 @@ interface Totals {
   never_used: number
   cardholders: number
   lifetime_txns: number
+  // Customer money held on Blink cards, stated positively. The strip counted
+  // cards and transactions and carried no money figure at all, so the float on
+  // the Blink book was not reported anywhere.
+  float_kobo: number
+  float_live_kobo: number
+  cards_funded: number
 }
 
 interface CountRow { count: number }
@@ -314,10 +320,13 @@ export default function BlinkCard() {
       <ErrBanner error={error} onRetry={() => { loadSummary(); loadCards(page) }} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Blink Cards Issued" value={fmtNum(t?.total_cards ?? 0)} icon="bolt" accent={PURPLE} />
         <KpiCard label="Still Live" value={fmtNum(t?.live_cards ?? 0)} icon="check_circle" accent={GREEN}
           sub={t && t.total_cards > 0 ? `${((t.live_cards / t.total_cards) * 100).toFixed(1)}% of issued` : undefined} />
+        {/* Money held on the book. This strip had no money figure at all. */}
+        <KpiCard label="Customer Float Held" value={fmtKobo(t?.float_kobo ?? 0)} icon="account_balance_wallet" accent={AMBER}
+          sub={t ? `${fmtKobo(t.float_live_kobo ?? 0)} on live cards · ${fmtNum(t.cards_funded ?? 0)} funded` : undefined} />
         <KpiCard label="Used in 30 Days" value={fmtNum(t?.active_30d ?? 0)} icon="trending_up" accent={GREEN} />
         <KpiCard label="Never Used" value={fmtNum(t?.never_used ?? 0)} icon="do_not_disturb_on" accent={AMBER}
           sub={t && t.total_cards > 0 ? `${((t.never_used / t.total_cards) * 100).toFixed(1)}% of issued` : undefined} />

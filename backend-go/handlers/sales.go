@@ -1382,7 +1382,11 @@ func salesCohortDetail(db *core.DB) http.HandlerFunc {
 			                 FROM app.accounts a WHERE a.cif = c.cif AND a.product_line IS NOT NULL), '') AS product_type,
 			       COALESCE(u.txns, 0)::text || ' txns' AS employer,
 			       0::bigint AS amount_requested_kobo,
-			       ROUND(COALESCE((SELECT SUM(a.current_dr_balance) FROM app.accounts a WHERE a.cif = c.cif), 0) * 100)::bigint AS outstanding_kobo,
+			       -- Outstanding means MONEY OWED, so it is the receivable side only.
+			       -- SUM(current_dr_balance) netted a customer's prepaid/Blink float
+			       -- against their card debt and could return a negative "outstanding".
+			       -- app.card_balances (migration 280) keeps the two sides apart.
+			       COALESCE((SELECT SUM(b.receivable_kobo) FROM app.card_balances b WHERE b.cif = c.cif), 0)::bigint AS outstanding_kobo,
 			       0 AS dpd,
 			       CASE WHEN u.last_txn IS NULL                                THEN 'never'
 			            WHEN u.last_txn >= CURRENT_DATE - INTERVAL '90 days'   THEN 'active'

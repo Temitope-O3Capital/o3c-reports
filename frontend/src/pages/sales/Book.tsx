@@ -36,7 +36,13 @@ interface BookRow {
   officer_id: number | null
   officer_name: string | null
   active_cards: number
+  // card_balance_kobo is the RECEIVABLE (owed to O3) and card_float_kobo the money
+  // O3 holds for the customer — prepaid/Blink stored value and cards in credit.
+  // They used to arrive netted into one signed number, so a customer owing ₦400k
+  // and holding ₦400k read as a zero-balance relationship. See migration 280.
   card_balance_kobo: number
+  card_float_kobo: number
+  card_currency: string
   max_dpd: number
   active_loans: number
   outstanding_kobo: number
@@ -48,7 +54,8 @@ interface BookRow {
 interface Summary {
   customers: number; acquired_mtd: number; acquired_ytd: number
   undated: number; with_accounts: number
-  card_balance_kobo: number; outstanding_kobo: number; fd_principal_kobo: number
+  card_balance_kobo: number; card_float_kobo: number; customers_fx_cards: number
+  outstanding_kobo: number; fd_principal_kobo: number
   customers_in_arrears: number; fd_maturing_30d: number
 }
 
@@ -270,8 +277,28 @@ export default function SalesBook() {
       },
     },
     {
-      key: 'card_balance_kobo', label: 'Card Bal.', sortable: true, align: 'right',
-      render: r => <span style={{ ...NUM, color: r.card_balance_kobo > 0 ? 'var(--txt)' : 'var(--txt3)' }}>{r.card_balance_kobo ? fmtKobo(r.card_balance_kobo) : '—'}</span>,
+      // Two facts, not one net figure. A USD-only customer is marked rather than
+      // having dollars printed behind a naira symbol.
+      key: 'card_balance_kobo', label: 'Card Owed', sortable: true, align: 'right',
+      render: r => (
+        <span style={{ ...NUM, color: r.card_balance_kobo > 0 ? 'var(--txt)' : 'var(--txt3)' }}>
+          {r.card_balance_kobo ? fmtKobo(r.card_balance_kobo) : '—'}
+          {r.card_currency && r.card_currency !== 'NGN' && r.card_balance_kobo > 0 && (
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 3 }}>{r.card_currency}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'card_float_kobo', label: 'Card Held', sortable: true, align: 'right',
+      render: r => (
+        <span style={{ ...NUM, color: r.card_float_kobo > 0 ? GREEN : 'var(--txt3)' }} title="Customer money O3 is holding — prepaid and Blink stored value, and cards in credit">
+          {r.card_float_kobo ? fmtKobo(r.card_float_kobo) : '—'}
+          {r.card_currency && r.card_currency !== 'NGN' && r.card_float_kobo > 0 && (
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 3 }}>{r.card_currency}</span>
+          )}
+        </span>
+      ),
     },
     {
       key: 'outstanding_kobo', label: 'Loans Owed', sortable: true, align: 'right',
@@ -422,10 +449,16 @@ export default function SalesBook() {
       {/* Portfolio composition — the book's value across the three product lines, plus
           net position (deposits held minus credit outstanding). */}
       {summary && (
-        <SectionCard title="Portfolio Composition" subtitle="Value across the three product lines" style={{ marginBottom: SP[4] }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+        <SectionCard title="Portfolio Composition"
+          subtitle={`Value across the three product lines · naira${summary.customers_fx_cards > 0 ? ` · excludes ${fmtNum(summary.customers_fx_cards)} FX-card customers` : ''}`}
+          style={{ marginBottom: SP[4] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14 }}>
             {[
-              { label: 'Card Balances', value: summary.card_balance_kobo, color: PURPLE, icon: 'credit_card' },
+              // "Card Balances" was one netted figure. Split: what customers owe is
+              // an asset of O3's, what O3 holds for them is a liability, and netting
+              // them made a book of owed and held money look like neither.
+              { label: 'Cards Owed to O3', value: summary.card_balance_kobo, color: PURPLE, icon: 'credit_card' },
+              { label: 'Cards Held for Customers', value: summary.card_float_kobo, color: GREEN, icon: 'account_balance_wallet' },
               { label: 'Loans Outstanding', value: summary.outstanding_kobo, color: NAVY, icon: 'account_balance_wallet' },
               { label: 'FD Principal', value: summary.fd_principal_kobo, color: AMBER, icon: 'savings' },
               { label: 'Net Position', value: summary.fd_principal_kobo - summary.outstanding_kobo, color: (summary.fd_principal_kobo - summary.outstanding_kobo) >= 0 ? GREEN : RED, icon: 'balance', net: true },

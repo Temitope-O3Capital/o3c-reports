@@ -142,75 +142,126 @@ func reportCardPortfolio(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// Every balance below comes from app.card_balances (migration 280), not a
+		// SUM over app.accounts.current_dr_balance.
+		//
+		// That column is one SIGNED debit balance for the whole book, so the old
+		// single total_balance_kobo netted the credit receivable against prepaid and
+		// Blink stored value and against credit cards sitting in credit, then added
+		// the USD accounts in at parity. It reported ₦1.912bn where the book holds
+		// ₦2.164bn of receivable and ₦251.7m of customer money (2026-09-23). A
+		// portfolio report is exactly where that must not happen, so the two sides
+		// are separate columns here and currency is a grouping key.
 		summary, err := db.PGQuery(ctx, `
-			SELECT COUNT(*)                                             AS total_accounts,
-			       COUNT(*) FILTER (WHERE status IN ('Open','Active'))  AS active_accounts,
-			       COUNT(DISTINCT cif)                                  AS distinct_cifs,
-			       ROUND(COALESCE(SUM(card_limit),0)          * 100)::bigint AS total_limit_kobo,
-			       ROUND(COALESCE(SUM(current_dr_balance),0)  * 100)::bigint AS total_balance_kobo,
-			       ROUND(COALESCE(SUM(min_payment_due),0)     * 100)::bigint AS total_min_due_kobo,
-			       ROUND(AVG(card_utilisation)::numeric, 2)                 AS avg_utilisation_pct
-			FROM app.accounts`)
+			SELECT currency,
+			       COUNT(*)                                       AS total_accounts,
+			       COUNT(*) FILTER (WHERE is_open)                AS active_accounts,
+			       COUNT(DISTINCT cif)                            AS distinct_cifs,
+			       COALESCE(SUM(limit_kobo), 0)::bigint           AS total_limit_kobo,
+			       COALESCE(SUM(receivable_kobo), 0)::bigint      AS total_receivable_kobo,
+			       COALESCE(SUM(float_kobo), 0)::bigint           AS total_float_kobo,
+			       COALESCE(SUM(net_dr_kobo), 0)::bigint          AS legacy_net_balance_kobo,
+			       COALESCE(SUM(min_payment_due_kobo), 0)::bigint AS total_min_due_kobo
+			FROM app.card_balances GROUP BY currency ORDER BY 6 DESC`)
 		if err != nil {
 			respondErrLog(w, 500, "Card portfolio query failed", err)
 			return
 		}
 
+		// Utilisation stays on app.accounts: it is a ratio the feed maintains, not a
+		// money column, so it neither nets nor mixes currency.
+		avgUtil, _ := db.PGQuery(ctx, `
+			SELECT ROUND(AVG(card_utilisation)::numeric, 2) AS avg_utilisation_pct FROM app.accounts`)
+
+		byFamily, _ := db.PGQuery(ctx, `
+			SELECT currency, family,
+			       COUNT(*)                                  AS accounts,
+			       COALESCE(SUM(receivable_kobo), 0)::bigint AS receivable_kobo,
+			       COALESCE(SUM(float_kobo), 0)::bigint      AS float_kobo,
+			       COALESCE(SUM(limit_kobo), 0)::bigint      AS limit_kobo
+			FROM app.card_balances GROUP BY 1, 2 ORDER BY 1, 4 DESC`)
+
 		byStatus, _ := db.PGQuery(ctx, `
-			SELECT COALESCE(NULLIF(status,''),'Unspecified')             AS status,
-			       COUNT(*)                                             AS accounts,
-			       ROUND(COALESCE(SUM(current_dr_balance),0) * 100)::bigint AS balance_kobo
-			FROM app.accounts GROUP BY 1 ORDER BY 2 DESC`)
+			SELECT currency,
+			       COALESCE(NULLIF(status,''),'Unspecified') AS status,
+			       COUNT(*)                                  AS accounts,
+			       COALESCE(SUM(receivable_kobo), 0)::bigint AS receivable_kobo,
+			       COALESCE(SUM(float_kobo), 0)::bigint      AS float_kobo
+			FROM app.card_balances GROUP BY 1, 2 ORDER BY 3 DESC`)
 
 		byProduct, _ := db.PGQuery(ctx, `
-			SELECT COALESCE(NULLIF(product_name,''),'Unspecified')      AS product_name,
-			       COALESCE(NULLIF(product_line,''),'Unspecified')      AS product_line,
-			       COUNT(*)                                             AS accounts,
-			       ROUND(COALESCE(SUM(card_limit),0)         * 100)::bigint AS limit_kobo,
-			       ROUND(COALESCE(SUM(current_dr_balance),0) * 100)::bigint AS balance_kobo,
-			       ROUND(AVG(card_utilisation)::numeric, 2)                 AS avg_utilisation_pct
-			FROM app.accounts GROUP BY 1, 2 ORDER BY 3 DESC`)
+			SELECT b.currency, b.family,
+			       COALESCE(NULLIF(b.product_name,''),'Unspecified') AS product_name,
+			       COALESCE(NULLIF(a.product_line,''),'Unspecified') AS product_line,
+			       COUNT(*)                                  AS accounts,
+			       COALESCE(SUM(b.limit_kobo), 0)::bigint    AS limit_kobo,
+			       COALESCE(SUM(b.receivable_kobo), 0)::bigint AS receivable_kobo,
+			       COALESCE(SUM(b.float_kobo), 0)::bigint    AS float_kobo,
+			       ROUND(AVG(a.card_utilisation)::numeric, 2) AS avg_utilisation_pct
+			FROM app.card_balances b
+			JOIN app.accounts a ON a.account_no = b.account_no
+			GROUP BY 1, 2, 3, 4 ORDER BY 5 DESC`)
 
 		// Delinquency uses days_overdue, which the card book maintains itself —
 		// this is the card equivalent of the loan book's DPD, not the same field.
+		// Only the receivable is bucketed: a delinquency table is about money owed,
+		// and folding prepaid float in made overdue buckets shrink.
 		delinquency, _ := db.PGQuery(ctx, `
-			SELECT CASE
-			         WHEN COALESCE(days_overdue,0) = 0   THEN 'Current'
-			         WHEN days_overdue <= 30             THEN '1-30'
-			         WHEN days_overdue <= 60             THEN '31-60'
-			         WHEN days_overdue <= 90             THEN '61-90'
-			         WHEN days_overdue <= 180            THEN '91-180'
-			         ELSE '180+' END                     AS bucket,
-			       COUNT(*)                              AS accounts,
-			       ROUND(COALESCE(SUM(current_dr_balance),0) * 100)::bigint AS balance_kobo
-			FROM app.accounts
-			WHERE status IN ('Open','Active')
-			GROUP BY 1
-			ORDER BY MIN(COALESCE(days_overdue,0))`)
+			SELECT b.currency,
+			       CASE
+			         WHEN COALESCE(b.days_overdue,0) = 0   THEN 'Current'
+			         WHEN b.days_overdue <= 30             THEN '1-30'
+			         WHEN b.days_overdue <= 60             THEN '31-60'
+			         WHEN b.days_overdue <= 90             THEN '61-90'
+			         WHEN b.days_overdue <= 180            THEN '91-180'
+			         ELSE '180+' END                       AS bucket,
+			       COUNT(*)                                  AS accounts,
+			       COALESCE(SUM(b.receivable_kobo), 0)::bigint AS receivable_kobo
+			FROM app.card_balances b
+			WHERE b.is_open
+			GROUP BY 1, 2
+			ORDER BY 1, MIN(COALESCE(b.days_overdue,0))`)
 
 		// Utilisation distribution: how hard customers are leaning on their limits.
 		utilisation, _ := db.PGQuery(ctx, `
-			SELECT CASE
-			         WHEN card_utilisation IS NULL      THEN 'Unknown'
-			         WHEN card_utilisation < 25         THEN '0-25%'
-			         WHEN card_utilisation < 50         THEN '25-50%'
-			         WHEN card_utilisation < 75         THEN '50-75%'
-			         WHEN card_utilisation < 100        THEN '75-100%'
+			SELECT b.currency,
+			       CASE
+			         WHEN a.card_utilisation IS NULL    THEN 'Unknown'
+			         WHEN a.card_utilisation < 25       THEN '0-25%'
+			         WHEN a.card_utilisation < 50       THEN '25-50%'
+			         WHEN a.card_utilisation < 75       THEN '50-75%'
+			         WHEN a.card_utilisation < 100      THEN '75-100%'
 			         ELSE 'Over limit' END              AS band,
 			       COUNT(*)                             AS accounts,
-			       ROUND(COALESCE(SUM(current_dr_balance),0) * 100)::bigint AS balance_kobo
-			FROM app.accounts WHERE status IN ('Open','Active')
-			GROUP BY 1 ORDER BY 2 DESC`)
+			       COALESCE(SUM(b.receivable_kobo), 0)::bigint AS receivable_kobo
+			FROM app.card_balances b
+			JOIN app.accounts a ON a.account_no = b.account_no
+			WHERE b.is_open
+			GROUP BY 1, 2 ORDER BY 3 DESC`)
 
 		out := map[string]any{
+			"by_currency":   summary,
+			"by_family":     byFamily,
 			"by_status":     byStatus,
 			"by_product":    byProduct,
 			"delinquency":   delinquency,
 			"utilisation":   utilisation,
-			"balance_basis": "app.accounts stores naira (numeric); converted to kobo here.",
+			"balance_basis": "app.card_balances (migration 280). receivable_kobo is money owed TO O3 " +
+				"(an asset); float_kobo is customer money O3 holds — prepaid and Blink stored value " +
+				"and cards in credit (a liability). They are never netted, and figures are in each " +
+				"account's own currency: read per currency, never summed across. " +
+				"legacy_net_balance_kobo is the old single SUM(current_dr_balance), kept for reconciliation only.",
 		}
-		if len(summary) > 0 {
-			out["summary"] = summary[0]
+		if len(avgUtil) > 0 {
+			out["avg_utilisation_pct"] = avgUtil[0]["avg_utilisation_pct"]
+		}
+		// The naira slice stays available as `summary` so existing readers that expect
+		// one object keep working — but it is now naira alone, not naira plus dollars.
+		for _, row := range summary {
+			if str(row["currency"]) == "NGN" {
+				out["summary"] = row
+				break
+			}
 		}
 		respond(w, out, "pg")
 	}
