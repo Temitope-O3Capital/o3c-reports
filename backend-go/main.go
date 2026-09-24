@@ -113,6 +113,12 @@ func main() {
 	// stuck as "never called". Backfills on boot.
 	go handlers.StartLeadAdvanceWorker(db)
 
+	// Lead re-grade — daily, moves a lead out of 'qualified' when no call on it ever
+	// recorded that the customer was interested. The live path already applies that rule
+	// to every call; this catches leads that arrived at qualified by another door, which
+	// is how 48 of them got there before migration 298.
+	go handlers.StartLeadRegradeWorker(db)
+
 	// AI assistant warm-up — load the model and prime its prefix cache now, so the
 	// first person to ask a question after a restart does not pay a 17s model load
 	// plus a 28s preamble prefill on top of their answer.

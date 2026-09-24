@@ -3609,13 +3609,25 @@ func syncCRMContactStage(ctx context.Context, db *core.DB, leadID int64, status,
 		 VALUES ($1,'stage_changed',$2,$3,$4,$5)`,
 		contactID, current, stage, "Moved by a call-centre call: "+outcome, agentID)
 
-	// The moment a call first qualifies a not-yet-qualified lead IS the hand-off to Sales.
+	// A call where the customer says they are interested IS the hand-off to Sales.
 	// Historically this path moved the lead silently and the audited forwards ledger
 	// (call_center_lead_forwards) stayed empty because the interactive forwardLeadToSales
 	// action was never used. Record the hand-off here so the durable trail — a forwards
 	// row, forwarded_at, and a 'forwarded_to_sales' event (which the activities trigger
 	// fans onto the timeline as a hand-off) — is produced on the path leads actually take.
-	if stage == "qualified" && crmStageRank[current] < 2 {
+	//
+	// This once also required crmStageRank[current] < 2, so a lead had to be reaching
+	// qualified for the first time. That locked out every lead already sitting there: the
+	// ones the lead-book backfill had qualified without a call, and the ones qualified
+	// before 15 Sept 2026 when this hand-off did not yet exist. For those, the call where
+	// the customer finally said yes produced no forward, and no later call could either,
+	// because the gate only ever grew stricter. Migration 298 cleared the 128 that had
+	// already banked up behind it.
+	//
+	// Dropping the rank test is safe because it was never what kept duplicates out:
+	// crmStageForCall returns "qualified" only for an interested call, and
+	// recordCallHandoff returns early when the lead already has an unresolved forward.
+	if stage == "qualified" {
 		// A qualified lead has entered the sales pipeline, so it earns a durable canonical
 		// party (an existing customer if one matches, else a fresh prospect party). Cold,
 		// un-qualified dials never reach here, so app.parties is not inflated.

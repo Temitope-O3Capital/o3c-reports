@@ -351,6 +351,38 @@ type TimelineTab = 'all' | 'calls' | 'activity'
 // 'customer_care'). They are labels, not data values, so they read as Title Case.
 const titleWords = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
 
+// Acronyms the word-by-word capitaliser gets wrong: it turns 'sla_breach' into
+// "Sla Breach", and one row in app.activities is already stored with that spelling.
+const fixAcronyms = (s: string) =>
+  s.replace(/\b(sla|dnc|cif|npl|kyc|sms|ussd)\b/gi, m => m.toUpperCase())
+
+// A subject is either a written line ("Answered Not Interested", "Hand-off to Sales
+// cancelled") or a bare code whose writer never labelled it ('stage_changed',
+// 'application.created', 'offer_issued'). Only the codes get re-cased, because Title
+// Casing a written line turns "Hand-off to Sales cancelled" into "Hand-Off To Sales
+// Cancelled". A code is recognised by having no space in it.
+const actTitle = (a: LeadActivity) => {
+  const s = (a.subject ?? '').trim()
+  if (!s) return fixAcronyms(titleWords(a.type))
+  return /\s/.test(s) ? fixAcronyms(s) : fixAcronyms(titleWords(s.replace(/\./g, '_')))
+}
+
+// The call-centre disposition trigger writes TWO shadows of every call it records: a
+// type='call' row (migration 251) and a stage_change for the move that same call
+// caused, landing 19 milliseconds later. This page builds its own, richer call list
+// from helpdesk_calls/call_center_dispositions, so both shadows restate an entry the
+// timeline already shows: 6,051 stage_change rows across the book read "Moved by a
+// call-centre call: Call Dropped" directly beneath the dropped call.
+//
+// Re-grades are the exception and stay. "The last call recorded Not Interested, and
+// only an interested call qualifies a lead" is the one thing on this timeline an agent
+// cannot work out from the calls above it.
+const CALL_MIRROR =
+  /^(Moved|Advanced) by a call-centre call|^Derived from call-centre activity/
+const isCallMirror = (a: LeadActivity) =>
+  a.type === 'call' ||
+  (a.type === 'stage_change' && CALL_MIRROR.test((a.body ?? '').trim()))
+
 function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () => void; onLogged: () => void }) {
   const [editOpen, setEditOpen] = useState(false)
   const [fwdOpen, setFwdOpen]   = useState(false)
@@ -405,15 +437,9 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
     apiFetch<{ data: LeadActivity[]; viewer?: HandoffViewer }>(`/api/activities?${p.toString()}`)
       .then(r => {
         if (cancelled) return
-        // type='call' rows are a mirror the call-centre disposition trigger writes onto
-        // app.activities so timelines with no call source of their own can show one (see
-        // migration 251). This page already has its own, richer call list a few lines up
-        // (conversations, straight from helpdesk_calls/call_center_dispositions — with
-        // recording, duration, notes and the disposition editor) merged into the SAME
-        // timeline as "Calls" entries. Without this filter every logged call also produced
-        // a second, bare "Answered Interested"-style entry tagged CALL right underneath —
-        // this list is documented (see LeadActivity above) as notes/documents/hand-offs only.
-        setActivities((r?.data ?? []).filter(a => a.type !== 'call'))
+        // Both shadows of a call the timeline already shows come out here: see
+        // isCallMirror above for which rows those are, and why re-grades survive it.
+        setActivities((r?.data ?? []).filter(a => !isCallMirror(a)))
         setViewer(r?.viewer ?? null)
       })
       .catch(() => { if (!cancelled) setActivities([]) })
@@ -639,8 +665,8 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
         {shownItems.length === 0 ? (
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: '8px 0' }}>
             {tab === 'calls'    ? 'No calls logged yet.'
-           : tab === 'activity' ? 'No activity logged yet: notes, documents and hand-offs show here.'
-           : 'Nothing logged yet: calls, notes, documents and hand-offs all show here.'}
+           : tab === 'activity' ? 'Nothing logged beyond the calls. Notes, documents, hand-offs and re-grades show here.'
+           : 'Nothing logged yet. Calls, notes, documents and hand-offs all show here.'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -752,7 +778,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                             fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)',
                             textDecoration: taskDone ? 'line-through' : 'none', opacity: taskDone ? 0.6 : 1,
                           }}>
-                            {a.subject || titleWords(a.type)}
+                            {actTitle(a)}
                             {a.target_team ? ` → ${titleWords(a.target_team)}` : ''}
                           </span>
                           {isHandoff ? <HandoffStatusChip status={a.status} />
@@ -778,7 +804,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                           </div>
                         )}
                         <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={tag}>{titleWords(a.type)}</span>
+                          <span style={tag}>{fixAcronyms(titleWords(a.type))}</span>
                           <span>{a.actor_name || 'Staff'}{a.actor_team ? ` · ${titleWords(a.actor_team)}` : ''}</span>
                         </div>
                         {(isDoc || (isTask && !taskDone) || isHandoff) && (
