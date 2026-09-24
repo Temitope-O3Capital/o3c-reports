@@ -22,17 +22,17 @@ const SG_KEY = envVal('SENDGRID_API_KEY');
 /**
  * Strip live secrets out of anything on its way to a log, a database column or a screen.
  *
- * execFileSync puts the whole command line into err.message, and DB_URL is argv[0] — so
- * a single failing statement produced an Error carrying the database password. That text
- * is stored in management_report_runs.error by build-reports.js and rendered verbatim to
- * anyone who can open the Management Reports page (ManagementReports.tsx shows the first
- * line inline and the full text in the title attribute). A SQL typo therefore published
- * the password to every report viewer.
+ * execFileSync puts the whole command line into err.message, and DB_URL used to be
+ * argv[0] — so a single failing statement produced an Error carrying the database
+ * password. That text is stored in management_report_runs.error by build-reports.js and
+ * rendered verbatim to anyone who can open the Management Reports page
+ * (ManagementReports.tsx shows the first line inline and the full text in the title
+ * attribute). A SQL typo therefore published the password to every report viewer.
  *
- * Also scrubs the SendGrid key and any postgres:// URL that arrives by another route.
- * This does NOT fix the process list — DB_URL and the key are still visible to anything
- * that can enumerate processes on this host while psql runs; passing them by environment
- * instead of argv is the follow-up.
+ * The credential is no longer on the command line at all — PG_ENV below is the follow-up
+ * this comment used to ask for — so err.message should now be clean. This stays as the
+ * second line of defence: it also covers the SendGrid key, and any postgres:// URL that
+ * reaches an error by another route.
  */
 function scrubSecrets(text) {
   let s = String(text == null ? '' : text);
@@ -52,17 +52,42 @@ function rethrowScrubbed(err) {
   throw clean;
 }
 
+// The connection string never goes on the command line. Windows exposes a full
+// argv to anyone who can list processes — Get-CimInstance Win32_Process reads
+// CommandLine — so passing DATABASE_URL as an argument publishes the database
+// password to every account on the box for as long as psql runs, and to anything
+// sampling the process table. libpq reads these variables instead, and a child's
+// environment is not readable the same way. This is the same reasoning that
+// already sends the SQL body through a temp file in exec() below.
+//
+// PGCLIENTENCODING is pinned because Windows hands argv to psql in the console
+// codepage: an em-dash in a SQL literal arrived as CP1252 0x97 and the UTF-8
+// connection rejected the whole statement. Keep SQL ASCII-only as well.
+const PG_ENV = (() => {
+  const u = new URL(DB_URL);
+  const env = {
+    PGHOST: decodeURIComponent(u.hostname),
+    PGPORT: u.port || '5432',
+    PGDATABASE: decodeURIComponent(u.pathname.replace(/^\//, '')),
+    PGCLIENTENCODING: 'UTF8',
+  };
+  if (u.username) env.PGUSER = decodeURIComponent(u.username);
+  if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
+  for (const [param, key] of [['sslmode', 'PGSSLMODE'], ['options', 'PGOPTIONS']]) {
+    const v = u.searchParams.get(param);
+    if (v) env[key] = v;
+  }
+  return env;
+})();
+
 /** Run a SELECT and return rows as objects. Wrapped in json_agg so types survive. */
 function q(sql) {
-  // PGCLIENTENCODING is pinned because Windows hands argv to psql in the console
-  // codepage: an em-dash in a SQL literal arrived as CP1252 0x97 and the UTF-8
-  // connection rejected the whole statement. Keep SQL ASCII-only as well.
   let out;
   try {
-    out = execFileSync(PSQL, [DB_URL, '-tAqc', `SELECT coalesce(json_agg(t),'[]'::json) FROM (${sql}) t`],
-      { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } });
+    out = execFileSync(PSQL, ['-tAqc', `SELECT coalesce(json_agg(t),'[]'::json) FROM (${sql}) t`],
+      { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, ...PG_ENV } });
   } catch (err) {
-    rethrowScrubbed(err); // err.message contains argv[0] — the DB URL, password and all
+    rethrowScrubbed(err); // the credential is out of argv now, but the SQL text is not
   }
   return JSON.parse(out.trim() || '[]');
 }
@@ -77,10 +102,10 @@ function exec(sql) {
   const file = path.join(DIR, `_sql-${process.pid}-${Date.now()}.sql`);
   fs.writeFileSync(file, sql, 'utf8');
   try {
-    return execFileSync(PSQL, [DB_URL, '-v', 'ON_ERROR_STOP=1', '-tAq', '-f', file],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } }).trim();
+    return execFileSync(PSQL, ['-v', 'ON_ERROR_STOP=1', '-tAq', '-f', file],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...PG_ENV } }).trim();
   } catch (err) {
-    rethrowScrubbed(err); // ON_ERROR_STOP failures carry argv[0] — the DB URL — in err.message
+    rethrowScrubbed(err); // ON_ERROR_STOP failures still carry the statement and the file path
   } finally {
     fs.rmSync(file, { force: true });
   }
