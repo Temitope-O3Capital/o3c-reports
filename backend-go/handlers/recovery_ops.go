@@ -149,9 +149,21 @@ func escalateSevereToRecovery(ctx context.Context, db *core.DB, minDPD int) (int
 	res, err := db.PG.ExecContext(ctx, armSplitDelinquency+`
 		, sev AS (
 			SELECT b.*,
+			       -- source_assignment_id is the only trail from a recovery case back to
+			       -- the collections row it came from. Looking only at 'active' rows broke
+			       -- it: an assignment that has been escalated is 'sent_to_recovery' —
+			       -- which is precisely the row that fed the case — so the subquery
+			       -- returned NULL and the link was never written.
+			       --
+			       -- Measured 2026-09-23: 1,036 in-app cases carry no source. 982 of them
+			       -- have a collections row on the same key, 959 of those rows predate the
+			       -- case, and 955 are sitting in 'sent_to_recovery'. So the relationship
+			       -- existed and was simply not recorded, for about 95% of every case
+			       -- recovery has ever opened from the queue.
 			       (SELECT ca.id FROM collection_assignments ca
-			         WHERE ca.account_cif = b.key_cif AND ca.status = 'active'
-			         ORDER BY ca.updated_at DESC LIMIT 1) AS assignment_id
+			         WHERE ca.account_cif = b.key_cif
+			           AND ca.status IN ('active','sent_to_recovery')
+			         ORDER BY (ca.status = 'active') DESC, ca.updated_at DESC LIMIT 1) AS assignment_id
 			  FROM book b
 			 WHERE b.dpd >= $1
 			   AND `+udaraIdentityResolved+`
