@@ -19,13 +19,38 @@ function envVal(key) {
 const DB_URL = envVal('DATABASE_URL');
 const SG_KEY = envVal('SENDGRID_API_KEY');
 
+// The connection string never goes on the command line. Windows exposes a full
+// argv to anyone who can list processes — Get-CimInstance Win32_Process reads
+// CommandLine — so passing DATABASE_URL as an argument publishes the database
+// password to every account on the box for as long as psql runs, and to anything
+// sampling the process table. libpq reads these variables instead, and a child's
+// environment is not readable the same way. This is the same reasoning that
+// already sends the SQL body through a temp file in exec() below.
+//
+// PGCLIENTENCODING is pinned because Windows hands argv to psql in the console
+// codepage: an em-dash in a SQL literal arrived as CP1252 0x97 and the UTF-8
+// connection rejected the whole statement. Keep SQL ASCII-only as well.
+const PG_ENV = (() => {
+  const u = new URL(DB_URL);
+  const env = {
+    PGHOST: decodeURIComponent(u.hostname),
+    PGPORT: u.port || '5432',
+    PGDATABASE: decodeURIComponent(u.pathname.replace(/^\//, '')),
+    PGCLIENTENCODING: 'UTF8',
+  };
+  if (u.username) env.PGUSER = decodeURIComponent(u.username);
+  if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
+  for (const [param, key] of [['sslmode', 'PGSSLMODE'], ['options', 'PGOPTIONS']]) {
+    const v = u.searchParams.get(param);
+    if (v) env[key] = v;
+  }
+  return env;
+})();
+
 /** Run a SELECT and return rows as objects. Wrapped in json_agg so types survive. */
 function q(sql) {
-  // PGCLIENTENCODING is pinned because Windows hands argv to psql in the console
-  // codepage: an em-dash in a SQL literal arrived as CP1252 0x97 and the UTF-8
-  // connection rejected the whole statement. Keep SQL ASCII-only as well.
-  const out = execFileSync(PSQL, [DB_URL, '-tAqc', `SELECT coalesce(json_agg(t),'[]'::json) FROM (${sql}) t`],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } });
+  const out = execFileSync(PSQL, ['-tAqc', `SELECT coalesce(json_agg(t),'[]'::json) FROM (${sql}) t`],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, ...PG_ENV } });
   return JSON.parse(out.trim() || '[]');
 }
 const q1 = (sql) => q(sql)[0] || {};
@@ -39,8 +64,8 @@ function exec(sql) {
   const file = path.join(DIR, `_sql-${process.pid}-${Date.now()}.sql`);
   fs.writeFileSync(file, sql, 'utf8');
   try {
-    return execFileSync(PSQL, [DB_URL, '-v', 'ON_ERROR_STOP=1', '-tAq', '-f', file],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } }).trim();
+    return execFileSync(PSQL, ['-v', 'ON_ERROR_STOP=1', '-tAq', '-f', file],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...PG_ENV } }).trim();
   } finally {
     fs.rmSync(file, { force: true });
   }
