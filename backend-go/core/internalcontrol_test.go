@@ -60,7 +60,7 @@ func TestInternalControlCannotWriteAnything(t *testing.T) {
 	const role = "internal_control_head"
 
 	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
-		if WriteBlocked(role, m, "/api/collections") {
+		if WriteBlocked([]string{role}, m, "/api/collections") {
 			t.Errorf("%s was blocked: internal control must be able to read", m)
 		}
 	}
@@ -69,7 +69,7 @@ func TestInternalControlCannotWriteAnything(t *testing.T) {
 		"/api/admin/users", "/api/cards/issuance", "/api/reports/saved",
 	} {
 		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
-			if !WriteBlocked(role, m, path) {
+			if !WriteBlocked([]string{role}, m, path) {
 				t.Errorf("%s %s was allowed: internal control writes nothing", m, path)
 			}
 		}
@@ -81,15 +81,54 @@ func TestInternalControlCannotWriteAnything(t *testing.T) {
 		"/api/auth/logout", "/api/auth/change-password",
 		"/api/reports/datasets/helpdesk_calls/table", "/api/reports/datasets/helpdesk_calls/uniques",
 	} {
-		if WriteBlocked(role, http.MethodPost, path) {
+		if WriteBlocked([]string{role}, http.MethodPost, path) {
 			t.Errorf("POST %s was blocked: internal control still needs it", path)
 		}
 	}
 
 	// Nobody else is affected by the read-only rule.
 	for _, other := range []string{"admin", "md", "coo", "compliance_head", "collections_agent"} {
-		if WriteBlocked(other, http.MethodPost, "/api/collections/assign") {
+		if WriteBlocked([]string{other}, http.MethodPost, "/api/collections/assign") {
 			t.Errorf("role %q was caught by the read-only rule", other)
 		}
+	}
+}
+
+// The read-only guarantee has to follow the role wherever it is held. Page access is
+// the union of every role a user has, so when this was keyed on the primary role alone,
+// adding internal_control_head to extra_roles granted that user the whole catalog while
+// the read-only half never engaged — a second role meant to restrict escalated instead.
+func TestAuditingAsASecondRoleStillCannotWrite(t *testing.T) {
+	// A line officer who also audits. Their own role writes freely (asserted above);
+	// holding the audit role is what must stop them.
+	held := []string{"collections_agent", "internal_control_head"}
+
+	for _, path := range []string{
+		"/api/collections/assign", "/api/recovery/write-off",
+		"/api/los/applications/1/advance", "/api/cards/issuance",
+	} {
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+			if !WriteBlocked(held, m, path) {
+				t.Errorf("%s %s allowed for %v: auditing as a secondary role must not carry writes", m, path, held)
+			}
+		}
+	}
+
+	// Reads are untouched — the point of the role is to see everything.
+	if WriteBlocked(held, http.MethodGet, "/api/collections") {
+		t.Error("GET blocked: a secondary audit role must still read")
+	}
+	// And the same few writes survive, so the holder can still end their own session.
+	if WriteBlocked(held, http.MethodPost, "/api/auth/logout") {
+		t.Error("logout blocked: every user must be able to sign out")
+	}
+
+	// Order must not matter: audit role first is the same as audit role second.
+	if !WriteBlocked([]string{"internal_control_head", "collections_agent"}, http.MethodPost, "/api/collections/assign") {
+		t.Error("role order changed the outcome")
+	}
+	// Two ordinary roles are still unaffected.
+	if WriteBlocked([]string{"collections_agent", "sales_officer"}, http.MethodPost, "/api/collections/assign") {
+		t.Error("two ordinary roles were caught by the read-only rule")
 	}
 }

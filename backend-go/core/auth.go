@@ -417,7 +417,10 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			}
 		}
 		// Read-only roles (internal control) may reach every module but change nothing.
-		if WriteBlocked(claims.Role, r.Method, r.URL.Path) {
+		// AllRoles, not Role: pages come from every role the user holds, so the
+		// read-only half has to be read from the same place or a secondary audit role
+		// grants the pages without the restriction.
+		if WriteBlocked(claims.AllRoles(), r.Method, r.URL.Path) {
 			authErr(w, 403, "Internal Control has read-only access to the workspace")
 			return
 		}
@@ -449,11 +452,29 @@ func writeAllowedForReadOnly(path string) bool {
 }
 
 // WriteBlocked reports whether a request must be refused because the user holds a
-// read-only role. Only the PRIMARY role counts: someone who is internal control in
-// addition to a line job keeps their line job's writes. Split out of AuthMiddleware so
-// the rule can be tested directly.
-func WriteBlocked(role, method, path string) bool {
-	if !readOnlyRoles[role] {
+// read-only role. EVERY held role counts, primary or secondary.
+//
+// This used to look at the primary role alone, so that someone who audited in addition
+// to a line job kept their line job's writes. The effect was the opposite of the
+// control: page access is the union of all roles, so adding internal_control_head to
+// extra_roles handed that user every page in the catalog — collections approvals, loan
+// decisions, recovery write-offs — while the read-only half, keyed on the primary role,
+// never engaged. A second role meant to restrict silently escalated instead.
+//
+// Holding a read-only role now makes the session read-only, which is what segregation
+// of duties requires: an auditor must not be able to change what they audit. Someone who
+// genuinely needs both needs two accounts, and that separation is the point.
+//
+// Split out of AuthMiddleware so the rule can be tested directly.
+func WriteBlocked(roles []string, method, path string) bool {
+	readOnly := false
+	for _, r := range roles {
+		if readOnlyRoles[r] {
+			readOnly = true
+			break
+		}
+	}
+	if !readOnly {
 		return false
 	}
 	switch method {
