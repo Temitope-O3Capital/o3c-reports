@@ -307,12 +307,24 @@ func biQueryForReport(r *http.Request, def map[string]any) (string, []any, error
 		dateTo = "CURRENT_DATE"
 	}
 
-	// Override with explicit query params if provided
+	// Override with explicit query params if provided. These are checked rather
+	// than bound because the built-in ranges above are SQL expressions, not
+	// values, and every query below interpolates them. Quoting the raw query
+	// string let a caller close the quote and write their own SQL into all
+	// sixteen report queries at once.
 	if from := r.URL.Query().Get("from"); from != "" {
-		dateFrom = "'" + from + "'::date"
+		v, ok := ymd(from)
+		if !ok {
+			return "", nil, fmt.Errorf("from must be a date as YYYY-MM-DD, got %q", from)
+		}
+		dateFrom = "'" + v + "'::date"
 	}
 	if to := r.URL.Query().Get("to"); to != "" {
-		dateTo = "'" + to + "'::date"
+		v, ok := ymd(to)
+		if !ok {
+			return "", nil, fmt.Errorf("to must be a date as YYYY-MM-DD, got %q", to)
+		}
+		dateTo = "'" + v + "'::date"
 	}
 
 	var q string
