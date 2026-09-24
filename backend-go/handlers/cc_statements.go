@@ -712,16 +712,20 @@ func ccFromDB(db *core.DB) http.HandlerFunc {
 			cifFilter = req.AccountNumber
 		}
 
-		pgSQL := fmt.Sprintf(`
+		// Bound, not interpolated: cif and both dates come straight from the
+		// request body, so building this with Sprintf let a caller close the
+		// quote and append their own SQL to a query that runs against the whole
+		// transaction table.
+		const pgSQL = `
 			SELECT txn_date AS txn_date, txn_date AS posting_date,
 			       '' AS trace_no, description AS description,
 			       CASE WHEN amount > 0 THEN amount ELSE 0 END AS debit,
 			       CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END AS credit
 			FROM app.transactions
-			WHERE cif = '%s' AND txn_date BETWEEN '%s' AND '%s'
-			ORDER BY txn_date`, cifFilter, req.DateFrom, req.DateTo)
+			WHERE cif = $1 AND txn_date BETWEEN $2::date AND $3::date
+			ORDER BY txn_date`
 
-		rows, _, err := db.DualQuery(ctx, pgSQL)
+		rows, _, err := db.DualQuery(ctx, pgSQL, cifFilter, req.DateFrom, req.DateTo)
 		if err != nil {
 			respondErr(w, 500, "query failed: "+err.Error())
 			return
