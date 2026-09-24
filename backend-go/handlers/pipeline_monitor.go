@@ -206,9 +206,16 @@ func runPipelineCheck(db *core.DB) {
 		}
 	}
 
+	// Recency is answered above. Continuity is a different question and is asked here:
+	// a feed can be minutes old and still have skipped a day. See feed_continuity.go.
+	gapsRaised, gapsCleared := checkFeedContinuity(ctx, db)
+	broken += gapsRaised
+	recovered += gapsCleared
+
 	detail := fmt.Sprintf("%d sources · %d alerting · %d recovered", len(rows), broken, recovered)
 	WorkerBeat(ctx, db, "pipeline_monitor", "ok", detail, "")
-	slog.Info("pipeline monitor ok", "sources", len(rows), "alerting", broken, "recovered", recovered)
+	slog.Info("pipeline monitor ok", "sources", len(rows), "alerting", broken,
+		"recovered", recovered, "gap_alerts", gapsRaised, "gap_window_from", feedGapWindowStart())
 }
 
 // raisePipelineAlert opens (or refreshes) an alert and notifies at most once per
@@ -342,6 +349,8 @@ func pipelineAlertTitle(r core.Row, level string) (title, priority string) {
 		return "Data volume collapsed: " + label, "urgent"
 	case "run_dead":
 		return "Ingest job not running: " + label, "high"
+	case "gap":
+		return "Missing days in " + label, "high"
 	default:
 		return "Data delayed from " + label, "normal"
 	}
@@ -362,6 +371,9 @@ func pipelineAlertDetail(r core.Row, level string) string {
 	case "run_dead":
 		msg = fmt.Sprintf("The job for %s has not completed successfully for %s. The source may be fine; the ingest is not running.",
 			label, pipelineAgeWords(toInt64(r["run_age_sec"])))
+	case "gap":
+		// Continuity reads nothing like an age, so it writes its own body.
+		return feedGapDetail(r)
 	default:
 		msg = fmt.Sprintf("%s last delivered data %s. Expected at least every %s.",
 			label, age, pipelineAgeWords(toInt64(r["stale_after_sec"])))
