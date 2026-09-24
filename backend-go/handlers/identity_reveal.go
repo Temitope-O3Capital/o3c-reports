@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -36,6 +38,21 @@ import (
 // c360MaskChar is the single character every mask is built from, so a masked
 // value is recognisable as masked at a glance anywhere on the page.
 const c360MaskChar = "•"
+
+// c360RevealDailyCap is the most DISTINCT customers one person may reveal identity
+// fields for in a day.
+//
+// The audit row above answers "who looked at this customer". It does not answer "is
+// someone copying the book", and a trail nobody reads does not stop them: the page
+// grant that lets an agent verify one caller also lets them walk all 21,000 customers
+// one BVN at a time, leaving a tidy record of the theft.
+//
+// Counted per CUSTOMER, not per field, so reading a caller's BVN and date of birth in
+// one conversation costs one. The cap therefore bites on breadth and never on depth —
+// it cannot be reached by doing the job, only by doing something else. Sized well above
+// a busy call-centre day, against a feature that has been used zero times since it
+// shipped; at this rate the customer base would take over a year to walk.
+const c360RevealDailyCap = 40
 
 // c360MaskTail decides how much of a sensitive value survives masking. Enough to
 // confirm a value someone is reading back to you, never enough to disclose it:
@@ -211,6 +228,32 @@ func c360IdentityReveal(db *core.DB) http.HandlerFunc {
 			entityID = "contact:" + contactID
 		}
 
+		// Breadth check. The audit row records who looked; it does not stop anyone
+		// looking at everybody, and a trail nobody reads is not a control on its own.
+		used, already, err := c360RevealBudget(ctx, db, user.ID, entityID)
+		if err != nil {
+			// Same stance as the audit write below: if the record cannot be consulted,
+			// nothing is disclosed.
+			respondErrLog(w, 500, "Reveal not recorded — value withheld", err)
+			return
+		}
+		if !already && used >= c360RevealDailyCap {
+			go NotifyRole(ctx, db, "compliance_head", NotifPayload{
+				EventType: EvtSystemAlert,
+				Title:     "Identity reveal limit reached",
+				Body: fmt.Sprintf("%s (%s) has revealed identity fields for %d customers today and has been stopped. "+
+					"Normal verification does not reach this many. Review the disclosure log.",
+					user.FullName, user.Role, used),
+				ActionURL: "/compliance/audit-trail?action=identity_field_revealed",
+				// One alert per person per day, not one per blocked attempt.
+				GroupKey: fmt.Sprintf("identity:reveal:cap:%d:%s", user.ID, time.Now().Format("2006-01-02")),
+				Priority: "high",
+			})
+			respondErr(w, 429, "You have reached today's limit for revealing identity details. "+
+				"Compliance has been notified; contact them if you need more.")
+			return
+		}
+
 		var value string
 		var pepFlag *bool
 		if field == "pep" {
@@ -249,6 +292,33 @@ func c360IdentityReveal(db *core.DB) http.HandlerFunc {
 		}
 		respond(w, out, "pg")
 	}
+}
+
+// c360RevealBudget reports how many distinct customers this user has already revealed
+// identity fields for today, and whether entityID is one of them.
+//
+// It counts the audit trail rather than a separate counter, so the limit is measured
+// from the same record the disclosure itself produces: there is no second number to
+// drift, and a row that was never written was never a disclosure. "Today" is the
+// database's day, matching how the disclosure log is read.
+//
+// An already-revealed customer does not consume budget again — returning to a caller's
+// record later in the same shift is ordinary work, not new exposure.
+func c360RevealBudget(ctx context.Context, db *core.DB, userID int64, entityID string) (int, bool, error) {
+	rows, err := db.PGQuery(ctx, `
+		SELECT count(DISTINCT entity_id)                       AS used,
+		       COALESCE(bool_or(entity_id = $2), false)        AS already
+		  FROM audit_logs
+		 WHERE actor_id = $1
+		   AND action = 'identity_field_revealed'
+		   AND created_at >= date_trunc('day', NOW())`, userID, entityID)
+	if err != nil {
+		return 0, false, err
+	}
+	if len(rows) == 0 {
+		return 0, false, nil
+	}
+	return int(toInt64(rows[0]["used"])), toBool(rows[0]["already"]), nil
 }
 
 // c360AuditIdentityReveal writes the disclosure to app.audit_logs — the workspace's
