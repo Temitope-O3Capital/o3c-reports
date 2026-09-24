@@ -78,6 +78,12 @@ var grandfatheredDuplicateMigrations = map[string]bool{
 	"288": true,
 	"289": true,
 	"290": true,
+	// 291_feed_continuity and 291_odometa_follows_udara were both applied on
+	// 2026-09-23 at 16:24:33, seconds apart, by two sessions working the same day.
+	// Both are recorded in schema_migrations under their current names, so the rule
+	// above applies: renaming either would make the runner treat it as new and run
+	// it a second time. Grandfathered for the same reason as 290 just above.
+	"291": true,
 }
 
 var migrationNumberRE = regexp.MustCompile(`^(\d+)_`)
