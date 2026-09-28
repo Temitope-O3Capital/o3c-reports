@@ -365,8 +365,13 @@ func ccDispositionCode(s string) string {
 // prose for four different answers trains agents back onto the one option that demands
 // nothing. One mandatory field, on the one option that means "I cannot tell you from
 // the dropdown".
+// Resolved by NAME only, deliberately not through ccDispositionCode. That normaliser maps
+// every unrecognised string to "other", which now resolves to a real disposition — so
+// routing this through it made an unmapped label ("Spoke to his accountant") fail with
+// "Choosing Other means telling us what happened", about an option the agent never picked.
+// Only an explicit Other — the code, or its label — carries the requirement.
 func ccDispositionNeedsNote(disposition string) bool {
-	d, ok := ccDispositionByCode(ccDispositionCode(disposition))
+	d, ok := ccDispositionByCode(strings.TrimSpace(disposition))
 	return ok && d.NeedsNote
 }
 

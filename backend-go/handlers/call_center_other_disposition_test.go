@@ -223,3 +223,30 @@ func TestRejectedCallIsNotAConnectAndNotALoss(t *testing.T) {
 			"person is reachable, so it stays workable", d.Status)
 	}
 }
+
+// The note requirement must attach to an explicit Other and nothing else.
+//
+// ccDispositionCode maps every unrecognised string to "other", and "other" is now a real
+// disposition — so resolving the requirement through that normaliser made an unmapped
+// label fail with a message about an option the agent never chose. A confusing rejection
+// on a call they have just finished is how agents learn to distrust the form.
+func TestUnmappedDispositionIsNotBlamedOnOther(t *testing.T) {
+	for _, unmapped := range []string{
+		"Spoke to his accountant", "line engaged twice", "asdf",
+	} {
+		if ccDispositionNeedsNote(unmapped) {
+			t.Errorf("%q is treated as Other and would be rejected with an Other message", unmapped)
+		}
+		// It still normalises to the "other" BUCKET for reporting — that part is correct
+		// and must not change.
+		if got := ccDispositionCode(unmapped); got != "other" {
+			t.Errorf("ccDispositionCode(%q) = %q, want the other bucket for grouping", unmapped, got)
+		}
+	}
+	// An explicit Other, by label or by code, still requires one.
+	for _, explicit := range []string{"Other — Describe What Happened", "other", "  OTHER  "} {
+		if !ccDispositionNeedsNote(explicit) {
+			t.Errorf("explicit Other %q no longer requires a note", explicit)
+		}
+	}
+}
