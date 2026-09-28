@@ -968,6 +968,35 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 				LEFT JOIN app.o3c_users lru ON lru.id = lr.recorded_by, ids
 				WHERE la.applicant_cif = ANY(ids.cifs)
 				UNION ALL
+				-- Loan repayments posted to the Udara general ledger (cbssync/repayments.go).
+				-- These rows carry no application_id and no loan_id — a Udara facility is not
+				-- a workspace loan application — so the branch above, which joins
+				-- loan_applications on loan_id, has never returned a single one of them. Live
+				-- that is 46 postings, ₦687,967,488.32 across 17 people, absent from every
+				-- customer's timeline: a borrower who had repaid in full still read as having
+				-- never paid anything.
+				--
+				-- They are reached the only way they can be — through cbs_loan_account ->
+				-- cbs_loans — and bridged to this person by app.cbs_links, NOT by CIF. A Udara
+				-- customer id and a cards CIF share the same digit shape and usually name a
+				-- different real person, so matching on ids.cifs here would attribute one
+				-- customer's repayments to a stranger.
+				SELECT 'payment', COALESCE(glr.posted_at, glr.financial_date::timestamptz),
+				       'inbound', 'loan_repayment',
+				       NULL, NULL,
+				       NULL,
+				       '₦'||to_char(glr.amount_kobo/100.0,'FM999,999,990.00')
+				         ||' · '||initcap(COALESCE(NULLIF(glr.component,''),'repayment'))
+				         ||COALESCE(' · '||NULLIF(glr.posting_reference,''),''),
+				       'Loan repayment (Udara ledger)', NULL::int, glr.id::text
+				FROM app.loan_repayments glr
+				JOIN cbs_loans gcl ON gcl.cbs_account_number = glr.cbs_loan_account
+				JOIN app.cbs_links gk ON gk.entity_type = 'party'
+				                     AND gk.cbs_customer_id = gcl.cbs_customer_id, ids
+				WHERE glr.ledger_key IS NOT NULL
+				  AND ids.party_id IS NOT NULL
+				  AND gk.entity_id = ids.party_id
+				UNION ALL
 				-- Survey responses (customer feedback), CIF/email keyed. Surfaces
 				-- every completed feedback survey on the customer's timeline.
 				SELECT 'survey', sr.submitted_at,

@@ -119,10 +119,15 @@ type repayment struct {
 	AmountK     int64  `json:"amount_kobo"`
 	Channel     string `json:"channel"`
 	Reference   string `json:"reference"`
-	Source      string `json:"source"` // collections | card
+	Source      string `json:"source"` // collections | card | udara
 	FacilityKey string `json:"facility_key"`
 	ReceivedBy  string `json:"received_by"`
 	Status      string `json:"status"`
+	// Component is "principal" or "interest", and is set only on udara-sourced rows:
+	// the core banking ledger posts each half of a repayment as its own entry, and it
+	// is the only source here that states the split at all. Blank everywhere else,
+	// because a collections receipt genuinely does not know it.
+	Component string `json:"component,omitempty"`
 }
 
 func cdNairaKobo(v any) int64 {
@@ -336,6 +341,38 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				Status:      "posted",
 			})
 		}
+		// Loan repayments off the Udara general ledger. THE LINKAGE THIS PAGE WAS MISSING:
+		// collections has only ever read collection_payments (what an agent logged) and the
+		// card ledger. A Udara loan repayment is neither, and it carries no application_id
+		// and no loan_id, so nothing here could see it — an agent opened a borrower who had
+		// repaid ₦687m through the branch and the Repayments tab was empty, which is how a
+		// customer gets dunned for money they have already paid.
+		//
+		// Keyed on cbs_loan_account, the link cbssync/repayments.go actually writes, scoped
+		// to the Udara facilities already resolved for this person above. Each leg is one
+		// row because that is what the GL posted; the component says which half it is.
+		if len(udaraAccounts) > 0 {
+			glRows, _ := db.PGQuery(ctx, `
+				SELECT lr.financial_date::text AS financial_date, lr.cbs_loan_account,
+				       lr.amount_kobo, lr.component, lr.entry_code,
+				       COALESCE(lr.posting_reference,'') AS posting_reference
+				  FROM app.loan_repayments lr
+				 WHERE lr.cbs_loan_account = ANY($1) AND lr.ledger_key IS NOT NULL
+				 ORDER BY lr.financial_date DESC`, udaraAccounts)
+			for _, g := range glRows {
+				repayments = append(repayments, repayment{
+					Date:        cdDate(g["financial_date"]),
+					AmountK:     toInt64(g["amount_kobo"]),
+					Channel:     "Core banking posting",
+					Reference:   str(g["posting_reference"]),
+					Source:      "udara",
+					FacilityKey: "loan:" + str(g["cbs_loan_account"]),
+					Status:      "posted",
+					Component:   str(g["component"]),
+				})
+			}
+		}
+
 		sort.SliceStable(repayments, func(i, j int) bool { return repayments[i].Date > repayments[j].Date })
 
 		facilities := make([]facility, 0, 8)

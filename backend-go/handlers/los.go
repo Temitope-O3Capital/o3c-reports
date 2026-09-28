@@ -734,25 +734,105 @@ func losCustomerPortfolio(db *core.DB) http.HandlerFunc {
 			customer = crows[0]
 		}
 
+		// REPAID comes off the general ledger, not off the balance. The figure this page
+		// used to imply — disbursed less outstanding principal — is balance MOVEMENT, and
+		// it is wrong in both directions: it reports a write-off or a restructure as a
+		// payment, and it reports an interest-only payment as nothing at all. Live, loan
+		// ...6290 had paid N8,000,000 of interest and showed as having paid zero, while
+		// ...5971 showed N44,443,556 "paid" against N888 actually posted.
+		//
+		// The ledger rows (cbssync/repayments.go) carry no application_id and no loan_id —
+		// a Udara facility is not a workspace loan application — so they are joined on
+		// cbs_loan_account, which is the link the capture actually writes.
+		//
+		// DPD is app.cbs_loan_dpd, the same function the loan book, the dashboards and the
+		// risk bands use. This query used to compute its own (CURRENT_DATE - maturity_date),
+		// so the same borrower could be 0 DPD here and 180 DPD on the portfolio list.
 		loans, _ := db.PGQuery(ctx, `
-			SELECT cbs_account_number AS account_number, reference_number, product_name, status,
-			       loan_amount_kobo, outstanding_principal_kobo, outstanding_interest_kobo, outstanding_fee_kobo,
-			       (COALESCE(outstanding_principal_kobo,0)+COALESCE(outstanding_interest_kobo,0)+COALESCE(outstanding_fee_kobo,0)) AS total_outstanding_kobo,
-			       interest_rate, tenor_days, installment_amount_kobo,
-			       start_date, approved_date, maturity_date, officer_name, branch_name, economic_sector,
-			       GREATEST(0, (CURRENT_DATE - maturity_date::date))::int AS dpd
-			FROM cbs_loans
-			WHERE cbs_customer_id = $1
-			ORDER BY outstanding_principal_kobo DESC NULLS LAST`, cif)
+			SELECT cl.cbs_account_number AS account_number, cl.reference_number, cl.product_name, cl.status,
+			       cl.loan_amount_kobo, cl.outstanding_principal_kobo, cl.outstanding_interest_kobo, cl.outstanding_fee_kobo,
+			       (COALESCE(cl.outstanding_principal_kobo,0)+COALESCE(cl.outstanding_interest_kobo,0)+COALESCE(cl.outstanding_fee_kobo,0)) AS total_outstanding_kobo,
+			       cl.interest_rate, cl.tenor_days, cl.installment_amount_kobo,
+			       cl.start_date, cl.approved_date, cl.maturity_date, cl.officer_name, cl.branch_name, cl.economic_sector,
+			       `+cbsLoanDPD+` AS dpd,
+			       COALESCE(rp.principal_kobo, 0) AS repaid_principal_kobo,
+			       COALESCE(rp.interest_kobo, 0)  AS repaid_interest_kobo,
+			       COALESCE(rp.legs, 0)           AS repayment_legs,
+			       rp.last_repaid_on,
+			       COALESCE(sc.instalments, 0)        AS instalments,
+			       COALESCE(sc.overdue_instalments, 0) AS overdue_instalments,
+			       sc.next_due_date, sc.next_due_kobo
+			FROM cbs_loans cl
+			LEFT JOIN LATERAL (
+			    SELECT SUM(lr.principal_kobo) AS principal_kobo,
+			           SUM(lr.interest_kobo)  AS interest_kobo,
+			           COUNT(*)               AS legs,
+			           MAX(lr.financial_date) AS last_repaid_on
+			      FROM app.loan_repayments lr
+			     WHERE lr.cbs_loan_account = cl.cbs_account_number
+			       AND lr.ledger_key IS NOT NULL
+			) rp ON TRUE
+			LEFT JOIN LATERAL (
+			    SELECT COUNT(*)::int AS instalments,
+			           COUNT(*) FILTER (WHERE s.payment_date < CURRENT_DATE
+			                              AND s.payment_status IN ('DueAndUnpaid','PartiallyPaid'))::int AS overdue_instalments,
+			           MIN(s.payment_date) FILTER (WHERE s.payment_date >= CURRENT_DATE)  AS next_due_date,
+			           (SELECT s2.principal_kobo + s2.interest_kobo + COALESCE(s2.fee_kobo,0)
+			              FROM app.cbs_loan_schedules s2
+			             WHERE s2.loan_account_number = cl.cbs_account_number
+			               AND s2.payment_date >= CURRENT_DATE
+			             ORDER BY s2.payment_date LIMIT 1)                                AS next_due_kobo
+			      FROM app.cbs_loan_schedules s
+			     WHERE s.loan_account_number = cl.cbs_account_number
+			) sc ON TRUE
+			WHERE cl.cbs_customer_id = $1
+			ORDER BY cl.outstanding_principal_kobo DESC NULLS LAST`, cif)
 		if loans == nil {
 			loans = []core.Row{}
 		}
 
-		var totalOutstanding, totalDisbursed int64
-		worstDPD, openCount := 0, 0
+		// The postings themselves, so the page can show what was paid, when, and whether
+		// it went to principal or to interest — the split the ledger records per leg and
+		// no screen in the product was reading.
+		repayments, _ := db.PGQuery(ctx, `
+			SELECT lr.financial_date, lr.posted_at, lr.cbs_loan_account,
+			       lr.entry_code, lr.component, lr.amount_kobo,
+			       lr.principal_kobo, lr.interest_kobo, lr.posting_reference,
+			       cl.product_name
+			  FROM app.loan_repayments lr
+			  JOIN cbs_loans cl ON cl.cbs_account_number = lr.cbs_loan_account
+			 WHERE cl.cbs_customer_id = $1 AND lr.ledger_key IS NOT NULL
+			 ORDER BY lr.financial_date DESC, lr.posted_at DESC`, cif)
+		if repayments == nil {
+			repayments = []core.Row{}
+		}
+
+		// What is DUE, against what was paid. Udara publishes the amortisation schedule
+		// per loan; without it the page can say a borrower owes money but not when it
+		// fell due or how much of the arrears is interest.
+		schedule, _ := db.PGQuery(ctx, `
+			SELECT s.loan_account_number, s.payment_date,
+			       s.principal_kobo, s.interest_kobo, COALESCE(s.fee_kobo,0) AS fee_kobo,
+			       (s.principal_kobo + s.interest_kobo + COALESCE(s.fee_kobo,0)) AS total_kobo,
+			       s.payment_status,
+			       (s.payment_date < CURRENT_DATE
+			        AND s.payment_status IN ('DueAndUnpaid','PartiallyPaid')) AS is_overdue
+			  FROM app.cbs_loan_schedules s
+			 WHERE s.loan_account_number IN (
+			         SELECT cl.cbs_account_number FROM cbs_loans cl WHERE cl.cbs_customer_id = $1)
+			 ORDER BY s.payment_date`, cif)
+		if schedule == nil {
+			schedule = []core.Row{}
+		}
+
+		var totalOutstanding, totalDisbursed, repaidPrincipal, repaidInterest int64
+		worstDPD, openCount, overdueInstalments := 0, 0, 0
 		for _, l := range loans {
 			totalOutstanding += toInt64(l["total_outstanding_kobo"])
 			totalDisbursed += toInt64(l["loan_amount_kobo"])
+			repaidPrincipal += toInt64(l["repaid_principal_kobo"])
+			repaidInterest += toInt64(l["repaid_interest_kobo"])
+			overdueInstalments += int(toInt64(l["overdue_instalments"]))
 			if d := int(toInt64(l["dpd"])); d > worstDPD {
 				worstDPD = d
 			}
@@ -762,15 +842,24 @@ func losCustomerPortfolio(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"cif":      cif,
-			"customer": customer,
-			"loans":    loans,
+			"cif":        cif,
+			"customer":   customer,
+			"loans":      loans,
+			"repayments": repayments,
+			"schedule":   schedule,
 			"summary": core.Row{
 				"loan_count":             len(loans),
 				"open_count":             openCount,
 				"total_outstanding_kobo": totalOutstanding,
 				"total_disbursed_kobo":   totalDisbursed,
 				"worst_dpd":              worstDPD,
+				// Observed, off the ledger — kept apart from the balance figures above so
+				// nothing on this page can present a write-off as a repayment again.
+				"total_repaid_principal_kobo": repaidPrincipal,
+				"total_repaid_interest_kobo":  repaidInterest,
+				"total_repaid_kobo":           repaidPrincipal + repaidInterest,
+				"repayment_count":             len(repayments),
+				"overdue_instalments":         overdueInstalments,
 			},
 		}, "pg")
 	}
