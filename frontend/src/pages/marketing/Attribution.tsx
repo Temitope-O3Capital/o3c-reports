@@ -7,6 +7,24 @@ import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { EChart, baseTooltip, tipCard, axisCat, axisVal, CHART_FONT } from '../../components/echarts'
 import type { ChartTokens } from '../../components/echarts'
+import { rate, isOk, fmtM } from '../../lib/measure'
+
+// Rates on this page are Measures (lib/measure.ts): a ratio that cannot be computed
+// renders "—" with its reason on hover, never a 0 or a confident percentage off a
+// denominator too small to carry one. See MobileAnalytics.tsx for the reference use.
+
+// Minimum contacts before a campaign conversion rate means anything. Measured
+// 2026-09-28: every campaign in this workspace has reached 3,334–4,064 contacts, so
+// this never bites a live campaign. It exists to stop a freshly created one, whose
+// contact load is still running, rendering a confident rate off a handful of rows.
+const REACH_FLOOR = 30
+
+// Minimum applications before a per-source approval rate is shown. A proportion from
+// fewer than ~20 samples carries a confidence interval of roughly ±20 points, wider
+// than any difference between sources anyone would act on. This deliberately blanks
+// the only row the table holds today — 8 applications, none declined, which rendered
+// as a green "100%" — because "—" is the honest reading of 8 applications.
+const APPLICATION_FLOOR = 20
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,7 +74,15 @@ function MatchBasis({ cif, phone, email }: { cif: number; phone: number; email: 
 }
 
 function ConvBar({ value, max }: { value: number; max: number }) {
-  const pct = max > 0 ? value / max * 100 : 0
+  const m = rate(value, max, REACH_FLOOR, 'contacts reached')
+  if (!isOk(m)) {
+    return (
+      <span title={m.reason} style={{ fontSize: TEXT.xs, color: 'var(--txt3)', cursor: 'help', ...NUM }}>
+        — no rate
+      </span>
+    )
+  }
+  const pct = m.value
   const color = pct >= 30 ? GREEN : pct >= 10 ? AMBER : RED
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -98,7 +124,7 @@ export default function Attribution() {
   const totalDisb  = campaigns.reduce((s, c) => s + c.attributed_disbursement_kobo, 0)
   const totalConv  = campaigns.reduce((s, c) => s + c.conversions, 0)
   const totalReach = campaigns.reduce((s, c) => s + c.contacts_reached, 0)
-  const convRate   = totalReach > 0 ? totalConv / totalReach * 100 : 0
+  const convRate   = rate(totalConv, totalReach, REACH_FLOOR, 'contacts reached')
 
   // Attributed value by campaign — top contributors.
   const disbChart = campaigns
@@ -124,12 +150,19 @@ export default function Attribution() {
   const LS_COLS: TableCol<LeadSourceRow>[] = [
     { key: 'lead_source', label: 'Source', render: r => <span style={{ fontWeight: FW.semibold, textTransform: 'capitalize' }}>{r.lead_source.replace(/_/g,' ')}</span> },
     { key: 'total_applications', label: 'Applications', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.total_applications)}</span> },
-    { key: 'approved', label: 'Approved', align: 'right', render: r => {
-      const rate = r.total_applications > 0 ? r.approved / r.total_applications * 100 : 0
+    // "Approved" is the backend's own wording and it is generous: /api/sales/by-lead-source
+    // counts every application whose status is NOT 'declined', so pending and incomplete
+    // ones land here too. The tooltip says so rather than the column implying a decision
+    // that has not been taken.
+    { key: 'approved', label: 'Not Declined', align: 'right', render: r => {
+      const m = rate(r.approved, r.total_applications, APPLICATION_FLOOR, 'applications')
       return (
-        <div>
+        <div title={m.reason ?? 'Counts every application not yet declined — pending and incomplete included, not approvals granted.'}
+             style={{ cursor: 'help' }}>
           <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.approved)}</span>
-          <span style={{ marginLeft: 6, fontSize: TEXT.xs, color: rate >= 50 ? GREEN : AMBER }}>({fmtPct(rate)})</span>
+          <span style={{ marginLeft: 6, fontSize: TEXT.xs, color: isOk(m) ? (m.value >= 50 ? GREEN : AMBER) : 'var(--txt3)' }}>
+            ({fmtM(m, fmtPct)})
+          </span>
         </div>
       )
     }},
@@ -149,7 +182,7 @@ export default function Attribution() {
         <KpiCard label="Campaigns"        value={fmtNum(campaigns.length)} icon="campaign"        loading={loading} />
         <KpiCard label="Contacts Reached" value={fmtNum(totalReach)}       icon="group"           accent={BLUE}  loading={loading} />
         <KpiCard label="Conversions"      value={fmtNum(totalConv)}        icon="how_to_reg"      accent={GREEN} loading={loading} />
-        <KpiCard label="Conversion Rate"  value={fmtPct(convRate)}         icon="conversion_path" accent={AMBER} loading={loading} />
+        <KpiCard label="Conversion Rate"  value={fmtM(convRate, fmtPct)}   icon="conversion_path" accent={AMBER} loading={loading} sub={convRate.reason} />
         <KpiCard label="Attributed ₦"     value={fmtKobo(totalDisb)}       icon="payments"       accent={NAVY}  loading={loading} />
       </div>
 

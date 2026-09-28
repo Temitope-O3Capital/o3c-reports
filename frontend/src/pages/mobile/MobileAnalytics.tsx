@@ -198,6 +198,10 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
   const totalCost = totals?.cost_usd ?? 0
   const hasSpend  = totalCost > 0
   const noData    = !loading && (totals?.installs ?? 0) === 0 && series.length === 0 && srcRows.length === 0
+  // Window-wide loyal rate for the KPI sub-label. Same Measure discipline as every
+  // per-row rate on this page, so an empty window reads "vs prev period" rather than
+  // a confident "0.0% of installs".
+  const overallLoyalRate = rate(totals?.loyal_users ?? 0, totals?.installs ?? 0, RATE_FLOOR, 'installs')
 
   // Funnel. The backend's afFunnelOrder is a DECLARATION of the journey, not a
   // measurement of it, so validate it against its own counts before reading any
@@ -428,7 +432,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           change={previous ? pctChange(totals?.sessions ?? 0, previous.sessions) : undefined} sub="vs prev period" />
         <KpiCard label="Loyal Users" value={fmtNum(totals?.loyal_users ?? 0)} icon="loyalty" accent={GREEN} loading={loading}
           change={previous ? pctChange(totals?.loyal_users ?? 0, previous.loyal_users) : undefined}
-          sub={totals && totals.installs > 0 ? `${fmtPct(totals.loyal_users / totals.installs * 100)} of installs` : 'vs prev period'} />
+          sub={isOk(overallLoyalRate) ? `${fmtM(overallLoyalRate, fmtPct)} of installs` : 'vs prev period'} />
         <KpiCard label="Paid Sources" value={fmtNum(totals?.paid_sources ?? 0)} icon="hub" accent={PURPLE} loading={loading} />
         <KpiCard label="Ad Spend (USD)" value={hasSpend ? usd(totalCost) : '—'} icon="payments" accent={AMBER} loading={loading}
           sub={hasSpend ? 'vs prev period' : undefined} />

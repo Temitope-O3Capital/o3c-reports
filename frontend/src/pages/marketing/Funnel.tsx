@@ -5,6 +5,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct } from '../../lib/fmt'
 import { GREEN, AMBER, NAVY, BLUE, PURPLE, TEXT, SP } from '../../lib/design'
 import { FunnelChart, type FunnelStep } from './FunnelChart'
+import { rate, fmtM } from '../../lib/measure'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,9 @@ export default function Funnel() {
     { label: 'Clicked',   value: c.total_clicked,   color: PURPLE },
     { label: 'Converted', value: conversions,       color: GREEN, hint: 'loans booked' },
   ] : []
-  const overallConv = c && c.total_sent > 0 ? conversions / c.total_sent * 100 : 0
+  // A Measure (lib/measure.ts): renders "—" when nothing was sent, rather than a 0%
+  // that reads as "we sent campaigns and nobody converted".
+  const overallConv = rate(conversions, c?.total_sent ?? 0, 1, 'messages sent')
   const trackingGap = !!c && c.total_delivered > 0 && c.total_opened === 0
 
   // Supporting: loan origination pipeline (correctly labelled — LOS stages).
@@ -111,7 +114,7 @@ export default function Funnel() {
         </SectionCard>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          <KpiCard label="Send to Convert" value={fmtPct(overallConv)} icon="conversion_path" accent={GREEN} sub="overall conversion" />
+          <KpiCard label="Send to Convert" value={fmtM(overallConv, fmtPct)} icon="conversion_path" accent={GREEN} sub={overallConv.reason ?? "overall conversion"} />
           <KpiCard label="Conversions"    value={conversions.toLocaleString()} icon="how_to_reg" accent={AMBER} sub="loans booked" />
           <KpiCard label="Attributed ₦"   value={fmtKobo(attributed)} icon="payments" accent={NAVY} sub="originated value" />
         </div>

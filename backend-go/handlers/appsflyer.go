@@ -20,8 +20,25 @@ import (
 // afFunnelOrder is the canonical signup→activation journey for "Blink by O3".
 // The funnel endpoint returns known events in this order; any event not listed is
 // appended afterwards (so a newly-defined app event still shows, just at the end).
+//
+// THIS LIST IS A DECLARATION OF BELIEF, AND IT HAS BEEN WRONG BEFORE. It originally
+// placed onboarding_start/onboarding_complete after bvn_result, which made the Funnel
+// tab report 227 users converting from a step with 9 — a "2,522% conversion" — and sent
+// the "What to Act On" card hunting for its sharpest drop among events that are not
+// sequential at all. Corrected 2026-09-28 on measured evidence: onboarding_start is
+// 95.3% of first_open in August and 93.8% in September, i.e. Blink fires onboarding at
+// APP-OPEN, before registration, not after BVN. onboarding_complete (200) likewise
+// exceeds registration_start (124), which is impossible downstream of it.
+//
+// Only that one move was made. The remaining order below is still the original
+// declaration and is NOT fully corroborated — see the caveat under it. Do not "fix" the
+// rest by sorting on volume: the client validates this list against its own counts
+// (lib/insights.ts checkSequence), and an order derived from those counts would make
+// the check vacuous. Get the real sequence from whoever owns the Blink app.
 var afFunnelOrder = []string{
 	"first_open",
+	"onboarding_start",
+	"onboarding_complete",
 	"registration_start",
 	"registration_details_submitted",
 	"registration_email_verified",
@@ -31,11 +48,25 @@ var afFunnelOrder = []string{
 	"kyc_result",
 	"bvn_start",
 	"bvn_result",
-	"onboarding_start",
-	"onboarding_complete",
 	"card_cta_tapped",
 	"af_login",
 }
+
+// WHY THIS FEED CANNOT FULLY VERIFY A FUNNEL, and why small violations survive.
+//
+// appsflyer_events.unique_users is unique PER DAY per source/campaign/agency, so
+// summing it over a window yields user-days, not users. That is sound for an event each
+// user fires once and inflates every event they repeat. Measured over 2026-08-29→09-28
+// (event_count ÷ unique_users): first_open 1.03 and af_complete_registration 1.07 are
+// effectively once-per-user; registration_start 2.27, bvn_start 2.50 and
+// onboarding_complete 1.94 clearly are not.
+//
+// So a correct order can still show a later step a few users "bigger" than the one
+// before it. Four such residuals remain, all small (+1 to +25 user-days) against the
+// +218 the onboarding misplacement produced. The client reports them rather than hiding
+// them, and confines conversion to the corroborated run. Do not paper over them with a
+// tolerance threshold: that would be tuning the check until the data looks clean, and
+// it is the gross misordering this guard exists to catch.
 
 // afFunnelRank returns a stable ordering rank for an event name.
 func afFunnelRank(name string) int {

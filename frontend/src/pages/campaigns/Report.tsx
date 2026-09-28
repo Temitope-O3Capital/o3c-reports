@@ -13,6 +13,9 @@ import { EArea, EBar } from '../../components/echarts'
 import EmailBlockEditor, { exportToHtml, parseBlocks } from '../../components/EmailBlockEditor'
 import type { EmailBlock, EmailSettings } from '../../components/EmailBlockEditor'
 import PersonalizeMenu from '../../components/PersonalizeMenu'
+// Rates here are Measures (lib/measure.ts): a ratio with no denominator renders "—"
+// with its reason, never a 0 that reads as a real measurement.
+import { rate, isOk, fmtM } from '../../lib/measure'
 import SequenceBuilder from './SequenceBuilder'
 import { renderSample, smsInfo, subjectHints, insertToken, QUICK_EMOJIS } from '../../lib/personalize'
 
@@ -1870,7 +1873,11 @@ export default function CampaignDetail() {
                 <SectionCard title="Top Clicked Links">
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {report!.top_links.map((link, i) => {
-                      const pct = sent > 0 ? (toN(link.clicks) / sent) * 100 : 0
+                      // Bar width only — the click count beside it is the real figure,
+                      // so an uncomputable share collapses the bar rather than blanking
+                      // the row.
+                      const m = rate(toN(link.clicks), sent, 1, 'messages sent')
+                      const pct = isOk(m) ? m.value : 0
                       return (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                           <div style={{ width: 22, height: 22, borderRadius: '50%', background: `${BLUE}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, flexShrink: 0 }}>{i + 1}</div>
@@ -1894,7 +1901,7 @@ export default function CampaignDetail() {
             <SectionCard title="Attribution" subtitle="Recipients who took a loan within 90 days of this campaign" padding>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                 <InsightTile label="Conversions" value={fmtNum(attribution.conversions)} sub="recipients who borrowed" accent={GREEN} />
-                <InsightTile label="Conversion Rate" value={fmtPct(attribution.contacts_reached > 0 ? attribution.conversions / attribution.contacts_reached * 100 : 0)} accent={AMBER} />
+                <InsightTile label="Conversion Rate" value={fmtM(rate(attribution.conversions, attribution.contacts_reached, 1, 'contacts reached'), fmtPct)} accent={AMBER} />
                 <InsightTile label="Attributed ₦" value={fmtKobo(attribution.attributed_disbursement_kobo)} sub="originated value" accent={NAVY} />
                 <InsightTile label="Matched By" value={`${attribution.matched_cif} CIF · ${attribution.matched_phone} ph · ${attribution.matched_email} em`} />
               </div>

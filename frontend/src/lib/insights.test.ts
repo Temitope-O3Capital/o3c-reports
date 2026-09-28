@@ -12,7 +12,7 @@ import { rate, per, reported, na, isOk, fmtM, cmpM } from './measure'
 //
 // The declared order also put onboarding after BVN, but Blink fires onboarding_start
 // at app-open, so the funnel showed 227 users converting from a step with 9.
-const BLINK_SEPT: SeqStep[] = [
+const BLINK_SEPT_LEGACY_ORDER: SeqStep[] = [
   { name: 'First Open', users: 236, ordered: true },
   { name: 'Registration Start', users: 124, ordered: true },
   { name: 'Registration Details Submitted', users: 47, ordered: true },
@@ -32,8 +32,36 @@ const BLINK_SEPT: SeqStep[] = [
   { name: 'Card Issuance Failed', users: 1, ordered: false },          // ← the phantom 94%
 ]
 
-describe('checkSequence', () => {
-  const seq = checkSequence(BLINK_SEPT)
+// The same counts under the corrected afFunnelOrder (2026-09-28): onboarding moved to
+// directly after first_open, on measured evidence that Blink fires it at app-open —
+// onboarding_start is 95.3% of first_open in August and 93.8% in September.
+//
+// Only that one move was made. Four small violations remain and are EXPECTED: summed
+// daily unique_users is user-days, not users, so events users repeat inflate. The
+// point of this fixture is that the gross artefact is gone (largest overshoot falls
+// from +218 to +25) while the honest residue is still reported rather than hidden.
+const BLINK_SEPT_CORRECTED: SeqStep[] = [
+  { name: 'First Open', users: 236, ordered: true },
+  { name: 'Onboarding Start', users: 227, ordered: true },
+  { name: 'Onboarding Complete', users: 200, ordered: true },
+  { name: 'Registration Start', users: 124, ordered: true },
+  { name: 'Registration Details Submitted', users: 47, ordered: true },
+  { name: 'Registration Email Verified', users: 52, ordered: true },
+  { name: 'Registration Passcode Created', users: 36, ordered: true },
+  { name: 'Complete Registration', users: 46, ordered: true },
+  { name: 'Kyc Start', users: 47, ordered: true },
+  { name: 'Kyc Result', users: 30, ordered: true },
+  { name: 'Bvn Start', users: 10, ordered: true },
+  { name: 'Bvn Result', users: 9, ordered: true },
+  { name: 'Card Cta Tapped', users: 34, ordered: true },
+  { name: 'Login', users: 34, ordered: true },
+  { name: 'Initiated Checkout', users: 21, ordered: false },
+  { name: 'Card Blocked Kyc Required', users: 17, ordered: false },
+  { name: 'Card Issuance Failed', users: 1, ordered: false },
+]
+
+describe('checkSequence — the legacy order that shipped the bug', () => {
+  const seq = checkSequence(BLINK_SEPT_LEGACY_ORDER)
 
   it('rejects a declared order the data contradicts', () => {
     expect(seq.trusted).toBe(false)
@@ -67,6 +95,13 @@ describe('checkSequence', () => {
     expect(seq.drop!.b).toBe(47)
   })
 
+  it('measures how gross the legacy misordering was', () => {
+    const worst = [...seq.violations].sort((a, b) => b.gained - a.gained)[0]
+    expect(worst.from).toBe('Bvn Result')
+    expect(worst.to).toBe('Onboarding Start')
+    expect(worst.gained).toBe(218)          // 9 → 227: the "2,522% conversion"
+  })
+
   it('accepts a genuinely monotonic funnel end to end', () => {
     const clean = checkSequence([
       { name: 'Open', users: 100, ordered: true },
@@ -93,6 +128,43 @@ describe('checkSequence', () => {
     expect(none.trusted).toBe(true)
     expect(none.drop).toBeNull()
     expect(none.verified).toHaveLength(0)
+  })
+})
+
+describe('checkSequence — the corrected order now in afFunnelOrder', () => {
+  const seq = checkSequence(BLINK_SEPT_CORRECTED)
+
+  it('extends the trusted run from 3 steps to 5', () => {
+    expect(seq.verified.map(s => s.name)).toEqual([
+      'First Open', 'Onboarding Start', 'Onboarding Complete',
+      'Registration Start', 'Registration Details Submitted',
+    ])
+  })
+
+  it('removes the gross artefact and leaves only small residue', () => {
+    const worst = [...seq.violations].sort((a, b) => b.gained - a.gained)[0]
+    expect(worst.gained).toBe(25)           // was 218 under the legacy order
+    expect(seq.violations.every(v => v.gained <= 25)).toBe(true)
+  })
+
+  it('still refuses to call the order fully verified, because it is not', () => {
+    // Four residual violations survive: summed daily uniques are user-days, so events
+    // users repeat overshoot. Reported honestly rather than smoothed away.
+    expect(seq.trusted).toBe(false)
+    expect(seq.violations).toHaveLength(4)
+  })
+
+  it('reports the same real headline as before — the fix changed nothing true', () => {
+    expect(seq.drop!.from).toBe('Registration Start')
+    expect(seq.drop!.to).toBe('Registration Details Submitted')
+    expect(seq.drop!.lostPct).toBeCloseTo(62.1, 1)
+  })
+
+  it('keeps the unplaced card events out of the sequence entirely', () => {
+    expect(seq.unordered.map(s => s.name)).toEqual([
+      'Initiated Checkout', 'Card Blocked Kyc Required', 'Card Issuance Failed',
+    ])
+    expect(seq.violations.some(v => v.to === 'Card Issuance Failed')).toBe(false)
   })
 })
 
