@@ -105,9 +105,13 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	// requested" and the lead is at Documents requested, with the entry on its timeline.
 	r.With(access).Post("/leads/{id}/activity", logLeadActivity(db))
 	r.With(access).Post("/leads/{id}/claim", claimLead(db))
+	// Hand a lead to another officer. Owner or head only; see transferLead.
+	r.With(access).Post("/leads/{id}/transfer", transferLead(db))
 	r.With(access).Post("/leads/{id}/convert", convertLead(db))
 	r.With(access).Post("/leads/{id}/disqualify", disqualifyLead(db))
 	r.With(access).Get("/leads/{id}/events", leadEvents(db))
+	// Everything that has happened to this lead, from every team. See leadTimeline.
+	r.With(access).Get("/leads/{id}/timeline", leadTimeline(db))
 
 	// Bulk distribution of the unowned lead pool. Head-only (enforced in-handler,
 	// like the book's assign routes). Static path — no conflict with /leads/{id}.
@@ -165,11 +169,19 @@ type distributeReq struct {
 // dashboard can light up until they own leads.
 //
 // Two guarantees make it safe to run repeatedly:
-//   - It only ever touches leads with no owner (lead_owner_id IS NULL). Re-running
-//     never reshuffles work an officer has already started — it just picks up
-//     whatever is still unassigned.
+//   - It only ever touches leads with no sales owner (sales_owner_id IS NULL) that
+//     have actually reached Sales (sales_entered_at IS NOT NULL). Re-running never
+//     reshuffles work an officer has already started — it just picks up whatever is
+//     still unassigned.
 //   - The whole batch is one transaction. A half-applied distribution would leave
 //     the book in a state nobody chose.
+//
+// The sales_entered_at half of the first guarantee is load-bearing, not belt-and-
+// braces. The pool used to read "lead_owner_id IS NULL AND status='lead'", which on
+// 28 Sept 2026 selected 15,146 rows of which every one was a help-desk contact from
+// Zoho Desk. One press of Distribute would have dealt the support inbox out across
+// the sales floor as assigned work, with an audit event on each row saying it was
+// deliberate. See migration 302.
 //
 // Every assignment is written to crm_lead_events (event 'assigned', to_owner set)
 // so "who was this handed to, and when?" stays answerable.
@@ -250,9 +262,12 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 		}
 
 		// Read the unowned lead pool, optionally scoped by source/state and capped.
+		// Gated on sales_entered_at: only leads genuinely handed to Sales are dealable.
 		q := `SELECT id, COALESCE(NULLIF(TRIM(state),''),'—') AS state
 		        FROM crm_contacts
-		       WHERE lead_owner_id IS NULL AND status = 'lead'`
+		       WHERE sales_entered_at IS NOT NULL
+		         AND sales_owner_id IS NULL
+		         AND status = 'lead'`
 		args := []any{}
 		n := 1
 		if req.Source != "" {
@@ -339,14 +354,17 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 			if len(ids) == 0 {
 				continue
 			}
-			// The lead_owner_id IS NULL guard in the WHERE clause makes this a no-op
+			// The sales_owner_id IS NULL guard in the WHERE clause makes this a no-op
 			// on anything a concurrent request grabbed first — re-running is safe.
+			// lead_owner_id is deliberately untouched: it is the call-centre agent's
+			// own book, and distributing a lead to Sales must not empty it.
 			if _, err := tx.ExecContext(r.Context(), `
 				UPDATE crm_contacts
-				   SET lead_owner_id = $1,
-				       assigned_to   = COALESCE(assigned_to, $1),
-				       updated_at    = NOW()
-				 WHERE id = ANY($2) AND lead_owner_id IS NULL`, id, ids); err != nil {
+				   SET sales_owner_id = $1,
+				       updated_at     = NOW()
+				 WHERE id = ANY($2)
+				   AND sales_owner_id IS NULL
+				   AND sales_entered_at IS NOT NULL`, id, ids); err != nil {
 				respondErrLog(w, 500, "Assignment failed", err)
 				return
 			}
@@ -401,6 +419,18 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			args = append(args, src)
 			n++
 		}
+		// How the lead reached SALES — call_centre | business_dev | self — which is a
+		// different question from lead_source above. lead_source records where the
+		// contact originally came from and is set by whoever created it; sales_source
+		// records which of the three doors into Sales it came through. A campaign lead
+		// worked by the call centre and then forwarded has lead_source 'call_centre' and
+		// sales_source 'call_centre'; the same lead entered by an officer who met them at
+		// a branch has sales_source 'self'. Officers filter on the second.
+		if ss := qstr(r, "sales_source"); ss != "" {
+			where = append(where, fmt.Sprintf("c.sales_source = $%d", n))
+			args = append(args, ss)
+			n++
+		}
 		// Filter by product line ('cards'|'loans'|'fixed_deposit') — expand to the
 		// line's canonical sub-codes so a lead tagged 'credit_card' matches line 'cards'.
 		if line := qstr(r, "line"); line != "" {
@@ -448,7 +478,7 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			       c.state, c.city, c.employer, c.occupation,
 			       c.lead_stage, c.lead_source, c.source, c.source_type,
 			       c.product_interest,
-			       c.lead_owner_id, c.estimated_value_kobo,
+			       c.sales_owner_id, c.estimated_value_kobo,
 			       c.next_action_at, c.last_activity_at,
 			       c.qualified_at, c.created_at, c.updated_at,
 			       c.already_customer, c.matched_customer_cif,
@@ -465,7 +495,7 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			       u.full_name AS owner_name,
 			       e.name      AS employer_name
 			  FROM crm_contacts c
-			  LEFT JOIN o3c_users u ON u.id = c.lead_owner_id
+			  LEFT JOIN o3c_users u ON u.id = c.sales_owner_id
 			  LEFT JOIN employers e ON e.id = c.employer_id
 			 WHERE `+cond+`
 			 ORDER BY (c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()) DESC,
@@ -574,7 +604,7 @@ type leadReq struct {
 	EmployerID   *int64 `json:"employer_id"`
 	IncomeRange  string `json:"income_range"`
 	LeadSource   string `json:"lead_source"`
-	OwnerID      *int64 `json:"lead_owner_id"`
+	OwnerID      *int64 `json:"sales_owner_id"`
 	EstValueKobo *int64 `json:"estimated_value_kobo"`
 	NextActionAt string `json:"next_action_at"`
 	Notes        string `json:"notes"`
@@ -654,20 +684,27 @@ func createLead(db *core.DB) http.HandlerFunc {
 			productInterest = sql.NullString{String: pc, Valid: true}
 		}
 
+		// sales_entered_at is stamped unconditionally: a lead an officer profiles here is
+		// in Sales by definition — it is the third way in, alongside the call-centre
+		// hand-off and a BD assignment. Without it the lead would be created and then be
+		// invisible on the very page that created it, since the queue is gated on this
+		// column (migration 302).
 		var id int64
 		err = tx.QueryRowContext(r.Context(), `
 			INSERT INTO crm_contacts (
 			    first_name, last_name, phone, email, state, city, address,
 			    occupation, employer, employer_id, income_range,
 			    status, lead_stage, lead_source, source, source_type,
-			    lead_owner_id, assigned_to, estimated_value_kobo, next_action_at,
-			    product_interest, notes, created_by, last_activity_at, created_at, updated_at
+			    sales_owner_id, assigned_to, estimated_value_kobo, next_action_at,
+			    product_interest, notes, created_by, last_activity_at, created_at, updated_at,
+			    sales_entered_at, sales_source
 			) VALUES (
 			    $1,$2,$3,$4,$5,$6,$7,
 			    $8,$9,$10,$11,
 			    'lead','new',$12,'workspace','manual',
 			    $13,$13,$14,NULLIF($15,'')::timestamptz,
-			    $16,$17,$18,NOW(),NOW(),NOW()
+			    $16,$17,$18,NOW(),NOW(),NOW(),
+			    NOW(),'self'
 			) RETURNING id`,
 			req.FirstName, req.LastName, req.Phone, req.Email, req.State, req.City, req.Address,
 			req.Occupation, req.Employer, req.EmployerID, req.IncomeRange,
@@ -699,8 +736,27 @@ func createLead(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// getLead returns one lead in full.
+//
+// Scoped like the queue it is opened from. It previously fetched any crm_contacts row by
+// id with no check at all, which meant the whole record of any of the 16,752 Zoho Desk
+// help-desk contacts — name, phone, email, employer, notes — came back to anyone who
+// could reach the endpoint, simply by walking the ids. Filtering the LIST is not enough
+// when the DETAIL takes an id from the caller.
 func getLead(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		gate := []string{"c.id = $1"}
+		gargs := []any{chi.URLParam(r, "id")}
+		gate, gargs, _ = applyLeadScope(r, db, user, gate, gargs, 2)
+		var visible bool
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT EXISTS (SELECT 1 FROM crm_contacts c WHERE `+strings.Join(gate, " AND ")+`)`,
+			gargs...).Scan(&visible); err != nil || !visible {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT c.*, u.full_name AS owner_name, e.name AS employer_name,
 			       cb.full_name AS created_by_name,
@@ -709,7 +765,7 @@ func getLead(db *core.DB) http.HandlerFunc {
 			       f.product_interest   AS cc_product_interest,
 			       f.forwarded_at       AS cc_forwarded_at
 			  FROM crm_contacts c
-			  LEFT JOIN o3c_users u  ON u.id  = c.lead_owner_id
+			  LEFT JOIN o3c_users u  ON u.id  = c.sales_owner_id
 			  LEFT JOIN o3c_users cb ON cb.id = c.created_by
 			  LEFT JOIN employers e  ON e.id  = c.employer_id
 			  LEFT JOIN LATERAL (
@@ -735,6 +791,208 @@ func getLead(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// leadTimeline returns everything that has happened to a lead, from every team, as one
+// ordered list.
+//
+// A lead's history is written in three places by three different parts of the business
+// and the Leads page only ever showed one of them:
+//
+//   crm_lead_events            stage moves, claims, transfers, conversion  (Sales)
+//   app.activities             calls, notes, visits, hand-offs             (every team)
+//   call_center_lead_forwards  the hand-off itself, and how it resolved    (call centre)
+//
+// Showing only crm_lead_events meant an officer opening a lead saw "qualified" and
+// nothing else — not the 14,818 recorded calls, not who dialled them, not what the
+// customer said. The single most useful fact about a lead ("we have rung this person
+// four times and they asked us to call back in March") lived one table away and was
+// never on screen.
+//
+// Merged in SQL rather than in the client: the three sources have different shapes and
+// different time columns, and interleaving them correctly by time is exactly what a
+// UNION with a shared ORDER BY is for. The client renders what it is given.
+func leadTimeline(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		// The lead must be visible to this caller before any of its history is. Without
+		// this the endpoint would hand back the full call history of any contact whose
+		// id was guessed, including help-desk contacts that are not leads at all.
+		user := core.UserFromCtx(r.Context())
+		where := []string{"c.id = $1"}
+		args := []any{id}
+		where, args, _ = applyLeadScope(r, db, user, where, args, 2)
+		var visible bool
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT EXISTS (SELECT 1 FROM crm_contacts c WHERE `+strings.Join(where, " AND ")+`)`,
+			args...).Scan(&visible); err != nil || !visible {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+
+		rows, err := db.PGQuery(r.Context(), `
+			(
+			  SELECT e.created_at                              AS at,
+			         'lead_event'                              AS kind,
+			         e.event                                   AS type,
+			         NULLIF(TRIM(COALESCE(e.from_stage,'') || ' → ' || COALESCE(e.to_stage,'')), '→') AS detail,
+			         e.note                                    AS note,
+			         COALESCE(u.full_name, 'System')           AS actor,
+			         'sales'                                   AS team,
+			         NULL                                      AS outcome
+			    FROM crm_lead_events e
+			    LEFT JOIN o3c_users u ON u.id = e.created_by
+			   WHERE e.contact_id = $1
+			)
+			UNION ALL
+			(
+			  SELECT a.occurred_at, 'activity', a.type,
+			         a.subject, a.body,
+			         COALESCE(NULLIF(a.actor_name,''), 'System'),
+			         COALESCE(a.actor_team, 'unknown'),
+			         a.outcome
+			    FROM app.activities a
+			   WHERE a.contact_id = $1
+			)
+			UNION ALL
+			(
+			  SELECT f.forwarded_at, 'handoff', 'forwarded_to_sales',
+			         'Forwarded to Sales' ||
+			           CASE WHEN NULLIF(f.product_interest,'') IS NOT NULL
+			                THEN ' · ' || f.product_interest ELSE '' END,
+			         f.notes,
+			         COALESCE(NULLIF(f.forwarded_by_name,''), 'Call centre'),
+			         'call_center',
+			         f.status
+			    FROM call_center_lead_forwards f
+			   WHERE f.contact_id = $1
+			)
+			ORDER BY at DESC
+			LIMIT 300`, id)
+		if err != nil {
+			respondErrLog(w, 500, "Could not load the lead timeline", err)
+			return
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// transferLead hands a lead from one officer to another.
+//
+// Officers cover for each other — leave, a customer who turns out to be a colleague's
+// existing relationship, a lead in a state the owner does not cover — and until now the
+// only ways to move one were to ask a head to run a bulk distribution (which only
+// touches UNOWNED leads, so it could not move this one at all) or to have the receiving
+// officer claim it, which claimLead refuses on a lead somebody already owns. So in
+// practice a lead could not be moved once claimed.
+//
+// Who may transfer: the current owner (handing their own work over), or a head
+// (reassigning within their team). Not a third officer helping themselves to someone
+// else's lead — that is a reassignment, and it belongs to the owner or their head.
+//
+// Every transfer is written to crm_lead_events with BOTH sides recorded in from_owner
+// and to_owner, so "who had this before me, and who gave it to them?" stays answerable
+// down the whole chain.
+func transferLead(db *core.DB) http.HandlerFunc {
+	type body struct {
+		ToUserID int64  `json:"to_user_id"`
+		Note     string `json:"note"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		if user == nil || user.ID == 0 {
+			respondErr(w, 401, "Not authenticated")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.ToUserID <= 0 {
+			respondErr(w, 400, "Choose the officer to transfer this lead to")
+			return
+		}
+
+		var owner sql.NullInt64
+		var stage string
+		var inSales sql.NullTime
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT sales_owner_id, lead_stage, sales_entered_at FROM crm_contacts WHERE id=$1`,
+			id).Scan(&owner, &stage, &inSales); err != nil {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		// Same gate as the queue and claimLead: a contact that never reached Sales is
+		// not a lead, whatever id is posted.
+		if !inSales.Valid {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		if !isOpenLeadStage(stage) {
+			respondErr(w, 409, "This lead is closed — a converted or disqualified lead cannot be transferred")
+			return
+		}
+		if owner.Valid && owner.Int64 == b.ToUserID {
+			respondErr(w, 400, "That officer already owns this lead")
+			return
+		}
+
+		isHead := core.IsManagement(user.Role) || isSalesHead(user)
+		if !isHead && !(owner.Valid && owner.Int64 == user.ID) {
+			respondErr(w, 403, "You can only transfer a lead you own")
+			return
+		}
+
+		// The recipient has to be a real, active user. Without this a typo'd id parks the
+		// lead on nobody and it silently leaves every queue: the pool query looks for
+		// sales_owner_id IS NULL, and this would not be NULL.
+		var recipient string
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT full_name FROM o3c_users WHERE id=$1 AND deleted_at IS NULL AND is_active`,
+			b.ToUserID).Scan(&recipient); err != nil {
+			respondErr(w, 400, "That officer is not an active user")
+			return
+		}
+
+		tx, err := db.PG.BeginTx(r.Context(), nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Guarded on the owner we read above, so two people transferring the same lead at
+		// once cannot both succeed — the second finds it moved and is told so.
+		res, err := tx.ExecContext(r.Context(), `
+			UPDATE crm_contacts
+			   SET sales_owner_id = $2, last_activity_at = NOW(), updated_at = NOW()
+			 WHERE id = $1 AND sales_owner_id IS NOT DISTINCT FROM $3`,
+			id, b.ToUserID, owner)
+		if err != nil {
+			respondErrLog(w, 500, "Transfer failed", err)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "This lead moved to another officer while you were working on it")
+			return
+		}
+
+		if _, err := tx.ExecContext(r.Context(), `
+			INSERT INTO crm_lead_events (contact_id, event, from_owner, to_owner, note, created_by)
+			VALUES ($1,'transferred',$2,$3,$4,$5)`,
+			id, owner, b.ToUserID, nullIfEmpty(strings.TrimSpace(b.Note)), user.ID); err != nil {
+			respondErrLog(w, 500, "Could not record the transfer", err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Transfer failed")
+			return
+		}
+		respond(w, map[string]any{"ok": true, "to_user_id": b.ToUserID, "to_name": recipient}, "pg")
+	}
+}
+
 // claimLead lets a sales officer take ownership of a lead handed over by the call
 // centre (or any unowned lead). It records the claim on the call-centre hand-off
 // tracker as 'assigned', so the forwarding agent sees Sales has picked it up.
@@ -748,8 +1006,17 @@ func claimLead(db *core.DB) http.HandlerFunc {
 		}
 		var owner sql.NullInt64
 		var stage string
+		var inSales sql.NullTime
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_owner_id, lead_stage FROM crm_contacts WHERE id=$1`, id).Scan(&owner, &stage); err != nil {
+			`SELECT sales_owner_id, lead_stage, sales_entered_at FROM crm_contacts WHERE id=$1`,
+			id).Scan(&owner, &stage, &inSales); err != nil {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		// The same gate the queue applies, enforced again at the write. Scoping a list
+		// only controls what is offered; this endpoint takes an id from the caller, so
+		// without the check a helpdesk contact could still be claimed by posting its id.
+		if !inSales.Valid {
 			respondErr(w, 404, "Lead not found")
 			return
 		}
@@ -760,7 +1027,7 @@ func claimLead(db *core.DB) http.HandlerFunc {
 		}
 		if _, err := db.PGExec(r.Context(), `
 			UPDATE crm_contacts
-			   SET lead_owner_id    = $2,
+			   SET sales_owner_id    = $2,
 			       lead_stage       = CASE WHEN lead_stage IN ('new','contacted') THEN 'qualified' ELSE lead_stage END,
 			       stage_changed_at = CASE WHEN lead_stage IN ('new','contacted') THEN NOW() ELSE stage_changed_at END,
 			       last_activity_at = NOW(), updated_at = NOW()
@@ -793,9 +1060,77 @@ func updateLead(db *core.DB) http.HandlerFunc {
 		allowed := []string{
 			"first_name", "last_name", "phone", "email", "state", "city", "address",
 			"occupation", "employer", "employer_id", "income_range", "lead_source",
-			"lead_owner_id", "estimated_value_kobo", "next_action_at", "notes", "tags",
+			"sales_owner_id", "estimated_value_kobo", "next_action_at", "notes", "tags",
 			"product_interest",
 		}
+		// REASSIGNMENT THROUGH THE GENERIC PATCH.
+		//
+		// sales_owner_id is in the allowlist above because the Leads page assigns through
+		// this endpoint ("Reuses the lead PATCH — no bespoke endpoint needed"). But every
+		// OTHER route that writes that column — transferLead, claimLead — gates it, and this
+		// one gated nothing: no ownership test, no active-recipient test, no concurrency
+		// guard, no crm_lead_events row. Any holder of the sales/crm/bd page could take a
+		// lead off the officer working it, and the timeline would not record who did it.
+		//
+		// The guards below are transferLead's, in the same order and for the same reasons.
+		// Deliberately NOT removing the field from the allowlist: that would break the live
+		// assign control rather than secure it.
+		if v, changing := body["sales_owner_id"]; changing {
+			user := core.UserFromCtx(r.Context())
+			if user == nil {
+				respondErr(w, 401, "Sign in first")
+				return
+			}
+			var owner sql.NullInt64
+			var stage string
+			var inSales sql.NullTime
+			if err := db.PG.QueryRowContext(r.Context(),
+				`SELECT sales_owner_id, lead_stage, sales_entered_at FROM crm_contacts WHERE id=$1`,
+				chi.URLParam(r, "id")).Scan(&owner, &stage, &inSales); err != nil {
+				respondErr(w, 404, "Lead not found")
+				return
+			}
+			// A contact that never reached Sales is not a lead, whatever id is posted.
+			if !inSales.Valid {
+				respondErr(w, 404, "Lead not found")
+				return
+			}
+			if !isOpenLeadStage(stage) {
+				respondErr(w, 409, "This lead is closed — a converted or disqualified lead cannot be reassigned")
+				return
+			}
+			isHead := core.IsManagement(user.Role) || isSalesHead(user)
+			if !isHead && !(owner.Valid && owner.Int64 == user.ID) {
+				respondErr(w, 403, "You can only reassign a lead you own")
+				return
+			}
+			// Clearing the owner back to the unowned pool is legitimate; naming a recipient
+			// who is not a real active user is not. Without this a typo'd id parks the lead
+			// on nobody and it leaves every queue silently, because the unowned pool looks
+			// for sales_owner_id IS NULL and this would not be NULL.
+			if v != nil {
+				var toID int64
+				switch n := v.(type) {
+				case float64:
+					toID = int64(n)
+				case int64:
+					toID = n
+				default:
+					respondErr(w, 400, "sales_owner_id must be a user id or null")
+					return
+				}
+				if toID != 0 {
+					var recipient string
+					if err := db.PG.QueryRowContext(r.Context(),
+						`SELECT full_name FROM o3c_users WHERE id=$1 AND deleted_at IS NULL AND is_active`,
+						toID).Scan(&recipient); err != nil {
+						respondErr(w, 400, "That officer is not an active user")
+						return
+					}
+				}
+			}
+		}
+
 		sets, args := buildSet(body, allowed, 1)
 		if len(sets) == 0 {
 			respondErr(w, 400, "No updatable fields supplied")
@@ -888,7 +1223,7 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 		var current string
 		var owner sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT id, lead_stage, lead_owner_id FROM crm_contacts WHERE id = $1`, chi.URLParam(r, "id")).
+			`SELECT id, lead_stage, sales_owner_id FROM crm_contacts WHERE id = $1`, chi.URLParam(r, "id")).
 			Scan(&contactID, &current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
@@ -992,7 +1327,7 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 		var current string
 		var owner sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage, lead_owner_id FROM crm_contacts WHERE id=$1`, id).
+			`SELECT lead_stage, sales_owner_id FROM crm_contacts WHERE id=$1`, id).
 			Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
@@ -1060,18 +1395,71 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 }
 
 type convertReq struct {
+	// Line is the product the lead converted on: cards | loans | fixed_deposit.
+	// Defaults to cards when omitted, so an older client that only sends `cif` keeps
+	// working unchanged.
+	Line string `json:"line"`
+	// Ref is the identifier in that line's own namespace: a card CIF for cards, a Udara
+	// account number for loans and fixed deposits. `cif` remains accepted as the alias
+	// for the cards case.
+	Ref  string `json:"ref"`
 	CIF  string `json:"cif"`
 	Note string `json:"note"`
 }
 
+// convertedProduct resolves and validates the {line, ref} a lead converted on, in that
+// line's OWN namespace. The three references are not interchangeable — a card CIF, a
+// Udara loan account and a Udara FD account are different keys over different books,
+// and checking one against another returns a different person or nothing at all.
+// Returns a human-readable reason when the reference does not resolve.
+func convertedProduct(ctx context.Context, db *core.DB, line, ref string) (string, string, string) {
+	line = strings.ToLower(strings.TrimSpace(line))
+	ref = strings.TrimSpace(ref)
+	if line == "" {
+		line = LineCards
+	}
+	if ref == "" {
+		return "", "", "A reference is required to convert a lead: the CIF for a card, or the Udara account number for a loan or fixed deposit."
+	}
+
+	var q, reason string
+	switch line {
+	case LineCards:
+		q = `SELECT EXISTS (SELECT 1 FROM app.customers WHERE cif = $1)`
+		reason = "No customer with that CIF. A card customer is created in the card system and arrives through the feed, so the CIF has to exist before the lead can be converted."
+	case LineLoans:
+		q = `SELECT EXISTS (SELECT 1 FROM app.cbs_loans WHERE cbs_account_number = $1)`
+		reason = "No Udara loan with that account number. The loan has to be booked in Udara before the lead can be converted on it."
+	case LineFixedDeposit:
+		q = `SELECT EXISTS (SELECT 1 FROM app.cbs_fixed_deposits WHERE cbs_account_number = $1)`
+		reason = "No Udara fixed deposit with that account number. The deposit has to be booked in Udara before the lead can be converted on it."
+	default:
+		return "", "", "Unknown product line. A lead converts on cards, loans or fixed_deposit."
+	}
+
+	var ok bool
+	if err := db.PG.QueryRowContext(ctx, q, ref).Scan(&ok); err != nil || !ok {
+		return "", "", reason
+	}
+	return line, ref, ""
+}
+
 // convertLead closes the loop between a lead and the customer book.
 //
-// The CIF must already exist in app.customers — customers are created in the card
-// system and arrive through the cust_file feed, not here. Requiring a real CIF is what
-// stops the book filling with conversions that point at nothing.
+// A lead converts onto a PRODUCT LINE — cards, loans or fixed_deposit — carrying the
+// reference that line uses. It used to demand a card CIF and nothing else, which meant
+// a lead who took a salary loan or opened a fixed deposit could never be converted:
+// no card, no CIF, no way to close a deal that had actually been won. The officer's
+// only outs were to leave it open for ever or to borrow someone else's CIF. See
+// migration 304.
+//
+// The reference is always checked against the book that owns it, never against a
+// different one, because these keys are not interchangeable.
 //
 // On success the lead's owner becomes the customer's account officer, which is the
-// whole point: the person who won the customer keeps them.
+// whole point: the person who won the customer keeps them. That step is still keyed on
+// CIF, since customer_officers is the CARD book — a loan or FD conversion records the
+// sale and the party without inventing a card ownership row.
 func convertLead(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req convertReq
@@ -1079,30 +1467,28 @@ func convertLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		req.CIF = strings.TrimSpace(req.CIF)
-		if req.CIF == "" {
-			respondErr(w, 400, "cif is required to convert a lead")
+		// `cif` is the legacy alias for the cards reference; either field works.
+		ref := strings.TrimSpace(req.Ref)
+		if ref == "" {
+			ref = strings.TrimSpace(req.CIF)
+		}
+		line, ref, reason := convertedProduct(r.Context(), db, req.Line, ref)
+		if reason != "" {
+			respondErr(w, 400, reason)
 			return
 		}
-
-		var exists bool
-		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT EXISTS (SELECT 1 FROM app.customers WHERE cif=$1)`, req.CIF).Scan(&exists); err != nil {
-			respondErrLog(w, 500, "Lookup failed", err)
-			return
-		}
-		if !exists {
-			respondErr(w, 400,
-				"No customer with that CIF yet. The customer must exist in the card system "+
-					"and arrive through the feed before the lead can be converted.")
-			return
+		// Only a cards conversion yields a CIF; the other two lines leave it empty so
+		// nothing downstream mistakes a Udara account number for one.
+		cif := ""
+		if line == LineCards {
+			cif = ref
 		}
 
 		id := chi.URLParam(r, "id")
 		var current string
 		var owner sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage, lead_owner_id FROM crm_contacts WHERE id=$1`, id).
+			`SELECT lead_stage, sales_owner_id FROM crm_contacts WHERE id=$1`, id).
 			Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
@@ -1128,37 +1514,55 @@ func convertLead(db *core.DB) http.HandlerFunc {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		// converted_cif and cif_number take the CARDS reference only — empty for a loan
+		// or FD. Writing a Udara account number into a column every other module reads as
+		// a card CIF would quietly corrupt the card book with keys from another namespace.
 		if _, err := tx.ExecContext(r.Context(), `
 			UPDATE crm_contacts
 			   SET lead_stage = 'converted', status = 'customer',
 			       stage_changed_at = NOW(),
-			       converted_at = NOW(), converted_cif = $2,
-			       cif_number = COALESCE(NULLIF(cif_number,''), $2),
-			       account_manager_id = COALESCE(account_manager_id, lead_owner_id),
+			       converted_at = NOW(),
+			       converted_line = $2, converted_ref = $3,
+			       converted_cif = NULLIF($4,''),
+			       cif_number = COALESCE(NULLIF(cif_number,''), NULLIF($4,'')),
+			       account_manager_id = COALESCE(account_manager_id, sales_owner_id),
 			       last_activity_at = NOW(), updated_at = NOW()
-			 WHERE id = $1`, id, req.CIF); err != nil {
-			respondErr(w, 500, "Conversion failed")
+			 WHERE id = $1`, id, line, ref, cif); err != nil {
+			respondErrLog(w, 500, "Conversion failed", err)
+			return
+		}
+
+		// Pin the converted customer to a party. This is the identity that survives them
+		// taking a second product on a different line later — the reference above only
+		// identifies them within the book that product lives in.
+		if _, err := tx.ExecContext(r.Context(),
+			`SELECT app.ensure_lead_party($1)`, id); err != nil {
+			respondErrLog(w, 500, "Could not link the customer to a party", err)
 			return
 		}
 
 		// The lead's owner inherits the customer — but never overwrite an existing
 		// assignment, which a head may have set deliberately.
+		//
+		// Cards only: customer_officers is keyed by CIF and IS the card book. A loan or
+		// FD conversion has no CIF, and manufacturing one from a Udara account number
+		// would put a row in the card book for a customer who holds no card.
 		var assignedOfficer any
-		if owner.Valid {
+		if owner.Valid && cif != "" {
 			var prev sql.NullInt64
 			_ = tx.QueryRowContext(r.Context(),
-				`SELECT officer_id FROM customer_officers WHERE cif=$1`, req.CIF).Scan(&prev)
+				`SELECT officer_id FROM customer_officers WHERE cif=$1`, cif).Scan(&prev)
 			if !prev.Valid {
 				if _, err := tx.ExecContext(r.Context(), `
 					INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note)
 					VALUES ($1,$2,$3,'converted','Inherited from the lead this officer converted')
-					ON CONFLICT (cif) DO NOTHING`, req.CIF, owner.Int64, actor); err != nil {
+					ON CONFLICT (cif) DO NOTHING`, cif, owner.Int64, actor); err != nil {
 					respondErr(w, 500, "Could not assign account officer")
 					return
 				}
 				if _, err := tx.ExecContext(r.Context(), `
 					INSERT INTO customer_officer_history (cif, to_officer_id, changed_by, reason)
-					VALUES ($1,$2,$3,'Lead conversion')`, req.CIF, owner.Int64, actor); err != nil {
+					VALUES ($1,$2,$3,'Lead conversion')`, cif, owner.Int64, actor); err != nil {
 					respondErr(w, 500, "History write failed")
 					return
 				}
@@ -1186,11 +1590,16 @@ func convertLead(db *core.DB) http.HandlerFunc {
 				v := actor.Int64
 				own = &v
 			}
-			markForwardResolved(r.Context(), db, toInt64FromStr(id), "converted", own, "Converted to customer "+req.CIF)
+			// Names the line as well as the reference, so the agent who forwarded the
+			// lead sees "converted on a salary loan", not a bare account number they
+			// would reasonably read as a CIF.
+			markForwardResolved(r.Context(), db, toInt64FromStr(id), "converted", own,
+				"Converted on "+ProductLineLabel(line)+" "+ref)
 		}
 
 		respond(w, map[string]any{
-			"ok": true, "cif": req.CIF, "assigned_officer_id": assignedOfficer,
+			"ok": true, "line": line, "ref": ref, "cif": cif,
+			"assigned_officer_id": assignedOfficer,
 		}, "pg")
 	}
 }
@@ -1215,7 +1624,7 @@ func disqualifyLead(db *core.DB) http.HandlerFunc {
 		var current string
 		var owner sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage, lead_owner_id FROM crm_contacts WHERE id=$1`, id).Scan(&current, &owner); err != nil {
+			`SELECT lead_stage, sales_owner_id FROM crm_contacts WHERE id=$1`, id).Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
 		}

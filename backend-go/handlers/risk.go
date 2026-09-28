@@ -1215,13 +1215,29 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(ctx, `
 			WITH l AS (
 				SELECT COALESCE(outstanding_principal_kobo,0) AS outstanding,
+				       status,
 				       (`+cbsLoanDPDBare+`)                   AS dpd
 				FROM cbs_loans
 				WHERE status NOT IN ('Closed','Revoked')`+extraClauses.String()+`
 			)
+			-- VALUE over value, and app.is_npl — not a count, and not an inline DPD test.
+			--
+			-- These two lines read COUNT(*) FILTER (WHERE dpd > 30) and (WHERE dpd > 90) over
+			-- COUNT(*), which departed from canon twice in one expression. Migration 261 sets
+			-- the rule: NPL is app.is_npl(status, dpd) — DPD > 90 OR a CBS status of
+			-- Defaulting or Expired — and "ratios built on this are value over value, never a
+			-- count of loans, which is what a regulator means by the NPL ratio".
+			--
+			-- Both departures understate delinquency. Dropping the status disjunct hides an
+			-- Expired loan sitting at DPD 10; counting loans instead of value weights a
+			-- N50,000 balance the same as a N114,000,000 one. The sibling handler ~90 lines
+			-- below already does it correctly, so the Risk module was publishing two figures
+			-- both called NPL that could differ by tens of points.
 			SELECT COUNT(*)                                                            AS total_loans,
-			       ROUND(100.0 * COUNT(*) FILTER (WHERE dpd > 30) / NULLIF(COUNT(*),0), 1) AS par30,
-			       ROUND(100.0 * COUNT(*) FILTER (WHERE dpd > 90) / NULLIF(COUNT(*),0), 1) AS npl,
+			       ROUND(100.0 * COALESCE(SUM(outstanding) FILTER (WHERE dpd > 30), 0)
+			                   / NULLIF(SUM(outstanding), 0), 1)                       AS par30,
+			       ROUND(100.0 * COALESCE(SUM(outstanding) FILTER (WHERE app.is_npl(status, dpd)), 0)
+			                   / NULLIF(SUM(outstanding), 0), 1)                       AS npl,
 			       COALESCE(SUM(outstanding) FILTER (WHERE dpd > 30), 0)               AS par30_outstanding_kobo
 			FROM l`, args...)
 		if err != nil {

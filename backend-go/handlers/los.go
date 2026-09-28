@@ -917,6 +917,23 @@ func losCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "applicant_name and product_type are required")
 			return
 		}
+		// The Sales origination paths (createSalesApplication, raiseSalesAppFromLead) check
+		// both of the rules below; this one checked neither while writing the same table —
+		// and, unlike the draft behaviour it once had, it lands straight on 'submitted' with
+		// a routed stage. So a zero, negative or unpriced application reached risk_review,
+		// notified the risk officer and risk head, was enqueued to Phoenix decisioning, and
+		// counted in every SUM(amount_requested_kobo) pipeline figure. There is no CHECK on
+		// the column, so Go is the only enforcement point.
+		if _, known := salesProductTypes[b.ProductType]; !known {
+			respondErr(w, 422, "Unknown product_type: "+b.ProductType)
+			return
+		}
+		// salesAppRouting's default branch sweeps an unrecognised or unpriced application
+		// into risk_review, so this is the gate that keeps the credit queue meaningful.
+		if b.AmountRequested <= 0 {
+			respondErr(w, 422, "amount_requested_kobo must be greater than zero")
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()

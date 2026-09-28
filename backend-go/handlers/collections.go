@@ -1702,6 +1702,20 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				failed++
 				continue
 			}
+			// The single-payment endpoint validates the channel against
+			// collectionsPaymentChannels; this path only checked it was non-empty. The column
+			// is plain text with no CHECK, so Go is the only enforcement point — and this is
+			// the path fed by an UPLOADED FILE, which is exactly where an off-vocabulary
+			// string comes from. "gtbank", "Zenith" or a typo like "POLARS" was accepted,
+			// entered the HOP→COO approval chain, reached a GL post on final approval, and
+			// then grouped with nothing in any channel breakdown or bank reconciliation.
+			channel = strings.ToUpper(strings.TrimSpace(channel))
+			if !collectionsPaymentChannels[channel] {
+				results = append(results, result{Row: rowNum, CIF: cif,
+					Error: "unknown channel " + channel + " — must be one of GTB, POLARIS, FIDELITY, APP, ZENITH, FCMB"})
+				failed++
+				continue
+			}
 			amtKobo := int64(math.Round(amtNaira * 100))
 
 			// Validate the CIF is a known customer so a typo can't post a GL entry.

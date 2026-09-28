@@ -1104,6 +1104,46 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 // consistent, valid row. total_outstanding_kobo is NOT NULL with no default, so
 // it must be set alongside outstanding_kobo.
 func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstanding int64, sourceAssignmentID *int64) (string, int64, error) {
+	// ── Two guards, here rather than at the call sites ─────────────────────────
+	//
+	// Three of the six escalation paths had no duplicate check: collectionsOpsSendToRecovery,
+	// collectionsOpsBulkSendToRecovery and the watchlist escalation in collections.go (whose
+	// only test reads collections_watchlist.status, not recovery_cases). Their guarded
+	// siblings — recoveryOpsOpenCase, collectionsOpsBulkEscalateByCIF and the nightly
+	// escalateSevereToRecovery — each carry their own copy. All six funnel through THIS
+	// helper, so the guard belongs here: one place, and any future caller inherits it.
+
+	// 1. A case with no account key. This is not hypothetical: 55 live recovery cases carry
+	//    account_cif NULL and party_id NULL, worth N638,599,606.56, loaded from a
+	//    spreadsheet whose cif_number column holds account numbers slash-concatenated
+	//    ("2114-9465-7407/1914-9541-5883") and two customer names in one field. Nothing
+	//    joins to them: they are unreachable from the delinquency book, from the party
+	//    layer, and from every namespace-correct query. Refuse to make a 56th.
+	key := strings.TrimSpace(cif)
+	if key == "" {
+		return "", 0, fmt.Errorf("refusing to open a recovery case with no account key: " +
+			"nothing would ever join to it")
+	}
+
+	// 2. Already in recovery. Keyed on the trimmed non-blank value deliberately — keyed on
+	//    the raw column, the 55 blank-keyed cases above all look like the same customer and
+	//    this check would refuse every genuinely new case.
+	//
+	//    Returns the EXISTING case rather than an error, matching recoveryOpsOpenCase's
+	//    documented idempotency: a second press of Send to Recovery should land the agent on
+	//    the case that already exists, not create a second case file — and potentially a
+	//    second solicitor — on one borrower, double-counting outstanding_kobo in every
+	//    recovery KPI on the way.
+	if dup, _ := db.PGQuery(ctx, `
+		SELECT id, case_ref FROM recovery_cases
+		 WHERE account_cif = $1
+		   AND status NOT IN ('closed','recovered','written_off')
+		 ORDER BY created_at LIMIT 1`, key); len(dup) > 0 {
+		slog.Info("recovery case already open for this account — returning it",
+			"account", key, "case", str(dup[0]["case_ref"]))
+		return str(dup[0]["case_ref"]), toInt64(dup[0]["id"]), nil
+	}
+
 	refRows, err := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)
 	if err != nil || len(refRows) == 0 {
 		return "", 0, fmt.Errorf("failed to generate case reference")
@@ -1140,7 +1180,7 @@ func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstan
 		          CASE WHEN $2 LIKE '`+udaraCIFPrefix+`%' THEN 'loan' ELSE 'card' END),
 		        'active',NOW(),NOW(),NOW())
 		RETURNING id`,
-		caseRef, cif, outstanding, sourceAssignmentID, dpd)
+		caseRef, key, outstanding, sourceAssignmentID, dpd)
 	if err != nil || len(rows) == 0 {
 		return "", 0, err
 	}

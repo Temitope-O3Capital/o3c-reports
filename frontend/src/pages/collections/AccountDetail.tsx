@@ -471,7 +471,13 @@ export default function CollectionsAccountDetail() {
   const { cif } = useParams<{ cif: string }>()
   const navigate = useNavigate()
   const role = getStoredRole()
-  const isHead = ['collections_head', 'head_collections', 'admin', 'management', 'md', 'coo'].includes(role)
+  // 'head_ops' was missing, and core/auth.go grants it collections_assign explicitly — so it
+  // could open this page and simply found no bulk-assign, reassign or escalate controls for
+  // work it is authorised to do. Queue.tsx's HEAD_ROLES already includes it, so the two
+  // pages in one module disagreed. The list also carries retired slugs and will still miss
+  // anyone granted collections_assign via extra roles; hasPage('collections_assign') is the
+  // real answer, which is a wider change than this fix.
+  const isHead = ['collections_head', 'head_collections', 'head_ops', 'admin', 'management', 'md', 'coo'].includes(role)
 
   const [detail, setDetail]     = useState<AccountDetail | null>(null)
   const [loading, setLoading]   = useState(true)

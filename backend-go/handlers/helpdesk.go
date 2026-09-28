@@ -3584,6 +3584,24 @@ func hdInboundSMS(db *core.DB) http.HandlerFunc {
 			w.WriteHeader(200)
 			return
 		}
+		// hdNormalizePhone returns the '234…' shape and is the only normaliser in the
+		// codebase that does. It is fine as a value to STORE, but it was also being compared
+		// RAW against helpdesk_tickets.customer_phone and app.customers.phone — and those
+		// columns hold five different shapes: measured today, 28,076 tickets "other", 4,647
+		// blank, 3,634 '0…', 2,076 '+…' and only 1,804 '234…'. So the lookups below could
+		// only ever match that last 1,804, roughly 5% of the table, and app.customers.phone
+		// is indexed on app.norm_phone(phone) (the last 10 digits) so the CIF lookup matched
+		// nothing at all.
+		//
+		// Consequence: a customer replying to an SMS opened a NEW ticket instead of threading
+		// onto the live conversation, and the new ticket carried no CIF. Every other reader of
+		// customer_phone already normalises both sides — see the last-10 expressions at the
+		// ticket list, the export and the QA queries.
+		//
+		// phoneKey is that same last-10 form, used for every COMPARISON below; `phone` stays
+		// as-is for anything stored, because changing the stored shape is a migration, not a
+		// lookup fix.
+		phoneKey := normalizePhone(fromRaw)
 
 		// ── Opt-out ───────────────────────────────────────────────────────────
 		// Every campaign SMS ends "Reply STOP to opt out" (withSMSOptOut, campaigns.go).
@@ -3614,8 +3632,8 @@ func hdInboundSMS(db *core.DB) http.HandlerFunc {
 			// opt-out is exactly the noise that buried the alerting rail before.
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT id FROM helpdesk_tickets
-				 WHERE customer_phone=$1 AND status NOT IN ('resolved','closed') AND deleted_at IS NULL
-				 ORDER BY created_at DESC LIMIT 1`, phone); len(rows) > 0 {
+				 WHERE `+normalizedPhoneExpr("customer_phone")+` = $1 AND status NOT IN ('resolved','closed') AND deleted_at IS NULL
+				 ORDER BY created_at DESC LIMIT 1`, phoneKey); len(rows) > 0 {
 				tid := toInt64(rows[0]["id"])
 				db.PGExec(ctx, //nolint:errcheck
 					`INSERT INTO helpdesk_messages
@@ -3634,8 +3652,8 @@ func hdInboundSMS(db *core.DB) http.HandlerFunc {
 		// Find most recent open ticket with this phone
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT * FROM helpdesk_tickets
-			WHERE customer_phone=$1 AND status NOT IN ('resolved','closed')
-			ORDER BY created_at DESC LIMIT 1`, phone); len(rows) > 0 {
+			WHERE `+normalizedPhoneExpr("customer_phone")+` = $1 AND status NOT IN ('resolved','closed')
+			ORDER BY created_at DESC LIMIT 1`, phoneKey); len(rows) > 0 {
 			ticket = rows[0]
 			ticketID = toInt64(ticket["id"])
 		}
@@ -3644,7 +3662,7 @@ func hdInboundSMS(db *core.DB) http.HandlerFunc {
 		if ticketID == 0 {
 			customerCIF := ""
 			// Try MSSQL/Supabase lookup by phone (Accounts table)
-			if rows, _ := db.PGQuery(ctx, `SELECT cif FROM app.customers WHERE phone=$1 LIMIT 1`, phone); len(rows) > 0 {
+			if rows, _ := db.PGQuery(ctx, `SELECT cif FROM app.customers WHERE app.norm_phone(phone) = $1 LIMIT 1`, phoneKey); len(rows) > 0 {
 				customerCIF = str(rows[0]["cif"])
 			}
 			newRows, err := db.PGQuery(ctx, `
