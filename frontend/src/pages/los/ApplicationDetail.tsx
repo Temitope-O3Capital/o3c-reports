@@ -5,9 +5,10 @@ import './salesDetail.css'
 import CustomerJourney from './CustomerJourney'
 import {
   Page, SectionCard, Modal, ConfirmModal, Spinner, Sk, ErrBanner, KpiCard,
+  Tabs, DataTable, type TableCol,
 } from '../../components/UI'
 import { apiFetch, apiPut, apiPost, apiDelete, apiBlob } from '../../lib/api'
-import { fmtKobo, fmtDatetime, fmtDate, fmtNum } from '../../lib/fmt'
+import { fmtKobo, fmtKoboExact, fmtDatetime, fmtDate, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 import { EBarH } from '../../components/echarts'
@@ -2969,21 +2970,55 @@ function EyeTab({ app }: { app: Application }) {
 
 interface PortfolioLoan {
   account_number: string; reference_number: string | null; product_name: string; status: string
-  loan_amount_kobo: number; outstanding_principal_kobo: number; total_outstanding_kobo: number
+  loan_amount_kobo: number; outstanding_principal_kobo: number; outstanding_interest_kobo: number | null
+  outstanding_fee_kobo: number | null; total_outstanding_kobo: number
   interest_rate: number | null; tenor_days: number | null; installment_amount_kobo: number | null
   start_date: string | null; approved_date: string | null; maturity_date: string | null
   officer_name: string | null; branch_name: string | null; economic_sector: string | null; dpd: number
+  // Observed off the core banking general ledger, never derived from the balance.
+  repaid_principal_kobo: number; repaid_interest_kobo: number
+  repayment_legs: number; last_repaid_on: string | null
+  instalments: number; overdue_instalments: number
+  next_due_date: string | null; next_due_kobo: number | null
+}
+// One posted general-ledger leg. The core banking system posts principal and interest
+// as separate entries sharing a posting reference, so component says which half this is
+// and amount_kobo is that half — they are not two views of the same money.
+interface PortfolioRepayment {
+  financial_date: string; posted_at: string | null; cbs_loan_account: string
+  entry_code: string; component: 'principal' | 'interest' | string
+  amount_kobo: number; principal_kobo: number; interest_kobo: number
+  posting_reference: string | null; product_name: string | null
+}
+interface PortfolioInstalment {
+  loan_account_number: string; payment_date: string
+  principal_kobo: number; interest_kobo: number; fee_kobo: number; total_kobo: number
+  payment_status: string; is_overdue: boolean
 }
 interface PortfolioData {
   cif: string
   customer: { name?: string; phone?: string; email?: string; state?: string; city?: string; full_address?: string | null }
   loans: PortfolioLoan[]
-  summary: { loan_count: number; open_count: number; total_outstanding_kobo: number; total_disbursed_kobo: number; worst_dpd: number }
+  repayments: PortfolioRepayment[]
+  schedule: PortfolioInstalment[]
+  summary: {
+    loan_count: number; open_count: number; total_outstanding_kobo: number
+    total_disbursed_kobo: number; worst_dpd: number
+    total_repaid_principal_kobo: number; total_repaid_interest_kobo: number
+    total_repaid_kobo: number; repayment_count: number; overdue_instalments: number
+  }
 }
 
 const LOAN_STATUS_COLOR: Record<string, string> = {
   active: GREEN, performing: GREEN, defaulting: RED, expired: AMBER, closed: '#6B7280', revoked: '#6B7280',
 }
+
+// The ledger this page reads only reaches back this far — the core banking call-over
+// report holds nothing older. A principal reduction with no posting behind it is
+// therefore normal for an older loan, and the page has to say so rather than imply the
+// money went missing.
+const LEDGER_FROM = '2026-07-11'
+const LEDGER_FROM_LABEL = '11 Jul 2026'
 
 function PLV({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -2994,11 +3029,52 @@ function PLV({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+// Principal and interest are different money with different consequences: interest is
+// income the bank has earned, principal is the debt coming down. The ledger states which
+// half each posting is, so the page shows it rather than adding them into one number.
+function ComponentChip({ component }: { component: string }) {
+  const isInterest = component === 'interest'
+  const c = isInterest ? PURPLE : NAVY
+  return (
+    <span style={{
+      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '.3px', textTransform: 'uppercase',
+      color: c, background: `${c}16`, padding: '2px 8px', borderRadius: RADIUS['2xl'], whiteSpace: 'nowrap',
+    }}>{isInterest ? 'Interest' : 'Principal'}</span>
+  )
+}
+
+// A two-part bar: principal repaid against the amount disbursed, with interest shown
+// alongside rather than inside it — adding interest into a "% repaid" would make a
+// borrower look further through their loan than they are.
+function RepaidBar({ disbursed, principal, interest }: { disbursed: number; principal: number; interest: number }) {
+  const pctPaid = disbursed > 0 ? Math.min(100, (principal / disbursed) * 100) : 0
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
+          Principal Repaid
+        </span>
+        <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: pctPaid > 0 ? GREEN : 'var(--txt3)' }}>
+          {pctPaid.toFixed(pctPaid > 0 && pctPaid < 1 ? 2 : 0)}%
+        </span>
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: 'var(--th-bg)', overflow: 'hidden' }}>
+        <div style={{ width: `${pctPaid}%`, height: '100%', background: GREEN, borderRadius: 3, transition: 'width 240ms' }} />
+      </div>
+      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', marginTop: 6, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+        <span style={NUM}>{fmtKoboExact(principal)} <span style={{ color: 'var(--txt3)' }}>principal</span></span>
+        <span style={NUM}>{fmtKoboExact(interest)} <span style={{ color: 'var(--txt3)' }}>interest</span></span>
+      </div>
+    </div>
+  )
+}
+
 function CustomerCreditPortfolio({ cif }: { cif: string }) {
   const navigate = useNavigate()
   const [data, setData]       = useState<PortfolioData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
+  const [tab, setTab]         = useState<'facilities' | 'repayments' | 'schedule'>('facilities')
 
   useEffect(() => {
     setLoading(true); setError(null)
@@ -3024,6 +3100,58 @@ function CustomerCreditPortfolio({ cif }: { cif: string }) {
   const c = data.customer ?? {}
   const s = data.summary
   const name = c.name || cif
+  const loans = data.loans ?? []
+  const repayments = data.repayments ?? []
+  const schedule = data.schedule ?? []
+
+  const repayCols: TableCol<PortfolioRepayment>[] = [
+    { key: 'financial_date', label: 'Value Date', sortable: true,
+      render: r => <span style={NUM}>{fmtDate(r.financial_date)}</span> },
+    { key: 'component', label: 'Applied To', render: r => <ComponentChip component={r.component} /> },
+    { key: 'product_name', label: 'Facility',
+      render: r => (
+        <div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.product_name || 'Loan'}</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{r.cbs_loan_account}</div>
+        </div>
+      ) },
+    { key: 'posting_reference', label: 'Posting Ref',
+      render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.posting_reference || '—'}</span> },
+    { key: 'entry_code', label: 'Entry Code',
+      render: r => <span style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{r.entry_code}</span> },
+    { key: 'amount_kobo', label: 'Amount', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(r.amount_kobo)}</span> },
+  ]
+
+  const schedCols: TableCol<PortfolioInstalment>[] = [
+    { key: 'payment_date', label: 'Due Date', sortable: true,
+      render: r => (
+        <span style={{ ...NUM, color: r.is_overdue ? RED : 'var(--txt)', fontWeight: r.is_overdue ? FW.semibold : FW.normal }}>
+          {fmtDate(r.payment_date)}
+        </span>
+      ) },
+    { key: 'loan_account_number', label: 'Facility',
+      render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.loan_account_number}</span> },
+    { key: 'principal_kobo', label: 'Principal', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.principal_kobo ? fmtKoboExact(r.principal_kobo) : '—'}</span> },
+    { key: 'interest_kobo', label: 'Interest', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.interest_kobo ? fmtKoboExact(r.interest_kobo) : '—'}</span> },
+    { key: 'fee_kobo', label: 'Fees', align: 'right',
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.fee_kobo ? fmtKoboExact(r.fee_kobo) : '—'}</span> },
+    { key: 'total_kobo', label: 'Total Due', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(r.total_kobo)}</span> },
+    { key: 'payment_status', label: 'Status',
+      render: r => {
+        const col = r.is_overdue ? RED : r.payment_status === 'FullyPaid' ? GREEN : 'var(--txt2)'
+        return (
+          <span style={{
+            fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '.3px',
+            color: col, background: r.is_overdue ? `${RED}14` : r.payment_status === 'FullyPaid' ? `${GREEN}14` : 'var(--chip-bg)',
+            padding: '2px 8px', borderRadius: RADIUS['2xl'], whiteSpace: 'nowrap',
+          }}>{r.is_overdue ? 'Overdue' : (r.payment_status || 'Due').replace(/([a-z])([A-Z])/g, '$1 $2')}</span>
+        )
+      } },
+  ]
 
   return (
     <Page title={name} subtitle={`Running credit portfolio · CIF ${cif}`} actions={backBtn}>
@@ -3055,23 +3183,89 @@ function CustomerCreditPortfolio({ cif }: { cif: string }) {
         }}>Customer 360</button>
       </div>
 
-      {/* Summary KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
-        <KpiCard label="Total Outstanding" value={fmtKobo(s.total_outstanding_kobo)} icon="account_balance_wallet" accent={s.total_outstanding_kobo > 0 ? RED : GREEN} />
-        <KpiCard label="Open Loans" value={`${fmtNum(s.open_count)} / ${fmtNum(s.loan_count)}`} sub="open / total" icon="account_balance" accent={NAVY} />
+      {/* Summary KPIs. "Repaid" is the ledger, not the balance — see the note below it. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[3], marginBottom: SP[3] }}>
+        <KpiCard label="Total Outstanding" value={fmtKobo(s.total_outstanding_kobo)} sub={`of ${fmtKobo(s.total_disbursed_kobo)} disbursed`} icon="account_balance_wallet" accent={s.total_outstanding_kobo > 0 ? RED : GREEN} />
+        <KpiCard label="Repaid To Date" value={fmtKobo(s.total_repaid_kobo)} sub={`${fmtKobo(s.total_repaid_principal_kobo)} principal · ${fmtKobo(s.total_repaid_interest_kobo)} interest`} icon="receipt_long" accent={GREEN} />
+        <KpiCard label="Open Facilities" value={`${fmtNum(s.open_count)} / ${fmtNum(s.loan_count)}`} sub="open / total" icon="account_balance" accent={NAVY} />
         <KpiCard label="Worst DPD" value={s.worst_dpd > 0 ? `${fmtNum(s.worst_dpd)} days` : 'Current'} icon="event_busy" accent={s.worst_dpd > 90 ? RED : s.worst_dpd > 0 ? AMBER : GREEN} />
-        <KpiCard label="Total Disbursed" value={fmtKobo(s.total_disbursed_kobo)} icon="payments" accent={BLUE} />
+        <KpiCard label="Overdue Instalments" value={fmtNum(s.overdue_instalments)} sub={s.overdue_instalments > 0 ? 'past due and unpaid' : 'none past due'} icon="event_repeat" accent={s.overdue_instalments > 0 ? AMBER : GREEN} />
       </div>
 
+      {/* Where "Repaid" comes from. This is not decoration: the figure this page used to
+          imply was disbursed less outstanding principal, which counts a write-off as a
+          payment and counts an interest-only payment as nothing. Saying which source is
+          being read is what stops the two being confused again. */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: SP[5], padding: '8px 12px',
+        borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)',
+      }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)', flexShrink: 0, marginTop: 1 }}>info</span>
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--txt)' }}>Repaid</strong> counts postings on the core banking general ledger
+          — {fmtNum(s.repayment_count)} {s.repayment_count === 1 ? 'entry' : 'entries'} from {LEDGER_FROM_LABEL} onward.
+          Balances come from the facility snapshot. The two answer different questions, so they are never added together.
+        </span>
+      </div>
+
+      <Tabs
+        active={tab}
+        onChange={k => setTab(k as typeof tab)}
+        tabs={[
+          { key: 'facilities', label: 'Facilities', badge: loans.length },
+          { key: 'repayments', label: 'Repayments', badge: repayments.length },
+          { key: 'schedule',   label: 'Repayment Schedule', badge: schedule.length },
+        ]}
+      />
+
+      {tab === 'repayments' && (
+        <SectionCard
+          title="Repayments Received"
+          subtitle={`Posted to the core banking general ledger · ${LEDGER_FROM_LABEL} onward`}
+          badge={repayments.length}
+          padding={false}
+        >
+          <DataTable
+            cols={repayCols}
+            rows={repayments}
+            keyFn={(r, i) => `${r.posting_reference ?? ''}-${r.entry_code}-${i}`}
+            searchKeys={['cbs_loan_account', 'posting_reference', 'product_name', 'component']}
+            searchPlaceholder="Search by facility, posting reference…"
+            pageSize={25}
+            emptyText="No Repayments Posted To The Ledger For This Customer"
+          />
+        </SectionCard>
+      )}
+
+      {tab === 'schedule' && (
+        <SectionCard
+          title="Repayment Schedule"
+          subtitle="What falls due, and when, as published by core banking"
+          badge={schedule.length}
+          padding={false}
+        >
+          <DataTable
+            cols={schedCols}
+            rows={schedule}
+            keyFn={(r, i) => `${r.loan_account_number}-${r.payment_date}-${i}`}
+            searchKeys={['loan_account_number', 'payment_status']}
+            searchPlaceholder="Search by facility…"
+            pageSize={25}
+            emptyText="No Repayment Schedule Has Been Synced For These Facilities"
+          />
+        </SectionCard>
+      )}
+
       {/* Loans */}
-      <SectionCard title="Facilities" subtitle="Running and closed credit on the core banking book" badge={data.loans.length} padding={false}>
-        {data.loans.length === 0 ? (
+      {tab === 'facilities' && (
+      <SectionCard title="Facilities" subtitle="Running and closed credit on the core banking book" badge={loans.length} padding={false}>
+        {loans.length === 0 ? (
           <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
             No credit facilities on the core banking book for this customer.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {data.loans.map((l, i) => {
+            {loans.map((l, i) => {
               const sc = LOAN_STATUS_COLOR[String(l.status).toLowerCase()] ?? NAVY
               return (
                 <div key={l.reference_number || l.account_number || i} style={{ padding: '16px 20px', borderTop: i === 0 ? 'none' : '1px solid var(--bdr)' }}>
@@ -3089,22 +3283,68 @@ function CustomerCreditPortfolio({ cif }: { cif: string }) {
                       <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Outstanding</div>
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 14 }}>
                     <PLV label="Disbursed" value={<span style={NUM}>{fmtKobo(l.loan_amount_kobo)}</span>} />
                     <PLV label="Principal Out." value={<span style={NUM}>{fmtKobo(l.outstanding_principal_kobo)}</span>} />
                     <PLV label="Installment" value={l.installment_amount_kobo != null ? <span style={NUM}>{fmtKobo(l.installment_amount_kobo)}</span> : '—'} />
                     <PLV label="Interest Rate" value={l.interest_rate != null ? `${l.interest_rate}%` : '—'} />
+                    <PLV label="Next Due" value={l.next_due_date
+                      ? <span style={NUM}>{fmtDate(l.next_due_date)}{l.next_due_kobo ? ` · ${fmtKobo(l.next_due_kobo)}` : ''}</span>
+                      : '—'} />
+                    <PLV label="Last Repaid" value={l.last_repaid_on ? <span style={NUM}>{fmtDate(l.last_repaid_on)}</span> : 'Never'} />
                     <PLV label="Disbursed On" value={l.start_date ? fmtDate(l.start_date) : '—'} />
                     <PLV label="Maturity" value={l.maturity_date ? fmtDate(l.maturity_date) : '—'} />
                     <PLV label="Officer" value={l.officer_name || '—'} />
                     <PLV label="Sector" value={l.economic_sector || '—'} />
                   </div>
+
+                  {/* What this borrower has actually paid on this facility, and — where the
+                      balance has fallen further than the postings explain — how much of the
+                      movement has no repayment behind it. That gap is not necessarily
+                      missing money: the ledger starts at LEDGER_FROM, so anything repaid
+                      before then is simply outside the window. It is flagged rather than
+                      silently folded into "repaid", which is the error this page used to make. */}
+                  {(() => {
+                    const balanceDrop = Math.max(0, l.loan_amount_kobo - l.outstanding_principal_kobo)
+                    const unposted = balanceDrop - l.repaid_principal_kobo
+                    const material = unposted > 0 && l.loan_amount_kobo > 0 && unposted / l.loan_amount_kobo > 0.01
+                    const startsBeforeLedger = !!l.start_date && l.start_date < LEDGER_FROM
+                    return (
+                      <div style={{
+                        display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) auto', gap: SP[4],
+                        alignItems: 'center', padding: '12px 14px', borderRadius: RADIUS.md,
+                        background: 'var(--th-bg)', border: '1px solid var(--bdr)',
+                      }}>
+                        <RepaidBar disbursed={l.loan_amount_kobo} principal={l.repaid_principal_kobo} interest={l.repaid_interest_kobo} />
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: l.repayment_legs > 0 ? 'var(--txt)' : 'var(--txt3)' }}>
+                            {fmtNum(l.repayment_legs)} {l.repayment_legs === 1 ? 'posting' : 'postings'}
+                          </div>
+                          {l.overdue_instalments > 0 && (
+                            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: AMBER, textTransform: 'uppercase', letterSpacing: '.3px', marginTop: 3 }}>
+                              {fmtNum(l.overdue_instalments)} overdue
+                            </div>
+                          )}
+                        </div>
+                        {material && (
+                          <div style={{ gridColumn: '1 / -1', fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5, borderTop: '1px solid var(--bdr)', paddingTop: 8 }}>
+                            <span style={{ ...NUM, fontWeight: FW.semibold, color: AMBER }}>{fmtKoboExact(unposted)}</span>
+                            {' '}of the principal reduction has no repayment posted behind it
+                            {startsBeforeLedger
+                              ? ` — this facility opened before ${LEDGER_FROM_LABEL}, so earlier repayments fall outside the ledger the page can read.`
+                              : ' — worth checking against the core banking statement before treating it as repaid.'}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
           </div>
         )}
       </SectionCard>
+      )}
     </Page>
   )
 }
