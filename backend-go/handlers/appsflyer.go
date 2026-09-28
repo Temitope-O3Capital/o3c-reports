@@ -324,6 +324,15 @@ func appsflyerGeo(db *core.DB) http.HandlerFunc {
 
 // appsflyerFunnel returns the signup→activation funnel (unique users per event),
 // ordered along the canonical journey.
+//
+// Each row carries `ordered`: true when the event appears in afFunnelOrder above, false
+// when it is an app event we never placed in the journey and the sort merely appended
+// alphabetically. The client MUST NOT compute step-to-step conversion across an
+// unordered row — position carries no meaning there. The client also re-validates the
+// ordered run against its own counts (see lib/insights.ts checkSequence), because this
+// list is a declaration of belief and the app has already outgrown it once:
+// onboarding_start sits at rank 10 here but fires at app-open, which produced a
+// "2,522% conversion" on the Funnel tab until the client started checking.
 func appsflyerFunnel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -342,6 +351,11 @@ func appsflyerFunnel(db *core.DB) http.HandlerFunc {
 			}
 			return str(rows[i]["event_name"]) < str(rows[j]["event_name"])
 		})
+		for _, row := range rows {
+			rank := afFunnelRank(str(row["event_name"]))
+			row["rank"] = rank
+			row["ordered"] = rank < len(afFunnelOrder)
+		}
 		respond(w, map[string]any{"funnel": rows}, "pg")
 	}
 }

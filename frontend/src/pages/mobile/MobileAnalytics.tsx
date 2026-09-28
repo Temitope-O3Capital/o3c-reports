@@ -7,6 +7,10 @@ import { fmtNum, fmtPct } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { EChart, baseTooltip, tipCard, axisCat, axisVal, CHART_FONT } from '../../components/echarts'
 import type { ChartTokens } from '../../components/echarts'
+import { rate, per, na, isOk, fmtM, cmpM } from '../../lib/measure'
+import type { Measure } from '../../lib/measure'
+import { rankFindings, findingFrom, checkSequence } from '../../lib/insights'
+import type { Finding, SeqStep } from '../../lib/insights'
 
 // Mobile Analytics — action-driving install / source / funnel / campaign analytics
 // for O3's mobile apps, mirrored from AppsFlyer. One page, parameterised by product
@@ -21,6 +25,27 @@ import type { ChartTokens } from '../../components/echarts'
 // sessions — Blink's own trigger). True "transacting" isn't in the aggregate feed
 // (no per-user id to join to our transaction data), so loyal users is the honest
 // in-app-usage proxy; it's labelled as such throughout.
+//
+// EVERY DERIVED NUMBER ON THIS PAGE IS A Measure (lib/measure.ts), not a float.
+//
+// The first build of this page divided aggregates without checking they were
+// comparable, and shipped five false statements: a "Sess./Install 0.0" beside a green
+// "55.7% loyal · High" badge on the same row (AppsFlyer reports sessions for paid
+// partners only, so the 0 was absence rendered as measurement); a "100% · High" quality
+// badge on two Danish installs; CTR/CPI computed from a feed carrying no impressions
+// and no spend; and a "Sharpest funnel drop: Card Blocked Kyc Required → Card Issuance
+// Failed loses 94%. Best place to fix onboarding" — 17 blocked users against 1 issuance
+// failure, two unrelated events the sort had appended alphabetically.
+//
+// The rules that keep that from recurring, and that are worth copying to any other
+// insight surface:
+//   1. A ratio returns a Measure that refuses to exist when its denominator is absent
+//      or below a floor. "—" with a reason in the tooltip, never a 0 that reads as data.
+//   2. A finding may only be built from `ok` Measures — findingFrom() enforces it.
+//   3. A declared funnel order is validated against its own counts before any
+//      step-to-step conversion is read off it (checkSequence).
+//   4. Findings are ranked bad → good → neutral, then by impact. A card called
+//      "What to Act On" must not open with a neutral observation.
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,9 +53,11 @@ interface PlatformRow { platform: string; installs: number; sessions: number; lo
 interface Totals { installs: number; sessions: number; loyal_users: number; cost_usd: number; revenue_usd: number; paid_sources: number }
 interface PrevTotals { installs: number; sessions: number; loyal_users: number; cost_usd: number }
 interface SeriesRow { date: string; installs: number; sessions: number; loyal_users: number }
-interface FunnelRow { event_name: string; unique_users: number; event_count: number }
+// `ordered` is false for an app event the backend's afFunnelOrder never placed in the
+// journey; the sort appends those alphabetically, so their position carries no meaning.
+interface FunnelRow { event_name: string; unique_users: number; event_count: number; ordered: boolean; rank: number }
 interface ScoreRaw { key: string; media_source: string; impressions: number; clicks: number; installs: number; sessions: number; loyal_users: number; cost_usd: number }
-interface Scored extends ScoreRaw { ctr: number | null; cvr: number | null; cpi: number | null; usage: number; spi: number }
+interface Scored extends ScoreRaw { ctr: Measure; cvr: Measure; cpi: Measure; usage: Measure; spi: Measure }
 interface CountryRow { country: string; installs: number; sessions: number; loyal_users: number; cost_usd: number }
 
 export interface MobileAnalyticsProps {
@@ -71,21 +98,55 @@ const prettyEvent    = (e: string) => e.replace(/^af_/, '').replace(/_/g, ' ').r
 const usd  = (n: number | null) => (n === null || !isFinite(n)) ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const isPaid = (s: string) => s !== 'Organic' && s !== 'None' && s !== ''
 const pctChange = (cur: number, prev: number): number | undefined => prev > 0 ? (cur - prev) / prev * 100 : undefined
+const SLATE = '#94A3B8'   // "no data" badge — deliberately not RED, absence isn't failure
+
+// AppsFlyer sends organic and direct rows with "Sessions": "0" alongside a non-zero
+// "Loyal Users" (confirmed in the raw payload). Sessions are attributed to paid partners
+// only in this account, so that 0 is absence of measurement and must not be divided.
+const SESSIONS_NOT_REPORTED =
+  'AppsFlyer attributes sessions to paid partners only in this account, so organic and direct rows carry no session count. Absence of data, not zero sessions.'
+
+// Minimum installs before a loyal-user rate may exist. Below it the rate is noise that
+// still renders as a confident badge: 2 installs and 2 loyal users is not a 100% "High"
+// quality source, it is two people.
+const RATE_FLOOR = 5
+
+// Loyal-user rate divides this window's loyal users by this window's installs, so a user
+// who installed before the window and turned loyal inside it inflates the rate. The
+// aggregate feed carries no cohort, so this cannot be fixed here — it is disclosed on the
+// scorecard instead of being quietly presented as a cohort conversion.
+const LOYAL_RATE_CAVEAT =
+  'Loyal users and installs are both counted within the selected window, so this is not a cohort rate: someone who installed earlier and reached 3 sessions inside the window still counts. The AppsFlyer aggregate feed carries no per-user id to cohort on.'
 
 function derive(r: ScoreRaw): Scored {
   return {
     ...r,
-    ctr: r.impressions > 0 ? r.clicks / r.impressions * 100 : null,
-    cvr: r.clicks > 0 ? r.installs / r.clicks * 100 : null,
-    cpi: r.cost_usd > 0 && r.installs > 0 ? r.cost_usd / r.installs : null,
-    usage: r.installs > 0 ? r.loyal_users / r.installs * 100 : 0,
-    spi: r.installs > 0 ? r.sessions / r.installs : 0,
+    ctr: rate(r.clicks, r.impressions, 1, 'impressions'),
+    cvr: rate(r.installs, r.clicks, 1, 'clicks'),
+    cpi: r.cost_usd > 0
+      ? per(r.cost_usd, r.installs, 1, 'installs')
+      : na('not_reported', 'No ad spend recorded against this source in this window.'),
+    usage: rate(r.loyal_users, r.installs, RATE_FLOOR, 'installs'),
+    spi: isPaid(r.media_source)
+      ? per(r.sessions, r.installs, 1, 'installs')
+      : na('not_reported', SESSIONS_NOT_REPORTED),
   }
 }
-function qualityTone(usage: number): { label: string; color: string } {
-  if (usage >= 40) return { label: 'High', color: GREEN }
-  if (usage >= 20) return { label: 'Medium', color: AMBER }
+
+function qualityTone(m: Measure): { label: string; color: string } {
+  if (!isOk(m)) return { label: 'No data', color: SLATE }
+  if (m.value >= 40) return { label: 'High', color: GREEN }
+  if (m.value >= 20) return { label: 'Medium', color: AMBER }
   return { label: 'Low', color: RED }
+}
+
+/** Right-aligned scorecard cell: the figure, or "—" carrying its reason as a tooltip. */
+function MCell({ m, f, color }: { m: Measure; f: (n: number) => string; color?: string }) {
+  return (
+    <span title={m.reason} style={{ ...NUM, color: isOk(m) ? (color ?? 'var(--txt2)') : 'var(--txt3)', cursor: m.reason ? 'help' : undefined }}>
+      {fmtM(m, f)}
+    </span>
+  )
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -138,23 +199,45 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
   const hasSpend  = totalCost > 0
   const noData    = !loading && (totals?.installs ?? 0) === 0 && series.length === 0 && srcRows.length === 0
 
-  // Funnel: baseline + step-to-step conversion, and the sharpest consecutive drop.
-  const funnelBase = funnel.find(f => f.event_name === 'first_open')?.unique_users ?? (funnel[0]?.unique_users ?? 0)
-  const funnelSteps = funnel.filter(f => f.unique_users > 0).map((f, i, arr) => {
-    const prev = i > 0 ? arr[i - 1].unique_users : f.unique_users
+  // Funnel. The backend's afFunnelOrder is a DECLARATION of the journey, not a
+  // measurement of it, so validate it against its own counts before reading any
+  // conversion off it. checkSequence trusts only the monotonic leading run and hands
+  // back the steps that contradict the declared order.
+  //
+  // `ordered` defaults to true when the field is absent, i.e. when this bundle is
+  // served ahead of a backend restart. That is deliberately the weaker of the two
+  // safeguards, never the only one: the monotonicity check below still confines every
+  // conversion to the corroborated run, so an old backend degrades to "validated but
+  // without the Unplaced badge" rather than back to the phantom drop.
+  const seqSteps: SeqStep[] = funnel
+    .filter(f => f.unique_users > 0)
+    .map(f => ({ name: prettyEvent(f.event_name), users: f.unique_users, ordered: f.ordered !== false }))
+  const seq = checkSequence(seqSteps)
+  // Event names are distinct and prettyEvent is deterministic, so names identify steps.
+  const verified = new Set(seq.verified.map(s => s.name))
+  const funnelBase = funnel.find(f => f.event_name === 'first_open')?.unique_users ?? (seqSteps[0]?.users ?? 0)
+
+  const funnelSteps = seqSteps.map((s, i) => {
+    const prev = i > 0 ? seqSteps[i - 1] : null
+    const comparable = !!prev && verified.has(s.name) && verified.has(prev.name)
     return {
-      name: prettyEvent(f.event_name), users: f.unique_users,
-      fromPrev: prev > 0 ? f.unique_users / prev * 100 : 100,
-      fromOpen: funnelBase > 0 ? f.unique_users / funnelBase * 100 : 0,
+      ...s,
+      verified: verified.has(s.name),
+      // Step-to-step conversion exists only where the declared order is corroborated.
+      // Everywhere else this is "—": the old code printed 2,522% here.
+      fromPrev: !prev
+        ? na('not_reported', 'First step in the journey — nothing precedes it.')
+        : comparable
+          ? rate(s.users, prev.users, 1, 'users at the previous step')
+          : na('not_reported', s.ordered
+            ? 'The declared funnel order stops matching the data before this step, so step-to-step conversion here would be meaningless.'
+            : 'This event is not part of the declared journey — it is listed alphabetically, so its position carries no meaning.'),
+      // Share of first opens is a ratio to a base, not a sequence claim, so it stands
+      // for every event including the unordered ones.
+      fromOpen: rate(s.users, funnelBase, 1, 'first opens'),
     }
   })
-  let biggestDrop: { from: string; to: string; lostPct: number; a: number; b: number } | null = null
-  for (let i = 1; i < funnelSteps.length; i++) {
-    const lost = 100 - funnelSteps[i].fromPrev
-    if (lost > 0 && (!biggestDrop || lost > biggestDrop.lostPct)) {
-      biggestDrop = { from: funnelSteps[i - 1].name, to: funnelSteps[i].name, lostPct: lost, a: funnelSteps[i - 1].users, b: funnelSteps[i].users }
-    }
-  }
+  const biggestDrop = seq.drop
 
   // 7-day moving average over installs, for the trend.
   const ma = series.map((_, i) => {
@@ -162,58 +245,113 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
     return win.reduce((s2, r) => s2 + r.installs, 0) / win.length
   })
 
-  // Conversion milestones — real, populated rates off the funnel (share of first opens).
+  // Conversion milestones — share of first opens reaching each key event.
+  //
+  // Labels name the EVENT, not an outcome the feed can't see. "KYC Passed" was wrong:
+  // kyc_result fires on pass or fail and the aggregate API does not expose the outcome
+  // parameter, so the page was reporting a failure as a pass.
   const fval = (name: string) => funnel.find(f => f.event_name === name)?.unique_users ?? 0
   const foBase = fval('first_open') || (totals?.installs ?? 0)
   const milestones = [
-    { label: 'Registration', icon: 'app_registration', event: 'registration_start', accent: BLUE },
-    { label: 'Onboarded',    icon: 'task_alt',         event: 'onboarding_complete', accent: GREEN },
-    { label: 'KYC Passed',   icon: 'verified_user',    event: 'kyc_result',          accent: AMBER },
-    { label: 'Card CTA',     icon: 'credit_card',      event: 'card_cta_tapped',     accent: PURPLE },
-  ].map(m => ({ ...m, n: fval(m.event), rate: foBase > 0 ? fval(m.event) / foBase * 100 : 0 }))
+    { label: 'Registration', icon: 'app_registration', event: 'registration_start', accent: BLUE,
+      note: 'Users who began registration.' },
+    { label: 'Onboarded', icon: 'task_alt', event: 'onboarding_complete', accent: GREEN,
+      note: 'Blink fires onboarding at app-open, not after signup — this is not a post-registration step.' },
+    { label: 'KYC Result', icon: 'verified_user', event: 'kyc_result', accent: AMBER,
+      note: 'kyc_result fires on PASS OR FAIL. The aggregate feed does not carry the outcome, so this is not a pass rate.' },
+    { label: 'Card CTA', icon: 'credit_card', event: 'card_cta_tapped', accent: PURPLE,
+      note: 'Users who tapped the card call-to-action.' },
+  ].map(m => ({ ...m, n: fval(m.event), share: rate(fval(m.event), foBase, 1, 'first opens') }))
 
-  // ── Insight engine — plain-language callouts, each pointing to an action ────
-  const insights: { tone: 'good' | 'bad' | 'neutral'; icon: string; text: string }[] = []
+  // ── Insight engine ──────────────────────────────────────────────────────────
+  //
+  // Each rule returns a Finding or null. A rule that cites a derived figure builds
+  // through findingFrom(), which refuses to produce the finding unless every Measure it
+  // names actually exists — that is what stops a claim being made about an empty
+  // denominator. rankFindings() then orders them bad → good → neutral, by impact within
+  // each tone, so the card leads with what is wrong rather than with whoever typed
+  // their `if` block first.
+  const rules: (Finding | null)[] = []
   if (!noData && totals) {
     const totInstalls = totals.installs
+
     if (previous && previous.installs > 0) {
       const d = (totInstalls - previous.installs) / previous.installs * 100
-      insights.push({
-        tone: d >= 0 ? 'good' : 'bad', icon: d >= 0 ? 'trending_up' : 'trending_down',
+      rules.push({
+        id: 'installs-delta',
+        tone: d >= 0 ? 'good' : 'bad',
+        icon: d >= 0 ? 'trending_up' : 'trending_down',
+        impact: Math.abs(totInstalls - previous.installs),
         text: `Installs ${d >= 0 ? 'up' : 'down'} ${Math.abs(d).toFixed(0)}% vs the previous period (${fmtNum(previous.installs)} → ${fmtNum(totInstalls)}).`,
       })
     }
-    const ranked = srcRows.filter(s => s.installs >= 5).sort((a, b) => b.usage - a.usage)
+
+    // Quality ranking covers PAID sources only. Organic and Direct win this on almost
+    // any feed — people who sought the app out convert better than people who were
+    // shown it — and "lean into Organic" is not a decision anyone can act on.
+    const ranked = srcRows.filter(s => isPaid(s.key) && isOk(s.usage)).sort((a, b) => cmpM(a.usage, b.usage))
     if (ranked.length > 0) {
       const best = ranked[0]
-      insights.push({ tone: 'good', icon: 'workspace_premium',
-        text: `Highest-quality source: ${prettySource(best.key)}, ${best.usage.toFixed(0)}% become loyal users (${fmtNum(best.loyal_users)}/${fmtNum(best.installs)} installs). Lean into it.` })
+      rules.push(findingFrom([best.usage], () => ({
+        id: 'best-source', tone: 'good', icon: 'workspace_premium', impact: best.installs,
+        text: `Best paid source on quality: ${prettySource(best.key)}, ${fmtM(best.usage, v => v.toFixed(0))}% become loyal users (${fmtNum(best.loyal_users)}/${fmtNum(best.installs)} installs). Lean into it.`,
+      })))
       const worst = ranked[ranked.length - 1]
-      if (ranked.length > 1 && worst.usage < 20 && isPaid(worst.key)) {
-        insights.push({ tone: 'bad', icon: 'warning',
-          text: `${prettySource(worst.key)} brings volume but low quality. Only ${worst.usage.toFixed(0)}% loyal on ${fmtNum(worst.installs)} installs. Review targeting or creative before spending more.` })
+      if (ranked.length > 1 && isOk(worst.usage) && worst.usage.value < 20) {
+        rules.push({
+          id: 'worst-source', tone: 'bad', icon: 'warning', impact: worst.installs,
+          text: `${prettySource(worst.key)} brings volume but low quality. Only ${worst.usage.value.toFixed(0)}% loyal on ${fmtNum(worst.installs)} installs. Review targeting or creative before spending more.`,
+        })
       }
     }
+
+    // Only ever the sharpest drop inside the CORROBORATED run of the funnel.
     if (biggestDrop && biggestDrop.lostPct >= 15) {
-      insights.push({ tone: 'bad', icon: 'filter_alt',
-        text: `Sharpest funnel drop: ${biggestDrop.from} → ${biggestDrop.to} loses ${biggestDrop.lostPct.toFixed(0)}% (${fmtNum(biggestDrop.a)} → ${fmtNum(biggestDrop.b)}). Best place to fix onboarding.` })
+      rules.push({
+        id: 'funnel-drop', tone: 'bad', icon: 'filter_alt', impact: biggestDrop.a - biggestDrop.b,
+        text: `Sharpest verified funnel drop: ${biggestDrop.from} → ${biggestDrop.to} loses ${biggestDrop.lostPct.toFixed(0)}% (${fmtNum(biggestDrop.a)} → ${fmtNum(biggestDrop.b)}). Highest-leverage step to fix.`,
+      })
     }
+
+    // The declared order failing its own monotonicity test is a finding in itself: it
+    // tells whoever owns afFunnelOrder that the app has moved on. impact 0 keeps it at
+    // the foot of the card — it is a note about the data, not about the business.
+    if (seq.violations.length > 0) {
+      const worstV = [...seq.violations].sort((a, b) => b.gained - a.gained)[0]
+      const lastGood = seq.verified[seq.verified.length - 1]?.name ?? 'the first step'
+      rules.push({
+        id: 'funnel-order-unverified', tone: 'neutral', icon: 'rule', impact: 0,
+        text: `Funnel order unverified past ${lastGood}: ${seq.violations.length} step${seq.violations.length === 1 ? '' : 's'} report more users than the step before (largest: ${worstV.to} at ${fmtNum(worstV.b)} after ${worstV.from} at ${fmtNum(worstV.a)}). Conversion beyond that point is hidden rather than guessed.`,
+      })
+    }
+
     const topSrc = [...srcRows].sort((a, b) => b.installs - a.installs)[0]
     if (topSrc && totInstalls > 0) {
-      insights.push({ tone: 'neutral', icon: 'hub',
-        text: `${prettySource(topSrc.key)} drives ${(topSrc.installs / totInstalls * 100).toFixed(0)}% of installs (${fmtNum(topSrc.installs)}).` })
+      rules.push({
+        id: 'top-source', tone: 'neutral', icon: 'hub', impact: topSrc.installs,
+        text: `${prettySource(topSrc.key)} drives ${(topSrc.installs / totInstalls * 100).toFixed(0)}% of installs (${fmtNum(topSrc.installs)}).`,
+      })
     }
-    if (hasSpend) {
-      const withCpi = srcRows.filter(s => s.cpi !== null).sort((a, b) => (a.cpi ?? 0) - (b.cpi ?? 0))
-      if (withCpi.length > 0) insights.push({ tone: 'good', icon: 'savings', text: `Cheapest paid installs: ${prettySource(withCpi[0].key)} at ${usd(withCpi[0].cpi)} CPI.` })
+
+    // No hasSpend gate needed: a CPI Measure only exists where spend was recorded.
+    const withCpi = srcRows.filter(s => isOk(s.cpi)).sort((a, b) => cmpM(a.cpi, b.cpi, 'asc'))
+    if (withCpi.length > 0) {
+      rules.push({
+        id: 'cheapest-cpi', tone: 'good', icon: 'savings', impact: withCpi[0].installs,
+        text: `Cheapest paid installs: ${prettySource(withCpi[0].key)} at ${fmtM(withCpi[0].cpi, usd)} CPI.`,
+      })
     }
-    // Top country by volume, with a quality read.
+
     const topGeo = [...geo].sort((a, b) => b.installs - a.installs)[0]
     if (topGeo) {
-      const rate = topGeo.installs > 0 ? topGeo.loyal_users / topGeo.installs * 100 : 0
-      insights.push({ tone: 'neutral', icon: 'public', text: `Top market: ${prettyCountry(topGeo.country)}, ${fmtNum(topGeo.installs)} installs at ${rate.toFixed(0)}% loyal.` })
+      const geoRate = rate(topGeo.loyal_users, topGeo.installs, RATE_FLOOR, 'installs')
+      rules.push(findingFrom([geoRate], () => ({
+        id: 'top-geo', tone: 'neutral', icon: 'public', impact: topGeo.installs,
+        text: `Top market: ${prettyCountry(topGeo.country)}, ${fmtNum(topGeo.installs)} installs at ${fmtM(geoRate, v => v.toFixed(0))}% loyal.`,
+      })))
     }
   }
+  const insights = rankFindings(rules)
 
   // ── Scorecard columns (shared, with an optional campaign→source column) ─────
   const scoreCols = (dim: 'source' | 'campaign'): TableCol<Scored>[] => [
@@ -231,15 +369,18 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           </div>
         )},
     { key: 'installs', label: 'Installs', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.installs)}</span> },
-    { key: 'ctr', label: 'CTR', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.ctr === null ? '—' : fmtPct(r.ctr)}</span> },
-    { key: 'cvr', label: 'Click→Install', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.cvr === null ? '—' : fmtPct(r.cvr)}</span> },
-    { key: 'cpi', label: 'CPI', align: 'right', render: r => <span style={{ ...NUM, color: r.cpi === null ? 'var(--txt3)' : NAVY }}>{usd(r.cpi)}</span> },
-    { key: 'spi', label: 'Sess./Install', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.spi.toFixed(1)}</span> },
+    // Every derived column is a Measure: it renders "—" with its reason on hover rather
+    // than a 0 that reads as a measurement. Organic's Sess./Install was the worst of
+    // these — a confident 0.0 sitting beside a green "High" loyalty badge.
+    { key: 'ctr', label: 'CTR', align: 'right', render: r => <MCell m={r.ctr} f={fmtPct} /> },
+    { key: 'cvr', label: 'Click→Install', align: 'right', render: r => <MCell m={r.cvr} f={fmtPct} /> },
+    { key: 'cpi', label: 'CPI', align: 'right', render: r => <MCell m={r.cpi} f={usd} color={NAVY} /> },
+    { key: 'spi', label: 'Sess./Install', align: 'right', render: r => <MCell m={r.spi} f={v => v.toFixed(1)} /> },
     { key: 'usage', label: 'Loyal-User Rate', align: 'right', render: r => {
       const q = qualityTone(r.usage)
       return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-          <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtPct(r.usage)}</span>
+        <span title={r.usage.reason ?? LOYAL_RATE_CAVEAT} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'help' }}>
+          <span style={{ ...NUM, fontWeight: FW.bold, color: isOk(r.usage) ? undefined : 'var(--txt3)' }}>{fmtM(r.usage, fmtPct)}</span>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: `${q.color}16`, color: q.color }}>{q.label}</span>
         </span>
       )
@@ -265,12 +406,12 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
   const overviewTab = (
     <>
       {insights.length > 0 && (
-        <SectionCard title="What to Act On" subtitle="Generated from this window's data" style={{ marginBottom: 14 }}>
+        <SectionCard title="What to Act On" subtitle="Generated from this window's data. Problems first, then by users affected" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {insights.map((ins, i) => {
+            {insights.map(ins => {
               const c = ins.tone === 'good' ? GREEN : ins.tone === 'bad' ? RED : BLUE
               return (
-                <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderLeft: `3px solid ${c}`, background: `${c}0c`, borderRadius: RADIUS.sm }}>
+                <div key={ins.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderLeft: `3px solid ${c}`, background: `${c}0c`, borderRadius: RADIUS.sm }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 18, color: c }}>{ins.icon}</span>
                   <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.5 }}>{ins.text}</span>
                 </div>
@@ -296,8 +437,10 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
       {/* Conversion milestones — share of first opens that reach each key step */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         {milestones.map(m => (
-          <KpiCard key={m.label} label={m.label} value={fmtPct(m.rate)} icon={m.icon} accent={m.accent} loading={loading}
-            sub={`${fmtNum(m.n)} of ${fmtNum(foBase)} opens`} />
+          <div key={m.label} title={m.note}>
+            <KpiCard label={m.label} value={fmtM(m.share, fmtPct)} icon={m.icon} accent={m.accent} loading={loading}
+              sub={`${fmtNum(m.n)} of ${fmtNum(foBase)} opens`} />
+          </div>
         ))}
       </div>
 
@@ -350,12 +493,15 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
         <SectionCard title="Installs by Media Source" subtitle="Paid in purple, organic/direct in green">
           {sourceChart.length === 0 ? <EmptyNote text="No source data yet." /> : installsBar(sourceChart)}
         </SectionCard>
-        <SectionCard title="Quality by Source" subtitle="Loyal-user rate: the usage signal">
+        <SectionCard title="Quality by Source" subtitle={`Loyal-user rate: the usage signal. Sources under ${RATE_FLOOR} installs are omitted`}>
           {srcRows.length === 0 ? <EmptyNote text="No source data yet." /> : (
             <EChart
               height={Math.max(160, Math.min(srcRows.length, 8) * 38)}
               option={(t: ChartTokens) => {
-                const rows = [...srcRows].filter(s => s.installs >= 3).sort((a, b) => b.usage - a.usage).slice(0, 8)
+                // Only sources whose rate is allowed to exist. The old filter was
+                // installs >= 3 with no floor in the Measure, so two installs and two
+                // loyal users charted as a green 100% bar.
+                const rows = [...srcRows].filter(s => isOk(s.usage)).sort((a, b) => cmpM(a.usage, b.usage)).slice(0, 8)
                 return {
                   grid: { top: 4, right: 44, bottom: 4, left: 8, containLabel: true },
                   tooltip: { trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: t.rowHvr, opacity: 0.5 } }, ...baseTooltip(t),
@@ -364,7 +510,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
                   yAxis: { ...axisCat(t, rows.map(s => prettySource(s.key))), inverse: true, axisLabel: { color: t.txt2, fontSize: 11, fontFamily: CHART_FONT, interval: 0 } },
                   series: [{ type: 'bar', name: 'Loyal Rate', barMaxWidth: 24,
                     label: { show: true, position: 'right', color: t.txt3, fontFamily: CHART_FONT, fontSize: 10, formatter: (p: any) => Number(p.value).toFixed(0) + '%' },
-                    data: rows.map(s => ({ value: Math.round(s.usage * 10) / 10, itemStyle: { color: qualityTone(s.usage).color, borderRadius: [0, 4, 4, 0] } })) }],
+                    data: rows.map(s => ({ value: Math.round((s.usage.value ?? 0) * 10) / 10, itemStyle: { color: qualityTone(s.usage).color, borderRadius: [0, 4, 4, 0] } })) }],
                   animationDuration: 700,
                 }
               }}
@@ -372,7 +518,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           )}
         </SectionCard>
       </div>
-      <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source. Ranked by installs" badge={srcRows.length} padding={false}>
+      <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source, ranked by installs. “—” means the figure cannot be computed — hover it for the reason" badge={srcRows.length} padding={false}>
         <DataTable cols={scoreCols('source')} rows={srcRows} keyFn={r => r.key} emptyText="No source data yet" />
       </SectionCard>
     </>
@@ -390,12 +536,13 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
     { key: 'installs', label: 'Installs', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.installs)}</span> },
     { key: 'sessions', label: 'Sessions', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtNum(r.sessions)}</span> },
     { key: 'loyal_users', label: 'Loyal Users', align: 'right', render: r => <span style={{ ...NUM }}>{fmtNum(r.loyal_users)}</span> },
+    // Same floor as the scorecard: Denmark's "100% · High" on 2 installs is now "—".
     { key: 'usage', label: 'Loyal-User Rate', align: 'right', render: r => {
-      const rate = r.installs > 0 ? r.loyal_users / r.installs * 100 : 0
-      const q = qualityTone(rate)
+      const m = rate(r.loyal_users, r.installs, RATE_FLOOR, 'installs')
+      const q = qualityTone(m)
       return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-          <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtPct(rate)}</span>
+        <span title={m.reason ?? LOYAL_RATE_CAVEAT} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'help' }}>
+          <span style={{ ...NUM, fontWeight: FW.bold, color: isOk(m) ? undefined : 'var(--txt3)' }}>{fmtM(m, fmtPct)}</span>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: `${q.color}16`, color: q.color }}>{q.label}</span>
         </span>
       )
@@ -431,10 +578,26 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
       {biggestDrop && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 14px', background: `${RED}0d`, border: `1px solid ${RED}33`, borderRadius: RADIUS.md, marginBottom: 14, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED }}>priority_high</span>
-          <span><strong>Biggest drop-off: {biggestDrop.from} → {biggestDrop.to}.</strong> {biggestDrop.lostPct.toFixed(0)}% of users are lost here ({fmtNum(biggestDrop.a)} → {fmtNum(biggestDrop.b)}). This is the highest-leverage step to fix.</span>
+          <span><strong>Biggest verified drop-off: {biggestDrop.from} → {biggestDrop.to}.</strong> {biggestDrop.lostPct.toFixed(0)}% of users are lost here ({fmtNum(biggestDrop.a)} → {fmtNum(biggestDrop.b)}). This is the highest-leverage step to fix.</span>
         </div>
       )}
-      <SectionCard title="Acquisition Funnel" subtitle="Unique users at each step, with step-to-step conversion" style={{ marginBottom: 14 }}>
+
+      {/* The declared journey failed its own monotonicity test. Say so plainly rather
+          than reporting conversions computed across an order the data contradicts. */}
+      {seq.violations.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 14px', background: `${AMBER}0f`, border: `1px solid ${AMBER}44`, borderRadius: RADIUS.md, marginBottom: 14, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18, color: AMBER }}>rule</span>
+          <span>
+            <strong>Step order unverified past {seq.verified[seq.verified.length - 1]?.name ?? 'the first step'}.</strong>{' '}
+            Users cannot increase as they move down a funnel, but {seq.violations.length} step{seq.violations.length === 1 ? '' : 's'} here report more users than the step before —{' '}
+            {seq.violations.slice(0, 3).map(v => `${v.to} (${fmtNum(v.b)}) after ${v.from} (${fmtNum(v.a)})`).join('; ')}
+            {seq.violations.length > 3 ? `; and ${seq.violations.length - 3} more` : ''}.{' '}
+            The declared journey in <code>afFunnelOrder</code> no longer matches how the app fires its events, so conversion past that point is shown as “—” instead of being guessed.
+          </span>
+        </div>
+      )}
+
+      <SectionCard title="Acquisition Funnel" subtitle="Unique users at each step. Conversion shown only where the declared order holds" style={{ marginBottom: 14 }}>
         {funnelSteps.length === 0 ? <EmptyNote text="No funnel events in this window." /> : (
           <EChart
             height={Math.max(220, funnelSteps.length * 32)}
@@ -445,27 +608,41 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
                   const i = ps[0].dataIndex; const st = funnelSteps[i]
                   return tipCard(t, st.name, [
                     { color: ps[0].color, value: `${fmtNum(st.users)} users` },
-                    { color: t.txt3, value: `${st.fromPrev.toFixed(0)}% from previous step` },
-                    { color: t.txt3, value: `${st.fromOpen.toFixed(0)}% of first open` },
+                    { color: t.txt3, value: isOk(st.fromPrev) ? `${st.fromPrev.value.toFixed(0)}% from previous step` : 'step-to-step conversion not available' },
+                    { color: t.txt3, value: `${fmtM(st.fromOpen, v => v.toFixed(0))}% of first open` },
                   ])
                 } },
               xAxis: axisVal(t),
               yAxis: { ...axisCat(t, funnelSteps.map(f => f.name)), axisLabel: { color: t.txt2, fontSize: 11, fontFamily: CHART_FONT, interval: 0 } },
-              series: [{ type: 'bar', name: 'Unique Users', barMaxWidth: 22, itemStyle: { color: BLUE, borderRadius: [0, 4, 4, 0] },
-                label: { show: true, position: 'right', color: t.txt3, fontFamily: CHART_FONT, fontSize: 10, formatter: (p: any) => `${funnelSteps[p.dataIndex].fromPrev.toFixed(0)}%` },
-                data: funnelSteps.map(f => f.users) }],
+              // Bars outside the verified run are muted: they are real counts, but their
+              // position in this list is not a claim about sequence.
+              series: [{ type: 'bar', name: 'Unique Users', barMaxWidth: 22,
+                label: { show: true, position: 'right', color: t.txt3, fontFamily: CHART_FONT, fontSize: 10,
+                  formatter: (p: any) => fmtM(funnelSteps[p.dataIndex].fromPrev, v => `${v.toFixed(0)}%`) },
+                data: funnelSteps.map(f => ({ value: f.users, itemStyle: { color: f.verified ? BLUE : `${BLUE}55`, borderRadius: [0, 4, 4, 0] } })) }],
               animationDuration: 700,
             })}
           />
         )}
       </SectionCard>
-      <SectionCard title="Funnel Detail" subtitle="Step-to-step and cumulative conversion" padding={false}>
+      <SectionCard title="Funnel Detail" subtitle="Unique users per step. “Declared only” marks an event the journey never placed" padding={false}>
         <DataTable
           cols={[
-            { key: 'name', label: 'Step', render: (r: typeof funnelSteps[number]) => <span style={{ fontWeight: FW.semibold }}>{r.name}</span> },
+            { key: 'name', label: 'Step', render: (r: typeof funnelSteps[number]) => (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: FW.semibold, color: r.verified ? undefined : 'var(--txt2)' }}>{r.name}</span>
+                {!r.ordered && (
+                  <span title="Present in the data but absent from the declared journey — listed alphabetically, so its position means nothing."
+                        style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: `${SLATE}22`, color: SLATE, cursor: 'help' }}>Unplaced</span>
+                )}
+              </span>
+            )},
             { key: 'users', label: 'Unique Users', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.users)}</span> },
-            { key: 'fromPrev', label: 'From Prev Step', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, color: r.fromPrev >= 80 ? GREEN : r.fromPrev >= 50 ? AMBER : RED }}>{fmtPct(r.fromPrev)}</span> },
-            { key: 'fromOpen', label: 'From First Open', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtPct(r.fromOpen)}</span> },
+            { key: 'fromPrev', label: 'From Prev Step', align: 'right', render: (r: typeof funnelSteps[number]) => (
+              <MCell m={r.fromPrev} f={fmtPct}
+                color={isOk(r.fromPrev) ? (r.fromPrev.value >= 80 ? GREEN : r.fromPrev.value >= 50 ? AMBER : RED) : undefined} />
+            )},
+            { key: 'fromOpen', label: 'From First Open', align: 'right', render: (r: typeof funnelSteps[number]) => <MCell m={r.fromOpen} f={fmtPct} /> },
           ] as TableCol<typeof funnelSteps[number]>[]}
           rows={funnelSteps} keyFn={r => r.name} emptyText="No funnel data yet"
         />
