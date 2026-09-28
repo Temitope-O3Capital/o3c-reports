@@ -171,10 +171,34 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 		// for weeks because it asked for c.employer (the column is job_title), which
 		// left every Credit File without a party, a name or contact details — the
 		// "W…" id and blank customer block both traced back to here.
+		//
+		// A 'UD-' key is a Udara customer id, NOT a cif, and app.customers holds no row
+		// under it — so `COALESCE(NULLIF(cif,''), contact_id) = $1` matched nothing and
+		// every Udara account's Credit File rendered as zeros while Customer 360 showed
+		// the real person. That is the defect reported on GLISTER HOME APPLIANCES and
+		// PAUBEE GLOBAL VENTURE.
+		//
+		// All 33 Udara rows on the delinquency book DO have a party, and a customers row
+		// on that party; the only thing missing was the bridge from the key to the party.
+		// That bridge is app.cbs_links and nothing else. NEVER match a Udara id against
+		// app.customers.cif: 271 of 295 collide with a real card CIF belonging to a
+		// different person (migration 299).
 		idRows, err := db.PGQuery(ctx, `
-			WITH me AS (
-			    SELECT party_id FROM app.customers
-			     WHERE COALESCE(NULLIF(cif,''), contact_id) = $1 LIMIT 1
+			WITH k AS (
+			    SELECT $1::text AS key,
+			           CASE WHEN $1::text LIKE 'UD-%' THEN substring($1::text from 4) END AS udara_id
+			),
+			me AS (
+			    SELECT * FROM (
+			        SELECT c.party_id FROM app.customers c, k
+			         WHERE k.udara_id IS NULL
+			           AND COALESCE(NULLIF(c.cif,''), c.contact_id) = k.key
+			        UNION ALL
+			        SELECT lnk.entity_id FROM app.cbs_links lnk, k
+			         WHERE k.udara_id IS NOT NULL
+			           AND lnk.entity_type = 'party'
+			           AND lnk.cbs_customer_id = k.udara_id
+			    ) p LIMIT 1
 			)
 			SELECT COALESCE(NULLIF(c.cif,''), c.contact_id) AS id,
 			       c.cif AS card_cif, c.party_id, c.full_name, c.phone, c.email,
@@ -188,9 +212,27 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			       c.phone, c.email, c.bvn, c.full_address, c.address_1, c.city, c.state, c.country,
 			       c.job_title AS employer, c.birthday::text AS date_of_birth, c.gender,
 			       c.account_status
-			  FROM app.customers c
-			 WHERE COALESCE(NULLIF(c.cif,''), c.contact_id) = $1
-			   AND c.party_id IS NULL`, cif)
+			  FROM app.customers c, k
+			 WHERE COALESCE(NULLIF(c.cif,''), c.contact_id) = k.key
+			   AND c.party_id IS NULL
+			UNION ALL
+			-- A Udara-only borrower, with a party but no customer-master row. None of the
+			-- 33 are in this state today, but a new Udara loan to someone who holds no
+			-- card would be, and the page must name them rather than show a blank block.
+			-- cbs_customers is Udara's own record of them; the party label is the
+			-- fallback beneath it.
+			SELECT k.key, NULL, me.party_id,
+			       COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(p.full_name),'')),
+			       COALESCE(NULLIF(cc.phone,''), p.primary_phone),
+			       COALESCE(NULLIF(cc.email,''), p.primary_email),
+			       COALESCE(NULLIF(cc.bvn,''), p.bvn),
+			       cc.address, cc.address, cc.city, cc.state, cc.nationality,
+			       cc.employer_name, cc.date_of_birth::text, cc.gender, NULL
+			  FROM app.cbs_customers cc, k, me
+			  LEFT JOIN app.parties p ON p.party_id = me.party_id
+			 WHERE k.udara_id IS NOT NULL
+			   AND cc.cbs_customer_id = k.udara_id
+			   AND NOT EXISTS (SELECT 1 FROM app.customers c2 WHERE c2.party_id = me.party_id)`, cif)
 		if err != nil {
 			respondErrLog(w, 500, "Could not resolve the customer", err)
 			return

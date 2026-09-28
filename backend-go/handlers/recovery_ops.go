@@ -207,7 +207,10 @@ func escalateSevereToRecovery(ctx context.Context, db *core.DB, minDPD int) (int
 		               WHERE rc.account_cif = ca.account_cif
 		                 AND rc.status NOT IN ('closed','recovered','written_off'))
 		   AND EXISTS (SELECT 1 FROM app.collections_delinquent_unified v
-		               WHERE v.cif = ca.account_cif
+		               -- key_cif: collection_assignments.account_cif carries the UD- convention from		               
+		               -- migration 267, so comparing against the bare id never matched a Udara row and		               
+		               -- those assignments never left the queue after their recovery case opened.
+		               WHERE v.key_cif = ca.account_cif
 		                 AND v.dpd >= $1)`, minDPD); err != nil {
 		return created, int64(len(refusals)), err
 	}
@@ -236,7 +239,10 @@ func escalateSevereToRecovery(ctx context.Context, db *core.DB, minDPD int) (int
 		 WHERE rc.status NOT IN ('closed','recovered','written_off','legal')
 		   AND rc.account_cif IS NOT NULL
 		   AND NOT EXISTS (SELECT 1 FROM app.collections_delinquent_unified v
-		                   WHERE v.cif = rc.account_cif)`); err != nil {
+		                   -- key_cif for the same reason. Keyed bare, this NOT EXISTS was ALWAYS true for a		                   
+		                   -- UD- case, so the "cured" sweep would have closed every Udara recovery case —		                   
+		                   -- including one opened seconds earlier in this same function.
+		                   WHERE v.key_cif = rc.account_cif)`); err != nil {
 		return created, int64(len(refusals)), err
 	}
 	return created, int64(len(refusals)), nil
@@ -316,8 +322,8 @@ func recoveryOpsOpenCase(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx, `SELECT COALESCE(MAX(v.dpd),0) AS dpd, COALESCE(SUM(v.outstanding_kobo),0) AS outstanding
 			FROM app.collections_delinquent_unified v
 			WHERE CASE WHEN $2 <> '' THEN
-			           v.cif = $2 AND v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
-			      ELSE v.cif = $1 AND NOT (v.source = 'loan' AND v.product_name <> 'Loan (uploaded)')
+			           v.raw_cif = $2 AND v.arm = 'udara'
+			      ELSE v.raw_cif = $1 AND v.arm <> 'udara'
 			      END`, cardsCIF, udaraCIF); len(rows) > 0 {
 			dpd = int(toInt64(rows[0]["dpd"]))
 			outstanding = toInt64(rows[0]["outstanding"])
@@ -745,8 +751,8 @@ func recoveryOpsCaseDetailFull(db *core.DB) http.HandlerFunc {
 		if drows, _ := db.PGQuery(ctx, `SELECT COALESCE(MAX(v.dpd),0) AS dpd, COALESCE(SUM(v.outstanding_kobo),0) AS outstanding
 			FROM app.collections_delinquent_unified v
 			WHERE CASE WHEN $2 <> '' THEN
-			           v.cif = $2 AND v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
-			      ELSE v.cif = $1 AND NOT (v.source = 'loan' AND v.product_name <> 'Loan (uploaded)')
+			           v.raw_cif = $2 AND v.arm = 'udara'
+			      ELSE v.raw_cif = $1 AND v.arm <> 'udara'
 			      END`, cardsCIF, udaraCIF); len(drows) > 0 {
 			dpdCurrent = toInt64(drows[0]["dpd"])
 			bookOutstanding = toInt64(drows[0]["outstanding"])

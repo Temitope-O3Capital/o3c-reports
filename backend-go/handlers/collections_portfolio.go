@@ -202,7 +202,7 @@ WITH assign AS (
     UNION ALL
 
     -- LOANS from Udara core banking
-    SELECT COALESCE(uo.customer_key, cl.cbs_customer_id),
+    SELECT COALESCE(uo.customer_key, 'UD-' || cl.cbs_customer_id), -- never the bare id: 34 of 41 loans have no cards key, and the raw value resolves to a different person
            -- cbs_customers.name is the authoritative borrower name for a Udara
            -- facility; the embedded raw->>'name' is the same string today (41/41 live
            -- loans agree exactly) and stays as the backstop.

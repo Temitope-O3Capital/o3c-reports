@@ -456,6 +456,19 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 			}
 			notified = notifyHandoffRaised(context.WithoutCancel(r.Context()), db, a, actorID)
 		}
+		// A step that ends the journey has to stop the dialling, or recording "Converted"
+		// leaves the customer we just won sitting in tomorrow's queue — the same silent
+		// no-op that Converted and Paid had as call dispositions until today. Runs after
+		// the activity is safely written, and only ever closes a 'pending' contact.
+		if a.Type == activityTypeStep {
+			if st, ok := customerStepByCode(a.Outcome); ok {
+				var actorID *int64
+				if u != nil {
+					actorID = &u.ID
+				}
+				applyTerminalStep(context.WithoutCancel(r.Context()), db, st, a.Phone, actorID)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "notified": notified, "task_id": taskID}) //nolint:errcheck
 	}

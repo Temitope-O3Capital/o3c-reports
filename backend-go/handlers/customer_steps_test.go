@@ -108,6 +108,51 @@ func TestStepsResolveByCodeOrLabel(t *testing.T) {
 	}
 }
 
+// A step that ends the journey must stop the dialling. This is the property that keeps
+// the step vocabulary from repeating the defect the disposition vocabulary had until
+// 2026-09-28: Converted and Paid resolved to nothing, so a lead we had already won stayed
+// 'pending' and kept being called.
+//
+// The test is on the vocabulary rather than the UPDATE, because applyTerminalStep's only
+// decision is which steps it acts on — the SQL itself is one guarded statement.
+func TestEveryTerminalStepStopsTheDialling(t *testing.T) {
+	terminal := 0
+	for _, st := range customerSteps {
+		if !st.Terminal {
+			continue
+		}
+		terminal++
+		// applyTerminalStep keys on Terminal, so this is the whole contract: a step that
+		// ends the relationship is terminal, and a terminal step closes the contact.
+		switch st.Code {
+		case "converted", "dropped_off", "declined_not_eligible":
+		default:
+			t.Errorf("step %q is terminal — confirm it should close the outbound contact, "+
+				"because applyTerminalStep will", st.Code)
+		}
+	}
+	if terminal == 0 {
+		t.Fatal("no terminal steps, so nothing ever stops the dialling")
+	}
+	// And the converse: a step that is mid-journey must NOT close anything. Closing on
+	// "Documents Requested" would silently end the relationship we are in the middle of.
+	for _, code := range []string{
+		"information_sent", "customer_reviewing", "documents_requested",
+		"documents_received", "met_customer", "application_started", "sent_to_risk",
+		"customer_went_quiet",
+	} {
+		st, ok := customerStepByCode(code)
+		if !ok {
+			t.Errorf("step %q has gone missing from the vocabulary", code)
+			continue
+		}
+		if st.Terminal {
+			t.Errorf("step %q is mid-journey but marked terminal — it would close the "+
+				"contact and stop the calls we are still making", code)
+		}
+	}
+}
+
 // 'converted' exists in BOTH vocabularies — as a call disposition (what the agent
 // concluded on a call) and as a step (the customer took the product, on a date that is
 // usually not the call's). That overlap is deliberate, but the two must stay distinct

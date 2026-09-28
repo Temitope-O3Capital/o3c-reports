@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from './UI'
 import { apiFetch, apiPost } from '../lib/api'
-import { NAVY, RADIUS, TEXT, FW, SP, RED, INTER } from '../lib/design'
+import { NAVY, RADIUS, TEXT, FW, SP, RED, GREEN, AMBER, INTER } from '../lib/design'
 import { fmtDate } from '../lib/fmt'
 import { toast } from 'sonner'
 
@@ -109,6 +109,8 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
   const [steps, setSteps]     = useState<CustomerStep[]>([])
   const [stepCode, setStep]   = useState('')
   const [stepOn, setStepOn]   = useState(isoDate(new Date()))
+  // step code -> the date it is already on the record for this customer.
+  const [done, setDone]       = useState<Record<string, string>>({})
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
   const isHandoff  = type === 'handoff'
@@ -138,6 +140,37 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
       .catch(() => { if (!cancelled) setSteps([]) })
     return () => { cancelled = true }
   }, [open, steps.length])
+
+  // Where this customer has already got to.
+  //
+  // Without it an agent is picking from eleven steps with no idea which are already on the
+  // record, so the same step gets logged twice and the journey reads backwards. Loaded
+  // only when the Step tab is actually open, so the common note/hand-off case pays nothing
+  // for it. A failure is silent: not knowing the history is a worse form the agent can
+  // still use, not an error worth blocking them with.
+  useEffect(() => {
+    if (!open || !isStep) return
+    const q = anchor.lead_id ? `lead_id=${anchor.lead_id}`
+      : anchor.contact_id ? `contact_id=${anchor.contact_id}`
+      : anchor.cif ? `cif=${encodeURIComponent(anchor.cif)}`
+      : anchor.phone ? `phone=${encodeURIComponent(anchor.phone)}`
+      : ''
+    if (!q) return
+    let cancelled = false
+    apiFetch<{ data: { type: string; outcome: string | null; occurred_at: string }[] }>(`/api/activities?${q}`)
+      .then(r => {
+        if (cancelled) return
+        const seen: Record<string, string> = {}
+        for (const a of r?.data ?? []) {
+          if (a.type !== 'step' || !a.outcome) continue
+          // Keep the most recent date per step, so a step recorded twice shows the latest.
+          if (!seen[a.outcome] || a.occurred_at > seen[a.outcome]) seen[a.outcome] = a.occurred_at
+        }
+        setDone(seen)
+      })
+      .catch(() => { if (!cancelled) setDone({}) })
+    return () => { cancelled = true }
+  }, [open, isStep, anchor.lead_id, anchor.contact_id, anchor.cif, anchor.phone])
 
   // Changing type changes what is being asked for; a validation error about the old
   // form would sit there accusing a field that is no longer on screen.
@@ -273,14 +306,17 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
     : isHandoff ? `Hand Off to ${TEAMS.find(t => t.v === targetTeam)?.label ?? 'Team'}`
     : isDocument ? (file ? 'Upload Document' : 'Log Document Collected')
     : isTask ? 'Set Follow-Up'
+    // Names the step being recorded, so the agent confirms the thing itself rather than
+    // a generic verb, and sees their choice once more before it is written.
+    : isStep ? (step ? `Record: ${step.label}` : 'Record Step')
     : 'Log Note'
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={about ? `Log an Activity: ${about}` : 'Log an Activity'}
-      width={520}
+      title={about ? (isStep ? `Record a Step: ${about}` : `Log an Activity: ${about}`) : isStep ? 'Record a Step' : 'Log an Activity'}
+      width={isStep ? 580 : 520}
       footer={
         <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', alignItems: 'center' }}>
           <span style={{ flex: 1, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Ctrl + Enter to save</span>
@@ -296,7 +332,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
                      border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.bold,
                      cursor: saving ? 'not-allowed' : 'pointer', fontFamily: INTER }}>
             <span className="material-symbols-rounded" style={{ fontSize: 17 }}>
-              {isHandoff ? 'swap_horiz' : isDocument && file ? 'upload_file' : isTask ? 'task_alt' : 'check'}
+              {isHandoff ? 'swap_horiz' : isDocument && file ? 'upload_file' : isTask ? 'task_alt' : isStep ? 'timeline' : 'check'}
             </span>
             {primaryLabel}
           </button>
@@ -307,16 +343,42 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
         onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submit() } }}
         style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}
       >
-        {/* What kind of record this is — and what it will do. */}
+        {/* What kind of record this is — and what it will do.
+            Tiles rather than pills: these are five genuinely different acts with
+            different consequences, and the choice deserves the weight. Equal-width and
+            single-row so the set reads as one control, and the consequence line below
+            holds its height so the form does not jump as you move across them. */}
         <div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {TYPES.map(t => (
-              <button key={t.v} onClick={() => setType(t.v)} aria-pressed={type === t.v} style={chip(type === t.v)}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>{t.label}
-              </button>
-            ))}
+          <div style={{ display: 'grid', // auto-fit so the row wraps to two lines at phone width instead of squeezing
+            // "Follow-Up" and "Document" into an ellipsis.
+            gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))', gap: 6 }}>
+            {TYPES.map(t => {
+              const on = type === t.v
+              return (
+                <button
+                  key={t.v} type="button" onClick={() => setType(t.v)} aria-pressed={on}
+                  title={t.blurb}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    padding: '9px 4px 8px', borderRadius: RADIUS.md, cursor: 'pointer',
+                    border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
+                    background: on ? `${NAVY}0F` : 'var(--card)',
+                    color: on ? NAVY : 'var(--txt2)',
+                    fontFamily: INTER, fontSize: TEXT['2xs'], fontWeight: on ? FW.bold : FW.semibold,
+                    transition: 'var(--transition-fast)', minWidth: 0,
+                  }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 19 }}>{t.icon}</span>
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                    {t.label}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 7 }}>{blurb}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 8, lineHeight: 1.45, minHeight: 34 }}>
+            {blurb}
+          </div>
         </div>
 
         {isHandoff && (
@@ -342,26 +404,102 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
           // A step is picked, not typed: a free-text box asks the agent to invent the
           // structure, which is why type='note' had one row in the whole table. The
           // wording of each option comes from the server.
-          <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div style={{ flex: '1 1 240px' }}>
-              <label style={label} htmlFor="la-step">Where Have They Got To?</label>
-              <select id="la-step" value={stepCode} onChange={e => { setStep(e.target.value); setErr(null) }} style={field}>
-                <option value="">Pick a step…</option>
-                {steps.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
-              </select>
-              {/* The hint says what the step commits them to, so it is not a guess. */}
-              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4, minHeight: 15 }}>
-                {step?.hint ?? (steps.length === 0 ? 'Loading the step list…' : ' ')}
-              </div>
+          // And it is picked off a RAIL rather than a dropdown, because the journey is
+          // genuinely a sequence: the order carries information the agent needs. The rail
+          // also marks what is ALREADY on the record, which a dropdown cannot — without
+          // that, eleven identical-looking options get logged twice and the timeline reads
+          // backwards. The connector line and the ordering are content, not decoration.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+            <div>
+              <label style={label}>Where Have They Got To?</label>
+              {steps.length === 0 ? (
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: '10px 0' }}>Loading the journey…</div>
+              ) : (
+                <div role="radiogroup" aria-label="Customer step" style={{ display: 'flex', flexDirection: 'column' }}>
+                  {steps.map((s, i) => {
+                    const on      = s.code === stepCode
+                    const already = done[s.code]
+                    const last    = i === steps.length - 1
+                    // A terminal step ends the relationship AND closes the outbound
+                    // contact, so it is coloured by what it means: a win green, a loss red,
+                    // everything mid-journey the house navy.
+                    const accent  = !s.terminal ? NAVY : s.won ? GREEN : RED
+                    return (
+                      <button
+                        key={s.code} type="button" role="radio" aria-checked={on}
+                        onClick={() => { setStep(s.code); setErr(null) }}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%',
+                          padding: '8px 11px 8px 9px', borderRadius: RADIUS.md, cursor: 'pointer',
+                          border: `1px solid ${on ? accent : 'transparent'}`,
+                          background: on ? `${accent}0F` : 'transparent',
+                          textAlign: 'left', fontFamily: INTER, transition: 'var(--transition-fast)',
+                          // A terminal step is a different kind of act, so it is set apart
+                          // rather than sitting flush with the steps that carry on.
+                          marginTop: s.terminal && !steps[i - 1]?.terminal ? 7 : 0,
+                        }}
+                      >
+                        {/* The rail. The connector is what makes this read as one sequence
+                            rather than a list of unrelated choices. */}
+                        <span style={{ position: 'relative', flex: '0 0 auto', width: 18, display: 'flex', justifyContent: 'center', paddingTop: 2 }}>
+                          {!last && (
+                            <span aria-hidden style={{
+                              position: 'absolute', top: 18, left: '50%', width: 1, height: 'calc(100% - 4px)',
+                              background: 'var(--bdr)', transform: 'translateX(-0.5px)',
+                            }} />
+                          )}
+                          <span style={{
+                            position: 'relative', width: 16, height: 16, borderRadius: RADIUS.full,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            border: `1.5px solid ${already || on ? accent : 'var(--bdr)'}`,
+                            background: already ? accent : 'var(--card)', color: '#fff', flex: '0 0 auto',
+                          }}>
+                            {already && <span className="material-symbols-rounded" style={{ fontSize: 11 }}>check</span>}
+                            {!already && on && <span style={{ width: 6, height: 6, borderRadius: RADIUS.full, background: accent }} />}
+                          </span>
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: TEXT.sm, fontWeight: on ? FW.bold : FW.semibold, color: on ? accent : 'var(--txt)' }}>
+                              {s.label}
+                            </span>
+                            {/* Already on the record, with its date. This is the thing a
+                                dropdown could not show, and the reason steps got logged twice. */}
+                            {already && (
+                              <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+                                recorded {fmtDate(already.slice(0, 10))}
+                              </span>
+                            )}
+                          </span>
+                          {/* Shown for the selected step only, so the rail stays scannable
+                              while the commitment is never a guess. */}
+                          {on && (
+                            <span style={{ display: 'block', fontSize: TEXT['2xs'], color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>
+                              {s.hint}
+                              {s.terminal && ' This ends the journey, so it also stops any further calls to them.'}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-            <div style={{ flex: '0 1 170px' }}>
+            <div>
               <label style={label} htmlFor="la-step-on">When Did It Happen?</label>
-              <input id="la-step-on" type="date" value={stepOn} max={isoDate(new Date())}
-                onChange={e => { setStepOn(e.target.value); setErr(null) }} style={field} />
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
+                <input id="la-step-on" type="date" value={stepOn} max={isoDate(new Date())}
+                  onChange={e => { setStepOn(e.target.value); setErr(null) }}
+                  style={{ ...field, width: 'auto', flex: '0 1 170px' }} />
                 {[['Today', addDays(0)], ['Yesterday', addDays(-1)]].map(([l, v]) => (
-                  <button key={l} onClick={() => setStepOn(v)} style={{ ...chip(stepOn === v), padding: '3px 9px', minHeight: 26, fontSize: TEXT['2xs'] }}>{l}</button>
+                  <button key={l} type="button" onClick={() => { setStepOn(v); setErr(null) }}
+                    style={{ ...chip(stepOn === v), padding: '4px 11px', minHeight: 30, fontSize: TEXT.xs }}>{l}</button>
                 ))}
+              </div>
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 5 }}>
+                The date it actually happened, not today. It is what puts this in the right
+                place on their timeline.
               </div>
             </div>
           </div>

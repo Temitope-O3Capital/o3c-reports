@@ -1,9 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/o3c/workspace/core"
 )
 
 // The steps a customer actually moves through, as the call centre sees them.
@@ -111,6 +115,57 @@ func customerStepNoteMissing(code, body string) bool {
 		return false
 	}
 	return len([]rune(strings.TrimSpace(body))) < ccOtherNoteMinRunes
+}
+
+// applyTerminalStep closes the outbound-queue contact when a step ends the journey.
+//
+// WHY THIS IS NOT INERT. A step and a call disposition are deliberately independent in
+// one direction — recording a step must never rewrite a call, because that is the defect
+// the whole feature exists to remove. But the reverse is not symmetry, it is a bug:
+// "Converted" and "Dropped Off" are the end of the relationship, and a contact that
+// nobody closes keeps being dialled.
+//
+// That is precisely the failure this morning's disposition work removed. Nine Call Log
+// labels — Converted and Paid among them — resolved to nothing and left the contact
+// 'pending', so a lead we had already won stayed in the dial pool and a settled
+// collections account kept being chased. Shipping a step vocabulary with the same
+// silence would have rebuilt the bug in a new place.
+//
+// Conservative on purpose. It closes ('no further calls') and does nothing else: no DNC
+// suppression, no callback rewriting, no touching crm_contacts.lead_stage. Only a
+// 'pending' contact moves, so a contact somebody has deliberately closed or marked
+// invalid is left exactly as they left it.
+//
+// Errors are logged rather than returned: the step is already recorded by this point, and
+// failing the request would tell an agent their step went unrecorded when it did not.
+func applyTerminalStep(ctx context.Context, db *core.DB, st customerStep, phone string, actor *int64) {
+	if !st.Terminal {
+		return
+	}
+	// app.norm_phone returns '' rather than NULL for anything it cannot parse, so a blank
+	// would match every blank-phoned contact. length 10 is the validity test — see
+	// [[o3c-phone-normalisation]].
+	np := normalizePhone(phone)
+	if len(np) != 10 {
+		slog.Warn("customer step: terminal step did not close any contact — unusable phone",
+			"step", st.Code, "phone", phone)
+		return
+	}
+	rows, err := db.PGQuery(ctx, `
+		UPDATE call_center_contacts
+		   SET status = 'closed', updated_at = NOW()
+		 WHERE `+normalizedPhoneExpr("phone")+` = $1
+		   AND status = 'pending'
+		 RETURNING id`, np)
+	if err != nil {
+		slog.Error("customer step: could not close the contact",
+			"step", st.Code, "err", err)
+		return
+	}
+	if len(rows) > 0 {
+		slog.Info("customer step closed the outbound contact",
+			"step", st.Code, "contacts", len(rows), "by", actor)
+	}
 }
 
 // ccListCustomerSteps serves the vocabulary so the form renders from this list rather

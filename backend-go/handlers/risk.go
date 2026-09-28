@@ -616,7 +616,8 @@ func riskLoanBook(db *core.DB) http.HandlerFunc {
 // a name via app.cbn_sector_name so the UI stops printing raw codes like "41000".
 const riskLoanBookBase = `FROM (
 	SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
-	       ` + cbsLoanName + ` AS applicant_name, cl.cbs_customer_id AS applicant_cif,
+	       ` + cbsLoanName + ` AS applicant_name, 'UD-' || cl.cbs_customer_id AS applicant_cif,
+	       cl.cbs_customer_id AS applicant_udara_id, 'udara'::text AS id_namespace,
 	       app.cbn_sector_name(cl.economic_sector) AS sector, cl.product_name AS product_type,
 	       cl.loan_amount_kobo AS amount_kobo, cl.outstanding_principal_kobo AS outstanding_kobo,
 	       -- Principal already repaid = original disbursement less outstanding principal.
@@ -1382,7 +1383,8 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				cl.cbs_id AS id,
 				cl.reference_number AS reference,
 				`+cbsLoanName+` AS applicant_name,
-				cl.cbs_customer_id AS applicant_cif,
+				'UD-' || cl.cbs_customer_id AS applicant_cif,
+				cl.cbs_customer_id AS applicant_udara_id, 'udara'::text AS id_namespace,
 				app.cbn_sector_name(cl.economic_sector) AS sector,
 				cl.product_name AS product_type,
 				cl.outstanding_principal_kobo AS outstanding_kobo,
@@ -1637,6 +1639,23 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 		cif := chi.URLParam(r, "cif")
 		ctx := r.Context()
 
+		// SPLIT THE KEY BEFORE USING IT. The loan book now publishes 'UD-<udara id>'
+		// (riskLoanBookBase), because a bare Udara id is indistinguishable from a cards
+		// CIF and 271 of 295 of them name a different real person. udaraID is set only
+		// when the key is UNAMBIGUOUSLY Udara: either it carries the prefix, or it is a
+		// bare id that no cards customer holds. A bare id that IS a cards CIF is treated
+		// as cards — which is what it is — instead of quietly returning the Udara
+		// borrower who happens to share the digits.
+		udaraID := ""
+		if strings.HasPrefix(cif, udaraCIFPrefix) {
+			udaraID = strings.TrimPrefix(cif, udaraCIFPrefix)
+		} else if cif != "" {
+			if rows, _ := db.PGQuery(ctx,
+				`SELECT NOT EXISTS (SELECT 1 FROM app.customers WHERE cif = $1) AS unambiguous`, cif); len(rows) > 0 && toBool(rows[0]["unambiguous"]) {
+				udaraID = cif
+			}
+		}
+
 		// Loan history. This used to read loan_applications ONLY, which is empty on
 		// this deployment — so every credit file 404'd, including for customers with
 		// live loans sitting in the CBS book. The live book is now the primary source
@@ -1658,7 +1677,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 					COALESCE(cl.start_date, cl.approved_date) AS _sort,
 					'cbs' AS source
 				FROM cbs_loans cl
-				WHERE cl.cbs_customer_id = $1
+				WHERE $2 <> '' AND cl.cbs_customer_id = $2
 				UNION ALL
 				SELECT
 					'la-'||id::text AS id,
@@ -1676,7 +1695,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 					'origination' AS source
 				FROM loan_applications
 				WHERE applicant_cif = $1
-			) h ORDER BY _sort DESC NULLS LAST`, cif)
+			) h ORDER BY _sort DESC NULLS LAST`, cif, udaraID)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -1726,7 +1745,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 				SELECT MIN(`+cbsLoanScore+`) AS score,
 				       MAX(`+cbsLoanBand+`) AS band
 				FROM cbs_loans cl
-				WHERE cl.cbs_customer_id = $1 AND cl.status NOT IN ('Closed','Revoked')`, cif)
+				WHERE $1 <> '' AND cl.cbs_customer_id = $1 AND cl.status NOT IN ('Closed','Revoked')`, udaraID)
 			if len(derived) > 0 && derived[0]["score"] != nil {
 				eyeScore = derived[0]["score"]
 				eyeBand = derived[0]["band"]
@@ -1754,7 +1773,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 			`WITH owner AS (
 				SELECT k.entity_id AS party_id
 				  FROM app.cbs_links k
-				 WHERE k.entity_type = 'party' AND k.cbs_customer_id = $1
+				 WHERE k.entity_type = 'party' AND $2 <> '' AND k.cbs_customer_id = $2
 				 LIMIT 1
 			), contact AS (
 				SELECT c.*
@@ -1767,7 +1786,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 			SELECT ct.cif,
 				COALESCE(
 					(SELECT NULLIF(TRIM(cc.name),'') FROM cbs_customers cc
-					  WHERE cc.cbs_customer_id = $1 LIMIT 1),
+					  WHERE cc.cbs_customer_id = $2 LIMIT 1),
 					NULLIF(TRIM(COALESCE(ct.first_name,'') || ' ' || COALESCE(ct.last_name,'')),'')
 				) AS full_name,
 				COALESCE(ct.phone,'') AS phone,
@@ -1775,7 +1794,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 				'unknown' AS kyc_status
 			 FROM (SELECT 1) _one
 			 LEFT JOIN contact ct ON TRUE`,
-			cif)
+			cif, udaraID)
 
 		custName, phone, bvn, kycStatus := cif, "", "", "unknown"
 		if len(custRows) > 0 {
@@ -1816,7 +1835,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 			FROM app.cbs_loan_schedules s
 			WHERE s.loan_account_number IN (
 			        SELECT cl.cbs_account_number FROM cbs_loans cl WHERE cl.cbs_customer_id = $1)
-			ORDER BY s.payment_date`, cif)
+			ORDER BY s.payment_date`, udaraID)
 
 		repayments := queryRows(ctx, db, `
 			SELECT lr.financial_date, lr.posted_at, lr.cbs_loan_account,
@@ -1826,7 +1845,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 			WHERE lr.ledger_key IS NOT NULL
 			  AND lr.cbs_loan_account IN (
 			        SELECT cl.cbs_account_number FROM cbs_loans cl WHERE cl.cbs_customer_id = $1)
-			ORDER BY lr.financial_date DESC, lr.posted_at DESC`, cif)
+			ORDER BY lr.financial_date DESC, lr.posted_at DESC`, udaraID)
 
 		var repaidKobo int64
 		for _, p := range repayments {

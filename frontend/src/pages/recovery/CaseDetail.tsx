@@ -1,3 +1,4 @@
+import { idCaption } from '../../components/CreditFile'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Modal, ConfirmModal } from '../../components/UI'
@@ -782,7 +783,7 @@ export default function RecoveryCaseDetail() {
   return (
     <Page
       title={rc.case_ref ?? rc.account_cif}
-      subtitle={`Recovery case · CIF: ${rc.account_cif}`}
+      subtitle={`Recovery case · ${idCaption(rc.account_cif, 'cards')}`}
       actions={
         <button
           onClick={() => navigate('/recovery/cases')}

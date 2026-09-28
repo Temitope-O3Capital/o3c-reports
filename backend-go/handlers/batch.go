@@ -476,10 +476,16 @@ func batchSyncCollectionsToDialler(ctx context.Context, db *core.DB) (int64, err
 		  SELECT COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS clean_name,
 		         COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone,
 		         right(regexp_replace(COALESCE(COALESCE(NULLIF(v.phone,''), c.phone),''),'\D','','g'),10) AS norm_phone,
-		         d.cif, d.party_id, d.product_name, d.dpd, d.outstanding_kobo
+		         d.key_cif AS cif, d.party_id, d.product_name, d.dpd, d.outstanding_kobo
 		  FROM app.collections_delinquent_unified d
 		  LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
-		  LEFT JOIN app.customers c          ON c.cif = d.cif
+		  -- ARM-GATED, and it must stay that way. app.customers.cif is a CARDS key; a
+		  -- Udara id is a different namespace that collides with it on 271 of 295 ids,
+		  -- every one a different person. Joining ungated took the STRANGER'S PHONE
+		  -- whenever the borrower's own party had none, and this INSERT then queued a
+		  -- collections call: an agent would have dialled Olabode Sanusi about FOLTI
+		  -- TECHNOLOGIES' N154,300,000. 20 such rows were pending when this was found.
+		  LEFT JOIN app.customers c          ON d.arm = 'cards' AND c.cif = d.raw_cif
 		  WHERE d.dpd > 0 AND d.outstanding_kobo > 0
 		) x
 		WHERE length(norm_phone) = 10

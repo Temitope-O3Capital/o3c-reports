@@ -73,7 +73,7 @@ WITH cif_paid AS (
 	   AND txn_date >= CURRENT_DATE - INTERVAL '12 months'
 	 GROUP BY 1
 ), loan AS (
-	SELECT cl.cbs_customer_id                                          AS cif,
+	SELECT 'UD-' || cl.cbs_customer_id                                 AS cif, -- namespaced: a bare Udara id here navigated to a stranger's Customer 360
 	       COALESCE(NULLIF(TRIM(cl.raw->>'name'), ''), cl.cbs_customer_id) AS customer_name, -- Udara's own name
 	       cl.product_name                                             AS product,
 	       'Udara'                                                     AS origin,

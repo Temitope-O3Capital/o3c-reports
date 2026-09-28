@@ -98,18 +98,24 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 	// and contact details come from v_contact_identity (freshest phone/email per party),
 	// falling back to the card customer record for the few rows with no party.
 	rows, err := db.PGQuery(ctx, `
-		SELECT d.cif, d.party_id, d.product_name, d.dpd, d.dpd_bucket, d.outstanding_kobo,
+		SELECT d.key_cif AS cif, d.party_id, d.product_name, d.dpd, d.dpd_bucket, d.outstanding_kobo,
 		       COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS full_name,
 		       COALESCE(NULLIF(v.email,''), NULLIF(c.email,''))                         AS email,
 		       COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone
 		  FROM app.collections_delinquent_unified d
 		  LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
-		  LEFT JOIN app.customers c          ON c.cif = d.cif
+		  -- ARM-GATED. Ungated this took a STRANGER'S EMAIL for a Udara borrower, and
+		  -- the artefact here is a written demand for money: 9 rows were pending, one of
+		  -- which would have emailed FOLTI TECHNOLOGIES' N154,300,000 arrears notice to
+		  -- olabode.sanusi@firstbanknigeria.com. Disclosure and misdirected collection.
+		  LEFT JOIN app.customers c          ON d.arm = 'cards' AND c.cif = d.raw_cif
 		 WHERE d.dpd > 0
 		   AND d.outstanding_kobo > 0
 		   AND NOT EXISTS (
 		       SELECT 1 FROM app.dunning_sends ds
-		        WHERE ds.account_cif = d.cif
+		        -- Throttle on the namespaced key, not the raw id: keyed bare, a card customer's
+		        -- send suppressed an unrelated Udara borrower's reminder, and vice versa.
+		        WHERE ds.account_cif = d.key_cif
 		          AND COALESCE(ds.facility,'') = COALESCE(d.product_name,'')
 		          AND ds.outcome IN ('sent','staff_preview')
 		          AND ds.sent_at > NOW() - make_interval(days => $1)

@@ -1,3 +1,4 @@
+import { idCaption } from '../../components/CreditFile'
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
@@ -199,7 +200,7 @@ export default function CollectionsPromises() {
       const s = String(v ?? '')
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
-    const header = ['CIF', 'Customer', 'Agent', 'Promised ₦', 'Promise Date', 'Status']
+    const header = ['Account Key', 'Customer', 'Agent', 'Promised ₦', 'Promise Date', 'Status']
     const body = selectedRows.map(r => [
       r.account_cif, r.customer_name, r.agent_name,
       (Number(r.promise_amount_kobo ?? 0) / 100).toFixed(2),
@@ -292,7 +293,7 @@ export default function CollectionsPromises() {
       <ConfirmModal
         open={actionRow !== null && actionType === 'kept'}
         title="Mark Promise as Kept"
-        body={`Mark the PTP of ${actionRow ? fmtKoboExact(actionRow.promise_amount_kobo) : ''} from CIF ${actionRow?.account_cif ?? ''} as Kept?`}
+        body={`Mark the PTP of ${actionRow ? fmtKoboExact(actionRow.promise_amount_kobo) : ''} from ${idCaption(actionRow?.account_cif, 'cards')} as Kept?`}
         confirmLabel="Mark Kept"
         loading={acting}
         onConfirm={doAction}
@@ -303,7 +304,7 @@ export default function CollectionsPromises() {
       <ConfirmModal
         open={actionRow !== null && actionType === 'broken'}
         title="Mark Promise as Broken"
-        body={`Mark the PTP of ${actionRow ? fmtKoboExact(actionRow.promise_amount_kobo) : ''} from CIF ${actionRow?.account_cif ?? ''} as Broken?`}
+        body={`Mark the PTP of ${actionRow ? fmtKoboExact(actionRow.promise_amount_kobo) : ''} from ${idCaption(actionRow?.account_cif, 'cards')} as Broken?`}
         confirmLabel="Mark Broken"
         danger
         loading={acting}

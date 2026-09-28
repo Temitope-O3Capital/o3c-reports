@@ -1,3 +1,4 @@
+import { idCaption } from '../../components/CreditFile'
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef, type CSSProperties } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
@@ -28,6 +29,10 @@ interface Application {
   applicant_email:         string
   applicant_phone:         string
   applicant_cif:           string
+  // Which namespace applicant_cif belongs to ('cards' | 'udara'), when the producer says.
+  // Optional: absent, idCaption prints the bare id rather than asserting "CIF" over what
+  // may be a Udara customer id belonging to a different person.
+  id_namespace?:           string
   product_type:            string
   amount_requested_kobo:   number
   amount_approved_kobo:    number
@@ -1447,7 +1452,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           <h1 className="sd-name">{app.applicant_name}</h1>
           <div className="sd-ref">
             {app.reference}
-            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+            {app.applicant_cif ? ` · ${idCaption(app.applicant_cif, app.id_namespace)}` : ' · no customer id yet'}
             {app.submitted_at ? ` · submitted ${fmtDateOnly(app.submitted_at)}` : ''}
           </div>
         </div>
@@ -1771,7 +1776,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
           <h1 className="sd-name">{app.applicant_name}</h1>
           <div className="sd-ref">
             {app.reference}
-            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+            {app.applicant_cif ? ` · ${idCaption(app.applicant_cif, app.id_namespace)}` : ' · no customer id yet'}
             {exposureKobo !== null ? ` · ${fmtKobo(exposureKobo)}${facts.requestedKind === 'limit' ? ' limit' : ''}` : ''}
             {app.tenor_months ? ` over ${app.tenor_months} months` : facts.requestedKind === 'limit' ? ' · revolving' : ''}
           </div>
@@ -2011,7 +2016,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
             {app.reference}
             {` · ${fmtKobo(app.amount_approved_kobo || app.amount_requested_kobo)}`}
             {app.tenor_months ? ` over ${app.tenor_months} months` : ' · revolving'}
-            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+            {app.applicant_cif ? ` · ${idCaption(app.applicant_cif, app.id_namespace)}` : ' · no customer id yet'}
           </div>
         </div>
 
@@ -2247,7 +2252,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
             {app.reference}
             {` · ${fmtKobo(principalKobo)}`}
             {app.tenor_months ? ` over ${app.tenor_months} months` : ' · revolving'}
-            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+            {app.applicant_cif ? ` · ${idCaption(app.applicant_cif, app.id_namespace)}` : ' · no customer id yet'}
           </div>
         </div>
 
@@ -3154,7 +3159,7 @@ function CustomerCreditPortfolio({ cif }: { cif: string }) {
   ]
 
   return (
-    <Page title={name} subtitle={`Running credit portfolio · CIF ${cif}`} actions={backBtn}>
+    <Page title={name} subtitle={`Running credit portfolio · ${idCaption(cif, 'cards')}`} actions={backBtn}>
       {/* Customer header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: SP[4], marginBottom: SP[3],

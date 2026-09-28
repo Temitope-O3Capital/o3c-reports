@@ -100,13 +100,11 @@ func splitCIFKey(key string) (cardsCIF, udaraCIF string) {
 // it is about to write.
 const armSplitDelinquency = `
 	WITH src AS (
-		SELECT v.cif AS raw_cif,
-		       CASE WHEN v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
-		            THEN 'udara' ELSE 'cards' END AS arm,
+		SELECT v.raw_cif, v.arm,
 		       v.dpd, v.outstanding_kobo, v.customer_name
 		  FROM app.collections_delinquent_unified v
-		 WHERE v.product_name <> 'Loan (uploaded)'
-		   AND v.cif IS NOT NULL AND v.cif <> ''
+		 WHERE v.arm <> 'uploaded'
+		   AND v.raw_cif IS NOT NULL AND v.raw_cif <> ''
 	), agg AS (
 		SELECT arm, raw_cif,
 		       MAX(dpd)               AS dpd,
@@ -149,9 +147,13 @@ const udaraIdentityResolved = `(b.arm <> 'udara' OR b.party_id IS NOT NULL)`
 // behind it is not ambiguous, and is worked normally.
 func udaraCrossedRows(alias string) string {
 	return "(NOT " + isUdaraRow(alias) + " AND EXISTS (" +
+		// raw_cif, not key_cif: the whole point is to catch a row stored in the CARDS
+		// namespace (no 'UD-' prefix) on an id that is at this moment a delinquent Udara
+		// borrower. Comparing against the prefixed key would never match and the crossed
+		// row would look clean.
 		"SELECT 1 FROM app.collections_delinquent_unified v" +
-		" WHERE v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'" +
-		"   AND v.cif = " + alias + ".account_cif))"
+		" WHERE v.arm = 'udara'" +
+		"   AND v.raw_cif = " + alias + ".account_cif))"
 }
 
 // debtorJoinsSQL / debtorNameSQL are the ONLY sanctioned way to put a debtor's name on a
@@ -198,10 +200,10 @@ func udaraBorrowerFor(ctx context.Context, db *core.DB, key string) (string, err
 	rows, err := db.PGQuery(ctx, `
 		SELECT COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(p.full_name),''), $1) AS borrower
 		  FROM app.collections_delinquent_unified v
-		  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = v.cif
-		  LEFT JOIN app.cbs_links lk ON lk.entity_type = 'party' AND lk.cbs_customer_id = v.cif
+		  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = v.raw_cif
+		  LEFT JOIN app.cbs_links lk ON lk.entity_type = 'party' AND lk.cbs_customer_id = v.raw_cif
 		  LEFT JOIN app.parties p ON p.party_id = lk.entity_id
-		 WHERE v.cif = $1 AND v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
+		 WHERE v.raw_cif = $1 AND v.arm = 'udara'
 		 LIMIT 1`, key)
 	if err != nil {
 		return "", err
@@ -652,8 +654,8 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 			           SUM(v.outstanding_kobo)                     AS outstanding_kobo
 			    FROM app.collections_delinquent_unified v
 			    WHERE CASE WHEN $3 <> '' THEN
-			               v.cif = $3 AND v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
-			          ELSE v.cif = $2 AND NOT (v.source = 'loan' AND v.product_name <> 'Loan (uploaded)')
+			               v.raw_cif = $3 AND v.arm = 'udara'
+			          ELSE v.raw_cif = $2 AND v.arm <> 'udara'
 			          END
 			), ident AS (
 			    -- Name of last resort, resolved inside the key's own namespace. The Udara
@@ -831,9 +833,14 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				COUNT(*) FILTER (WHERE dpd > 0)                           AS delinquent_accounts,
 				0::numeric                                                AS current_rate_pct
 			FROM (
-				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo
+				-- GROUP BY key_cif, never the raw id. The two namespaces collide, so
+				-- grouping on the bare value merged a card customer with a different
+				-- person's loan: id 00000656 put BENLAD MULTILINKS' N29,166,666.67 into
+				-- PAR30/60/90 on the strength of Obinna Ubani's 1,943 DPD, and lost an
+				-- account from the count. PAR is a CBN-definition figure.
+				SELECT key_cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo
 				FROM app.collections_delinquent_unified
-				GROUP BY cif
+				GROUP BY key_cif
 			) ca`)
 		var result core.Row
 		if err != nil || len(rows) == 0 {
@@ -932,13 +939,15 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 				COUNT(*)                             AS account_count,
 				COALESCE(SUM(outstanding_kobo), 0)  AS outstanding_kobo
 			FROM (
-				SELECT cif,
+				-- key_cif, not the raw id — see collectionsPortfolioKPIs above. Grouping
+				-- on the bare value moved a merged balance into the wrong DPD bucket.
+				SELECT key_cif,
 				       SUM(outstanding_kobo) AS outstanding_kobo,
 				       CASE
 				         WHEN MAX(dpd)<=0 THEN '0' WHEN MAX(dpd)<=30 THEN '1-30' WHEN MAX(dpd)<=60 THEN '31-60'
 				         WHEN MAX(dpd)<=90 THEN '61-90' WHEN MAX(dpd)<=180 THEN '91-180' WHEN MAX(dpd)<=360 THEN '181-360' ELSE '360+'
 				       END AS dpd_bucket
-				FROM app.collections_delinquent_unified GROUP BY cif
+				FROM app.collections_delinquent_unified GROUP BY key_cif
 			) d
 			GROUP BY dpd_bucket
 			ORDER BY

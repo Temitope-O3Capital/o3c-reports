@@ -9,6 +9,7 @@ import {
 import type { FilterGroupDef } from '../../components/UI'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
 import { dispositionsFor, dispositionNoteMissing } from '../../components/LogCallModal'
+import { idCaption } from '../../components/CreditFile'
 import CallsPanel from '../../components/CallsPanel'
 import { COLLECTIONS_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
 import { BankLogo } from '../../components/BankLogo'
@@ -699,14 +700,14 @@ function DetailPanel({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>
-                {assignment.customer_name ?? `CIF: ${assignment.account_cif}`}
+                {assignment.customer_name ?? idCaption(assignment.account_cif, 'cards')}
               </span>
               <SourceBadge source={assignment.data_source} product={assignment.product_type} />
             </div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
               {assignment.product_type === 'loan'
                 ? `Customer ${assignment.customer_id ?? assignment.account_cif}${assignment.phone ? ` · ${assignment.phone}` : ''}`
-                : `CIF ${assignment.real_cif ?? assignment.account_cif}${assignment.phone ? ` · ${assignment.phone}` : ''}`}
+                : `${idCaption(assignment.real_cif ?? assignment.account_cif, 'cards')}${assignment.phone ? ` · ${assignment.phone}` : ''}`}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1276,7 +1277,7 @@ export default function CollectionsQueue() {
                             name={item.customer_name ?? item.account_cif}
                             sub={item.product_type === 'loan'
                               ? `Loan${item.agent_name ? ` · ${item.agent_name}` : ''}`
-                              : `CIF ${item.account_cif}${item.agent_name ? ` · ${item.agent_name}` : ''}`}
+                              : `${idCaption(item.account_cif, 'cards')}${item.agent_name ? ` · ${item.agent_name}` : ''}`}
                             avatar={false}
                           />
                           <div style={{ marginTop: 3 }}>

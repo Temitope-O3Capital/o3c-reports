@@ -2009,14 +2009,18 @@ func ccSyncCollections(db *core.DB) http.HandlerFunc {
 			  SELECT COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS clean_name,
 			         COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone,
 			         right(regexp_replace(COALESCE(COALESCE(NULLIF(v.phone,''), c.phone),''),'\D','','g'),10) AS norm_phone,
-			         d.cif                                                                    AS cif,
+			         d.key_cif                                                                AS cif,
 			         d.party_id                                                               AS party_id,
 			         d.product_name                                                           AS product_name,
 			         d.dpd                                                                    AS dpd,
 			         d.outstanding_kobo                                                       AS outstanding_kobo
 			  FROM app.collections_delinquent_unified d
 			  LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
-			  LEFT JOIN app.customers c          ON c.cif = d.cif
+			  -- ARM-GATED — see batch.go. Ungated, this reaches a different real person for
+			  -- 271 of 295 Udara ids and hands the dialler their phone number under the
+			  -- borrower's name. This is the manual "Sync now" twin of the nightly worker;
+			  -- the two must be fixed together or one re-introduces what the other removed.
+			  LEFT JOIN app.customers c          ON d.arm = 'cards' AND c.cif = d.raw_cif
 			  WHERE d.dpd > 0 AND d.outstanding_kobo > 0
 			) x
 			WHERE length(norm_phone) = 10

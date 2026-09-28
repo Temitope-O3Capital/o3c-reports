@@ -12,7 +12,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKoboExact, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { TierBadge, PctBar } from '../../components/TierBadge'
-import { isInternalId } from '../../components/CreditFile'
+import { isInternalId, idCaption } from '../../components/CreditFile'
 
 function getStoredRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
@@ -260,7 +260,7 @@ export default function CollectionsPortfolio() {
       render: r => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <SourceChip source={r.source} />
-          <NameCell name={r.customer_name || r.applicant_cif} sub={isInternalId(r.applicant_cif) ? r.reference : `CIF ${r.applicant_cif} · ${r.reference}`} />
+          <NameCell name={r.customer_name || r.applicant_cif} sub={isInternalId(r.applicant_cif) ? r.reference : `${idCaption(r.applicant_cif, 'cards')} · ${r.reference}`} />
           {r.superseded && (
             <span
               title="This debt is also booked in Udara core banking. Shown for completeness. Do not count it twice."
