@@ -688,6 +688,14 @@ func losCustomerPortfolio(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "cif required")
 			return
 		}
+		// A 'UD-' key is a Udara customer id wearing the namespace prefix collections
+		// already uses (see udaraCIFPrefix). Nothing routes here with one yet, but the
+		// loan book this page is opened FROM is being moved onto prefixed keys, and a
+		// prefixed id would silently match no loan at all — cbs_customer_id holds the
+		// bare digits, so the page would render an existing borrower as having no
+		// credit. Stripping it here means the page is correct under either form rather
+		// than depending on which side lands first.
+		cif = strings.TrimPrefix(cif, udaraCIFPrefix)
 		ctx := r.Context()
 
 		// IDENTITY (2026-09-21). The {cif} path param is used BELOW as a Udara

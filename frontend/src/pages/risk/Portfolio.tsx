@@ -362,7 +362,11 @@ export default function RiskPortfolio() {
     { key: 'sector', label: 'Sector', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.sector || '—'}</span> },
     { key: 'product_type', label: 'Product', render: r => <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{r.product_type || '—'}</span> },
     {
-      key: 'amount_kobo', label: 'Principal', align: 'right', sortable: true,
+      // The loan amount, which is what was lent — not the principal still outstanding,
+      // and not a payment. It was labelled "Principal" next to a column labelled
+      // "Amount Paid", which invited exactly the reading that the two were a balance
+      // and its repayment.
+      key: 'amount_kobo', label: 'Disbursed', align: 'right', sortable: true,
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtKoboExact(r.amount_kobo)}</span>,
     },
     {
@@ -372,11 +376,27 @@ export default function RiskPortfolio() {
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.min_repayment_kobo != null ? fmtKoboExact(r.min_repayment_kobo) : '—'}</span>,
     },
     {
-      key: 'principal_paid_kobo', label: 'Amount Paid', align: 'right', sortable: true,
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: r.principal_paid_kobo > 0 ? GREEN : 'var(--txt3)' }}>{fmtKoboExact(r.principal_paid_kobo)}</span>,
+      // NOT a payment, despite what this column said for as long as it has existed.
+      // The server computes it as disbursed less outstanding principal (risk.go), which
+      // is balance MOVEMENT: it counts a write-off or a restructure as if the customer
+      // had paid, and counts an interest-only payment as nothing at all. Live, loan
+      // ...6290 had paid ₦8,000,000 of interest and showed here as ₦0 "Amount Paid",
+      // while ...5971 showed ₦44,443,556 against ₦888 actually posted to the ledger.
+      //
+      // The honest name for the figure is what it measures. The real repayment history,
+      // off the general ledger and split principal/interest, is on the customer page this
+      // row opens — and belongs here too once risk.go can be edited (it currently carries
+      // another session's uncommitted identity work).
+      key: 'principal_paid_kobo', label: 'Principal Reduced', align: 'right', sortable: true,
+      render: r => (
+        <span
+          title="Disbursed less outstanding principal — balance movement, not repayments. Open the customer for the posted ledger."
+          style={{ ...NUM, fontSize: TEXT.sm, color: r.principal_paid_kobo > 0 ? GREEN : 'var(--txt3)' }}
+        >{fmtKoboExact(r.principal_paid_kobo)}</span>
+      ),
     },
     {
-      key: '_pct', label: '% Paid', align: 'right',
+      key: '_pct', label: '% Reduced', align: 'right',
       render: r => {
         const pct = r.amount_kobo > 0 ? Math.round((r.principal_paid_kobo / r.amount_kobo) * 100) : 0
         return <PctBar pct={pct} tier={tierFromPct(pct)} />

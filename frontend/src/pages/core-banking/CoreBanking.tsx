@@ -220,11 +220,23 @@ function LoanTab({ data, loading, onOpen }: { data: LoanBook | null; loading: bo
     { key: 'loan_amount_kobo', label: 'Disbursed', align: 'right', render: r => fmtKobo(r.loan_amount_kobo) },
     // What the borrower has actually paid, from the Udara general ledger. Everything
     // else on this row is the loan's own snapshot; this is the only observed fact.
-    { key: 'repaid_principal_kobo', label: 'Repaid', align: 'right', render: r =>
-        n(r.repayment_legs) > 0
-          ? <span title={`${n(r.repayment_legs)} ledger posting(s)${r.last_repaid_on ? `, last ${fmtDate(r.last_repaid_on)}` : ''}${n(r.repaid_interest_kobo) > 0 ? ` · interest ${fmtKobo(r.repaid_interest_kobo)}` : ''}`}
-                  style={{ color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.repaid_principal_kobo)}</span>
-          : <span style={{ color: TXT3 }}>—</span> },
+    //
+    // The total is principal AND interest. This column used to show principal alone with
+    // interest hidden in a hover title, so a borrower part-way through an interest-only
+    // period read as having repaid nothing — and a tooltip is not somewhere a number that
+    // changes the meaning of the column can live. The split is spelled out underneath.
+    { key: 'repaid_principal_kobo', label: 'Repaid', align: 'right', render: r => {
+        if (n(r.repayment_legs) <= 0) return <span style={{ color: TXT3 }}>—</span>
+        const prin = n(r.repaid_principal_kobo), int = n(r.repaid_interest_kobo)
+        return (
+          <span title={`${n(r.repayment_legs)} ledger posting(s)${r.last_repaid_on ? `, last ${fmtDate(r.last_repaid_on)}` : ''}`}>
+            <span style={{ color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(prin + int)}</span>
+            <span style={{ display: 'block', fontSize: 11, color: TXT3, whiteSpace: 'nowrap' }}>
+              {fmtKobo(prin)} prin · {fmtKobo(int)} int
+            </span>
+          </span>
+        )
+      } },
     { key: 'interest_rate', label: 'Rate', align: 'right', render: r => fmtPct(r.interest_rate, 1) },
     { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.start_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
