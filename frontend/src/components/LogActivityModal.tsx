@@ -45,6 +45,19 @@ const TYPES: { v: ActType; label: string; icon: string; blurb: string }[] = [
   { v: 'task',     label: 'Follow-Up', icon: 'task_alt',      blurb: 'A real task in your queue, due on the date you set.' },
 ]
 
+// What the dialog opens on.
+//
+// Step, for two reasons. It is the FIRST tile, and a selector whose highlighted option is
+// not the one the body is showing reads as a glitch — the tiles said Step while the form
+// said Note. And it is the action agents were missing: they were rewriting old call logs
+// to record later developments because there was nowhere to say "this happened since", so
+// the form should open on the answer rather than make them go and find it.
+//
+// Safe to open on: a step cannot be submitted until one is chosen and dated, so nothing is
+// recorded by merely landing here. A caller meaning something else passes initialType —
+// CallLogEditModal opens onto 'step' explicitly, and a note-first surface can ask for 'note'.
+const DEFAULT_TYPE: ActType = 'step'
+
 // The journey vocabulary comes from the API (GET /api/customer-steps) rather than being
 // duplicated here. The call-centre disposition list was defined twice and the two copies
 // had drifted apart before anyone noticed.
@@ -94,7 +107,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
   // of it as one thread rather than two unrelated rows.
   callId?: number
 }) {
-  const [type, setType]       = useState<ActType>(initialType ?? 'note')
+  const [type, setType]       = useState<ActType>(initialType ?? DEFAULT_TYPE)
   const [targetTeam, setTeam] = useState('risk')
   const [subject, setSubject] = useState('')
   const [body, setBody]       = useState('')
@@ -123,7 +136,7 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
   // note — the anchor changed, so everything anchored to it is stale.
   useEffect(() => {
     if (!open) return
-    setType(initialType ?? 'note'); setTeam('risk'); setSubject(''); setBody('')
+    setType(initialType ?? DEFAULT_TYPE); setTeam('risk'); setSubject(''); setBody('')
     setDocType(DOC_TYPES[0]); setFile(null); setDue(addDays(1)); setUrgent(false)
     setStep(''); setStepOn(isoDate(new Date()))
     setErr(null); setSaving(false)

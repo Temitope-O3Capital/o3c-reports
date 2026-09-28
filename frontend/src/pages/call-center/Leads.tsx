@@ -529,11 +529,24 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
               {lead.agent_name}
             </span>
           )}
-          {/* Forwarding is stage-gated: only a lead an agent has warmed up
-              ('interested', or a live 'callback') may go to Sales. Cold leads show
-              nothing. Agents see a status chip; supervisors get the action. */}
+          {/* Forwarding is stage-gated: ONLY a lead whose call recorded the customer
+              saying they are interested may go to Sales. Everything else shows nothing.
+              Agents see a status chip; supervisors get the action.
+
+              'callback' used to count as warm here, which was wrong three times over.
+              The rule agreed on 14 Sept 2026 is that a callback is not interest — the
+              person could not talk — and migrations 248/298 enforce it on the pipeline,
+              which is why a callback lead correctly sits at lead_stage='contacted'. The
+              API had already been fixed to refuse anything but 'interested' (see the
+              comment in handlers/call_center_forwards.go); this page never was. So the
+              button was a dead end that lied twice: it offered an action the API answers
+              with 422, and the agent-facing chip read "Interested · Awaiting Supervisor
+              Forward" on a lead that had never said it was interested.
+
+              Measured 28 Sept: 46 callback leads were being offered it. None had been
+              forwarded — the server was holding the line on its own. */}
           {(() => {
-            const warm = lead.status === 'interested' || lead.status === 'callback'
+            const warm = lead.status === 'interested'
             if (lead.forwarded_at) return (
               <span style={{ fontSize: TEXT.xs, background: `${GREEN}18`, color: GREEN, padding: '2px 9px', borderRadius: RADIUS['2xl'], fontWeight: FW.bold, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 13 }}>forward_to_inbox</span> Forwarded to Sales
