@@ -805,7 +805,25 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                         )}
                         <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <span style={tag}>{fixAcronyms(titleWords(a.type))}</span>
-                          <span>{a.actor_name || 'Staff'}{a.actor_team ? ` · ${titleWords(a.actor_team)}` : ''}</span>
+                          {/* Nobody wrote a system event, and saying "Staff" implies
+                              somebody did. The lead re-grade sweep moved 1,855 leads with
+                              actor_user_id NULL, and every one of them read as an
+                              anonymous colleague on the Sales team having touched this one
+                              lead — which sends the agent looking for a person who does
+                              not exist. A rule gets its own marker instead. */}
+                          {a.actor_user_id == null && !a.actor_name ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>bolt</span>
+                              Automatic
+                            </span>
+                          ) : (
+                            <span>
+                              {a.actor_name || 'Staff'}
+                              {/* A named system actor ("System Rule") carries no team, and
+                                  appending one would put the rule back on a payroll. */}
+                              {a.actor_team && a.actor_user_id != null ? ` · ${titleWords(a.actor_team)}` : ''}
+                            </span>
+                          )}
                         </div>
                         {(isDoc || (isTask && !taskDone) || isHandoff) && (
                           <div style={{ marginTop: 7, display: 'flex', gap: 6, flexWrap: 'wrap' }}>

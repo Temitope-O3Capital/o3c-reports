@@ -17,7 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from './UI'
-import { apiPost } from '../lib/api'
+import { apiFetch, apiPost } from '../lib/api'
 import { NAVY, RADIUS, TEXT, FW, SP, RED, INTER } from '../lib/design'
 import { fmtDate } from '../lib/fmt'
 import { toast } from 'sonner'
@@ -31,14 +31,31 @@ export interface LogActivityAnchor {
   phone?: string
 }
 
-type ActType = 'note' | 'handoff' | 'document' | 'task'
+type ActType = 'note' | 'step' | 'handoff' | 'document' | 'task'
 
 const TYPES: { v: ActType; label: string; icon: string; blurb: string }[] = [
+  // First, because it is the one agents were missing. They had been editing old call logs
+  // to record later developments — 43 calls had their outcome overwritten days after the
+  // call, one of them Interested → Converted — because there was no way to say "this has
+  // happened since". This is that way.
+  { v: 'step',     label: 'Step',      icon: 'timeline',      blurb: 'Where this customer has got to. Dated when it happened, and it leaves the call logs alone.' },
   { v: 'note',     label: 'Note',      icon: 'sticky_note_2', blurb: 'Written to the timeline. Nobody is notified.' },
   { v: 'handoff',  label: 'Hand Off',  icon: 'swap_horiz',    blurb: 'The team is notified and it stays open until they answer.' },
   { v: 'document', label: 'Document',  icon: 'description',   blurb: 'Stored against this person and opens from the timeline.' },
   { v: 'task',     label: 'Follow-Up', icon: 'task_alt',      blurb: 'A real task in your queue, due on the date you set.' },
 ]
+
+// The journey vocabulary comes from the API (GET /api/customer-steps) rather than being
+// duplicated here. The call-centre disposition list was defined twice and the two copies
+// had drifted apart before anyone noticed.
+interface CustomerStep {
+  code: string
+  label: string
+  hint: string
+  needs_note?: boolean
+  terminal?: boolean
+  won?: boolean
+}
 
 // Sales is handled by Forward to Sales — see the file header.
 const TEAMS: { v: string; label: string }[] = [
@@ -64,14 +81,20 @@ const OK_EXT = /\.(pdf|png|jpe?g|webp|heic|doc|docx|xls|xlsx|csv|txt)$/i
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDate(d) }
 
-export default function LogActivityModal({ open, anchor, onClose, onSaved, about }: {
+export default function LogActivityModal({ open, anchor, onClose, onSaved, about, initialType, callId }: {
   open: boolean
   anchor: LogActivityAnchor
   onClose: () => void
   onSaved: () => void
   about?: string   // who this is about, shown in the dialog title
+  // Which tab to open on. The call-log edit form opens straight onto 'step' when it turns
+  // an agent away from rewriting a call, so the alternative is one click and not a hunt.
+  initialType?: ActType
+  // The call a step followed from, so the timeline can show the conversation and what came
+  // of it as one thread rather than two unrelated rows.
+  callId?: number
 }) {
-  const [type, setType]       = useState<ActType>('note')
+  const [type, setType]       = useState<ActType>(initialType ?? 'note')
   const [targetTeam, setTeam] = useState('risk')
   const [subject, setSubject] = useState('')
   const [body, setBody]       = useState('')
@@ -81,20 +104,40 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
   const [urgent, setUrgent]   = useState(false)
   const [saving, setSaving]   = useState(false)
   const [err, setErr]         = useState<string | null>(null)
+  // type=step: which step, and when it actually happened (usually not today — an agent
+  // records Friday's branch visit on Monday).
+  const [steps, setSteps]     = useState<CustomerStep[]>([])
+  const [stepCode, setStep]   = useState('')
+  const [stepOn, setStepOn]   = useState(isoDate(new Date()))
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
   const isHandoff  = type === 'handoff'
   const isDocument = type === 'document'
   const isTask     = type === 'task'
+  const isStep     = type === 'step'
+  const step       = steps.find(s => s.code === stepCode)
 
   // Reopening the dialog on another person must not inherit the last one's half-typed
   // note — the anchor changed, so everything anchored to it is stale.
   useEffect(() => {
     if (!open) return
-    setType('note'); setTeam('risk'); setSubject(''); setBody('')
+    setType(initialType ?? 'note'); setTeam('risk'); setSubject(''); setBody('')
     setDocType(DOC_TYPES[0]); setFile(null); setDue(addDays(1)); setUrgent(false)
+    setStep(''); setStepOn(isoDate(new Date()))
     setErr(null); setSaving(false)
   }, [open, anchor.lead_id, anchor.contact_id, anchor.cif, anchor.phone])
+
+  // Fetched once the dialog is open, and only once: the vocabulary does not change while
+  // an agent is typing. A failure leaves the list empty, which validate() then reports as
+  // plainly as it can — better than silently offering nothing and looking broken.
+  useEffect(() => {
+    if (!open || steps.length > 0) return
+    let cancelled = false
+    apiFetch<{ data: CustomerStep[] }>('/api/customer-steps')
+      .then(r => { if (!cancelled) setSteps(r?.data ?? []) })
+      .catch(() => { if (!cancelled) setSteps([]) })
+    return () => { cancelled = true }
+  }, [open, steps.length])
 
   // Changing type changes what is being asked for; a validation error about the old
   // form would sit there accusing a field that is no longer on screen.
@@ -117,6 +160,21 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
       if (!dueDate)        return 'A follow-up needs a date, or it is just a note.'
       return null
     }
+    if (isStep) {
+      if (steps.length === 0) return 'The step list could not be loaded. Close this and try again.'
+      if (!step)              return 'Pick where this customer has got to.'
+      if (!stepOn)            return 'Say when it happened. A step with no date cannot be put in order.'
+      // A future date is how a mistyped year pins a step to the top of every timeline
+      // for ever. The server refuses it too.
+      if (stepOn > isoDate(new Date())) return 'That date is in the future. Record a step once it has actually happened.'
+      // Only "Dropped Off" demands prose, and it is the only place a churn reason is ever
+      // captured — a drop-off nobody explained records that we lost someone and teaches
+      // us nothing.
+      if (step.needs_note && body.trim().length < 15) {
+        return `"${step.label}" needs a short reason. It is the only place we ever capture it.`
+      }
+      return null
+    }
     if (!subject.trim() && !body.trim()) return 'Add a subject or a note.'
     return null
   }
@@ -131,8 +189,17 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
       const res = await apiPost<{ id: number; notified?: number }>('/api/activities', {
         ...anchor,
         type,
-        subject: isDocument ? `Document collected: ${docType}` : subject.trim(),
+        // A step's subject is derived server-side from its code, so two spellings of the
+        // same step cannot end up on one timeline.
+        subject: isDocument ? `Document collected: ${docType}` : isStep ? '' : subject.trim(),
         body: body.trim(),
+        // The step code is the authoritative field; `outcome` is where the server reads it.
+        outcome: isStep ? step?.code : undefined,
+        // Midday local, so the step sorts inside the day it happened rather than at
+        // midnight, which reads as the day before in a timeline grouped by date.
+        occurred_at: isStep ? new Date(`${stepOn}T12:00:00`).toISOString() : undefined,
+        // Links the step to the call it followed from, when the caller knows it.
+        call_id: isStep ? callId : undefined,
         target_team: isHandoff ? targetTeam : undefined,
         // A follow-up is a real task: due by close of business on the day chosen, so it
         // is not born overdue the way a bare midnight date would be.
@@ -146,6 +213,8 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
         else toast.warning(`Handed to ${team}, but nobody on that team is set up to be notified. It is waiting in their hand-off inbox`)
       } else if (isTask) {
         toast.success(`Follow-up set for ${fmtDate(dueDate)}`)
+      } else if (isStep) {
+        toast.success(`${step?.label} recorded for ${fmtDate(stepOn)}`)
       } else {
         toast.success('Activity logged')
       }
@@ -269,6 +338,33 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
               {DOC_TYPES.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>
+        ) : isStep ? (
+          // A step is picked, not typed: a free-text box asks the agent to invent the
+          // structure, which is why type='note' had one row in the whole table. The
+          // wording of each option comes from the server.
+          <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ flex: '1 1 240px' }}>
+              <label style={label} htmlFor="la-step">Where Have They Got To?</label>
+              <select id="la-step" value={stepCode} onChange={e => { setStep(e.target.value); setErr(null) }} style={field}>
+                <option value="">Pick a step…</option>
+                {steps.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+              </select>
+              {/* The hint says what the step commits them to, so it is not a guess. */}
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4, minHeight: 15 }}>
+                {step?.hint ?? (steps.length === 0 ? 'Loading the step list…' : ' ')}
+              </div>
+            </div>
+            <div style={{ flex: '0 1 170px' }}>
+              <label style={label} htmlFor="la-step-on">When Did It Happen?</label>
+              <input id="la-step-on" type="date" value={stepOn} max={isoDate(new Date())}
+                onChange={e => { setStepOn(e.target.value); setErr(null) }} style={field} />
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                {[['Today', addDays(0)], ['Yesterday', addDays(-1)]].map(([l, v]) => (
+                  <button key={l} onClick={() => setStepOn(v)} style={{ ...chip(stepOn === v), padding: '3px 9px', minHeight: 26, fontSize: TEXT['2xs'] }}>{l}</button>
+                ))}
+              </div>
+            </div>
+          </div>
         ) : (
           <div>
             <label style={label} htmlFor="la-subject">
@@ -322,11 +418,21 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved, about
 
         <div>
           <label style={label} htmlFor="la-body">
-            {isTask ? 'Details (Optional)' : isDocument ? 'Note (Optional)' : 'Details'}
+            {isTask ? 'Details (Optional)'
+              : isDocument ? 'Note (Optional)'
+              // Only Dropped Off requires it, and saying so is what stops the field being
+              // treated as optional on the one step where it is the whole point.
+              : isStep ? (step?.needs_note ? 'Why Did They Drop Off?' : 'Details (Optional)')
+              : 'Details'}
           </label>
           <textarea
             id="la-body" spellCheck rows={isTask || isDocument ? 3 : 4} value={body} onChange={e => setBody(e.target.value)}
-            placeholder={isHandoff ? 'Context for whoever picks this up' : 'Context for whoever reads this next'}
+            placeholder={
+              isHandoff ? 'Context for whoever picks this up'
+              : isStep && step?.needs_note ? 'The reason they withdrew — this is the only place we ever capture it'
+              : isStep ? 'Anything worth knowing about this step'
+              : 'Context for whoever reads this next'
+            }
             style={{ ...field, resize: 'vertical' }}
           />
         </div>

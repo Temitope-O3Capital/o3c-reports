@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -64,7 +65,12 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 
 		cur, err := db.PGQuery(r.Context(), `
 			SELECT id, agent_id, agent_name, notes, resolution, disposition, purpose,
-			       direction, duration_sec, voided_at, lead_id, outcome
+			       direction, duration_sec, voided_at, lead_id, outcome, started_at,
+			       -- How long ago the call was is what separates a mis-pick from a later
+			       -- development; see classifyDispositionEdit. Computed in the database so
+			       -- it is measured against one clock rather than the server's and the
+			       -- browser's.
+			       GREATEST(0, EXTRACT(epoch FROM (NOW() - started_at)))::bigint AS age_sec
 			  FROM helpdesk_calls WHERE id = $1`, id)
 		if err != nil {
 			respondErrLog(w, 500, "Could not load the call", err)
@@ -88,6 +94,49 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 		// A raw telephony word is not a disposition — same guard as logging.
 		if b.Disposition != nil && isRawCallOutcome(*b.Disposition) {
 			respondErr(w, 422, "That is a call outcome, not a disposition")
+			return
+		}
+
+		// Is this a correction, or is it last week's news being written onto this call?
+		//
+		// Only a change of OUTCOME is judged. Fixing notes, duration or direction on an
+		// old call is housekeeping and passes straight through, as does filling in a
+		// disposition that was never set — two thirds of all edits.
+		//
+		// A supervisor may override, because a guard with no way past it becomes a reason
+		// to stop reporting things: they are accountable, the override needs a real
+		// explanation, and helpdesk_call_edits records who did it either way.
+		if b.Disposition != nil {
+			oldDisp := str(row["disposition"])
+			newDisp := strings.TrimSpace(*b.Disposition)
+			if newDisp != oldDisp {
+				age := time.Duration(toInt64(row["age_sec"])) * time.Second
+				kind := classifyDispositionEdit(oldDisp, newDisp, age)
+				if msg := callEditRefusal(kind, oldDisp, newDisp, b.Reason); msg != "" {
+					// A bare missing reason is the agent's own to fix, so a supervisor gets
+					// no free pass on it — they simply write the reason like anyone else.
+					overridable := kind == editLaterDevelopment || kind == editNewAttempt
+					if !(overridable && hdCanSuperviseCalls(user) &&
+						len([]rune(strings.TrimSpace(b.Reason))) >= callEditReasonMinRunes) {
+						// Carries the alternative control with it, so the form can open
+						// the right thing instead of leaving the agent to work out what
+						// to do from a paragraph of prose.
+						respondEditRefusal(w, kind, msg)
+						return
+					}
+					slog.Warn("call log: supervisor overrode an outcome rewrite",
+						"call", id, "by", user.ID, "from", oldDisp, "to", newDisp,
+						"age_hours", age.Hours(), "reason", b.Reason)
+				}
+			}
+		}
+
+		// "Other" has to carry an explanation here too, or it becomes the way to strip a
+		// call of its outcome after the fact.
+		if b.Disposition != nil && ccDispositionNoteMissing(*b.Disposition,
+			ptrStr(b.Notes), ptrStr(b.Resolution), str(row["notes"]), str(row["resolution"])) {
+			respondErr(w, 422, "Choosing Other means telling us what happened — "+
+				"write it in the notes, in a sentence the next person can act on")
 			return
 		}
 

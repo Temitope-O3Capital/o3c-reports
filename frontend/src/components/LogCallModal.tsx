@@ -88,6 +88,29 @@ export function purposeCopy(purpose: string) { return PURPOSE_COPY[purpose] ?? P
 // for an Interested call but wrong for Not Interested, Wrong Number or a Promise to
 // Pay — so the labels, prompts, and whether a "next step" field even shows are mapped
 // to the outcome the agent picked. Keyed by disposition LABEL (what the form stores).
+// The escape hatch, and the only disposition that demands prose.
+//
+// Every list needs one, because the alternative is not a blank field — it is an agent
+// picking the nearest wrong option that DOES something. Reading the notes behind
+// 'Not Interested' on 2026-09-28: of 466 such calls carrying a note, roughly 130
+// described something else entirely, and 'Not Interested' CLOSES the lead. Those were
+// leads we stopped calling because the form had nowhere else to put them.
+//
+// It is last in every list on purpose, and it is worthless without an explanation — so
+// the requirement is enforced here AND on the server (ccDispositionNeedsNote), because
+// the browser is not the only client.
+//
+// Declared above DISPOSITION_COPY because that map uses it as a computed key: below it,
+// the reference lands in the temporal dead zone and the module throws on load.
+export const OTHER_DISPOSITION = 'Other — Describe What Happened'
+// Short enough that a real one-line account passes, long enough that "n/a", "-" and "ok"
+// do not. Mirrors ccOtherNoteMinRunes in the Go handler.
+const OTHER_NOTE_MIN = 15
+export function dispositionNoteMissing(disposition: string, ...texts: string[]): boolean {
+  if (disposition !== OTHER_DISPOSITION) return false
+  return !texts.some(t => (t ?? '').trim().length >= OTHER_NOTE_MIN)
+}
+
 interface DispCopy { notesLabel: string; notesPh: string; resLabel: string; resPh: string; hideRes?: boolean }
 const DISPOSITION_COPY: Record<string, DispCopy> = {
   'Interested':              { notesLabel: 'What Interested Them',        notesPh: 'Product/offer they liked · what they asked about…', resLabel: 'Next Step',              resPh: 'Send details, book a demo, follow up on…' },
@@ -107,6 +130,15 @@ const DISPOSITION_COPY: Record<string, DispCopy> = {
   'Escalated':               { notesLabel: 'Customer Issue',              notesPh: 'What they called about…',                          resLabel: 'Escalated To / Why',     resPh: 'Who it went to and why…' },
   'Complaint Logged':        { notesLabel: 'Complaint',                   notesPh: 'What the customer is unhappy about…',               resLabel: 'Action Taken',           resPh: 'What you logged / the next step…' },
   'Pending / Follow-up':     { notesLabel: 'Where It Stands',             notesPh: 'What was discussed…',                              resLabel: 'Next Step',              resPh: 'What to do next…' },
+  // The outcomes that were being buried in 'Not Interested'. Each asks for the one thing
+  // that makes it worth recording separately.
+  'Information Sent — Awaiting Reply': { notesLabel: 'What You Sent',      notesPh: 'Which product details, and by email or WhatsApp…',   resLabel: 'When to Follow Up',      resPh: 'When you will chase a reply…' },
+  'Rate or Charges Too High': { notesLabel: 'What They Objected To',       notesPh: 'The rate or fee they named, and what they compared it to…', resLabel: '', resPh: '', hideRes: true },
+  'Wants a Product We Do Not Offer': { notesLabel: 'What They Wanted',     notesPh: 'The product or term they asked for — this is how we learn what to build…', resLabel: '', resPh: '', hideRes: true },
+  'Customer Rejected the Call': { notesLabel: 'Note',                      notesPh: '(optional)',                                        resLabel: '', resPh: '', hideRes: true },
+  // The escape hatch. Its prompt has to carry the whole weight, because there is no
+  // dropdown telling the next reader what this call was about.
+  [OTHER_DISPOSITION]:       { notesLabel: 'What Happened',                notesPh: 'Describe the outcome in a sentence the next person can act on…', resLabel: 'Next Step', resPh: 'What should happen next, if anything…' },
   'Wrong Number':            { notesLabel: 'Note',                        notesPh: '(optional)',                                       resLabel: '', resPh: '', hideRes: true },
   'Call Dropped':            { notesLabel: 'Note',                        notesPh: 'Anything worth recording before it dropped…',       resLabel: '', resPh: '', hideRes: true },
   'Unreachable / No Answer': { notesLabel: 'Note',                        notesPh: '(optional)',                                       resLabel: '', resPh: '', hideRes: true },
@@ -129,9 +161,32 @@ export function dispositionCopy(disposition: string, purpose: string): DispCopy 
 // telephony outcome rather than a business disposition, so logging it silently blanked
 // the field and correcting a call to it was rejected outright. Same meaning, and it is
 // a value the server actually stores.
+// The escape hatch, and the only disposition that demands prose.
+//
+// Every list needs one, because the alternative is not a blank field — it is an agent
+// picking the nearest wrong option that DOES something. Reading the notes behind
+// 'Not Interested' on 2026-09-28: of 466 such calls carrying a note, roughly 130
+// described something else entirely, and 'Not Interested' CLOSES the lead. Those were
+// leads we stopped calling because the form had nowhere else to put them.
+//
+// It is last in every list on purpose, and it is worthless without an explanation — so
+// the requirement is enforced here AND on the server (ccDispositionNeedsNote), because
+// the browser is not the only client.
 const SUPPORT_DISPOSITIONS = [
   'Issue Resolved', 'Closed', 'Information Provided', 'Escalated', 'Complaint Logged',
   'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer', 'Call Dropped',
+  'Customer Rejected the Call', OTHER_DISPOSITION,
+]
+// The four outcomes below 'Not Interested' were added on 2026-09-28 after reading what
+// agents had actually written under it: 28 notes said the customer would come back to us,
+// 17 had asked for information, 16 objected to the rate, and 66 named an employer or
+// eligibility fact. Only two of the four close the lead.
+const LEAD_DISPOSITIONS = [
+  'Interested', 'Not Ready Yet', 'Information Sent — Awaiting Reply',
+  'Not Eligible', 'Not Interested', 'Rate or Charges Too High',
+  'Wants a Product We Do Not Offer', 'Converted', 'Callback Scheduled',
+  'Wrong Number', 'Do Not Call', 'Unreachable / No Answer',
+  'Customer Rejected the Call', 'Call Dropped', OTHER_DISPOSITION,
 ]
 const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   '':           SUPPORT_DISPOSITIONS,
@@ -139,9 +194,9 @@ const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   // 'Not Eligible' and 'Not Ready Yet' used to be forced into 'Not Interested',
   // which closes the lead. They are different outcomes: not eligible is a decline
   // on our side, not ready is a timing objection worth calling back.
-  marketing:    ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer', 'Call Dropped'],
-  sales:        ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer', 'Call Dropped'],
-  collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer', 'Call Dropped'],
+  marketing:    LEAD_DISPOSITIONS,
+  sales:        LEAD_DISPOSITIONS,
+  collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer', 'Customer Rejected the Call', 'Call Dropped', OTHER_DISPOSITION],
 }
 export function dispositionsFor(purpose: string): string[] {
   return DISPOSITIONS_BY_PURPOSE[purpose] ?? SUPPORT_DISPOSITIONS
@@ -458,6 +513,15 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
     // customer next is decided by it — so it is required, not merely offered.
     if (!form.disposition) {
       toast.error('Pick the disposition: it decides what happens to this customer next'); return
+    }
+    // "Other" is the one outcome that carries no meaning of its own, so the explanation
+    // IS the record. Without this it becomes the fastest option on the form and the
+    // vocabulary degrades into one bin — which is exactly what happened to
+    // 'Not Interested'. The server refuses it too; this is only so the agent finds out
+    // before losing their typing.
+    if (dispositionNoteMissing(form.disposition, form.notes, form.resolution)) {
+      toast.error('Choosing Other means telling us what happened — describe it in a sentence the next person can act on')
+      return
     }
     if (createTicket && !form.ticket_type) {
       toast.error('Pick a ticket type to open a linked ticket'); return

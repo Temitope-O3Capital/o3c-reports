@@ -181,6 +181,10 @@ func LogActivity(ctx context.Context, db *core.DB, a Activity) (int64, error) {
 func RegisterActivities(r chi.Router, db *core.DB) {
 	r.Get("/activities", activityList(db))
 	r.Post("/activities", activityCreate(db))
+	// The customer-journey vocabulary a 'step' activity must use. Served rather than
+	// duplicated in the frontend, because the call-centre disposition list was defined
+	// twice and the two copies had already drifted apart. See customer_steps.go.
+	r.Get("/customer-steps", ccListCustomerSteps())
 	// Hand-offs: the inbox for the team that was handed something, and the lifecycle
 	// that lets them answer it (see activity_handoffs.go).
 	r.Get("/activities/handoffs", handoffList(db))
@@ -304,6 +308,9 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 		Status        string         `json:"status"`
 		Metadata      map[string]any `json:"metadata"`
 		OccurredAt    string         `json:"occurred_at"`
+		// type=step only: the call this step followed from, so the timeline can show the
+		// conversation and what came of it as one thread rather than two loose rows.
+		CallID *int64 `json:"call_id"`
 		// type=task only: a follow-up is a real crm_task, so it carries a when.
 		DueAt    string `json:"due_at"`
 		Priority string `json:"priority"`
@@ -325,7 +332,8 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 		u := core.UserFromCtx(r.Context())
 		a := Activity{
 			LeadID: b.LeadID, ContactID: b.ContactID, CIF: strings.TrimSpace(b.CIF), ApplicationID: b.ApplicationID,
-			TicketID: b.TicketID, Phone: b.Phone, Type: strings.ToLower(strings.TrimSpace(b.Type)),
+			TicketID: b.TicketID, CallID: b.CallID, Phone: b.Phone,
+			Type:      strings.ToLower(strings.TrimSpace(b.Type)),
 			Direction: b.Direction, Subject: b.Subject, Body: b.Body, Outcome: b.Outcome,
 			TargetTeam: b.TargetTeam, Status: b.Status, Metadata: b.Metadata, Source: "manual",
 		}
@@ -342,6 +350,44 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 		// A handoff is outstanding until the target team acts.
 		if a.Type == "handoff" && strings.TrimSpace(a.Status) == "" {
 			a.Status = "open"
+		}
+
+		// A customer step: "this happened to this customer on this date", recorded
+		// separately from any call. See customer_steps.go for why this type exists —
+		// briefly, agents were rewriting old call logs to record later developments,
+		// which destroyed the calls as records of what was said.
+		//
+		// The step CODE is authoritative and the subject is derived from it here rather
+		// than trusted from the client, so the timeline cannot end up with two spellings
+		// of the same step and a report can group on outcome.
+		if a.Type == activityTypeStep {
+			st, ok := customerStepByCode(a.Outcome)
+			if !ok {
+				respondErr(w, 422, "That is not a step we recognise. Fetch the list from "+
+					"/api/customer-steps and send one of its codes.")
+				return
+			}
+			if customerStepNoteMissing(st.Code, a.Body) {
+				respondErr(w, 422, "\""+st.Label+"\" needs a short explanation — it is the "+
+					"only place that reason is ever captured.")
+				return
+			}
+			a.Outcome = st.Code
+			a.Subject = st.Label
+			// A step is a fact, not an outstanding item: nothing is waiting on anybody, so
+			// it must not appear in the open-handoff rails that filter on status.
+			a.Status = ""
+			// The date the thing HAPPENED, which is usually not today — an agent records
+			// Friday's branch visit on Monday. Left unset it falls back to now, which is
+			// what LogActivity already does.
+			//
+			// A future date is refused rather than quietly clamped: a mistyped year is how
+			// a step ends up at the top of every timeline forever.
+			if a.OccurredAt != nil && a.OccurredAt.After(time.Now().Add(6*time.Hour)) {
+				respondErr(w, 422, "That date is in the future. Record a step when it has "+
+					"actually happened.")
+				return
+			}
 		}
 
 		// A follow-up has a home of its own: crm_tasks. Writing a task-shaped ACTIVITY

@@ -8,7 +8,7 @@ import {
 } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
-import { dispositionsFor } from '../../components/LogCallModal'
+import { dispositionsFor, dispositionNoteMissing } from '../../components/LogCallModal'
 import CallsPanel from '../../components/CallsPanel'
 import { COLLECTIONS_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
 import { BankLogo } from '../../components/BankLogo'
@@ -234,6 +234,13 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
   const [err, setErr] = useState<string | null>(null)
 
   async function submit() {
+    // "Other" carries no meaning of its own, so the note IS the record. This queue posts
+    // to collections-ops rather than the call-log endpoint, so it needs the check in its
+    // own right; the server enforces it on both paths regardless.
+    if (dispositionNoteMissing(disposition, notes)) {
+      setErr('Choosing Other means telling us what happened — describe it in the notes, in a sentence the next person can act on.')
+      return
+    }
     setSaving(true)
     setErr(null)
     try {

@@ -730,6 +730,14 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "contact_type and outcome are required")
 			return
 		}
+		// The collections queue offers the same disposition vocabulary as the call log,
+		// including "Other" — so the note requirement has to hold on this path too. A rule
+		// enforced on one of two routes to the same vocabulary is not enforced.
+		if ccDispositionNoteMissing(b.Outcome, b.Notes) {
+			respondErr(w, 422, "Choosing Other means telling us what happened — "+
+				"write it in the notes, in a sentence the next person can act on")
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 
@@ -2473,8 +2481,18 @@ func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
 			assignedBy = user.ID
 		}
 		assigned := 0
+		refused := []string{}
 		for _, acc := range b.Accounts {
 			if acc.CIF == "" {
+				continue
+			}
+			// REFUSE a bare Udara id — same rule as bulk escalate. The INSERT below writes
+			// account_cif AND cif_number, both cards-namespace columns, with no party_id
+			// and no data_source. That is precisely the "crossed row" migration 267 exists
+			// to eliminate: a Udara borrower's debt filed under a stranger's key, which
+			// then permanently blocks the correct UD- row from ever being seeded.
+			if who, _ := udaraBorrowerFor(ctx, db, acc.CIF); who != "" {
+				refused = append(refused, acc.CIF+" is "+who+" in Udara — resend as "+udaraCIFPrefix+acc.CIF)
 				continue
 			}
 			// Reassign an existing active row, else create one.
@@ -2506,7 +2524,7 @@ func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
 			Body:      fmt.Sprintf("%d collection account(s) are now in your queue.", assigned),
 			ActionURL: "/collections/queue",
 		})
-		respond(w, map[string]any{"assigned": assigned, "requested": len(b.Accounts)}, "json")
+		respond(w, map[string]any{"assigned": assigned, "requested": len(b.Accounts), "refused": refused}, "json")
 	}
 }
 
@@ -2530,9 +2548,20 @@ func collectionsOpsBulkEscalateByCIF(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 		escalated := 0
+		refused := []string{}
 		refs := make([]string, 0, len(b.Accounts))
 		for _, acc := range b.Accounts {
 			if acc.CIF == "" {
+				continue
+			}
+			// REFUSE a bare Udara id. recovery_cases.account_cif and .cif_number are
+			// CARDS-namespace columns, and 271 of 295 Udara ids are also a live cards CIF
+			// held by a DIFFERENT real person. Writing one here opens a RECOVERY CASE — a
+			// legal file — against that stranger, and every later reader resolves them.
+			// udaraBorrowerFor names the Udara borrower only for an UNPREFIXED Udara id,
+			// so a genuine cards CIF passes straight through untouched.
+			if who, _ := udaraBorrowerFor(ctx, db, acc.CIF); who != "" {
+				refused = append(refused, acc.CIF+" is "+who+" in Udara — resend as "+udaraCIFPrefix+acc.CIF)
 				continue
 			}
 			// This guard tested status='open' while every creation path writes 'active'
@@ -2561,7 +2590,7 @@ func collectionsOpsBulkEscalateByCIF(db *core.DB) http.HandlerFunc {
 					"recovery_case", caseID)
 			}
 		}
-		respond(w, map[string]any{"escalated": escalated, "requested": len(b.Accounts), "case_refs": refs}, "json")
+		respond(w, map[string]any{"escalated": escalated, "requested": len(b.Accounts), "case_refs": refs, "refused": refused}, "json")
 	}
 }
 

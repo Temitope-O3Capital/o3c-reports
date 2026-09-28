@@ -3,7 +3,8 @@ import { Modal } from './UI'
 import { apiFetch } from '../lib/api'
 import { RED, NAVY, FW, RADIUS, TEXT } from '../lib/design'
 import { toast } from 'sonner'
-import { dispositionsFor, dispositionCopy } from './LogCallModal'
+import { dispositionsFor, dispositionCopy, dispositionNoteMissing } from './LogCallModal'
+import LogActivityModal from './LogActivityModal'
 
 // Correcting a call log after the fact.
 //
@@ -58,6 +59,12 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
   const [reason,      setReason]      = useState('')
   const [mode,        setMode]        = useState<'edit' | 'void'>('edit')
   const [saving,      setSaving]      = useState(false)
+  // The server can decline a change of outcome because it is a later DEVELOPMENT rather
+  // than a correction (see handlers/call_log_correction_guard.go). That is not an error to
+  // flash and discard — it comes with the control the agent actually wanted, so it is held
+  // on screen with that control attached.
+  const [refusal, setRefusal] = useState<{ detail: string; suggest: string } | null>(null)
+  const [stepOpen, setStepOpen] = useState(false)
 
   // Keyed on the call's id, not the object: callers build `call` as an object literal,
   // so depending on the object reset the form on every parent re-render — including a
@@ -66,6 +73,7 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
     setDisposition(call.disposition ?? ''); setNotes(call.notes ?? '')
     setResolution(call.resolution ?? ''); setDuration(String(call.duration_seconds ?? ''))
     setDirection((call.direction || 'outbound').toLowerCase()); setReason(''); setMode('edit')
+    setRefusal(null); setStepOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id])
 
@@ -76,7 +84,14 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
   const copy = dispositionCopy(disposition, purpose)
 
   async function save() {
+    // Same rule as the log form: "Other" is worthless without the explanation, and the
+    // server refuses it either way.
+    if (mode === 'edit' && dispositionNoteMissing(disposition, notes, resolution)) {
+      toast.error('Choosing Other means telling us what happened — describe it in the notes')
+      return
+    }
     setSaving(true)
+    setRefusal(null)
     try {
       if (mode === 'void') {
         // The reason is required by the API, not just the form: a log withdrawn
@@ -107,7 +122,14 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
         toast.success('Call log corrected')
       }
       onSaved(); onClose()
-    } catch (e: any) { toast.error(e.message) }
+    } catch (e: any) {
+      // A 422 carrying a `suggest` is the guard turning this edit away and naming the
+      // alternative. Held on screen with the alternative attached, rather than flashed as
+      // a toast the agent then has to act on from memory.
+      const suggest = e?.status === 422 ? (e?.body?.suggest ?? '') : ''
+      if (suggest) setRefusal({ detail: e?.body?.detail ?? e.message, suggest })
+      else toast.error(e.message)
+    }
     finally { setSaving(false) }
   }
 
@@ -148,6 +170,30 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
           <button onClick={() => setMode('edit')} style={tab(mode === 'edit')}>Correct It</button>
           <button onClick={() => setMode('void')} style={tab(mode === 'void')}>Withdraw It</button>
         </div>
+
+        {/* The guard turned this edit away. It is amber rather than red: nothing has gone
+            wrong, the agent has simply reached for the wrong control, and the right one is
+            in the panel. */}
+        {refusal && (
+          <div role="alert" style={{
+            padding: '11px 13px', borderRadius: RADIUS.md, background: '#D9770610',
+            border: '1px solid #D9770640', display: 'flex', flexDirection: 'column', gap: 9,
+          }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.5 }}>{refusal.detail}</div>
+            {refusal.suggest === 'record_step' && (
+              <button onClick={() => setStepOpen(true)} style={{
+                alignSelf: 'flex-start', padding: '7px 14px', borderRadius: RADIUS.md,
+                border: 'none', background: NAVY, color: '#fff',
+                fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer',
+              }}>Record an Update Instead</button>
+            )}
+            {refusal.suggest === 'give_reason' && (
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                Add it in the reason box below, then save again.
+              </div>
+            )}
+          </div>
+        )}
 
         {mode === 'void' ? (
           <>
@@ -201,13 +247,32 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
               </div>
             )}
             <div>
-              <label style={lbl}>Reason for the Correction (Optional, Shown to Supervisors)</label>
+              {/* Optional on a same-shift fix, required once the call is hours old — the
+                  server decides which, and says so if it is missing. 278 of 280 edits had
+                  left this blank. */}
+              <label style={lbl}>Reason for the Correction (Required if the Call Is Not From Today)</label>
               <input value={reason} onChange={e => setReason(e.target.value)}
-                placeholder="e.g. picked the wrong disposition" style={inp} />
+                placeholder="e.g. picked the wrong disposition" style={inp}
+                autoFocus={refusal?.suggest === 'give_reason'} />
             </div>
           </>
         )}
       </div>
+
+      {/* The alternative the guard pointed at: the later development becomes its own dated
+          entry on the customer's timeline and this call is left as the record of the call.
+          Anchored on the phone, which every one of these calls carries. */}
+      {stepOpen && (
+        <LogActivityModal
+          open
+          initialType="step"
+          callId={call.id}
+          anchor={{ phone: call.phone ?? undefined }}
+          about={call.customer_name ?? call.phone ?? undefined}
+          onClose={() => setStepOpen(false)}
+          onSaved={() => { setStepOpen(false); onSaved(); onClose() }}
+        />
+      )}
     </Modal>
   )
 }

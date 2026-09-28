@@ -45,6 +45,9 @@ type ccDisposition struct {
 	Purposes []string `json:"purposes,omitempty"`
 	// Hint is shown under the option so an agent knows what they are committing to.
 	Hint string `json:"hint"`
+	// NeedsNote makes the write-up mandatory for this outcome. Served to the form so
+	// the browser and the server enforce the same rule instead of the browser alone.
+	NeedsNote bool `json:"needs_note,omitempty"`
 }
 
 var ccDispositions = []ccDisposition{
@@ -81,6 +84,67 @@ var ccDispositions = []ccDisposition{
 	{Code: "do_not_call", Label: "Do Not Call", Status: "closed", AddToDNC: true, Connected: true,
 		Hint: "Closes the contact and suppresses the number from all future lists"},
 
+	// ── The outcomes agents were filing under "Not Interested" ────────────────
+	//
+	// "Not Interested" CLOSES a contact, so every outcome forced into it is a lead we
+	// never call again. Reading the notes agents wrote behind it on 2026-09-28: of 466
+	// such calls carrying a note, roughly 130 described something else entirely — 28
+	// said the customer would come back to us ("WILL GET IN TOUCH IF HE CHANGES HIS
+	// MIND"), 17 had asked for information, 16 objected to the rate, and 66 named an
+	// employer or eligibility fact that belonged under "Not Eligible".
+	//
+	// The four below give those outcomes somewhere truthful to go, and only two of
+	// them close the contact.
+	{Code: "info_sent", Label: "Information Sent — Awaiting Reply", Status: "", Connected: true,
+		Purposes: []string{"marketing", "sales"},
+		Hint:     "They asked for details by email or WhatsApp — stays in the queue until they reply"},
+	{Code: "price_objection", Label: "Rate or Charges Too High", Status: "closed", Connected: true,
+		Purposes: []string{"marketing", "sales"},
+		Hint:     "Records the objection as a pricing signal and closes the contact"},
+	{Code: "wrong_product", Label: "Wants a Product We Do Not Offer", Status: "closed", Connected: true,
+		Purposes: []string{"marketing", "sales"},
+		Hint:     "Records what they actually wanted and closes the contact — name it in your note"},
+	// Not the same as nobody picking up: the customer saw the call and ended it. The
+	// number is live and the person is reachable, so the contact stays workable —
+	// and Connected is false because no conversation took place.
+	{Code: "call_rejected", Label: "Customer Rejected the Call", Status: "", Connected: false,
+		Hint: "They declined the call itself — rests for the cooldown, then returns to the queue"},
+
+	// ── Call Log outcomes that used to have no consequence at all ─────────────
+	//
+	// The manual Call Log form (LogCallModal) offers labels this list never carried:
+	// Converted, Paid, Dispute, Escalated, Complaint Logged, Information Provided,
+	// Closed and Pending / Follow-up. ccDispositionCode could not resolve any of them,
+	// so helpdesk.go's applyQueueContact looked them up, missed, and returned — the
+	// agent saw a 201 and the contact was never touched.
+	//
+	// The two that matter most: a lead marked CONVERTED stayed 'pending' and kept being
+	// dialled after we had already won it, and a collections account marked PAID stayed
+	// in the queue to be chased for money it had already sent. Both are calls to a
+	// customer we had no business making.
+	{Code: "converted", Label: "Converted", Status: "closed", Connected: true,
+		Purposes: []string{"marketing", "sales"},
+		Hint:     "They took the product — closes the contact as a win, no further calls"},
+	{Code: "paid", Label: "Paid", Status: "closed", Connected: true,
+		Purposes: []string{"collections"},
+		Hint:     "The money is in — closes the contact so it is not chased again"},
+	{Code: "dispute", Label: "Dispute", Status: "", Connected: true,
+		Purposes: []string{"collections"},
+		Hint:     "They dispute the balance — stays open until it is settled"},
+	{Code: "escalated", Label: "Escalated", Status: "", Connected: true,
+		Purposes: []string{"support", "collections"},
+		Hint:     "Passed to someone else — stays open until they close it out"},
+	{Code: "complaint_logged", Label: "Complaint Logged", Status: "", Connected: true,
+		Purposes: []string{"support"},
+		Hint:     "A complaint is on record — stays open until it is answered"},
+	{Code: "info_provided", Label: "Information Provided", Status: "closed", Connected: true,
+		Purposes: []string{"support"},
+		Hint:     "Their question was answered — closes the contact"},
+	{Code: "pending_followup", Label: "Pending / Follow-up", Status: "", Connected: true,
+		Hint: "Unfinished — stays in the queue to be picked up again"},
+	{Code: "closed", Label: "Closed", Status: "closed", Connected: true,
+		Hint: "Nothing further is needed — closes the contact"},
+
 	// ── Retention / win-back ──────────────────────────────────────────────────
 	//
 	// A win-back call is not a marketing call. The customer already bought from us
@@ -107,6 +171,34 @@ var ccDispositions = []ccDisposition{
 		Purposes: []string{"retention"}, Hint: "Records the reason and closes the contact"},
 	{Code: "winback_declined", Label: "Not Interested in Returning", Status: "closed", Connected: true,
 		Purposes: []string{"retention"}, Hint: "Closes the contact — no further win-back calls"},
+
+	// ── The escape hatch — LAST ON PURPOSE ────────────────────────────────────
+	//
+	// Every vocabulary needs one, because the alternative is not a blank field — it is
+	// an agent picking the nearest wrong option that DOES something. That is precisely
+	// how "Not Interested" became a bin for leads who had asked us to call them back.
+	//
+	// Three properties stop it becoming a second bin. It carries NO consequence (no
+	// status move, no DNC, no callback), so choosing it can never destroy work. It
+	// demands a written explanation, enforced server-side — see ccDispositionNeedsNote —
+	// so it captures rather than skips. And it is LAST, so it is what an agent reaches
+	// for having read the rest, not the first thing their eye lands on.
+	//
+	// That last property is positional: ccDispositionsForPurpose preserves this slice's
+	// order and the form renders it as given, so this entry must stay at the bottom of
+	// the slice. It sits after the retention block for that reason alone — adding a new
+	// disposition below it would silently move Other up the dropdown.
+	// TestOtherSortsLastInEveryPurpose fails if it does.
+	//
+	// It is also a backlog rather than a landfill: what agents write here is the
+	// evidence for the next named disposition, exactly the way the four rescued
+	// outcomes above came out of reading what they had written under "Not Interested".
+	//
+	// Connected is true because every non-connect outcome is already named (no answer,
+	// wrong number, dropped, rejected), so an agent reaching past all four had a
+	// conversation. Revisit that if the notes ever say otherwise.
+	{Code: "other", Label: "Other — Describe What Happened", Status: "", Connected: true, NeedsNote: true,
+		Hint: "An outcome nothing above covers. Needs a written explanation; changes nothing on the contact"},
 }
 
 // ccDispositionsForPurpose returns the dispositions valid for a call purpose
@@ -168,10 +260,20 @@ func ccDispositionByCode(s string) (ccDisposition, bool) {
 // the canonical code. This is the single writer-side normalizer, mirrored by the SQL
 // backfill in migration 193 so the stored column and new writes speak one vocabulary.
 //
-// Empty in → "". A raw connected telephony outcome (completed/answered/resolved) → the
-// soft code "connected" (a human spoke, but the agent recorded no business disposition).
-// Anything else non-empty → "other", so it still groups rather than masquerading as a
-// real code. Ordering matters: "not interested" is tested before "interested".
+// Empty in → "". A raw connected telephony outcome (completed/answered) → the soft code
+// "connected" (a human spoke, but the agent recorded no business disposition). The bare
+// word "resolved" is the exception: it matches the support disposition's LABEL in
+// ccDispositionByCode above, so it resolves to "resolved" and never reaches that branch.
+// Anything else non-empty → "other", which is now a real disposition rather than a
+// reporting-only bucket, so an unrecognised string records "Other" and changes nothing.
+//
+// ORDERING MATTERS — this is a top-to-bottom switch of substring tests, so a case added
+// in the obvious place can capture a label that used to fall through to a later one, and
+// the symptom is a call recorded as the wrong outcome rather than a build error. Pairs
+// that share a word and are resolved purely by position: "not interested" before
+// "interested"; "information provided" before "information sent"; "issue resolved"
+// before the bare "resolved"; "pending"/"follow-up" before "callback". All of them are
+// pinned by TestSimilarLabelsDoNotCaptureEachOther.
 func ccDispositionCode(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -190,6 +292,46 @@ func ccDispositionCode(s string) string {
 		return "not_eligible"
 	case strings.Contains(l, "not ready"):
 		return "not_ready"
+	// The Call Log form's own word for the support close. The bare word "resolved" is
+	// classed as a raw telephony outcome by isRawCallOutcome and rejected at the log
+	// path, which is exactly why the form says "Issue Resolved" — so it has to resolve
+	// to the same code the queue uses. Tested before the generic "resolved" below.
+	case strings.Contains(l, "issue resolved"):
+		return "resolved"
+	// "information provided" (we answered their question, support) and "information
+	// sent" (we emailed details and are waiting, marketing) both contain the word
+	// "information" and mean opposite things about whether the contact is finished.
+	case strings.Contains(l, "information provided"), strings.Contains(l, "info provided"):
+		return "info_provided"
+	case strings.Contains(l, "information sent"), strings.Contains(l, "awaiting reply"),
+		strings.Contains(l, "info sent"):
+		return "info_sent"
+	case strings.Contains(l, "charges too high"), strings.Contains(l, "rate too high"),
+		strings.Contains(l, "too expensive"), strings.Contains(l, "high interest"):
+		return "price_objection"
+	case strings.Contains(l, "do not offer"), strings.Contains(l, "product we do not"),
+		strings.Contains(l, "wrong product"):
+		return "wrong_product"
+	case strings.Contains(l, "rejected the call"), strings.Contains(l, "call rejected"),
+		strings.Contains(l, "declined the call"):
+		return "call_rejected"
+	case strings.Contains(l, "complaint"):
+		return "complaint_logged"
+	case strings.Contains(l, "escalat"):
+		return "escalated"
+	case strings.Contains(l, "dispute"):
+		return "dispute"
+	case strings.Contains(l, "convert"):
+		return "converted"
+	case l == "paid", strings.Contains(l, "payment received"):
+		return "paid"
+	case strings.Contains(l, "pending"), strings.Contains(l, "follow-up"),
+		strings.Contains(l, "follow up"):
+		return "pending_followup"
+	// Before "callback", which would otherwise swallow "Callback Scheduled" — that is
+	// correct and intended; this case only catches the generic close.
+	case l == "closed":
+		return "closed"
 	case strings.Contains(l, "callback"):
 		return "callback"
 	case strings.Contains(l, "drop"):
@@ -208,6 +350,48 @@ func ccDispositionCode(s string) string {
 	}
 	return "other"
 }
+
+// ccDispositionNeedsNote reports whether a disposition is invalid without a written
+// explanation.
+//
+// Only "Other" requires one, and that requirement is the entire reason it is safe to
+// offer. An escape hatch that asks nothing becomes the fastest option on the form and
+// therefore the most used one, and unlike a wrong named outcome it carries no
+// information at all — you would lose even the weak signal that mis-filing under
+// "Not Interested" leaves behind.
+//
+// Deliberately NOT extended to the other new outcomes. Each of them already names its
+// own reason ("Rate or Charges Too High" says why on its face), and a form that demands
+// prose for four different answers trains agents back onto the one option that demands
+// nothing. One mandatory field, on the one option that means "I cannot tell you from
+// the dropdown".
+func ccDispositionNeedsNote(disposition string) bool {
+	d, ok := ccDispositionByCode(ccDispositionCode(disposition))
+	return ok && d.NeedsNote
+}
+
+// ccDispositionNoteMissing reports whether a disposition requires a note and none of the
+// write-up fields carry one. Both the log path and the correction path call this, so the
+// rule cannot be satisfied on one route and skipped on the other.
+//
+// A minimum length rather than merely non-empty: "n/a", ".", "-" and "ok" are how a
+// mandatory field gets defeated, and an "Other" with no explanation is the one row on
+// this table that carries nothing whatsoever.
+func ccDispositionNoteMissing(disposition string, texts ...string) bool {
+	if !ccDispositionNeedsNote(disposition) {
+		return false
+	}
+	for _, t := range texts {
+		if len([]rune(strings.TrimSpace(t))) >= ccOtherNoteMinRunes {
+			return false
+		}
+	}
+	return true
+}
+
+// Short enough that a genuine one-line explanation passes ("customer had died" is 18),
+// long enough that the usual ways of skipping a required field do not.
+const ccOtherNoteMinRunes = 15
 
 // ccListDispositions serves the vocabulary so the frontend renders from one list
 // instead of its own copy.

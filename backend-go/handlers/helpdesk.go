@@ -4129,6 +4129,15 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		if isRawCallOutcome(b.Disposition) {
 			b.Disposition = ""
 		}
+		// "Other" without an explanation is the one row on this table that carries no
+		// information whatsoever — not even the weak signal a mis-filed "Not Interested"
+		// leaves behind. The form enforces this too, but the form is not the only client
+		// and a required field is exactly what a hurried agent routes around.
+		if ccDispositionNoteMissing(b.Disposition, ptrStr(b.Notes), ptrStr(b.Resolution)) {
+			respondErr(w, 422, "Choosing Other means telling us what happened — "+
+				"write it in the notes, in a sentence the next person can act on")
+			return
+		}
 		// Look up ticket by ref if provided
 		var ticketID *int64
 		if strings.TrimSpace(b.TicketRef) != "" {
