@@ -466,7 +466,7 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 				if u != nil {
 					actorID = &u.ID
 				}
-				applyTerminalStep(context.WithoutCancel(r.Context()), db, st, a.Phone, actorID)
+				applyTerminalStep(context.WithoutCancel(r.Context()), db, st, a.ContactID, a.Phone, actorID)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")

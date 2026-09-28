@@ -136,27 +136,56 @@ func customerStepNoteMissing(code, body string) bool {
 // 'pending' contact moves, so a contact somebody has deliberately closed or marked
 // invalid is left exactly as they left it.
 //
+// SCOPED BY PURPOSE, WHICH IS NOT OPTIONAL. These steps describe the ACQUISITION journey:
+// "Converted" and "Dropped Off" end the attempt to sell somebody a product. They say
+// nothing about money that person already owes us, or about a support issue they have
+// open. Closing on a bare phone match would cross all three, because 44 acquisition
+// phones also carry a pending collections or support contact — so recording "Converted"
+// on a sales lead would have closed that same person's COLLECTIONS contact and stopped
+// us chasing their arrears. Same family of defect as every other one fixed today: a
+// blunt key match acting on the wrong record.
+//
+// Caught before it ever fired: applyTerminalStep had not yet executed once in production
+// when this scope was added.
+//
 // Errors are logged rather than returned: the step is already recorded by this point, and
 // failing the request would tell an agent their step went unrecorded when it did not.
-func applyTerminalStep(ctx context.Context, db *core.DB, st customerStep, phone string, actor *int64) {
+func applyTerminalStep(ctx context.Context, db *core.DB, st customerStep, contactID *int64, phone string, actor *int64) {
 	if !st.Terminal {
 		return
 	}
-	// app.norm_phone returns '' rather than NULL for anything it cannot parse, so a blank
-	// would match every blank-phoned contact. length 10 is the validity test — see
-	// [[o3c-phone-normalisation]].
+
+	// When the caller knows exactly which contact is being worked, close that one and
+	// nothing else. No inference, no reach across campaigns.
+	if contactID != nil && *contactID > 0 {
+		rows, err := db.PGQuery(ctx, `
+			UPDATE call_center_contacts SET status = 'closed', updated_at = NOW()
+			 WHERE id = $1 AND status = 'pending' RETURNING id`, *contactID)
+		if err != nil {
+			slog.Error("customer step: could not close the contact",
+				"step", st.Code, "contact", *contactID, "err", err)
+			return
+		}
+		slog.Info("customer step closed its own outbound contact",
+			"step", st.Code, "contact", *contactID, "closed", len(rows), "by", actor)
+		return
+	}
+
+	// Otherwise fall back to the phone — but only across the acquisition queues, never
+	// collections or support.
+	//
+	// normalizePhone and normalizedPhoneExpr both reduce to the last 10 digits, so the Go
+	// value and the SQL expression agree; verified rather than assumed, because a mismatch
+	// here would make this whole function a silent no-op. app.norm_phone returns '' rather
+	// than NULL for anything unparseable, so a blank would match every blank-phoned
+	// contact — length 10 is the validity test. See [[o3c-phone-normalisation]].
 	np := normalizePhone(phone)
 	if len(np) != 10 {
-		slog.Warn("customer step: terminal step did not close any contact — unusable phone",
+		slog.Warn("customer step: terminal step closed nothing — no contact id and an unusable phone",
 			"step", st.Code, "phone", phone)
 		return
 	}
-	rows, err := db.PGQuery(ctx, `
-		UPDATE call_center_contacts
-		   SET status = 'closed', updated_at = NOW()
-		 WHERE `+normalizedPhoneExpr("phone")+` = $1
-		   AND status = 'pending'
-		 RETURNING id`, np)
+	rows, err := db.PGQuery(ctx, stepCloseByPhoneSQL(), np)
 	if err != nil {
 		slog.Error("customer step: could not close the contact",
 			"step", st.Code, "err", err)
@@ -166,6 +195,28 @@ func applyTerminalStep(ctx context.Context, db *core.DB, st customerStep, phone 
 		slog.Info("customer step closed the outbound contact",
 			"step", st.Code, "contacts", len(rows), "by", actor)
 	}
+}
+
+// stepCloseByPhoneSQL is the fallback close, in a function rather than inline so a test
+// can assert its two restrictions. Both exist because of specific harm:
+//
+//   - purpose IN ('marketing','sales') — 44 acquisition phones also carry a pending
+//     collections or support contact, so an unscoped close would have stopped us chasing
+//     a converted lead's arrears.
+//   - status = 'pending' — anything else has been deliberately closed or invalidated by
+//     somebody, and a step must not reopen or re-close their decision.
+//
+// Guarded by TestATerminalStepNeverReachesBeyondAcquisition.
+func stepCloseByPhoneSQL() string {
+	return `
+		UPDATE call_center_contacts
+		   SET status = 'closed', updated_at = NOW()
+		 WHERE ` + normalizedPhoneExpr("phone") + ` = $1
+		   AND status = 'pending'
+		   -- Acquisition only. A collections or support contact on the same number is a
+		   -- different relationship and is none of this step's business.
+		   AND COALESCE(purpose,'') IN ('marketing', 'sales')
+		 RETURNING id`
 }
 
 // ccListCustomerSteps serves the vocabulary so the form renders from this list rather

@@ -153,6 +153,50 @@ func TestEveryTerminalStepStopsTheDialling(t *testing.T) {
 	}
 }
 
+// A terminal step ends the ACQUISITION journey. It says nothing about money the same
+// person already owes us, or a support issue they have open — and 44 acquisition phones
+// also carry a pending collections or support contact, so an unscoped close would have
+// stopped us chasing a converted lead's arrears.
+//
+// Caught before it ever fired in production. Pinned here because the failure mode is
+// silent: the step still records, the wrong contact just quietly stops being called.
+func TestATerminalStepNeverReachesBeyondAcquisition(t *testing.T) {
+	q := stepCloseByPhoneSQL()
+
+	// Acquisition only.
+	if !strings.Contains(q, "IN ('marketing', 'sales')") {
+		t.Error("the fallback close is not scoped by purpose — a terminal step on a sales " +
+			"lead will also close that person's collections or support contact")
+	}
+	for _, forbidden := range []string{"'collections'", "'support'", "'retention'"} {
+		if strings.Contains(q, forbidden) {
+			t.Errorf("the fallback close admits %s contacts; a customer-journey step must "+
+				"not end a different relationship", forbidden)
+		}
+	}
+
+	// Only a pending contact moves: anything else reflects somebody's deliberate decision.
+	if !strings.Contains(q, "status = 'pending'") {
+		t.Error("the fallback close does not restrict to pending — it would re-close or " +
+			"reopen contacts somebody had already decided about")
+	}
+
+	// It must close, never suppress. A DNC here would be an escape hatch turning into a
+	// regulatory action nobody asked for.
+	for _, forbidden := range []string{"dnc", "DNC", "callback_at"} {
+		if strings.Contains(q, forbidden) {
+			t.Errorf("the close touches %q — it must only set status", forbidden)
+		}
+	}
+
+	// And it must key on the normalised phone, not the raw column: the Go side passes
+	// normalizePhone(...) and the two have to agree or this is a permanent silent no-op.
+	if !strings.Contains(q, normalizedPhoneExpr("phone")) {
+		t.Error("the close does not normalise the phone column, so it will never match the " +
+			"value normalizePhone produces")
+	}
+}
+
 // 'converted' exists in BOTH vocabularies — as a call disposition (what the agent
 // concluded on a call) and as a step (the customer took the product, on a date that is
 // usually not the call's). That overlap is deliberate, but the two must stay distinct
