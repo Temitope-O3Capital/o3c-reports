@@ -34,7 +34,15 @@ interface LoanRow {
   product_type: string
   amount_kobo: number
   outstanding_kobo: number
+  // principal_paid_kobo is balance movement (disbursed less outstanding principal).
+  // repaid_* is what the general ledger says was actually posted. They disagree, often
+  // by a lot, and the column labels keep them apart.
   principal_paid_kobo: number
+  repaid_principal_kobo: number
+  repaid_interest_kobo: number
+  repaid_total_kobo: number
+  repayment_legs: number
+  last_repaid_on: string | null
   min_repayment_kobo: number | null
   dpd: number
   arrears_kobo: number
@@ -376,22 +384,34 @@ export default function RiskPortfolio() {
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.min_repayment_kobo != null ? fmtKoboExact(r.min_repayment_kobo) : '—'}</span>,
     },
     {
-      // NOT a payment, despite what this column said for as long as it has existed.
-      // The server computes it as disbursed less outstanding principal (risk.go), which
-      // is balance MOVEMENT: it counts a write-off or a restructure as if the customer
-      // had paid, and counts an interest-only payment as nothing at all. Live, loan
-      // ...6290 had paid ₦8,000,000 of interest and showed here as ₦0 "Amount Paid",
-      // while ...5971 showed ₦44,443,556 against ₦888 actually posted to the ledger.
-      //
-      // The honest name for the figure is what it measures. The real repayment history,
-      // off the general ledger and split principal/interest, is on the customer page this
-      // row opens — and belongs here too once risk.go can be edited (it currently carries
-      // another session's uncommitted identity work).
+      // What the borrower ACTUALLY paid, off the Udara general ledger — the only observed
+      // fact on this row; everything else is the loan's own snapshot. Total on top with the
+      // principal/interest split underneath, because a borrower in an interest-only period
+      // has paid real money and must not read as zero.
+      key: 'repaid_total_kobo', label: 'Repaid', align: 'right', sortable: true,
+      render: r => {
+        if (!r.repayment_legs) return <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>—</span>
+        return (
+          <span title={`${r.repayment_legs} ledger posting${r.repayment_legs === 1 ? '' : 's'}${r.last_repaid_on ? `, last ${fmtDate(r.last_repaid_on)}` : ''}`}>
+            <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(r.repaid_total_kobo)}</span>
+            <span style={{ ...NUM, display: 'block', fontSize: TEXT['2xs'], color: 'var(--txt3)', whiteSpace: 'nowrap' }}>
+              {fmtKoboExact(r.repaid_principal_kobo)} prin · {fmtKoboExact(r.repaid_interest_kobo)} int
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      // Balance movement, NOT a payment — kept because the bar beside it measures exactly
+      // this, but never again called "Amount Paid". It counts a write-off or a restructure
+      // as though the customer had paid, and counts an interest-only payment as nothing:
+      // loan ...6290 reads ₦0 here against ₦8,000,000 of interest actually posted, and
+      // ...5971 reads ₦44,443,556 against ₦888. The Repaid column beside it is the truth.
       key: 'principal_paid_kobo', label: 'Principal Reduced', align: 'right', sortable: true,
       render: r => (
         <span
-          title="Disbursed less outstanding principal — balance movement, not repayments. Open the customer for the posted ledger."
-          style={{ ...NUM, fontSize: TEXT.sm, color: r.principal_paid_kobo > 0 ? GREEN : 'var(--txt3)' }}
+          title="Disbursed less outstanding principal — balance movement, not repayments. The Repaid column is what the ledger actually recorded."
+          style={{ ...NUM, fontSize: TEXT.sm, color: r.principal_paid_kobo > 0 ? 'var(--txt2)' : 'var(--txt3)' }}
         >{fmtKoboExact(r.principal_paid_kobo)}</span>
       ),
     },

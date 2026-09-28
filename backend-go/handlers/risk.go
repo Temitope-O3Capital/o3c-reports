@@ -620,8 +620,23 @@ const riskLoanBookBase = `FROM (
 	       cl.cbs_customer_id AS applicant_udara_id, 'udara'::text AS id_namespace,
 	       app.cbn_sector_name(cl.economic_sector) AS sector, cl.product_name AS product_type,
 	       cl.loan_amount_kobo AS amount_kobo, cl.outstanding_principal_kobo AS outstanding_kobo,
-	       -- Principal already repaid = original disbursement less outstanding principal.
+	       -- Balance MOVEMENT, not repayment, and the two are not interchangeable: this
+	       -- counts a write-off or a restructure as though the customer had paid, and
+	       -- counts an interest-only payment as nothing at all. It was labelled "Amount
+	       -- Paid" on the list for as long as the column has existed. Kept because the
+	       -- percentage bar beside it measures exactly this — how far the principal has
+	       -- come down — but named for what it is, here and in the UI.
 	       GREATEST(cl.loan_amount_kobo - cl.outstanding_principal_kobo, 0) AS principal_paid_kobo,
+	       -- What the borrower ACTUALLY paid, off the Udara general-ledger capture
+	       -- (cbssync/repayments.go). These rows carry no application_id and no loan_id,
+	       -- so cbs_loan_account is the only join that reaches them. Principal and interest
+	       -- stay apart: the ledger posts each half as its own leg and says which is which,
+	       -- and adding them together is what made an interest payment look like principal.
+	       COALESCE(rp.principal_kobo, 0)                          AS repaid_principal_kobo,
+	       COALESCE(rp.interest_kobo, 0)                           AS repaid_interest_kobo,
+	       COALESCE(rp.principal_kobo, 0) + COALESCE(rp.interest_kobo, 0) AS repaid_total_kobo,
+	       COALESCE(rp.legs, 0)                                    AS repayment_legs,
+	       rp.last_repaid_on,
 	       -- Minimum repayment is DERIVED for loans (the CBS book carries no installment
 	       -- field): the next unpaid scheduled installment = principal + interest + fee of the
 	       -- earliest not-yet-processed row in the amortisation schedule. NULL when no
@@ -637,7 +652,17 @@ const riskLoanBookBase = `FROM (
 	       ` + cbsLoanBand + ` AS risk_band,
 	       ` + cbsLoanScore + ` AS eye_score,
 	       cl.status, cl.start_date AS booked_at, cl.maturity_date
-	FROM cbs_loans cl WHERE cl.status NOT IN ('Closed','Revoked')
+	FROM cbs_loans cl
+	LEFT JOIN LATERAL (
+	    SELECT SUM(lr.principal_kobo) AS principal_kobo,
+	           SUM(lr.interest_kobo)  AS interest_kobo,
+	           COUNT(*)               AS legs,
+	           MAX(lr.financial_date) AS last_repaid_on
+	      FROM app.loan_repayments lr
+	     WHERE lr.cbs_loan_account = cl.cbs_account_number
+	       AND lr.ledger_key IS NOT NULL
+	) rp ON TRUE
+	WHERE cl.status NOT IN ('Closed','Revoked')
 ) la WHERE 1=1`
 
 // riskLoanBookWhere builds the shared filter. The band filter is now actually
