@@ -110,12 +110,33 @@ func TestDispositionVocabularyAgrees(t *testing.T) {
 	inSQLList := func(list, s string) bool {
 		return strings.Contains(list, "'"+strings.ToLower(strings.TrimSpace(s))+"'")
 	}
-	// Every disposition the frontend can send, plus the legacy stored forms.
+	// DERIVED from the catalogue, not frozen.
+	//
+	// This was a hand-written literal whose comment claimed it held "every disposition the
+	// frontend can send". It did not, and because it never read ccDispositions, ADDING a
+	// disposition could not fail this test. Eleven were added on 2026-09-28 and none was
+	// covered — the gap surfaced only when a supervisor's screen began printing
+	// `call_rejected` as a label. It also asserted on "Callback Scheduled", which is not a
+	// label in ccDispositions at all.
+	//
+	// Every catalogue label AND code now flows through, so a new entry is covered the moment
+	// it is added. The literals below are the legacy STORED forms — values still in the
+	// column that the catalogue no longer produces — which is the only thing a frozen list
+	// is the right tool for.
 	all := []string{
-		"Interested", "Not Ready Yet", "Not Eligible", "Not Interested", "Converted",
-		"Callback Scheduled", "Wrong Number", "Do Not Call", "Unreachable / No Answer",
-		"Promise to Pay", "Paid", "Dispute", "Escalated", "Resolved", "Closed",
-		"Pending / Follow-up", "no_answer", "wrong_number", "voicemail", "Call Dropped", "",
+		"Interested", "Not Interested", "Callback Scheduled", "Unreachable / No Answer",
+		"Pending / Follow-up", "Issue Resolved", "no_answer", "wrong_number", "voicemail", "",
+	}
+	legacy := len(all)
+	for _, d := range ccDispositions {
+		all = append(all, d.Label, d.Code)
+	}
+	// Guards the derivation itself: if someone re-freezes the list, this fails loudly rather
+	// than quietly covering nothing.
+	if len(all) != legacy+2*len(ccDispositions) {
+		t.Fatalf("the list is no longer derived from ccDispositions (%d entries for %d "+
+			"dispositions) — a frozen list cannot fail when a disposition is added",
+			len(all), len(ccDispositions))
 	}
 	for _, d := range all {
 		expects, known := dispositionExpectsConversation(d)

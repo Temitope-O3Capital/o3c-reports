@@ -635,7 +635,15 @@ func dispositionExpectsConversation(s string) (expects, known bool) {
 	case "":
 		return false, false
 	// Nobody spoke.
-	case "unreachable / no answer", "no answer", "no_answer", "voicemail", "unreachable":
+	// Nobody spoke. "Customer Rejected the Call" belongs here: they saw the call and ended
+	// it, so the number is live but no conversation happened. Omitting it let this function
+	// fall through to its closing `return true, true`, which told callAttachMode to prefer
+	// a call that CONNECTED — so hdBetterAttachTarget would move a write-up off the
+	// zero-second rejected call onto a nearby answered one by the same agent. That is
+	// precisely the mis-attachment this mechanism exists to prevent, fired for the one
+	// disposition whose entire meaning is "they declined the call itself".
+	case "unreachable / no answer", "no answer", "no_answer", "voicemail", "unreachable",
+		"customer rejected the call", "call_rejected":
 		return false, true
 	// Ambiguous by nature — do not bias.
 	//
@@ -717,7 +725,7 @@ func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disp
 // TestDispositionVocabularyAgrees, because two copies of a vocabulary that drift
 // apart is exactly how a call ends up carrying another call's outcome.
 const (
-	sqlNoContactDispositions = `('unreachable / no answer','no answer','no_answer','voicemail','unreachable')`
+	sqlNoContactDispositions = `('unreachable / no answer','no answer','no_answer','voicemail','unreachable','customer rejected the call','call_rejected')`
 	sqlAmbiguousDispositions = `('wrong number','wrong_number','pending / follow-up','call dropped','call_dropped')`
 )
 

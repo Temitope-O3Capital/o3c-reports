@@ -928,7 +928,11 @@ function DistributeModal({ open, onClose, agents, unassignedCount, onDone }: {
 
 // ── Left panel: queue list ────────────────────────────────────────────────────
 
-const DPD_VALUES    = ['0', '1-30', '31-60', '61-90', '91-180', '181-360']
+// Must match the buckets the view actually produces (migration 137/299): '360+' was
+// MISSING, so the worst bucket in the book could not be selected — while line ~610 uses
+// ['91-180','181-360','360+'] to decide recovery eligibility, i.e. the filter could not
+// reach the rows the page gates recovery on.
+const DPD_VALUES    = ['0', '1-30', '31-60', '61-90', '91-180', '181-360', '360+']
 const CONTACT_VALUES = ['Today', 'This Week', 'This Month']
 
 // ── Main component ────────────────────────────────────────────────────────────

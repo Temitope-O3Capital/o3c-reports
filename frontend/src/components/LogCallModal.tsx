@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Modal, Spinner } from './UI'
 import { apiFetch, apiPost } from '../lib/api'
-import { NAVY, GREEN, AMBER, RED, BLUE, SORA, FW, RADIUS, SP, TEXT } from '../lib/design'
+import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, SORA, FW, RADIUS, SP, TEXT } from '../lib/design'
 import { toast } from 'sonner'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from './CustomerSearch'
 
@@ -80,6 +80,13 @@ const PURPOSE_COPY: Record<string, {
   marketing:   { label: 'Marketing / Leads', accent: AMBER, notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step: send info, follow up, book a callback…' },
   sales:       { label: 'Outbound Sales',    accent: NAVY,  notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step: send info, follow up, book a callback…' },
   collections: { label: 'Collections',       accent: RED,   notesLabel: 'Account Discussion / Reason Unpaid', notesPh: 'The customer’s situation · reason for non-payment…', resLabel: 'Outcome & Agreement', resPh: 'What was agreed: amount, date, dispute raised…' },
+  // CALL_PURPOSES offers Retention and Other, and both were missing here — so
+  // purposeCopy() fell through to PURPOSE_COPY[''] and a win-back call to a customer we
+  // had lost asked the agent for a "Customer Complaint / Summary". A win-back call is
+  // about WHY they left and whether they will come back; nothing else on the form
+  // captures a churn reason.
+  retention:   { label: 'Retention / Win-Back', accent: PURPLE, notesLabel: 'Why They Left',   notesPh: 'What made them stop using us · what they said…', resLabel: 'Would They Return?', resPh: 'What it would take to win them back…' },
+  other:       { label: 'Other',               accent: BLUE,   notesLabel: 'What The Call Was About', notesPh: 'Why you called and what was said…',      resLabel: 'Outcome',           resPh: 'Where it was left…' },
 }
 export function purposeCopy(purpose: string) { return PURPOSE_COPY[purpose] ?? PURPOSE_COPY[''] }
 
@@ -144,6 +151,16 @@ const DISPOSITION_COPY: Record<string, DispCopy> = {
   'Unreachable / No Answer': { notesLabel: 'Note',                        notesPh: '(optional)',                                       resLabel: '', resPh: '', hideRes: true },
   'Do Not Call':             { notesLabel: 'Reason',                      notesPh: 'Why they asked not to be called…',                 resLabel: '', resPh: '', hideRes: true },
   'Closed':                  { notesLabel: 'Summary',                     notesPh: 'What happened on the call…',                        resLabel: '', resPh: '', hideRes: true },
+  // Win-back outcomes. Every one that names a cause IS a churn reason, so the prompt asks
+  // for the detail behind it rather than a generic summary — nothing else in the schema
+  // records why a customer left.
+  'Reactivating — Will Use Again':            { notesLabel: 'What Brought Them Back',  notesPh: 'What changed their mind · what they plan to use…',        resLabel: 'Next / Onboarding Step',  resPh: 'What happens next to reactivate them…' },
+  'Interested in a New Offer':                { notesLabel: 'What They Asked About',   notesPh: 'The product or terms they want to hear about…',           resLabel: 'For Sales',               resPh: 'What Sales needs to know before they call…' },
+  'Left Over Charges or Rates':                { notesLabel: 'Which Charge or Rate',    notesPh: 'The specific fee or rate, and what they compared it to…', resLabel: '', resPh: '', hideRes: true },
+  'Left Over Service or an Unresolved Issue':  { notesLabel: 'What Went Wrong',         notesPh: 'What happened · whether it is still open…',               resLabel: 'Action to Put It Right',  resPh: 'Raise a Care ticket if it is still unresolved…' },
+  'Using Another Provider':                    { notesLabel: 'Who, and Why Them',       notesPh: 'The provider, and what they offer that we did not…',      resLabel: '', resPh: '', hideRes: true },
+  'No Longer Needs the Product':               { notesLabel: 'Why Not Anymore',         notesPh: 'What changed in their circumstances…',                    resLabel: '', resPh: '', hideRes: true },
+  'Not Interested in Returning':               { notesLabel: 'Reason Given',            notesPh: 'What they said when they declined…',                      resLabel: '', resPh: '', hideRes: true },
 }
 // The disposition's field mapping, falling back to the category's when the disposition
 // has no special form (so nothing is ever unlabelled).
@@ -197,6 +214,23 @@ const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   marketing:    LEAD_DISPOSITIONS,
   sales:        LEAD_DISPOSITIONS,
   collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer', 'Customer Rejected the Call', 'Call Dropped', OTHER_DISPOSITION],
+  // Retention was MISSING, so dispositionsFor('retention') fell through to the support
+  // list and every win-back outcome the API defines was unreachable from this form. The
+  // seven below are the ONLY place a churn reason is ever captured — a schema-wide search
+  // on 2026-09-23 found no closure-reason field anywhere, and of 6,539 churned customers
+  // we could explain 347.
+  //
+  // These labels are Go's labels VERBATIM (ccDispositions in
+  // backend-go/handlers/call_center_dispositions.go). ccDispositionByCode matches a label
+  // exactly before any substring rule runs, so sending them resolves to the winback_*
+  // codes — which is what fires ccRaiseWinbackHandoff for a customer asking about an
+  // offer. Change a word here and it silently degrades to the "other" bucket.
+  retention:    ['Reactivating — Will Use Again', 'Interested in a New Offer',
+                 'Left Over Charges or Rates', 'Left Over Service or an Unresolved Issue',
+                 'Using Another Provider', 'No Longer Needs the Product',
+                 'Not Interested in Returning', 'Callback Scheduled', 'Wrong Number',
+                 'Do Not Call', 'Unreachable / No Answer', 'Customer Rejected the Call',
+                 'Call Dropped', OTHER_DISPOSITION],
 }
 export function dispositionsFor(purpose: string): string[] {
   return DISPOSITIONS_BY_PURPOSE[purpose] ?? SUPPORT_DISPOSITIONS

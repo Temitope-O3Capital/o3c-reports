@@ -2677,6 +2677,20 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "unknown disposition: "+b.Disposition)
 			return
 		}
+		// The FOURTH route into helpdesk_calls.disposition, and the one that did not demand
+		// an explanation for "Other". hdLogCall, hdEditCall and collectionsOpsContact all
+		// enforce it; the Outbound Queue's own log-call form posts HERE, so any agent could
+		// record an Other carrying nothing — the one row on this table with no information
+		// in it at all. A rule on three of four routes to a column is not enforced.
+		//
+		// Tested against b.Notes rather than the `notes` value composed further down: that
+		// one is prefixed with the disposition LABEL, so it is never empty and would
+		// satisfy any non-blank check while saying nothing the label had not already said.
+		if ccDispositionNoteMissing(b.Disposition, b.Notes) {
+			respondErr(w, 422, "Choosing Other means telling us what happened — "+
+				"write it in the notes, in a sentence the next person can act on")
+			return
+		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
