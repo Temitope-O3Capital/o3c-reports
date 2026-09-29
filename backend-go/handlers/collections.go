@@ -262,6 +262,10 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/repayment-kpis", collectionsRepaymentKPIs(db))
 	r.Get("/writeoff-kpis", collectionsWriteoffKPIs(db))
 
+	// Arrears reminders: the review surface for what the nightly run would send, and
+	// the go-live switch. Reading is open to collections; flipping the switch is not.
+	RegisterCollectionsDunning(r, db, head)
+
 	// Portfolio + watchlist (all collections roles can read)
 	r.Get("/portfolio", collectionsPortfolioAccounts(db))
 	r.Get("/watchlist", collectionsWatchlistList(db))

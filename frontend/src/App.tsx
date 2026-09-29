@@ -137,6 +137,7 @@ const CollectionsDueSchedule  = lazy(() => import('./pages/collections/DueSchedu
 const CollectionsAccountDetail = lazy(() => import('./pages/collections/AccountDetail'))
 const CollectionsRecoveryPmts = lazy(() => import('./pages/collections/RecoveryPaymentApprovals'))
 const CollectionPaymentApprovals = lazy(() => import('./pages/collections/CollectionPaymentApprovals'))
+const CollectionsArrears   = lazy(() => import('./pages/collections/ArrearsReminders'))
 const CollectionsWatchlist    = lazy(() => import('./pages/collections/Watchlist'))
 const CollectionsSupervisor   = lazy(() => import('./pages/collections/Supervisor'))
 const CreditAuditTrail        = lazy(() => import('./pages/compliance/CreditAuditTrail'))
@@ -1182,6 +1183,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections/promises"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPromises /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/repayment-plans" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPlans /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoffs"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/arrears-reminders"    element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsArrears /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/portfolio"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/payment-tiers"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPaymentTiers /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/due-schedule"         element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsDueSchedule /></PageErrorBoundary></RequireAccess>} />
