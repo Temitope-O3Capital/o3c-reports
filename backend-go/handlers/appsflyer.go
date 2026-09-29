@@ -49,8 +49,18 @@ var afFunnelOrder = []string{
 	"bvn_start",
 	"bvn_result",
 	"card_cta_tapped",
-	"af_login",
 }
+
+// af_login was removed from the list above on 2026-09-29. It is not a stage of a
+// first-time onboarding journey: a user who logs in is by definition already
+// registered, and they do it again every session (1.20 fires per user-day over the
+// month). Declaring it the TERMINAL step asserted "users who logged in finished
+// onboarding", which is backwards — and it read 35 user-days sitting directly after
+// bvn_result's 9, so it also manufactured a violation. It is now an unplaced event:
+// still shown, badged, and excluded from every step-to-step conversion.
+//
+// This is the same class of correction as the onboarding move, and made on the same
+// basis — what the event MEANS, never on which way its count happens to point.
 
 // WHY THIS FEED CANNOT FULLY VERIFY A FUNNEL, and why small violations survive.
 //
@@ -62,11 +72,37 @@ var afFunnelOrder = []string{
 // onboarding_complete 1.94 clearly are not.
 //
 // So a correct order can still show a later step a few users "bigger" than the one
-// before it. Four such residuals remain, all small (+1 to +25 user-days) against the
+// before it. A few such residuals remain, all small (+1 to +25 user-days) against the
 // +218 the onboarding misplacement produced. The client reports them rather than hiding
 // them, and confines conversion to the corroborated run. Do not paper over them with a
 // tolerance threshold: that would be tuning the check until the data looks clean, and
 // it is the gross misordering this guard exists to catch.
+//
+// A WARNING ABOUT PER-DAY COMPARISONS, WRITTEN AFTER GETTING THIS WRONG.
+//
+// Comparing two events WITHIN a single day looks like it should settle the ordering,
+// because on one day unique_users really is unique users and the user-days inflation
+// above disappears. On 2026-09-29 that test appeared to show that kyc_start and
+// registration_details_submitted are one event under two names: identical user counts
+// on all 21 days they both appear. A detector was built and shipped on that basis.
+//
+// It was wrong, and the reason matters more than the mistake. These steps see one to
+// four users A DAY (mean 2.29, busiest day 4). Two events at that volume will report
+// the same integer on most days by arithmetic alone, so "identical for 21 days" is
+// almost no evidence at all. Counting DAYS of agreement measures patience, not signal.
+//
+// What separates them is the repeat count, which the users-only test never looked at.
+// Over the same window kyc_start fires 189 times against 82 user-days (2.30 each) while
+// registration_details_submitted fires 114 against 81 (1.41) and
+// af_complete_registration 80 against 76 (1.05). Same people, same days, very different
+// behaviour — three distinct events, not three names. That KYC is started 2.3 times per
+// user-day is itself worth someone's attention; it reads like users retrying.
+//
+// So the residual violations are what the block above always said they were: user-days
+// artefacts. There is no aliasing to detect, and the detector has been removed rather
+// than left in place looking vigilant. If you are tempted to write it again: compare
+// event_count as well as unique_users, and require the daily counts to be large enough
+// that agreeing on them means something.
 
 // afFunnelRank returns a stable ordering rank for an event name.
 func afFunnelRank(name string) int {

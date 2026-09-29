@@ -42,7 +42,12 @@ interface CampaignAttr {
 interface LeadSourceRow {
   lead_source:        string
   total_applications: number
+  /** Reached an approved status. NOT "everything that wasn't declined" — see below. */
   approved:           number
+  /** Declined or rejected — the backend counts BOTH spellings. */
+  declined?:          number
+  /** Submitted, under review, on hold: decided neither way yet. */
+  in_progress?:       number
   disbursement_kobo:  number
 }
 
@@ -150,14 +155,17 @@ export default function Attribution() {
   const LS_COLS: TableCol<LeadSourceRow>[] = [
     { key: 'lead_source', label: 'Source', render: r => <span style={{ fontWeight: FW.semibold, textTransform: 'capitalize' }}>{r.lead_source.replace(/_/g,' ')}</span> },
     { key: 'total_applications', label: 'Applications', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.total_applications)}</span> },
-    // "Approved" is the backend's own wording and it is generous: /api/sales/by-lead-source
-    // counts every application whose status is NOT 'declined', so pending and incomplete
-    // ones land here too. The tooltip says so rather than the column implying a decision
-    // that has not been taken.
-    { key: 'approved', label: 'Not Declined', align: 'right', render: r => {
-      const m = rate(r.approved, r.total_applications, APPLICATION_FLOOR, 'applications')
+    // Approved now means approved. This column briefly read "Not Declined" because the
+    // backend counted `status NOT IN ('declined')` — which swept up pending applications
+    // AND missed every rejection written as 'rejected'. Both are fixed in
+    // salesByLeadSource; the honest denominator for an approval rate is DECIDED
+    // applications, so undecided ones are shown separately rather than hidden in either
+    // column. An older backend omits the new fields, and then the rate stays absent.
+    { key: 'approved', label: 'Approved', align: 'right', render: r => {
+      const decided = r.declined === undefined ? NaN : r.approved + r.declined
+      const m = rate(r.approved, decided, APPLICATION_FLOOR, 'decided applications')
       return (
-        <div title={m.reason ?? 'Counts every application not yet declined — pending and incomplete included, not approvals granted.'}
+        <div title={m.reason ?? 'Share of applications that have actually been decided.'}
              style={{ cursor: 'help' }}>
           <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.approved)}</span>
           <span style={{ marginLeft: 6, fontSize: TEXT.xs, color: isOk(m) ? (m.value >= 50 ? GREEN : AMBER) : 'var(--txt3)' }}>
@@ -166,6 +174,12 @@ export default function Attribution() {
         </div>
       )
     }},
+    { key: 'in_progress', label: 'Awaiting Decision', align: 'right', render: r => (
+      <span title="Submitted, under review or on hold — neither approved nor declined yet."
+            style={{ ...NUM, color: 'var(--txt2)', cursor: 'help' }}>
+        {r.in_progress === undefined ? '—' : fmtNum(r.in_progress)}
+      </span>
+    )},
     { key: 'disbursement_kobo', label: 'Disbursed', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.disbursement_kobo)}</span> },
   ]
 
