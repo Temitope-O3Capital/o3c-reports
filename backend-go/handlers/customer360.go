@@ -77,11 +77,11 @@ const c360PersonCIFs = `(SELECT c2.cif FROM app.customers c2
 // deleted; filtering by name pattern keeps them out of view for good. Uses the c. alias
 // and begins with " AND " so it appends to an existing WHERE.
 //
-// Must stay identical to app.is_test_card_name and the three other copies
-// (acctfeed/acctfeed.go, custfeed/ingest.go, txnfeed/txnfeed.go). 'fastest' was dropped
-// in migration 312: it matched six real 2018 race prize cards, which this predicate had
-// therefore been hiding from the customer directory and search.
-const notTestCust = ` AND (COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,'')) !~* '\m(test|bevertec|dummy)\M|testcard|questtest'`
+// The predicate is rendered from core/testcards.go, the same token list custfeed and acctfeed
+// match at ingest, so the directory cannot hide a name the feeds admitted (or vice versa) —
+// which is exactly what happened while app.is_test_card_name carried 'fastest' and Go did not.
+var notTestCust = ` AND ` + core.SQLIsNotTestCardName(
+	`(COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,''))`)
 
 // isSyntheticID reports whether an id is an internal placeholder handle generated for a
 // customer that has no real card CIF: a 'cid:'-prefixed party key, or a 'W'/'Z' followed

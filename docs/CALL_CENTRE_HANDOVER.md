@@ -39,6 +39,19 @@ Worked example: the "Other needs a written explanation" rule had to be added to 
 `hdEditCall`, `collectionsOpsContact` **and** `ccLogCall`. The fourth was found only by
 auditing, after I had already claimed the rule held "on both write paths".
 
+A second, sharper one — because here the person fixing it counted the copies and still missed
+two. The test-card name regex decides what is held out of `income_daily`, `income_by_currency`
+and `card_balances`. Migration 312 removed the token `fastest` from it (that token was matching
+six real 2018 race-prize cardholders who carried balances and used ATMs), updated the SQL
+function and all four Go copies, and wrote in its own header: *"there are five including this
+function. Keep all five in step."* **There were seven.** Two views, `app."Accounts"` and
+`app."Products"`, had the pattern inlined by migrations 213 and 214 — the second of which is
+named `214_views_test_filter_fastest.sql` — and went untouched, so for two weeks the function
+called those six people customers while the reporting views still called them test data.
+Migration 316 fixed it, and the lesson is in the arithmetic: **counting the copies is not the
+same as finding them.** Query the catalogue (`pg_get_viewdef`, `pg_proc.prosrc`,
+`pg_get_constraintdef`) rather than trusting a count written in a comment.
+
 ---
 
 ## 2. Identity — three namespaces that look joinable and are not
@@ -102,12 +115,21 @@ says 79.1%**, while a sibling handler 90 lines below had it right.
 
 ---
 
-## 4. Two guards will fail your deploy. That is them working
+## 4. Three guards will fail your deploy. That is them working
 
 **Migration 308** refuses to apply if any disposition code in use has no label in
 `app.cc_disposition_label`. Add a disposition to Go's `ccDispositions` and you **must** add it
 there too. It caught its own author within 24 hours (migration 311) — the alternative was a
 supervisor's screen quietly printing `payment_to_verify` as a label for three weeks.
+
+**Migration 316** refuses to apply if the test-card name pattern is inlined in any view,
+materialized view or function other than `app.is_test_card_name` itself — it queries
+`pg_get_viewdef` and `pg_proc.prosrc` and names the culprit. Write `app.is_test_card_name(col)`
+in new SQL; do not paste the regex. Seven copies of it had already drifted once (§1), and the
+Go side is now a single source in `core/testcards.go` rendering both the Go regexp and the SQL
+predicate from one token list. `core.TestSQLFunctionMatchesGo` compares the deployed SQL
+function against the Go pattern over a corpus when `DATABASE_URL` is set — including the
+`FASTEST MALE`/`FEMALE` cases, so a return of that token fails loudly.
 
 **`TestDNCExprShapeStillShadows`** is a canary: it fails when the suppression expression stops
 reading `dnc_list`, to force a review of the argument-qualification rule that depended on it.
@@ -211,14 +233,6 @@ from Risk's inbox while still counting as open.
 It was **not** deleted: the file also defines `jsonRows`, used across the package, and deleting
 it broke the build in a dozen places. It now carries a header saying so. If you are cleaning
 up, move `jsonRows` to a shared file **first**.
-
-**`is_test_card_name` — five copies, equivalent today.** One SQL function (migration 293,
-declared canonical) plus two Go regexes and two inline SQL copies. `\m…\M` and Go's `\b…\b` are
-equivalent for ASCII input, so they do agree — verified by reading all five. But nothing *pins*
-them: the four Go references to `app.is_test_card_name` are all **comments** saying "must stay
-identical to", not calls, so the canonical function has no invocation from Go at all. Five
-copies of one regex decide what is held out of `income_daily`, `income_by_currency` and
-`card_balances`.
 
 **`app.contact_suppressions` is empty.** `ccNotOnDNCExpr` now delegates to `app.is_suppressed`,
 so the dialler, the SMS/WhatsApp sender and dunning share one definition of "must not contact".

@@ -213,17 +213,11 @@ DO UPDATE SET
 RETURNING (xmax = 0) AS inserted`
 
 // apply returns the feedcore.Applier that upserts one acct_file's rows.
-// testNameRE flags test/dummy/vendor cards by their cardholder name (e.g. "O3CAPITAL
-// TEST CARD", "Bevertec"). Skipped at ingest so they never enter the card book. RE2 uses
-// \b for word boundaries (not Postgres's \m/\M).
 //
-// Must stay identical to app.is_test_card_name and the three other copies
-// (custfeed/ingest.go, handlers/customer360.go, txnfeed/txnfeed.go). 'fastest' was
-// dropped in migration 312: it matched six real 2018 race prize cards (FASTEST
-// MALE/FEMALE, JNR/SNR) carrying balances and ATM withdrawals, and no genuine test card,
-// so this feed had been discarding real cardholders' rows at ingest.
-var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy)\b|testcard|questtest`)
-
+// Test/dummy/vendor cards are skipped at ingest by core.IsTestCardName so they never enter
+// the card book. The pattern used to be a local regexp here, duplicated in custfeed,
+// txnfeed and handlers/customer360.go under a comment asking the four to stay identical;
+// it now lives once in core/testcards.go, which explains why that arrangement failed.
 func apply(_ *core.DB) feedcore.Applier {
 	return func(ctx context.Context, tx *sql.Tx, lines []string, meta feedcore.FileMeta) (inserted, updated, rejected int, err error) {
 		for _, line := range lines {
@@ -233,7 +227,7 @@ func apply(_ *core.DB) feedcore.Applier {
 				continue
 			}
 			// Skip test/dummy/vendor cards at the source so they never enter the card book.
-			if testNameRE.MatchString(a.NameOnCard) {
+			if core.IsTestCardName(a.NameOnCard) {
 				rejected++
 				continue
 			}

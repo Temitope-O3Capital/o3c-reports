@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -16,16 +15,12 @@ import (
 	"github.com/o3c/workspace/feedcore"
 )
 
-// testNameRE flags test/dummy/vendor customer records (e.g. "AMEX TEST", "Bevertec",
-// "TEST 1"). These are skipped at ingest so they never enter app.customers — they used
-// to reappear after every manual delete precisely because this feed re-created them.
-// RE2 uses \b for word boundaries (not Postgres's \m/\M).
+// Test/dummy/vendor customer records (e.g. "AMEX TEST", "Bevertec", "TEST 1") are skipped
+// at ingest by core.IsTestCardName so they never enter app.customers — they used to
+// reappear after every manual delete precisely because this feed re-created them.
 //
-// Must stay identical to app.is_test_card_name and the three other copies
-// (acctfeed/acctfeed.go, handlers/customer360.go, txnfeed/txnfeed.go). 'fastest' was
-// dropped in migration 312: it matched six real 2018 race prize cards (FASTEST
-// MALE/FEMALE, JNR/SNR) carrying balances and ATM withdrawals, and no genuine test card.
-var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy)\b|testcard|questtest`)
+// The pattern was a local regexp here, duplicated in acctfeed, txnfeed and
+// handlers/customer360.go; it now lives once in core/testcards.go.
 
 // Dir returns the cust_file directory. DATA_FEED_DIR points at the drop root; the
 // customer stream is one subdirectory of it.
@@ -288,7 +283,7 @@ func applyFile(ctx context.Context, db *core.DB, path string, meta FileMeta, res
 	for _, c := range custs {
 		// Skip test/dummy/vendor records at the source so they never enter the customer
 		// base (they are feed-owned, so deleting them downstream is futile).
-		if testNameRE.MatchString(c.FirstName + " " + c.LastName + " " + c.FullName()) {
+		if core.IsTestCardName(c.FirstName + " " + c.LastName + " " + c.FullName()) {
 			skippedTest++
 			continue
 		}
