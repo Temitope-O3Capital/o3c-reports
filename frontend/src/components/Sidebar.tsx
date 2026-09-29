@@ -94,15 +94,18 @@ const SECTIONS: Section[] = [
         vis: ['sales_officer','sales_head'],
         subs: [
           { label: 'Overview',         to: '/sales/overview' },
-          // Team (Live) and Teams both gate on the sales_team page key, so their vis
-          // lists are exactly the roles that hold it. Teams previously listed head_ops,
-          // coo and cfo, none of which carry sales supervision — they were shown a link
-          // into someone else's floor, and it is now a link they would 403 on anyway.
-          { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head', 'cmo', 'md', 'admin'] },
+          // Team (Live) and Teams both gate on the sales_team page key. sales_officer is
+          // in the vis list NOT because every officer should see these, but because the
+          // heads of Team Ozioma and Team Ikechukwu Okoro both hold that role — headship
+          // is structural, not a role, and a role-only list left the two people who run
+          // those teams unable to see them. The page gate in PAGE_FOR is what actually
+          // decides: an officer sees these only if they hold sales_team, which the backend
+          // grants at login to whoever heads an active team (withStructuralPages).
+          { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
-          { label: 'Teams',            to: '/sales/teams', vis: ['sales_head', 'cmo', 'md', 'admin'] },
+          { label: 'Teams',            to: '/sales/teams', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
           { label: 'Contacts',         to: '/sales/customers' },
           { label: 'Follow-Ups',       to: '/sales/tasks' },
           { label: 'Applications',     to: '/sales/applications' },
@@ -449,7 +452,13 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/marketing/overview': 'campaigns', '/campaigns': 'campaigns', '/campaigns/templates': 'campaigns',
   '/campaigns/lists': 'campaigns', '/contact-segments': 'campaigns', '/marketing/analytics': 'campaigns',
   '/sales/overview': 'sales', '/sales/my-dashboard': 'sales', '/sales/book': 'crm_contacts',
-  '/sales/leads': 'crm_contacts', '/sales/teams': 'crm_contacts', '/sales/customers': 'crm_contacts',
+  '/sales/leads': 'crm_contacts', '/sales/customers': 'crm_contacts',
+  // Supervision of the floor, not the contact book: both must agree with the routes in
+  // App.tsx, which gate on sales_team. '/sales/teams' was mapped to crm_contacts, which
+  // every sales officer holds — so the roster link passed the page gate for the whole
+  // floor and was only hidden by its role list. '/sales/supervisor' had no mapping at
+  // all, so it fell through to the role gate alone.
+  '/sales/teams': 'sales_team', '/sales/supervisor': 'sales_team',
   '/sales/crm': 'crm_pipeline', '/sales/tasks': 'crm_tasks', '/sales/applications': 'loans',
   '/sales/targets': 'sales', '/sales/reports': 'crm_reports', '/sales/cohort': 'cohort',
   // Contact Centre

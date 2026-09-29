@@ -110,6 +110,13 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	r.With(access).Post("/leads/{id}/transfer", transferLead(db))
 	r.With(access).Post("/leads/{id}/convert", convertLead(db))
 	r.With(access).Post("/leads/{id}/disqualify", disqualifyLead(db))
+	// Labels on a lead. Tag vocabulary is deliberately open — a rep invents the label
+	// they need — but canonical (migration 314), so the list route is what keeps the
+	// filter honest: it offers what is actually in use rather than a fixed menu.
+	r.With(access).Get("/lead-tags", listLeadTags(db))
+	r.With(access).Post("/leads/{id}/tags", addLeadTag(db))
+	r.With(access).Delete("/leads/{id}/tags/{tag}", removeLeadTag(db))
+
 	r.With(access).Get("/leads/{id}/events", leadEvents(db))
 	// Everything that has happened to this lead, from every team. See leadTimeline.
 	r.With(access).Get("/leads/{id}/timeline", leadTimeline(db))
@@ -453,6 +460,31 @@ func listLeads(db *core.DB) http.HandlerFunc {
 				n = nn
 			}
 		}
+		// Campaign the lead came from. Filters on the MARKETING campaign id, which is what
+		// source_campaign_id holds — migration 314 explains why joining the dialler table
+		// here would return a real campaign name belonging to a different campaign.
+		if cid := qstr(r, "campaign_id"); cid != "" {
+			if id, err := strconv.ParseInt(cid, 10, 64); err == nil {
+				where = append(where, fmt.Sprintf("c.source_campaign_id = $%d", n))
+				args = append(args, id)
+				n++
+			}
+		}
+		// One or more labels, repeatable (?tag=corporate&tag=price-objection). Repeating
+		// means AND, not OR: narrowing the queue is the point, and "corporate AND price
+		// objection" is the question a head actually asks. Tags are stored canonical
+		// (migration 314), so normalise here — otherwise a capitalised tag from a URL
+		// silently matches nothing and reads as "no such leads".
+		for _, t := range r.URL.Query()["tag"] {
+			t = strings.ToLower(strings.TrimSpace(t))
+			if t == "" {
+				continue
+			}
+			where = append(where, fmt.Sprintf(
+				"EXISTS (SELECT 1 FROM app.crm_lead_tags lt WHERE lt.contact_id = c.id AND lt.tag = $%d)", n))
+			args = append(args, t)
+			n++
+		}
 		if qstr(r, "due") == "1" {
 			where = append(where, "c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()")
 		}
@@ -494,10 +526,39 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			            THEN c.matched_customer_cif
 			       END AS customer360_cif,
 			       u.full_name AS owner_name,
-			       e.name      AS employer_name
+			       e.name      AS employer_name,
+			       c.source_campaign_id,
+			       -- Where this lead came from, named. The marketing campaign is
+			       -- authoritative; 45 of the current 185 arrived through a dialler-only
+			       -- list with no marketing counterpart, so those fall back to the
+			       -- forward's own campaign rather than reading blank. The two are
+			       -- SEPARATE namespaces with overlapping ids (migration 314) — hence two
+			       -- joins on two different columns, never one join reused.
+			       COALESCE(mc.name, ccf.name) AS campaign_name,
+			       CASE WHEN mc.name IS NOT NULL THEN 'marketing'
+			            WHEN ccf.name IS NOT NULL THEN 'dialler'
+			       END AS campaign_source,
+			       -- Labels, as an array so the client never has to parse a delimiter.
+			       COALESCE(
+			           (SELECT array_agg(lt.tag ORDER BY lt.tag)
+			              FROM app.crm_lead_tags lt WHERE lt.contact_id = c.id),
+			           '{}'::text[]
+			       ) AS tags
 			  FROM crm_contacts c
 			  LEFT JOIN o3c_users u ON u.id = c.sales_owner_id
 			  LEFT JOIN employers e ON e.id = c.employer_id
+			  LEFT JOIN campaigns mc ON mc.id = c.source_campaign_id
+			  -- The forward's dialler campaign, for leads with no marketing campaign. One
+			  -- row per contact: a lead re-forwarded twice would otherwise fan the result
+			  -- out and double-count it in the queue.
+			  LEFT JOIN LATERAL (
+			      SELECT cc.name
+			        FROM app.call_center_lead_forwards f
+			        JOIN app.call_center_campaigns cc ON cc.id = f.cc_campaign_id
+			       WHERE f.contact_id = c.id
+			       ORDER BY f.forwarded_at DESC
+			       LIMIT 1
+			  ) ccf ON TRUE
 			 WHERE `+cond+`
 			 ORDER BY (c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()) DESC,
 			          c.updated_at DESC
@@ -512,6 +573,150 @@ func listLeads(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"data": rows, "total": total, "limit": limit, "offset": offset,
 		})
+	}
+}
+
+// ── Lead tags ────────────────────────────────────────────────────────────────
+//
+// Labels a rep or head puts on a lead, in their own words. Stored in app.crm_lead_tags
+// (migration 314) rather than the old crm_contacts.tags text column, which held one blob
+// and could not be filtered.
+
+// canonicalTag is the ONE place a tag is normalised. The table's CHECK enforces the same
+// shape, so anything this function will not produce is refused by the database rather than
+// stored as a near-duplicate of an existing tag.
+func canonicalTag(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	// Collapse internal runs of whitespace: "price  objection" and "price objection" are
+	// the same label, and a user cannot see the difference to correct it.
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
+// tagIsValid mirrors crm_lead_tags_tag_is_canonical so a bad tag fails as a 422 with an
+// explanation rather than a 500 from a constraint violation.
+func tagIsValid(s string) bool {
+	if len(s) < 2 || len(s) > 32 {
+		return false
+	}
+	for i, ch := range s {
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= '0' && ch <= '9':
+		case (ch == ' ' || ch == '_' || ch == '-') && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// listLeadTags returns the tags actually in use, with how many leads carry each, scoped
+// the same way the queue is. A head of one team has no business seeing another team's
+// vocabulary in their filter, and a filter offering tags that match nothing in your scope
+// reads as broken.
+func listLeadTags(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
+		where, args, _ := applyLeadScope(r, db, u, []string{"c.lead_stage <> 'converted'"}, nil, 1)
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT lt.tag, COUNT(*) AS leads
+			  FROM app.crm_lead_tags lt
+			  JOIN crm_contacts c ON c.id = lt.contact_id
+			 WHERE `+strings.Join(where, " AND ")+`
+			 GROUP BY lt.tag
+			 ORDER BY leads DESC, lt.tag`, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Could not load tags", err)
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+// addLeadTag puts a label on a lead. Anyone who can see the lead can label it: a tag is a
+// note, not a state change, and gating it behind ownership would leave a head unable to
+// mark up the pool they are about to distribute.
+func addLeadTag(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
+		if u == nil {
+			respondErr(w, 401, "sign in first")
+			return
+		}
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Bad lead id")
+			return
+		}
+		var b struct{ Tag string `json:"tag"` }
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Bad request")
+			return
+		}
+		tag := canonicalTag(b.Tag)
+		if !tagIsValid(tag) {
+			respondErr(w, 422, "A label is 2-32 characters, letters, numbers, spaces, - or _, "+
+				"and cannot start with a space or punctuation.")
+			return
+		}
+		// Scope check before the write: without it a rep could label any contact in the
+		// table by posting an id, which is the hole getLead used to have.
+		where, args, n := applyLeadScope(r, db, u, []string{fmt.Sprintf("c.id = $%d", 1)}, []any{id}, 2)
+		_ = n
+		var exists bool
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT EXISTS (SELECT 1 FROM crm_contacts c WHERE `+strings.Join(where, " AND ")+`)`,
+			args...).Scan(&exists); err != nil {
+			respondErrLog(w, 500, "Lookup failed", err)
+			return
+		}
+		if !exists {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		if _, err := db.PGExec(r.Context(), `
+			INSERT INTO app.crm_lead_tags (contact_id, tag, added_by)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (contact_id, tag) DO NOTHING`, id, tag, u.ID); err != nil {
+			respondErrLog(w, 500, "Could not add the label", err)
+			return
+		}
+		respond(w, map[string]any{"tag": tag}, "pg")
+	}
+}
+
+// removeLeadTag takes a label off. Same scope rule as adding it.
+func removeLeadTag(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
+		if u == nil {
+			respondErr(w, 401, "sign in first")
+			return
+		}
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Bad lead id")
+			return
+		}
+		tag := canonicalTag(chi.URLParam(r, "tag"))
+		where, args, _ := applyLeadScope(r, db, u, []string{"c.id = $1"}, []any{id}, 2)
+		var exists bool
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT EXISTS (SELECT 1 FROM crm_contacts c WHERE `+strings.Join(where, " AND ")+`)`,
+			args...).Scan(&exists); err != nil {
+			respondErrLog(w, 500, "Lookup failed", err)
+			return
+		}
+		if !exists {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		if _, err := db.PGExec(r.Context(),
+			`DELETE FROM app.crm_lead_tags WHERE contact_id = $1 AND tag = $2`, id, tag); err != nil {
+			respondErrLog(w, 500, "Could not remove the label", err)
+			return
+		}
+		w.WriteHeader(204)
 	}
 }
 

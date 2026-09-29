@@ -271,6 +271,35 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// withStructuralPages adds page grants that come from a user's POSITION rather than their
+// role, applied on top of resolveRolePages at every login.
+//
+// Today that means one thing: heading an active sales team grants "sales_team", the page
+// that opens Team (Live) and the Teams roster. Both new teams — Ozioma and Ikechukwu
+// Okoro — are headed by people whose role is 'sales_officer', so a role-only test left
+// those two heads with full team scope on every API call (salesLeadScope grants it
+// structurally) and no page to view it through. An admin naming someone head of a team IS
+// the decision to let them supervise it; requiring a second, separate role change before
+// that takes effect just produces heads who silently cannot do their job.
+func withStructuralPages(ctx context.Context, db *core.DB, userID int64, pages []string) []string {
+	if userID == 0 {
+		return pages
+	}
+	for _, p := range pages {
+		if p == "sales_team" {
+			return pages // already granted by role
+		}
+	}
+	var headsATeam bool
+	if err := db.PG.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		    SELECT 1 FROM app.sales_teams t WHERE t.head_user_id = $1 AND t.is_active
+		)`, userID).Scan(&headsATeam); err != nil || !headsATeam {
+		return pages
+	}
+	return append(pages, "sales_team")
+}
+
 // resolveRolePages returns the union of page grants across all given roles,
 // resolving each from the built-in RolePages map or, for custom roles, the
 // o3c_custom_roles table. Used to build the token page set for multi-team users.
@@ -436,6 +465,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 		role := str(u["role"])
 		extraRoles := core.ParsePages(u["extra_roles"])
 		pages := resolveRolePages(r.Context(), db, append([]string{role}, extraRoles...))
+		pages = withStructuralPages(r.Context(), db, toInt64(u["id"]), pages)
 
 		// If TOTP is enabled, issue a short-lived MFA challenge token instead.
 		if totpEnabled, _ := u["totp_enabled"].(bool); totpEnabled {
@@ -567,6 +597,7 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 		role := str(u["role"])
 		extraRoles := core.ParsePages(u["extra_roles"])
 		pages := resolveRolePages(r.Context(), db, append([]string{role}, extraRoles...))
+		pages = withStructuralPages(r.Context(), db, toInt64(u["id"]), pages)
 
 		claims := &core.Claims{
 			Sub:        str(u["email"]),
