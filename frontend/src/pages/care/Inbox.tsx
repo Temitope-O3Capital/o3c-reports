@@ -9,19 +9,16 @@ import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, TEXT } from '../../l
 import { toast } from 'sonner'
 import ReplyComposer from './ReplyComposer'
 import CareThread from './CareThread'
-import { replyAllRecipients } from './mailUtils'
+// CARE_SUBGROUPS and SUBGROUP_ICON were declared here as verbatim copies of the versions this
+// same module already exports — a folder added in one rail would simply not appear in the other,
+// and Go's careSubgroups (served at .../subgroups) is a third copy that classifies inbound mail,
+// so a subgroup it assigns could render in no tab at all.
+import { replyAllRecipients, CARE_SUBGROUPS, SUBGROUP_ICON } from './mailUtils'
 
 // Care = customer mail. These are helpdesk tickets on the 'email' channel, shown
 // as an email inbox. The ticket stays the system of record underneath.
 
 // Inbox subgroups — keep in sync with careSubgroups in backend handlers/helpdesk_care.go.
-const CARE_SUBGROUPS = ['New Registration', 'Support', 'Complaints', 'Transactions', 'Cards', 'Loans', 'Fixed Deposit', 'General']
-// Each folder gets a glyph so the rail reads as folders, not a wall of text.
-const SUBGROUP_ICON: Record<string, string> = {
-  'New Registration': 'person_add', 'Support': 'support_agent', 'Complaints': 'sentiment_dissatisfied',
-  'Transactions': 'receipt_long', 'Cards': 'credit_card', 'Loans': 'account_balance',
-  'Fixed Deposit': 'savings', 'General': 'inbox',
-}
 interface MailTicket {
   id: number
   ticket_ref: string

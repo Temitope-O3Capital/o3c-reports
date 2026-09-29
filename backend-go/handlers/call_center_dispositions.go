@@ -738,7 +738,7 @@ func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disp
 	rows, err := db.PGQuery(ctx, `
 		WITH chosen AS (
 		    SELECT id, agent_id, started_at,
-		           (COALESCE(duration_sec,0) > 5 OR recording_filename IS NOT NULL) AS connected,
+		           `+sqlCallConnectedExpr("duration_sec","recording_filename")+` AS connected,
 		           `+normalizedPhoneExpr("customer_phone")+` AS ph
 		      FROM helpdesk_calls WHERE id = $1
 		)
@@ -754,7 +754,7 @@ func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disp
 		                        AND chosen.started_at + interval '15 min'
 		   -- Only act when the chosen call is the WRONG kind and this one is right.
 		   AND chosen.connected <> $2
-		   AND (COALESCE(c.duration_sec,0) > 5 OR c.recording_filename IS NOT NULL) = $2
+		   AND `+sqlCallConnectedExpr("c.duration_sec","c.recording_filename")+` = $2
 		 ORDER BY c.started_at DESC
 		 LIMIT 1`, chosenID, expects)
 	if err != nil || len(rows) == 0 {
@@ -771,6 +771,35 @@ const (
 	sqlNoContactDispositions = `('unreachable / no answer','no answer','no_answer','voicemail','unreachable','customer rejected the call','call_rejected')`
 	sqlAmbiguousDispositions = `('wrong number','wrong_number','pending / follow-up','call dropped','call_dropped')`
 )
+
+// sqlCallConnectedExpr renders "did this call reach a conversation?" — the telephony fact,
+// as distinct from what the agent concluded.
+//
+// ONE DEFINITION, NAMED. This predicate was re-typed inline in four live places
+// (call_center_dispositions.go twice, helpdesk.go, zoho.go) plus a dozen migrations. They all
+// agreed at the time of writing — verified 2026-09-29, each one read — but nothing could
+// catch the fifth copy drifting, because there was no name to pin a test to. The disposition
+// vocabulary next door has sqlDispositionFitsCall for exactly this reason; the connect rule
+// never got the same treatment.
+//
+// WHY 5 SECONDS. It is the threshold dispositionExpectsConversation documents as load-bearing:
+// a call that picked up and died within three seconds satisfies no connect test reliably, which
+// is why "Call Dropped" is treated as a non-connect even though the line was answered. The
+// recording is the second half — a call with a recording connected regardless of what the
+// duration column says, because a recording cannot exist without audio.
+//
+// Variants deliberately NOT unified into this:
+//   - zohoRecordingsPending (zoho.go) asks "might this call have a recording waiting", a looser
+//     question whose own comment says being wrong costs one redundant sweep.
+//   - migration 172 uses > 20 for a one-shot historical repair, already applied.
+//   - AVG(duration_sec) FILTER (duration_sec > 0) is talk-time, not connection.
+// The threshold comes from callConnectMinSec in helpdesk.go, which already existed and is
+// already documented there — declaring a second constant here would have been the very
+// duplication this function exists to remove.
+func sqlCallConnectedExpr(durationCol, recordingCol string) string {
+	return `(COALESCE(` + durationCol + `,0) > ` + itoa(callConnectMinSec) +
+		` OR ` + recordingCol + ` IS NOT NULL)`
+}
 
 // sqlDispositionFitsCall renders the predicate "this write-up belongs on this
 // call", given a disposition column and a boolean 'connected' column.

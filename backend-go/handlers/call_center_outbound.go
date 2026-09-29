@@ -355,6 +355,8 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	// Performance analytics
 	r.Get("/performance-kpis", ccPerformanceKPIs(db))
 	r.Get("/by-disposition", ccByDisposition(db))
+	// The Other review — the loop that keeps the escape hatch a backlog rather than a bin.
+	r.Get("/other-review", ccOtherReview(db))
 	r.Get("/hourly-volume", ccHourlyVolume(db))
 	r.Get("/agent-performance", ccAgentPerformance(db))
 

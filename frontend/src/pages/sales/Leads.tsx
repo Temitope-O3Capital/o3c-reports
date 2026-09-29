@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, n } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { PRODUCT_LINES, PRODUCT_SUBS, productLabel, lineOfCode, lineColor } from '../../lib/products'
+import { LEAD_STAGES, OPEN_LEAD_STAGES } from '../../lib/leadStages'
 
 // Lead capture and the lead queue.
 //
@@ -57,21 +58,10 @@ interface Funnel {
 interface Source { code: string; label: string }
 interface Officer { id: number; full_name: string; is_active: boolean }
 
-// In lifecycle order; matches crm_contacts_lead_stage_chk (migration 246).
-const STAGES = [
-  { key: 'new',                   label: 'New',                   color: '#6B7280' },
-  { key: 'contacted',             label: 'Contacted',             color: BLUE },
-  { key: 'qualified',             label: 'Interested',            color: '#7C3AED' }, // stored key stays 'qualified'
-  { key: 'handed_to_sales',       label: 'Handed to Sales',       color: '#0891B2' },
-  { key: 'documents_requested',   label: 'Documents Requested',   color: AMBER },
-  { key: 'application_submitted', label: 'Application Submitted', color: '#4F46E5' },
-  { key: 'approved',              label: 'Approved',              color: '#059669' },
-  { key: 'converted',             label: 'Converted',             color: GREEN },
-  { key: 'disqualified',          label: 'Disqualified',          color: RED },
-]
-
-// Open = still being worked: every stage except converted and disqualified.
-const OPEN_STAGES = STAGES.map(s => s.key).filter(k => k !== 'converted' && k !== 'disqualified')
+// The stage vocabulary lives once, in lib/leadStages. It used to be declared here and in three
+// other files, held together only by a comment in each saying "matches migration 246".
+const STAGES = LEAD_STAGES
+const OPEN_STAGES = OPEN_LEAD_STAGES
 
 // The activity kinds — which move a lead forward, which only record — used to be
 // declared here as well. They now live once, in components/SalesActivityModal.

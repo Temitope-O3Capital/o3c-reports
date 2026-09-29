@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // ccDispositionCode is the single writer-side normaliser: every disposition an agent
 // picks passes through it before it reaches the contact, the lead, and every report.
@@ -248,5 +251,53 @@ func TestUnmappedDispositionIsNotBlamedOnOther(t *testing.T) {
 		if !ccDispositionNeedsNote(explicit) {
 			t.Errorf("explicit Other %q no longer requires a note", explicit)
 		}
+	}
+}
+
+// The connect rule had FOUR inline copies and no name, so nothing could catch a fifth drifting.
+// It is sqlCallConnectedExpr now; this pins what it renders.
+//
+// The threshold is load-bearing, not cosmetic: dispositionExpectsConversation documents that a
+// call which picked up and died within three seconds satisfies no connect test reliably, which
+// is why "Call Dropped" counts as a non-connect despite the line being answered. Lower it and
+// dropped calls start inflating the connect rate — exactly what migration 193 was written to
+// undo after 2,293 rows had done it.
+func TestTheConnectRuleHasOneDefinition(t *testing.T) {
+	got := sqlCallConnectedExpr("duration_sec", "recording_filename")
+
+	// The threshold, from the one constant.
+	if !strings.Contains(got, "> 5") {
+		t.Errorf("connect threshold is not 5s — dropped calls will count as connects: %s", got)
+	}
+	if callConnectMinSec != 5 {
+		t.Errorf("callConnectMinSec = %d; the whole module's connect rate moves with this",
+			callConnectMinSec)
+	}
+	// COALESCE, because duration_sec is NULL (never 0) when unknown — migration 159 settled
+	// that the column means talk time. Without it a NULL duration makes the whole OR NULL.
+	if !strings.Contains(got, "COALESCE(duration_sec,0)") {
+		t.Errorf("duration is not COALESCEd; a NULL duration would make the expression NULL "+
+			"rather than falling through to the recording test: %s", got)
+	}
+	// The recording is the second half: a recording cannot exist without audio, so it
+	// establishes a connection whatever the duration column says.
+	if !strings.Contains(got, "recording_filename IS NOT NULL") {
+		t.Errorf("the recording half is missing — a long call whose duration did not record "+
+			"would read as a non-connect: %s", got)
+	}
+	// OR, not AND. AND would require both and collapse the connect rate to near zero.
+	if !strings.Contains(got, " OR ") {
+		t.Errorf("expression must be a disjunction: %s", got)
+	}
+	// Parenthesised, because every call site drops it into a larger boolean expression —
+	// unbracketed, `a AND b OR c` rebinds and the predicate silently changes meaning.
+	if !strings.HasPrefix(got, "(") || !strings.HasSuffix(got, ")") {
+		t.Errorf("expression must be bracketed for safe composition: %s", got)
+	}
+	// Column names must be carried through, so an aliased call site is not silently
+	// comparing the wrong table's columns.
+	aliased := sqlCallConnectedExpr("c.duration_sec", "c.recording_filename")
+	if !strings.Contains(aliased, "c.duration_sec") || !strings.Contains(aliased, "c.recording_filename") {
+		t.Errorf("aliased columns not carried through: %s", aliased)
 	}
 }

@@ -2899,7 +2899,7 @@ func absorbPendingManualLog(ctx context.Context, db *core.DB, callID int64) {
 	rows, err := db.PGQuery(ctx, `
 		WITH target AS (
 		  SELECT id, agent_id, started_at,
-		         (COALESCE(duration_sec,0) > 5 OR recording_filename IS NOT NULL) AS connected,
+		         `+sqlCallConnectedExpr("duration_sec","recording_filename")+` AS connected,
 		         `+normalizedPhoneExpr("customer_phone")+` AS ph
 		    FROM helpdesk_calls WHERE id = $1
 		),

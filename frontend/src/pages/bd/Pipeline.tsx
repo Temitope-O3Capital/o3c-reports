@@ -7,6 +7,7 @@ import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { currentUser } from '../../hooks/useAuth'
 import { toast } from 'sonner'
+import { LEAD_STAGES, leadStageLabel } from '../../lib/leadStages'
 
 interface PipelineKPIs {
   total_leads: number
@@ -41,29 +42,14 @@ interface Lead {
 // CHECK constraint exactly (migration 246), in lifecycle order: new | contacted |
 // qualified | handed_to_sales | documents_requested | application_submitted | approved |
 // converted | disqualified.
-const STAGES = [
-  'new', 'contacted', 'qualified',
-  'handed_to_sales', 'documents_requested', 'application_submitted', 'approved',
-  'converted', 'disqualified',
-] as const
-
-const STAGE_COLORS: Record<string, string> = {
-  new: '#6B7280', contacted: BLUE, qualified: '#7C3AED',
-  handed_to_sales: '#0891B2', documents_requested: AMBER,
-  application_submitted: '#4F46E5', approved: '#059669',
-  converted: GREEN, disqualified: RED,
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  // 'qualified' is shown as "Interested" (14 Sept 2026): only a call where the customer
-  // said they are interested puts a lead there. The stored key stays 'qualified'.
-  new: 'New', contacted: 'Contacted', qualified: 'Interested',
-  handed_to_sales: 'Handed to Sales', documents_requested: 'Documents Requested',
-  application_submitted: 'Application Submitted', approved: 'Approved',
-  converted: 'Converted', disqualified: 'Disqualified',
-}
-const stageLabel = (s: string) => STAGE_LABELS[s] ?? s
-const STAGE_OPTIONS = STAGES.map(s => ({ value: s, label: stageLabel(s) }))
+// All three of these were local copies of lib/leadStages, kept in step only by a comment. The
+// colour map and the label map now derive from it, so a stage added to the canonical list cannot
+// render here as a grey pill with its raw snake_case key.
+const STAGES = LEAD_STAGES.map(s => s.key)
+const STAGE_COLORS: Record<string, string> = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
+const STAGE_LABELS: Record<string, string> = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.label]))
+const stageLabel = (s: string) => leadStageLabel(s)
+const STAGE_OPTIONS = LEAD_STAGES.map(s => ({ value: s.key, label: s.label }))
 
 const AVATAR_PALETTE = [RED, BLUE, GREEN, AMBER, '#7C3AED', '#0891B2', '#DB2777', '#EA580C']
 

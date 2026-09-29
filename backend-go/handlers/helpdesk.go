@@ -7523,7 +7523,7 @@ func hdLatestCall(db *core.DB) http.HandlerFunc {
 				-- pairing a RECORDING to a call — see runZohoVoiceImport — because there
 				-- the recording's own length is the evidence. It is wrong here.)
 				ORDER BY CASE
-				           WHEN $4 = 1 AND (COALESCE(duration_sec,0) > 5 OR recording_filename IS NOT NULL) THEN 0
+				           WHEN $4 = 1 AND `+sqlCallConnectedExpr("duration_sec","recording_filename")+` THEN 0
 				           WHEN $4 = 2 AND COALESCE(duration_sec,0) <= 5 AND recording_filename IS NULL THEN 0
 				           WHEN $4 = 0 THEN 0
 				           ELSE 1
