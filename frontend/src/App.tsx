@@ -400,6 +400,7 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/marketing',       'Sales & BD',        'Marketing'],
   ['/sales/crm',       'Sales',             'Pipeline'],
   ['/sales/customers', 'Sales',             'Contacts'],
+  ['/sales/tasks',     'Sales',             'Follow-Ups'],
   ['/sales',           'Sales',             'Sales'],
   ['/call-center',     'Call Center',       'Call Center'],
   ['/helpdesk',        'Call Center',       'Overview'],
@@ -1046,7 +1047,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/book/:cif"     element={<RequireAccess page={['customer360','crm_contacts']} user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/accounts"      element={<Navigate to="/sales/book" replace />} />
                   <Route path="/sales/leads"         element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesLeads /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/sales/teams"         element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesTeams /></PageErrorBoundary></RequireAccess>} />
+                  {/* Teams is a permission surface — moving an officer changes what a head
+                      can see — so it gates on sales_team like Team (Live), not on the much
+                      broader crm_contacts. */}
+                  <Route path="/sales/teams"         element={<RequireAccess page="sales_team" user={user}><PageErrorBoundary><SalesTeams /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContacts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers/:id" element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContactDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/contacts/:id"        element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
@@ -1204,7 +1208,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Agent dashboards */}
                   <Route path="/recovery-ops/agent"     element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryAgentDash /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/my-dashboard"     element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesMyDashboard /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/sales/supervisor"       element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesSupervisor /></PageErrorBoundary></RequireAccess>} />
+                  {/* Team (Live) gates on sales_team, not sales. "sales" is the day-to-day
+                      module key and is held well outside the sales floor, so the supervisor
+                      view was reachable by URL to any holder — the sidebar hid the link but
+                      the route let them straight through. */}
+                  <Route path="/sales/supervisor"       element={<RequireAccess page="sales_team" user={user}><PageErrorBoundary><SalesSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/my-dashboard"  element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/my-dashboard"        element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/my-queue"         element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMyQueue /></PageErrorBoundary></RequireAccess>} />

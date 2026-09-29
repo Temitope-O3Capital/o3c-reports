@@ -5,6 +5,7 @@ import {
   NameCell, ExpandableFilterBar,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { SelectMenu } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { currentUser, isSalesHead } from '../../hooks/useAuth'
@@ -65,6 +66,28 @@ function metricColor(actual: number, target: number) {
 }
 
 const NOT_SET = '—'
+
+// ── Cards cannot be measured yet, and the page has to say so ──────────────────
+//
+// app.v_card_sale_officer holds 18,407 rows and officer_id is NULL on EVERY ONE — not a
+// single card in the whole history is attributed to a seller. Its three sources explain
+// why: card_sale_attributions has 0 rows, card_issuance_requests has 0 rows, and the
+// legacy customer_officers fallback is Udara-keyed, so it names a different person's
+// officer on most rows and is deliberately not trusted.
+//
+// So `actual_cards` is structurally zero for every officer, in every period, and will
+// stay that way until cards are sold through the Issuance flow. Rendering that as "0"
+// next to a target is a false statement: "nobody sold a card" and "nothing records who
+// sold a card" look identical on screen and mean completely different things — the first
+// is a performance problem, the second is a missing pipeline, and only one of them is
+// the officer's fault.
+//
+// Measured 28 Sept 2026. The moment the Issuance flow is used this flips on its own: the
+// gate is whether ANY card has ever been attributed, not a hard-coded switch.
+const CARDS_UNMEASURABLE_NOTE =
+  'No card sale has ever been attributed to a seller — the Issuance flow is what records ' +
+  'it, and it has not been used yet. Until then this cannot be measured, so it is not ' +
+  'scored rather than shown as zero.'
 
 function fmtCountTarget(n: number) {
   return n > 0 ? n.toLocaleString() : NOT_SET
@@ -272,6 +295,17 @@ export default function SalesTargets() {
   const totalActualFdKobo = leaderboard.reduce((s, r) => s + Number(r.actual_fd_kobo), 0)
   const totalTargetCards  = leaderboard.reduce((s, r) => s + Number(r.target_cards), 0)
   const totalActualCards  = leaderboard.reduce((s, r) => s + Number(r.actual_cards), 0)
+
+  // Derived, not hard-coded: cards become measurable the moment ANY card in the period
+  // resolves to a seller. So the day the Issuance flow is first used, this page starts
+  // scoring cards on its own with no code change. See CARDS_UNMEASURABLE_NOTE.
+  const cardsMeasurable = totalActualCards > 0
+
+  // No target on ANY dimension for this period. Distinguished from "a target of zero",
+  // which is a deliberate instruction and shows as 0.
+  const untargeted = leaderboard.filter(r =>
+    !Number(r.target_loans) && !Number(r.target_kobo) && !Number(r.target_fds) &&
+    !Number(r.target_fd_kobo) && !Number(r.target_cards))
   const totalCommission   = leaderboard.reduce((s, r) => s + Number(r.commission_kobo ?? 0), 0)
 
   const COLS: TableCol<Actual>[] = [
@@ -327,10 +361,22 @@ export default function SalesTargets() {
       key: 'actual_cards', label: 'Cards',
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_cards, r.target_cards) }}>
-            {r.actual_cards} / {fmtCountTarget(r.target_cards)}
-          </div>
-          <RagBar actual={r.actual_cards} target={r.target_cards} />
+          {cardsMeasurable ? (
+            <>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_cards, r.target_cards) }}>
+                {r.actual_cards} / {fmtCountTarget(r.target_cards)}
+              </div>
+              <RagBar actual={r.actual_cards} target={r.target_cards} />
+            </>
+          ) : (
+            // Not scored. A dash with the reason on hover, rather than a zero that reads
+            // as "sold none" — see CARDS_UNMEASURABLE_NOTE.
+            <div title={CARDS_UNMEASURABLE_NOTE}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.sm, color: 'var(--txt3)' }}>
+              <span className="material-symbols-rounded" aria-hidden style={{ fontSize: 14 }}>help</span>
+              Not tracked
+            </div>
+          )}
         </div>
       ),
     },
@@ -375,6 +421,37 @@ export default function SalesTargets() {
     >
       <ErrBanner error={error} onRetry={load} />
 
+      {/* Said once, at the top, rather than leaving every reader to work out why a whole
+          column is dashes. A head setting card targets deserves to know they cannot be
+          scored yet BEFORE they set them. */}
+      {!loading && !cardsMeasurable && (
+        <div style={{
+          marginBottom: SP[4], padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.lg,
+          background: `${AMBER}0F`, border: `1px solid ${AMBER}33`,
+          fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5,
+        }}>
+          <strong style={{ color: 'var(--txt)' }}>Card sales are not scored on this page.</strong>{' '}
+          {CARDS_UNMEASURABLE_NOTE} Loans and fixed deposits are measured normally.
+        </div>
+      )}
+
+      {/* Which officers have no target at all this period. A league table sorted by
+          achievement puts them at the bottom looking like poor performers, when the real
+          answer is that nobody set them a number. */}
+      {!loading && canEdit && untargeted.length > 0 && (
+        <div style={{
+          marginBottom: SP[4], padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.lg,
+          background: `${BLUE}0D`, border: `1px solid ${BLUE}33`,
+          fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5,
+        }}>
+          <strong style={{ color: 'var(--txt)' }}>
+            {untargeted.length} officer{untargeted.length === 1 ? ' has' : 's have'} no target for {period}.
+          </strong>{' '}
+          {untargeted.map(r => r.full_name).join(', ')} — they appear at the bottom of the
+          table with dashes, which is a missing target and not a missing month's work.
+        </div>
+      )}
+
       {/* An officer's own number, first. Without this they have to find themselves in
           a league table sorted by performance — which is exactly the row they are
           least motivated to scroll to when they are behind. */}
@@ -410,9 +487,13 @@ export default function SalesTargets() {
             </div>
             <div>
               <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
-                {myRow.actual_cards} / {fmtCountTarget(Number(myRow.target_cards))} cards
+                {cardsMeasurable
+                  ? `${myRow.actual_cards} / ${fmtCountTarget(Number(myRow.target_cards))} cards`
+                  : 'Cards — not tracked'}
               </div>
-              <RagBar actual={Number(myRow.actual_cards)} target={Number(myRow.target_cards)} />
+              {cardsMeasurable
+                ? <RagBar actual={Number(myRow.actual_cards)} target={Number(myRow.target_cards)} />
+                : <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.4 }}>{CARDS_UNMEASURABLE_NOTE}</div>}
             </div>
           </div>
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
@@ -491,11 +572,10 @@ export default function SalesTargets() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
-            <select value={fUserId} onChange={e => setFUserId(e.target.value)}
-              style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
-              <option value="">— Select Officer —</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-            </select>
+            <SelectMenu value={fUserId} onChange={setFUserId}
+              options={users.map(u => ({ value: String(u.id), label: u.full_name }))}
+              placeholder="Choose an officer…" ariaLabel="Officer to set a target for"
+              leadingIcon="badge" />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             {[
@@ -514,17 +594,32 @@ export default function SalesTargets() {
               ? `Writes ${formMonths.length} monthly row${formMonths.length > 1 ? 's' : ''}, ${formMonths[0]} to ${formMonths[formMonths.length - 1]}. The same figures go on every month; re-saving a range corrects it.`
               : `To must not be before From, and a range cannot exceed ${MAX_RANGE_MONTHS} months.`}
           </div>
+          {/* Only disbursement value has ever actually been filled in: across 113 target
+              rows and eight months, every count target is zero. So each field says what
+              it is measured against — a head who cannot see where a number comes from
+              reasonably leaves it blank, and four fifths of this form stayed empty. */}
           {[
-            { label: 'Loan Count Target', value: fLoans, set: setFLoans, type: 'number', placeholder: '0' },
-            { label: 'Disbursement Target (₦)', value: fDisb, set: setFDisb, type: 'number', placeholder: '0.00' },
-            { label: 'FD Count Target', value: fFds, set: setFFds, type: 'number', placeholder: '0' },
-            { label: 'FD Amount Target (₦)', value: fFdAmt, set: setFFdAmt, type: 'number', placeholder: '0.00' },
-            { label: 'Card Count Target', value: fCards, set: setFCards, type: 'number', placeholder: '0' },
-          ].map(({ label, value, set, type, placeholder }) => (
+            { label: 'Loan Count Target', value: fLoans, set: setFLoans, placeholder: '0',
+              hint: 'Loans booked in Udara this month, credited to this officer.' },
+            { label: 'Disbursement Target (₦)', value: fDisb, set: setFDisb, placeholder: '0.00',
+              hint: 'Principal disbursed. The one target currently being set.' },
+            { label: 'FD Count Target', value: fFds, set: setFFds, placeholder: '0',
+              hint: 'Deposits commenced this month. Measured and currently unset for everyone.' },
+            { label: 'FD Amount Target (₦)', value: fFdAmt, set: setFFdAmt, placeholder: '0.00',
+              hint: 'Principal placed on deposit.' },
+            { label: 'Card Count Target', value: fCards, set: setFCards, placeholder: '0',
+              hint: cardsMeasurable
+                ? 'Cards issued this month, credited to this officer.'
+                : 'Cannot be scored yet — no card sale has ever been attributed to a seller. A target set here will read as “not tracked” until cards are sold through the Issuance flow.',
+              warn: !cardsMeasurable },
+          ].map(({ label, value, set, placeholder, hint, warn }) => (
             <div key={label}>
               <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
-              <input type={type} value={value} onChange={e => set(e.target.value)} placeholder={placeholder}
+              <input type="number" value={value} onChange={e => set(e.target.value)} placeholder={placeholder}
                 style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+              {hint && (
+                <div style={{ marginTop: 4, fontSize: TEXT.xs, color: warn ? AMBER : 'var(--txt3)', lineHeight: 1.4 }}>{hint}</div>
+              )}
             </div>
           ))}
           <div>

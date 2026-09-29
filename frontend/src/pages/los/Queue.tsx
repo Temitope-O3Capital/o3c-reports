@@ -211,25 +211,25 @@ export default function LOSQueue() {
   const officers = useMemo(() => [...new Set(dateFiltered.map(r => r.assigned_officer_name).filter((n): n is string => !!n))].sort(), [dateFiltered])
   const statuses = useMemo(() => [...new Set(dateFiltered.map(r => r.status).filter(Boolean))].sort(), [dateFiltered])
 
+  // Officer first, then Product, Stage, Status — the order someone filters in. "Whose
+  // application is this?" is the question asked most and answered first; stage and status
+  // are how you narrow once you are looking at the right person's queue.
+  //
+  // Officer is the one group that gets a search box, and Stage explicitly does not.
+  // Stage is a fixed ten-step lifecycle the reader already knows by shape, so a search
+  // box there is a row of chrome nobody types in; officers are people's names, which is
+  // exactly what you want to type. Left to the option-count heuristic it came out the
+  // wrong way round on both.
   const groups: FilterGroupDef[] = [
     {
-      key: 'stage', label: 'Stage',
-      options: STAGES.map(s => ({
-        value: s,
-        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        count: dateFiltered.filter(r => r.stage === s).length,
-        color: STAGE_COLORS[s]?.txt,
+      key: 'officer', label: 'Officer',
+      options: officers.map(o => ({
+        value: o,
+        label: o,
+        count: dateFiltered.filter(r => r.assigned_officer_name === o).length,
       })),
-      selected: fStages, onChange: setFStages,
-    },
-    {
-      key: 'status', label: 'Status',
-      options: statuses.map(s => ({
-        value: s,
-        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        count: dateFiltered.filter(r => r.status === s).length,
-      })),
-      selected: fStatuses, onChange: setFStatuses,
+      selected: fOfficers, onChange: setFOfficers,
+      searchable: true,
     },
     {
       key: 'product', label: 'Product',
@@ -241,13 +241,24 @@ export default function LOSQueue() {
       selected: fProducts, onChange: setFProducts,
     },
     {
-      key: 'officer', label: 'Officer',
-      options: officers.map(o => ({
-        value: o,
-        label: o,
-        count: dateFiltered.filter(r => r.assigned_officer_name === o).length,
+      key: 'stage', label: 'Stage',
+      options: STAGES.map(s => ({
+        value: s,
+        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        count: dateFiltered.filter(r => r.stage === s).length,
+        color: STAGE_COLORS[s]?.txt,
       })),
-      selected: fOfficers, onChange: setFOfficers,
+      selected: fStages, onChange: setFStages,
+      searchable: false,
+    },
+    {
+      key: 'status', label: 'Status',
+      options: statuses.map(s => ({
+        value: s,
+        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        count: dateFiltered.filter(r => r.status === s).length,
+      })),
+      selected: fStatuses, onChange: setFStatuses,
     },
   ]
 
@@ -399,6 +410,9 @@ export default function LOSQueue() {
           resultCount={filtered.length}
           totalCount={rows.length}
           placeholder="Search by name or reference…"
+          /* Four groups, four columns. The default is three, which wrapped Officer onto
+             its own row underneath and made it read as a separate, lesser filter. */
+          maxCols={4}
         />
 
         <DataTable

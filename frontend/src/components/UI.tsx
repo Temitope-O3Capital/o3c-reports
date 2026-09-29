@@ -617,6 +617,16 @@ export interface FilterGroupDef {
   options: FilterOption[]
   selected: Set<string>
   onChange: (next: Set<string>) => void
+  /**
+   * Whether this group gets its own search box, overriding the option-count heuristic.
+   *
+   * The count alone gets it wrong in both directions. A stage list is a fixed lifecycle
+   * a user already knows by shape — ten of them, so the heuristic gives it a search box
+   * nobody types in, which just makes the panel taller. A list of officers is people's
+   * names, which is exactly what you want to filter by, and it drops below the threshold
+   * the moment a team is small. So the caller says.
+   */
+  searchable?: boolean
 }
 
 export function ExpandableFilterBar({
@@ -700,7 +710,9 @@ export function ExpandableFilterBar({
                 }}>{group.label}</div>
 
                 {(() => {
-                  const isLong = group.options.length > LONG_LIST
+                  // An explicit `searchable` on the group wins; the option count is only
+                  // the fallback for callers that have not said either way.
+                  const isLong = group.searchable ?? (group.options.length > LONG_LIST)
                   const gq = (optQuery[group.key] ?? '').toLowerCase().trim()
                   const visible = gq
                     ? group.options.filter(o => (o.label ?? o.value).toLowerCase().includes(gq))

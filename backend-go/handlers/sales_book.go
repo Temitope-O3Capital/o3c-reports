@@ -138,6 +138,66 @@ const (
 	     GROUP BY party_id`
 )
 
+// bookRelationshipValueSQL is the customer's whole relationship in one number: what they
+// owe on cards, what they owe on loans, and what they have on deposit. Used for ordering
+// only, so mixing a receivable and a deposit into one figure is deliberate — the question
+// it answers is "how much of this officer's book is this customer?", not "what is the net
+// position?", which would be meaningless across those three.
+const bookRelationshipValueSQL = `
+	(COALESCE(k.card_balance_kobo,0) + COALESCE(k.card_float_kobo,0)
+	 + COALESCE(l.outstanding_kobo,0) + COALESCE(f.fd_principal_kobo,0))`
+
+// bookProductCountSQL is how many live products the customer holds across the three lines.
+const bookProductCountSQL = `
+	(COALESCE(k.active_cards,0) + COALESCE(l.active_loans,0) + COALESCE(f.active_fds,0))`
+
+// bookSortable whitelists the columns the book may be ordered by. A whitelist and not
+// string interpolation of whatever arrives: this value is concatenated into the query.
+// Keyed by the COLUMN KEY the table sends, which is the field name in the row — so the
+// frontend needs no separate mapping table to keep in step with this one.
+var bookSortable = map[string]string{
+	"full_name":         "a.full_name",
+	"acquired_on":       "a.acquired_on",
+	"card_balance_kobo": "COALESCE(k.card_balance_kobo,0)",
+	"card_float_kobo":   "COALESCE(k.card_float_kobo,0)",
+	"outstanding_kobo":  "COALESCE(l.outstanding_kobo,0)",
+	"fd_principal_kobo": "COALESCE(f.fd_principal_kobo,0)",
+	"max_dpd":           "COALESCE(k.max_dpd,0)",
+	"officer_name":      "u.full_name",
+	// Not columns in the table, but useful orderings a caller may ask for directly.
+	"value":    bookRelationshipValueSQL,
+	"products": bookProductCountSQL,
+}
+
+// bookOrderBy builds the ORDER BY for the book, honouring ?sort= and ?dir= where they
+// name a whitelisted column.
+//
+// THE DEFAULT IS THE POINT. The book used to be ordered by acquired_on DESC — newest
+// customer first — which made the relationship columns look broken: a customer acquired
+// yesterday has no card activity, no loan and no deposit yet, so the whole right-hand
+// side of the first page read "—". Measured 28 Sept 2026, 18,088 of the 20,727 customers
+// in the book DO hold an open card, but not one of them appeared on page one.
+//
+// A relationship book should open on the relationships that matter. So: customers who
+// actually hold something first, then the ones in arrears, then the largest, and only
+// then by recency. Every tiebreaker ends at a.cif so paging is stable — without a unique
+// last key, two rows with equal values can swap between pages and a customer is seen
+// twice or not at all.
+func bookOrderBy(r *http.Request) string {
+	const stable = ", a.acquired_on DESC NULLS LAST, a.cif"
+	if col, ok := bookSortable[qstr(r, "sort")]; ok {
+		dir := "DESC"
+		if strings.EqualFold(qstr(r, "dir"), "asc") {
+			dir = "ASC"
+		}
+		return col + " " + dir + " NULLS LAST" + stable
+	}
+	return bookProductCountSQL + " > 0 DESC" +
+		", COALESCE(k.max_dpd,0) DESC" +
+		", " + bookRelationshipValueSQL + " DESC" +
+		stable
+}
+
 // requireSalesHead gates writes that a supervisor owns and a subordinate must not
 // perform on themselves — setting targets, above all. Hiding the button in the UI
 // is not sufficient: the endpoint is reachable directly, and the person with the
@@ -289,7 +349,7 @@ func listBook(db *core.DB) http.HandlerFunc {
 			  LEFT JOIN (`+loanAggSQL+`) l ON l.party_id = a.party_id
 			  LEFT JOIN (`+fdAggSQL+`) f ON f.party_id = a.party_id
 			 WHERE `+cond+crossCondList+`
-			 ORDER BY a.acquired_on DESC NULLS LAST, a.cif
+			 ORDER BY `+bookOrderBy(r)+`
 			 LIMIT `+fmt.Sprintf("$%d OFFSET $%d", n, n+1),
 			append(args, limit, offset)...)
 		if err != nil {

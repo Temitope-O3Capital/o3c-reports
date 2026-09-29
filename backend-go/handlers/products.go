@@ -107,6 +107,22 @@ func IsSalesProductCode(raw string) bool {
 	return NormalizeProductCode(raw) != ""
 }
 
+// ProductLineLabel renders a line key in the words a person uses, for notes and
+// notifications read outside Sales. Falls back to the raw key rather than an empty
+// string, so a message never loses the one word that identified it.
+func ProductLineLabel(line string) string {
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case LineCards:
+		return "a card"
+	case LineLoans:
+		return "a loan"
+	case LineFixedDeposit:
+		return "a fixed deposit"
+	default:
+		return line
+	}
+}
+
 // SubsForLine returns the canonical sub-codes under a product line, for building
 // IN-clauses that filter by line. Returns nil for an unknown line.
 func SubsForLine(line string) []string {

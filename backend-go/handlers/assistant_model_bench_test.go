@@ -80,9 +80,20 @@ func TestModelBench(t *testing.T) {
 			truthPath: []string{"summary", "delinquent_accounts"},
 		},
 		{
+			// get_lead_ownership answers from the SALES book, so the truth joins
+			// sales_owner_id — the column applyLeadScope scopes on since migration 302.
+			// It previously joined lead_owner_id, which is the CALL CENTRE's own owner
+			// column, so the tool and its own truth query measured two different books.
+			//
+			// Worth knowing when reading a failure here: Ramat Sadiq is a call-centre
+			// agent, so the sales-scoped answer is legitimately 0 and this case currently
+			// asserts agreement at zero. It checks that the tool is SELECTED and that its
+			// number matches the sales book; it does not exercise a populated book. A case
+			// with real volume needs a sales officer who owns leads, and on 28 Sept 2026
+			// no officer does — all 185 forwarded leads are still unclaimed.
 			q:        "How many leads does Ramat have?",
 			wantTool: "get_lead_ownership",
-			truthSQL: `SELECT COUNT(*) FROM crm_contacts c JOIN o3c_users u ON u.id=c.lead_owner_id WHERE u.full_name ILIKE '%Ramat%' AND c.lead_stage <> 'converted' AND COALESCE(c.already_customer,false)=false`,
+			truthSQL: `SELECT COUNT(*) FROM crm_contacts c JOIN o3c_users u ON u.id=c.sales_owner_id WHERE u.full_name ILIKE '%Ramat%' AND c.lead_stage <> 'converted' AND COALESCE(c.already_customer,false)=false`,
 		},
 		{
 			q:        "Who is Esther?",

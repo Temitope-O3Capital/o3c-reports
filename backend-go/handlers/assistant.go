@@ -598,7 +598,10 @@ func assistantTools() []assistantTool {
 					       COUNT(*)                                             AS leads_owned,
 					       COUNT(*) FILTER (WHERE c.lead_stage IN (`+workedLeadStagesSQL+`)) AS working_now
 					FROM crm_contacts c
-					LEFT JOIN o3c_users usr ON usr.id = c.lead_owner_id AND usr.deleted_at IS NULL
+					-- sales_owner_id, to match the applyLeadScope predicate above: scoping
+					-- the rows by one owner column and naming the owner from the other
+					-- reported the call-centre agent as owner of every sales lead.
+					LEFT JOIN o3c_users usr ON usr.id = c.sales_owner_id AND usr.deleted_at IS NULL
 					WHERE `+cond+`
 					GROUP BY 1 ORDER BY leads_owned DESC LIMIT 30`, args...)
 				if err != nil {

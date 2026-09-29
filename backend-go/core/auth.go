@@ -666,7 +666,10 @@ func buildRolePages() map[string][]string {
 
 	// Per-module page sets: agent (day-to-day) + head extras (oversight/actions).
 	salesAgent := []string{"sales", "loans", "los", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "cohort", "mail"}
-	salesHead := []string{"los_all", "los_assign", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "retention"}
+	// "sales_team" is supervision of the floor — Team (Live) and the Teams roster. It
+	// sits in the head set, not salesAgent, so an officer cannot open the supervisor
+	// view of their own team by URL.
+	salesHead := []string{"sales_team", "los_all", "los_assign", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "retention"}
 	bdAgent := []string{"bd", "bd_employers", "bd_pipeline", "crm_contacts", "mail"}
 	bdHead := []string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive"}
 	collAgent := []string{"collections", "crm_contacts"}
@@ -797,8 +800,10 @@ func buildRolePages() map[string][]string {
 		// the chain would 403 at the final stage.
 		[]string{"collections", "collections_payment", "collections_payment_approve",
 			"recovery", "recovery_write_off", "kpi_dashboard", "statements", "executive", "approvals"})
+	// The CMO runs Sales and BD, so supervision of the floor ("sales_team") comes with
+	// the job — the only non-head role that carries it.
 	m["cmo"] = union(util, salesAgent, bdAgent,
-		[]string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive", "surveys"})
+		[]string{"sales_team", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive", "surveys"})
 	// Executive overview only — the exec cockpit (General Overview + its drill-downs,
 	// KPI dashboards, statements) with NO module edit access. For C-suite who oversee
 	// via the dashboards; any module supervision is layered on per-user via extra_roles

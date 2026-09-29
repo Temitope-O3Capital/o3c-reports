@@ -699,6 +699,11 @@ func reportSalesPipeline(db *core.DB) http.HandlerFunc {
 		}
 		ctx := r.Context()
 
+		// Every query in this report is gated on sales_entered_at. It is the SALES
+		// pipeline, and crm_contacts is shared with the call centre and Zoho Desk — so
+		// ungated, a report headed "Sales Pipeline" counted 16,752 help-desk contacts as
+		// pipeline and divided real conversions by them. See migration 302.
+
 		// Lead source mix with conversion, over the window (excluding already-customers).
 		bySource, _ := db.PGQuery(ctx, `
 			SELECT COALESCE(NULLIF(lead_source,''),'other')                       AS source,
@@ -706,7 +711,8 @@ func reportSalesPipeline(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE lead_stage = 'converted')                AS converted,
 			       COUNT(*) FILTER (WHERE lead_stage = 'disqualified')             AS disqualified
 			  FROM app.crm_contacts
-			 WHERE COALESCE(already_customer,false) = false
+			 WHERE sales_entered_at IS NOT NULL
+			   AND COALESCE(already_customer,false) = false
 			   AND created_at::date BETWEEN $1 AND $2
 			 GROUP BY 1 ORDER BY leads DESC`, dateFrom, dateTo)
 		for _, row := range bySource {
@@ -723,7 +729,8 @@ func reportSalesPipeline(db *core.DB) http.HandlerFunc {
 			SELECT lead_stage AS stage, COUNT(*) AS leads,
 			       COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
 			  FROM app.crm_contacts
-			 WHERE COALESCE(already_customer,false) = false
+			 WHERE sales_entered_at IS NOT NULL
+			   AND COALESCE(already_customer,false) = false
 			   AND created_at::date BETWEEN $1 AND $2
 			 GROUP BY 1 ORDER BY leads DESC`, dateFrom, dateTo)
 
@@ -736,7 +743,7 @@ func reportSalesPipeline(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE c.lead_stage = 'converted')  AS converted,
 			       COUNT(*) FILTER (WHERE c.lead_stage IN (`+openLeadStagesSQL+`)) AS open_leads
 			  FROM app.crm_contacts c
-			  JOIN o3c_users u ON u.id = c.lead_owner_id
+			  JOIN o3c_users u ON u.id = c.sales_owner_id
 			 WHERE COALESCE(c.already_customer,false) = false
 			   AND c.created_at::date BETWEEN $1 AND $2
 			 GROUP BY u.full_name

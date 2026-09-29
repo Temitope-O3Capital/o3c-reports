@@ -1,18 +1,52 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal,
-  ErrBanner, Spinner, KpiCard, DateFilter, NameCell, ActionRow, StatusBadge,
+  Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, KpiCard,
+  DateFilter, NameCell, ActionRow, TblSearch, EmptyState, Input, Button, Pill,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { SelectMenu, SelectMenuField, toOptions } from '../../components/SelectMenu'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, BLUE, PURPLE, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { currentUser, isSalesHead, allRoles } from '../../hooks/useAuth'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTACTS — what this page is for
+//
+// It was a raw browser over crm_contacts with no gate and no owner scope: `1=1` in the
+// handler, `exclude_status=customer` on the wire. That rendered 31,053 rows to anyone who
+// could open it — 15,748 call-centre contacts and 15,305 Zoho Desk helpdesk TICKETS, of
+// which exactly 185 had ever reached Sales — each with Edit, Archive and Bulk Assign. It
+// was the same hole migration 302 closed on the Leads page, still open one route over.
+// The gate and the scope now come from applyLeadScope, the same rules as Leads: one table,
+// one mental model, and a rep who cannot see a contact as a lead cannot see it here.
+//
+// That leaves the real question — what is this page FOR, if Leads already exists?
+//
+//   Leads     = the work QUEUE. What is open, who owns it, what is due. Sorted by urgency.
+//   My Book   = converted customers who now hold an account.
+//   Contacts  = the DIRECTORY. Everyone Sales has ever dealt with, in every state —
+//               open, converted, disqualified, dormant — searchable by name, phone, email
+//               or CIF, with when they arrived, how they arrived and when they were last
+//               touched.
+//
+// The question it answers is the one a rep asks before picking up the phone: "have we
+// spoken to this person before, and who did?" Leads cannot answer it, because a lead
+// leaves the queue the moment it is won or lost — which is exactly when the history
+// starts being worth having. So this page deliberately does NOT exclude converted or
+// disqualified contacts; that is its whole point.
+//
+// Also fixed: every facet filter on the old page was fiction. Status offered
+// Lead/Prospect/Inactive when all 31,053 rows are status='lead' — prospect and inactive
+// have never existed. Source offered Referral/Campaign/Digital/Corporate/Walk-In when the
+// only two values in the column are 'call_centre' and 'zoho_desk'. So each filter either
+// matched everything or nothing. They are now built from the columns that actually carry
+// distinctions: sales_source (how it reached Sales) and the owner.
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface Contact {
   id: number
@@ -23,12 +57,19 @@ interface Contact {
   cif_number?: string
   status?: string
   source?: string
-  source_type?: 'bd_assigned' | 'self_sourced'
+  sales_source?: string
+  sales_owner_id?: number | null
+  sales_owner_name?: string | null
+  sales_entered_at?: string | null
+  converted_line?: string | null
+  converted_ref?: string | null
+  lead_stage?: string
   employer_name?: string
   assigned_name?: string
   updated_at: string
-  deal_count?: number
   open_tasks?: number
+  sales_activity_count?: number
+  last_touch_at?: string | null
 }
 
 interface CRMUser { id: number; full_name: string }
@@ -40,44 +81,45 @@ interface ContactKPIs {
   conversion_rate_pct: number
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+/** How the contact reached Sales — the only source distinction that exists in the data. */
+const SALES_SOURCES = [
+  { value: 'call_centre',  label: 'Call Centre', hint: 'Forwarded by an agent' },
+  { value: 'business_dev', label: 'Business Dev', hint: 'Raised by BD' },
+  { value: 'self',         label: 'Self-Sourced', hint: 'Entered by the officer' },
+]
 
-const SOURCE_COLORS: Record<string, string> = {
-  referral: GREEN, campaign: AMBER, digital: BLUE, corporate: PURPLE,
-  walk_in: NAVY, 'walk-in': NAVY,
-}
-const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
-  customer: { color: GREEN,  bg: 'rgba(22,163,74,.12)' },
-  lead:     { color: BLUE,   bg: `${BLUE}12` },
-  prospect: { color: AMBER,  bg: `${AMBER}18` },
-  inactive: { color: '#6B7280', bg: 'rgba(75,85,99,.1)' },
+const SOURCE_COLOR: Record<string, string> = {
+  call_centre: BLUE, business_dev: PURPLE, self: NAVY,
 }
 
-function SourcePill({ source }: { source?: string }) {
-  if (!source) return <span style={{ color: 'var(--txt3)' }}>—</span>
-  const color = SOURCE_COLORS[source.toLowerCase()] ?? RED
-  const label = source.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-  return (
-    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${color}14`, color }}>
-      {label}
-    </span>
-  )
+/** Where the relationship stands. Derived, because no single column carries it. */
+function relState(c: Contact): { label: string; color: string } {
+  if (c.converted_line) return { label: 'Converted', color: GREEN }
+  if (c.lead_stage === 'disqualified') return { label: 'Disqualified', color: '#6B7280' }
+  if (!c.sales_owner_id) return { label: 'Unclaimed', color: AMBER }
+  return { label: 'Open', color: BLUE }
 }
 
-function StatusPill({ status }: { status?: string }) {
-  if (!status) return <span style={{ color: 'var(--txt3)' }}>—</span>
-  const s = STATUS_COLORS[status.toLowerCase()] ?? { color: '#6B7280', bg: 'rgba(75,85,99,.1)' }
-  return (
-    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  )
-}
+const MGMT = new Set(['sales_head', 'head_sales', 'cmo', 'md', 'admin'])
 
-// ── Main component ─────────────────────────────────────────────────────────────
+/** First day of the month N months before this one, as YYYY-MM-DD. */
+function monthsAgo(n: number): string {
+  const d = new Date()
+  // Day 1 before shifting the month: on the 31st, setMonth(-1) would land on a month
+  // that has no 31st and roll forward, skipping a month.
+  d.setDate(1)
+  d.setMonth(d.getMonth() - n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export default function CRMContacts() {
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal]       = useState(0)
   const [users, setUsers]       = useState<CRMUser[]>([])
@@ -86,41 +128,54 @@ export default function CRMContacts() {
   const [kpis, setKpis]         = useState<ContactKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
 
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
+  const me = currentUser()
+  const isHead = isSalesHead(me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
 
-  const [search,        setSearch]        = useState('')
-  const [fStatuses,     setFStatuses]     = useState<Set<string>>(new Set())
-  const [fSources,      setFSources]      = useState<Set<string>>(new Set())
-  const [fAssignees,    setFAssignees]    = useState<Set<string>>(new Set())
-  const [fSourceTypes,  setFSourceTypes]  = useState<Set<string>>(new Set())
+  // A directory is read over the life of the relationship, not the current month. The
+  // old default was monthStart()→today() on CREATED_AT, which hid every contact who
+  // arrived before the 1st — on a page whose entire purpose is history.
+  const [dateFrom, setDateFrom] = useState(monthsAgo(24))
+  const [dateTo,   setDateTo]   = useState(todayStr())
 
-  const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
+  const [search, setSearch] = useState('')
+  const salesSource = params.get('sales_source') ?? ''
+  const owner       = params.get('owner_id') ?? ''
 
-  // Edit contact modal
-  const [editing,    setEditing]    = useState<Contact | null>(null)
-  const [archiving,  setArchiving]  = useState<Contact | null>(null)
+  const [bulkSel, setBulkSel] = useState<Set<string | number>>(new Set())
+
+  const [editing,     setEditing]     = useState<Contact | null>(null)
+  const [archiving,   setArchiving]   = useState<Contact | null>(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
-  const [editForm,   setEditForm]   = useState({ first_name: '', last_name: '', phone: '', email: '', status: '' })
-  const [editSaving, setEditSaving] = useState(false)
+  const [editForm,    setEditForm]    = useState({ first_name: '', last_name: '', phone: '', email: '' })
+  const [editSaving,  setEditSaving]  = useState(false)
 
-  // Bulk-assign modal
   const [assignOpen,   setAssignOpen]   = useState(false)
   const [assignTo,     setAssignTo]     = useState('')
   const [assignSaving, setAssignSaving] = useState(false)
 
-  // Search runs on the SERVER (name, CIF, phone, email) so it spans every contact, not
-  // just the first 500 that happen to be loaded. Debounced to one request per pause.
+  // Search runs on the SERVER (name, CIF, phone, email) so it spans the whole directory,
+  // not just the rows that happen to be loaded. Debounced to one request per pause.
   const dq = useDebouncedValue(search, 300)
+
+  function setParam(key: string, v: string) {
+    setParams(prev => {
+      const q = new URLSearchParams(prev)
+      if (v) q.set(key, v); else q.delete(key)
+      return q
+    }, { replace: true })
+  }
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setErr(null)
     try {
-      // Leads page only shows pre-conversion contacts; customers live in My Accounts.
-      const p = new URLSearchParams({ limit: '500', exclude_status: 'customer' })
-      if (dq)       p.set('q', dq)
-      if (dateFrom) p.set('from', dateFrom)
-      if (dateTo)   p.set('to',   dateTo)
+      // No exclude_status. Converted and disqualified contacts are the history this page
+      // exists to hold — dropping them is what made it a worse copy of Leads.
+      const p = new URLSearchParams({ limit: '500' })
+      if (dq)          p.set('q', dq)
+      if (dateFrom)    p.set('from', dateFrom)
+      if (dateTo)      p.set('to', dateTo)
+      if (salesSource) p.set('sales_source', salesSource)
+      if (owner)       p.set('owner_id', owner)
 
       const [res, us] = await Promise.all([
         apiFetch<{ data: Contact[]; total: number }>(`/api/crm/contacts?${p}`),
@@ -131,42 +186,35 @@ export default function CRMContacts() {
       setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [dateFrom, dateTo, dq])
+  }, [dateFrom, dateTo, dq, salesSource, owner])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['deals','crm'] })
 
-  const uniqueAssigneeNames = useMemo(
-    () => [...new Set(contacts.map(c => c.assigned_name).filter(Boolean))] as string[],
-    [contacts],
-  )
-
-  // Only facet filters run client-side now; the text search is served (see load), so a
-  // server CIF/phone hit is never re-hidden by a narrower client-side text check.
-  const filteredContacts = useMemo(() => contacts.filter(c => {
-    if (fStatuses.size && (c.status == null || !fStatuses.has(c.status.toLowerCase()))) return false
-    if (fSources.size && (c.source == null || !fSources.has(c.source.toLowerCase()))) return false
-    if (fAssignees.size && (c.assigned_name == null || !fAssignees.has(c.assigned_name))) return false
-    if (fSourceTypes.size && !fSourceTypes.has(c.source_type ?? 'self_sourced')) return false
-    return true
-  }), [contacts, fStatuses, fSources, fAssignees, fSourceTypes])
-
-  function resetFilters() { setSearch(''); setFStatuses(new Set()); setFSources(new Set()); setFAssignees(new Set()); setFSourceTypes(new Set()) }
-
   useEffect(() => {
     setKpiLoading(true)
-    apiFetch<{ data: ContactKPIs }>(`/api/sales/contact-kpis?from=${dateFrom}&to=${dateTo}`)
+    const p = new URLSearchParams({ from: dateFrom, to: dateTo })
+    if (owner) p.set('owner_id', owner)
+    apiFetch<{ data: ContactKPIs }>(`/api/sales/contact-kpis?${p}`)
       .then(r => setKpis(r.data))
       .catch(() => {})
       .finally(() => setKpiLoading(false))
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, owner])
 
+  const counts = useMemo(() => {
+    let converted = 0, unclaimed = 0
+    contacts.forEach(c => {
+      if (c.converted_line) converted++
+      else if (!c.sales_owner_id) unclaimed++
+    })
+    return { converted, unclaimed }
+  }, [contacts])
 
   function openEdit(c: Contact) {
     setEditing(c)
     setEditForm({
       first_name: c.first_name ?? '', last_name: c.last_name ?? '',
-      phone: c.phone ?? '', email: c.email ?? '', status: c.status ?? 'lead',
+      phone: c.phone ?? '', email: c.email ?? '',
     })
   }
 
@@ -179,7 +227,6 @@ export default function CRMContacts() {
         last_name:  editForm.last_name,
         phone:      editForm.phone,
         email:      editForm.email,
-        status:     editForm.status,
       })
       toast.success('Contact updated')
       setEditing(null); load()
@@ -203,7 +250,13 @@ export default function CRMContacts() {
     if (!assignTo || bulkSel.size === 0) return
     setAssignSaving(true)
     try {
-      await Promise.all([...bulkSel].map(id => apiPut(`/api/crm/contacts/${id}`, { assigned_to: Number(assignTo) })))
+      // sales_owner_id, not assigned_to: assigned_to is the CALL CENTRE's owner column.
+      // Writing it here moved the contact in the agent's queue and changed nothing in
+      // Sales — the same column confusion migration 302 was written to end.
+      await Promise.all([...bulkSel].map(id =>
+        apiFetch(`/api/sales/leads/${id}`, {
+          method: 'PATCH', body: JSON.stringify({ sales_owner_id: Number(assignTo) }),
+        })))
       toast.success(`${bulkSel.size} contact${bulkSel.size > 1 ? 's' : ''} assigned`)
       setAssignOpen(false); setAssignTo(''); setBulkSel(new Set()); load()
     } catch (ex: any) { toast.error(ex.message) }
@@ -215,22 +268,15 @@ export default function CRMContacts() {
       key: 'first_name', label: 'Name',
       render: r => (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-          <NameCell name={`${r.first_name} ${r.last_name}`.trim()} sub={r.employer_name ?? r.email ?? null} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0, marginTop: 2 }}>
-            {r.source_type === 'bd_assigned' && (
-              <span style={{
-                fontSize: 10, fontWeight: FW.bold, padding: '1px 5px',
-                borderRadius: RADIUS.sm, background: `${PURPLE}18`, color: PURPLE, letterSpacing: '0.04em',
-              }}>BD</span>
-            )}
-            {r.cif_number && (
-              <span style={{
-                fontSize: 10, fontWeight: FW.bold, padding: '1px 5px',
-                borderRadius: RADIUS.sm, background: 'var(--th-bg)', color: 'var(--txt3)',
-                fontFamily: 'monospace', letterSpacing: '0.02em',
-              }}>{r.cif_number}</span>
-            )}
-          </div>
+          <NameCell name={`${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || 'Unnamed'}
+            sub={r.employer_name ?? r.email ?? null} />
+          {r.cif_number && (
+            <span style={{
+              fontSize: 10, fontWeight: FW.bold, padding: '1px 5px', marginTop: 2, flexShrink: 0,
+              borderRadius: RADIUS.sm, background: 'var(--th-bg)', color: 'var(--txt3)',
+              fontFamily: 'monospace', letterSpacing: '0.02em',
+            }}>{r.cif_number}</span>
+          )}
         </div>
       ),
     },
@@ -238,168 +284,173 @@ export default function CRMContacts() {
       key: 'phone', label: 'Phone',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.phone ?? '—'}</span>,
     },
-    { key: 'source',        label: 'Source',  render: r => <SourcePill source={r.source} /> },
-    { key: 'assigned_name', label: 'Officer', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
-    { key: 'status',        label: 'Status',  render: r => <StatusBadge status={r.status ?? '—'} /> },
     {
-      key: 'updated_at', label: 'Last Activity',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
+      key: 'sales_source', label: 'Came From',
+      render: r => {
+        if (!r.sales_source) return <span style={{ color: 'var(--txt3)' }}>—</span>
+        const meta = SALES_SOURCES.find(s => s.value === r.sales_source)
+        const color = SOURCE_COLOR[r.sales_source] ?? NAVY
+        return <Pill label={meta?.label ?? r.sales_source} color={color} bg={`${color}14`} />
+      },
+    },
+    {
+      key: 'sales_owner_name', label: 'Officer',
+      render: r => r.sales_owner_name
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.sales_owner_name}</span>
+        : <span style={{ fontSize: TEXT.sm, color: AMBER, fontWeight: FW.semibold }}>Unclaimed</span>,
+    },
+    {
+      key: 'converted_line', label: 'Where It Stands',
+      render: r => {
+        const s = relState(r)
+        return (
+          <div>
+            <Pill label={s.label} color={s.color} bg={`${s.color}14`} />
+            {r.converted_line && r.converted_ref && (
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2, fontFamily: 'monospace' }}>
+                {r.converted_ref}
+              </div>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      // The real trail lives in app.activities; the old page counted crm_activities,
+      // which has never had a row written to it, so every contact looked untouched.
+      key: 'last_touch_at', label: 'Last Touch',
+      render: r => r.last_touch_at
+        ? (
+          <div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDatetime(r.last_touch_at)}</div>
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+              {fmtNum(r.sales_activity_count ?? 0)} interaction{(r.sales_activity_count ?? 0) === 1 ? '' : 's'}
+            </div>
+          </div>
+        )
+        : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Never</span>,
     },
     {
       key: '_actions', label: '', sortable: false,
       render: r => <ActionRow actions={[
-        { icon: 'visibility', label: 'View', onClick: () => navigate(`/sales/customers/${r.id}`) },
+        { icon: 'open_in_new', label: 'Open Lead', onClick: () => navigate(`/sales/leads?open=${r.id}`) },
+        { icon: 'visibility', label: 'Details', onClick: () => navigate(`/sales/customers/${r.id}`) },
         { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
         { icon: 'archive', label: 'Archive', danger: true, onClick: () => setArchiving(r) },
       ]} />,
     },
   ]
 
+  const filterRow = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <TblSearch value={search} onChange={setSearch} width={200}
+        placeholder="Name, phone, email or CIF…" ariaLabel="Search the directory" />
+      <SelectMenu value={salesSource} onChange={v => setParam('sales_source', v)}
+        options={SALES_SOURCES} clearLabel="Any source" searchable={false}
+        ariaLabel="How they reached Sales" style={{ width: 150 }} />
+      {isHead && (
+        <SelectMenu value={owner} onChange={v => setParam('owner_id', v)}
+          options={toOptions(users, u => u.id, u => u.full_name)}
+          clearLabel="All officers" ariaLabel="Officer" style={{ width: 170 }} />
+      )}
+    </div>
+  )
+
   return (
-    <Page title="Contacts" subtitle={`${fmtNum(total)} contacts & prospects`}
+    <Page title="Contacts"
+      subtitle="Everyone Sales has dealt with — open, won or lost"
       loading={loading && contacts.length === 0}
       skeletonKpis={4}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />
 
-      {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
-        <KpiCard label="Total Contacts" value={kpis ? fmtNum(kpis.total) : '—'} icon="contacts" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Active This Month" value={kpis ? fmtNum(kpis.active_this_month) : '—'} icon="how_to_reg" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="New This Month" value={kpis ? fmtNum(kpis.new_this_month) : '—'} icon="person_add" accent={BLUE} loading={kpiLoading} />
-        <KpiCard label="Conversion Rate" value={kpis ? `${Number(kpis.conversion_rate_pct ?? 0).toFixed(1)}%` : '—'} icon="trending_up" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="In The Directory" value={kpis ? fmtNum(kpis.total) : '—'} icon="contacts" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Touched This Month" value={kpis ? fmtNum(kpis.active_this_month) : '—'} icon="how_to_reg" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Arrived In Window" value={kpis ? fmtNum(kpis.new_this_month) : '—'} icon="person_add" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Converted" sub="On any product line"
+          value={kpis ? `${Number(kpis.conversion_rate_pct ?? 0).toFixed(1)}%` : '—'}
+          icon="trending_up" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Contacts & Prospects" badge={contacts.length} padding={false}>
-        <ExpandableFilterBar
-          search={search}
-          onSearch={setSearch}
-          placeholder="Search contacts…"
-          groups={[
-            {
-              key: 'status',
-              label: 'Status',
-              options: [
-                { value: 'lead',     label: 'Lead',     color: BLUE },
-                { value: 'prospect', label: 'Prospect', color: AMBER },
-                { value: 'inactive', label: 'Inactive', color: '#6B7280' },
-              ],
-              selected: fStatuses,
-              onChange: setFStatuses,
-            },
-            {
-              key: 'source',
-              label: 'Source',
-              options: [
-                { value: 'referral',  label: 'Referral',  color: GREEN },
-                { value: 'campaign',  label: 'Campaign',  color: AMBER },
-                { value: 'digital',   label: 'Digital',   color: BLUE },
-                { value: 'corporate', label: 'Corporate', color: PURPLE },
-                { value: 'walk_in',   label: 'Walk-In',   color: NAVY },
-              ],
-              selected: fSources,
-              onChange: setFSources,
-            },
-            {
-              key: 'assignee',
-              label: 'Officer',
-              options: uniqueAssigneeNames.map(name => ({ value: name, avatarName: name })),
-              selected: fAssignees,
-              onChange: setFAssignees,
-            },
-            {
-              key: 'source_type',
-              label: 'Lead Source',
-              options: [
-                { value: 'self_sourced', label: 'Self-Sourced', color: NAVY,   count: contacts.filter(c => (c.source_type ?? 'self_sourced') === 'self_sourced').length },
-                { value: 'bd_assigned',  label: 'BD Assigned',  color: PURPLE, count: contacts.filter(c => c.source_type === 'bd_assigned').length },
-              ],
-              selected: fSourceTypes,
-              onChange: setFSourceTypes,
-            },
-          ]}
-          onReset={resetFilters}
-          resultCount={filteredContacts.length}
-          totalCount={contacts.length}
-        />
-        <DataTable<Contact>
-          cols={cols}
-          rows={filteredContacts}
-          keyFn={r => r.id}
-          onRowClick={r => navigate(`/sales/customers/${r.id}`)}
-          emptyText="No contacts found."
-          skeletonRows={loading ? 8 : 0}
-          pageSize={20}
-          selectable
-          selectedIds={bulkSel}
-          onSelect={setBulkSel}
-          bulkBar={
-            <>
-              <button onClick={() => setAssignOpen(true)}
-                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
-            </>
-          }
-        />
+      <SectionCard
+        title="Directory"
+        subtitle={`${fmtNum(total)} contact${total === 1 ? '' : 's'} · ${counts.converted} converted · ${counts.unclaimed} unclaimed on this page`}
+        badge={contacts.length}
+        padding={false}
+        actions={filterRow}
+      >
+        {!loading && contacts.length === 0 ? (
+          <EmptyState
+            icon="contacts"
+            title={search || salesSource || owner ? 'Nothing matches those filters' : 'No contacts yet'}
+            description={
+              search || salesSource || owner
+                ? 'Try a wider date window — the directory is filtered to when contacts reached Sales, not when they were created.'
+                : 'A contact appears here once it reaches Sales: forwarded by the call centre, raised by BD, or entered by an officer on the Leads page.'
+            }
+            action={{ label: 'Go To Leads', onClick: () => navigate('/sales/leads'), icon: 'arrow_forward' }}
+          />
+        ) : (
+          <DataTable<Contact>
+            cols={cols}
+            rows={contacts}
+            keyFn={r => r.id}
+            onRowClick={r => navigate(`/sales/customers/${r.id}`)}
+            emptyText="No contacts found."
+            skeletonRows={loading ? 8 : 0}
+            pageSize={20}
+            selectable={isHead}
+            selectedIds={bulkSel}
+            onSelect={setBulkSel}
+            bulkBar={
+              <Button size="sm" variant="secondary" icon="person_add" onClick={() => setAssignOpen(true)}>
+                Assign Officer
+              </Button>
+            }
+          />
+        )}
       </SectionCard>
 
-      {/* Edit contact modal */}
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Contact" width={460}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setEditing(null)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={saveEdit} disabled={editSaving} style={{ padding: '8px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: editSaving ? 'wait' : 'pointer', opacity: editSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {editSaving && <Spinner size={13} color="#fff" />}Save
-            </button>
+            <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button variant="primary" loading={editSaving} onClick={saveEdit}>Save</Button>
           </div>
         }
       >
+        {/* Status is not editable here. It is derived from what actually happened to the
+            lead — converted on a product line, disqualified, still open — and typing over
+            it would make the directory disagree with the lead record it describes. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {([['First Name', 'first_name'], ['Last Name', 'last_name']] as const).map(([label, key]) => (
-              <div key={key}>
-                <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
-                <input value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                  style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
-              </div>
-            ))}
+            <Input label="First Name" value={editForm.first_name}
+              onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))} />
+            <Input label="Last Name" value={editForm.last_name}
+              onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))} />
           </div>
-          {([['Phone', 'phone'], ['Email', 'email']] as const).map(([label, key]) => (
-            <div key={key}>
-              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
-              <input value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
-            </div>
-          ))}
-          <div>
-            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Status</label>
-            <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
-              style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
-              {['lead', 'prospect', 'inactive'].map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-            </select>
-          </div>
+          <Input label="Phone" value={editForm.phone}
+            onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
+          <Input label="Email" value={editForm.email}
+            onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
         </div>
       </Modal>
 
-      {/* Bulk-assign modal */}
-      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} Contact${bulkSel.size > 1 ? 's' : ''}`} width={420}
+      <Modal open={assignOpen} onClose={() => setAssignOpen(false)}
+        title={`Assign ${bulkSel.size} Contact${bulkSel.size > 1 ? 's' : ''}`} width={420}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setAssignOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={bulkAssign} disabled={assignSaving || !assignTo} style={{ padding: '8px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: assignSaving ? 'wait' : 'pointer', opacity: (assignSaving || !assignTo) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {assignSaving && <Spinner size={13} color="#fff" />}Assign
-            </button>
+            <Button variant="secondary" onClick={() => setAssignOpen(false)}>Cancel</Button>
+            <Button variant="primary" loading={assignSaving} disabled={!assignTo} onClick={bulkAssign}>Assign</Button>
           </div>
         }
       >
-        <div>
-          <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
-          <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
-            style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
-            <option value="">— Select Officer —</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-          </select>
-        </div>
+        <SelectMenuField label="Officer" value={assignTo} onChange={setAssignTo}
+          options={toOptions(users, u => u.id, u => u.full_name)}
+          placeholder="Select an officer"
+          hint="Sets the sales owner, which is what decides whose Leads page it appears on." />
       </Modal>
 
       <ConfirmModal
@@ -415,4 +466,3 @@ export default function CRMContacts() {
     </Page>
   )
 }
-

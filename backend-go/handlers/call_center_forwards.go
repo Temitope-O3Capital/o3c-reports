@@ -140,12 +140,21 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 
 		// Move the CRM contact into the sales pipeline (forward-only), stamp source
 		// + lineage + the product the agent surfaced.
+		//
+		// sales_entered_at is what actually delivers the lead. The ledger row written
+		// below is the audit trail, not the hand-off: the Leads queue is gated on this
+		// column (migration 302), so while nothing stamped it the ledger was write-only
+		// — 185 leads sat forwarded and Sales could not see one of them. COALESCE rather
+		// than NOW() because re-forwarding an already-delivered lead must not reset its
+		// age and make a fortnight-old hand-off look like this morning's work.
 		if _, err := db.PGExec(ctx, `
 			UPDATE crm_contacts
 			   SET lead_stage        = CASE WHEN lead_stage IN ('new','contacted') THEN 'qualified' ELSE lead_stage END,
 			       stage_changed_at  = CASE WHEN lead_stage IN ('new','contacted') THEN NOW() ELSE stage_changed_at END,
 			       lead_source       = COALESCE(NULLIF(lead_source,''), 'call_centre'),
 			       source            = COALESCE(NULLIF(source,''), 'call_centre'),
+			       sales_entered_at  = COALESCE(sales_entered_at, NOW()),
+			       sales_source      = COALESCE(sales_source, 'call_centre'),
 			       product_interest  = COALESCE(NULLIF($2,''), product_interest),
 			       source_campaign_id = COALESCE(source_campaign_id, $3),
 			       source_cc_lead_id  = COALESCE(source_cc_lead_id, $4),
@@ -158,13 +167,19 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 		// Optional supervisor pre-assignment of a sales owner — supervisors only, now
 		// that agents can forward: choosing who in Sales owns the deal is the
 		// supervisor's call, not the forwarding agent's.
+		//
+		// This writes sales_owner_id, NOT lead_owner_id. It used to write the latter,
+		// which is the forwarding agent's OWN owner column: naming a sales owner deleted
+		// the lead from the call-centre book of the agent who had just sourced it, and
+		// took their credit for it with it. The two teams work the same contact at
+		// different stages and keep one owner column each.
 		status := "forwarded"
 		var salesOwner any
 		if sup && b.SalesOwnerID != nil && *b.SalesOwnerID > 0 {
 			status = "assigned"
 			salesOwner = *b.SalesOwnerID
 			db.PGExec(ctx, //nolint:errcheck
-				`UPDATE crm_contacts SET lead_owner_id = $2, account_manager_id = COALESCE(account_manager_id,$2), updated_at=NOW() WHERE id=$1`,
+				`UPDATE crm_contacts SET sales_owner_id = $2, account_manager_id = COALESCE(account_manager_id,$2), updated_at=NOW() WHERE id=$1`,
 				contactID, *b.SalesOwnerID)
 		}
 

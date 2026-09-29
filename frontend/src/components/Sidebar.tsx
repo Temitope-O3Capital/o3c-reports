@@ -94,13 +94,17 @@ const SECTIONS: Section[] = [
         vis: ['sales_officer','sales_head'],
         subs: [
           { label: 'Overview',         to: '/sales/overview' },
-          { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head'] },
+          // Team (Live) and Teams both gate on the sales_team page key, so their vis
+          // lists are exactly the roles that hold it. Teams previously listed head_ops,
+          // coo and cfo, none of which carry sales supervision — they were shown a link
+          // into someone else's floor, and it is now a link they would 403 on anyway.
+          { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head', 'cmo', 'md', 'admin'] },
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
-          { label: 'Teams',            to: '/sales/teams', vis: ['sales_head', 'head_ops', 'admin', 'cmo', 'md', 'coo', 'cfo'] },
+          { label: 'Teams',            to: '/sales/teams', vis: ['sales_head', 'cmo', 'md', 'admin'] },
           { label: 'Contacts',         to: '/sales/customers' },
-          { label: 'Tasks',            to: '/sales/tasks' },
+          { label: 'Follow-Ups',       to: '/sales/tasks' },
           { label: 'Applications',     to: '/sales/applications' },
           { label: 'Targets',          to: '/sales/targets' },
           { label: 'Cohort Analysis',  to: '/sales/cohort' },

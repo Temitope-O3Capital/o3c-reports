@@ -78,6 +78,8 @@ func salesHandToPhoenix(ctx context.Context, db *core.DB, appID int64, routedSta
 func RegisterSalesApplications(r chi.Router, db *core.DB) {
 	access := core.RequirePages("sales", "crm_contacts")
 	r.With(access).Get("/applications/products", listSalesProducts())
+	// Prefill the form from what the workspace already knows about this customer.
+	r.With(access).Get("/applications/applicant", lookupApplicant(db))
 	r.With(access).Get("/applications", listSalesApplications(db))
 	r.With(access).Post("/applications", createSalesApplication(db))
 	r.With(access).Patch("/applications/{id}", updateSalesAppDraft(db))
@@ -141,7 +143,7 @@ func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
 			SELECT COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(phone,''), COALESCE(email,''),
 			       COALESCE(NULLIF(lead_source,''), source, ''),
 			       COALESCE(converted_cif,''), COALESCE(cif_number,''), COALESCE(matched_customer_cif,''),
-			       lead_owner_id
+			       sales_owner_id
 			  FROM app.crm_contacts WHERE id = $1`, leadID).
 			Scan(&first, &last, &phone, &email, &leadSource, &convertedCIF, &cifNumber, &matchedCIF, &owner)
 		if err == sql.ErrNoRows {
@@ -223,13 +225,18 @@ func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
 			    reference, applicant_name, applicant_cif, applicant_email, applicant_phone,
 			    product_type, amount_requested_kobo, tenor_months, purpose, employer, monthly_income_kobo,
 			    lead_source, source_lead_id, status, stage,
-			    sales_officer_id, assigned_to_user_id, created_by, submitted_at, created_at, updated_at
+			    sales_officer_id, assigned_to_user_id, created_by, submitted_at, created_at, updated_at,
+			    -- What Phoenix reads and nothing used to write. See salesAppReq.
+			    bvn, employment_type, monthly_obligation_kobo
 			) VALUES (
-			    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$16,$17,NOW(),NOW()
+			    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$16,$17,NOW(),NOW(),
+			    NULLIF($18,''), NULLIF($19,''), $20
 			) RETURNING id, reference, stage, status`,
 			ref, name, cifArg, email, phone,
 			req.ProductType, req.AmountRequested, req.TenorMonths, req.Purpose, req.Employer, req.MonthlyIncome,
-			leadSource, leadID, status, stage, user.ID, submittedArg).
+			leadSource, leadID, status, stage, user.ID, submittedArg,
+			strings.TrimSpace(req.BVN), strings.TrimSpace(req.EmploymentType),
+			req.MonthlyOblig).
 			Scan(&appID, &appRef, &appStage, &appStatus); err != nil {
 			respondErr(w, 500, "Could not raise the application: "+err.Error())
 			return
@@ -432,6 +439,70 @@ func listSalesApplications(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// lookupApplicant returns what is already on record for a CIF, so the form can prefill
+// instead of asking the officer to retype it.
+//
+// This is the other half of the Phoenix-alignment problem. Adding BVN, phone and email to
+// the form makes the payload complete in principle, but an officer raising an application
+// from a branch does not have a customer's BVN in their head — so a required field they
+// cannot fill becomes a field they put anything in, and a wrong BVN is worse than a
+// missing one: it pulls a bureau report for a different person. The workspace already
+// holds all three against the CIF. It should say so.
+//
+// Anything not on record comes back empty rather than absent, so the form can tell
+// "we know this and it is blank" from "there is no such customer".
+func lookupApplicant(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := strings.TrimSpace(qstr(r, "cif"))
+		if cif == "" {
+			respondErr(w, 400, "cif is required")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT c.cif,
+			       COALESCE(c.full_name,'')  AS full_name,
+			       COALESCE(c.phone,'')      AS phone,
+			       COALESCE(c.email,'')      AS email,
+			       COALESCE(c.bvn,'')        AS bvn,
+			       COALESCE(c.state,'')      AS state,
+			       -- The employer the CRM holds for this person, if the contact is linked
+			       -- by CIF. app.customers has no employer column of its own.
+			       COALESCE((SELECT k.employer FROM app.crm_contacts k
+			                  WHERE k.converted_cif = c.cif OR k.cif_number = c.cif
+			                  ORDER BY k.updated_at DESC LIMIT 1), '') AS employer
+			  FROM app.customers c
+			 WHERE c.cif = $1
+			 LIMIT 1`, cif)
+		if err != nil {
+			respondErrLog(w, 500, "Lookup failed", err)
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 404, "No customer with that CIF")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+// salesAppReq is what the Sales application form sends.
+//
+// The fields below the first block exist because PHOENIX ASKS FOR THEM and the form never
+// collected them. phoenixSubmitOne reads bvn, phone, email, employment_type and
+// monthly_obligation_kobo off loan_applications; the columns were there, the decision
+// engine wanted them, and nothing on the Sales side ever filled them in. Measured
+// 28 Sept 2026 across the 8 applications raised so far:
+//
+//     with a BVN                1 of 8
+//     with a phone              3 of 8
+//     with an employment type   1 of 8
+//     with monthly obligations  2 of 8
+//
+// Two of those matter more than the rest. BVN is how Phoenix derives the customer's KYC
+// tier and pulls the credit bureau report, so without it the decision is made blind. And
+// DTI — which comes back on every Phoenix decision as dti_pct — is income measured
+// against obligations: submitting an obligation of zero does not mean "unknown", it means
+// "this customer owes nothing", and every affordability check downstream believes it.
 type salesAppReq struct {
 	CIF             string `json:"cif"`
 	ProductType     string `json:"product_type"`
@@ -441,6 +512,18 @@ type salesAppReq struct {
 	MonthlyIncome   int64  `json:"monthly_income_kobo"`
 	Employer        string `json:"employer"`
 	Note            string `json:"note"`
+
+	// What Phoenix expects, newly collected.
+	BVN            string `json:"bvn"`
+	Phone          string `json:"applicant_phone"`
+	Email          string `json:"applicant_email"`
+	EmploymentType string `json:"employment_type"`
+	MonthlyOblig   int64  `json:"monthly_obligation_kobo"`
+	// NOTE: there is deliberately no separate requested-limit field. Phoenix wants a
+	// limit for a REVOLVING product and a principal for an INSTALMENT one, and rejects
+	// the wrong one — but phoenixSubmitOne already routes amount_requested_kobo into
+	// whichever of the two the product calls for. A second column would be the same
+	// number stored twice, with the usual consequence of the two disagreeing.
 	// Draft parks the application for later instead of submitting it to Risk/Ops.
 	// A draft skips amount validation and the duplicate/notify machinery; it can be
 	// resumed (PATCH) and pushed (POST /submit) any time.
@@ -866,9 +949,14 @@ func updateSalesAppDraft(db *core.DB) http.HandlerFunc {
 				return
 			}
 		}
-		scope, sargs := draftScope(user, 8)
+		// The credit fields are saved on the draft too, so parking a half-filled
+		// application and picking it up tomorrow does not silently drop the BVN and
+		// obligations the officer had already chased down.
+		scope, sargs := draftScope(user, 12)
 		args := []any{req.ProductType, req.AmountRequested, req.TenorMonths, req.Purpose,
-			req.Employer, req.MonthlyIncome, id}
+			req.Employer, req.MonthlyIncome, id,
+			strings.TrimSpace(req.BVN), strings.TrimSpace(req.EmploymentType),
+			req.MonthlyOblig, strings.TrimSpace(req.Phone), strings.TrimSpace(req.Email)}
 		args = append(args, sargs...)
 		res, err := db.PGExec(r.Context(), `
 			UPDATE loan_applications
@@ -878,6 +966,15 @@ func updateSalesAppDraft(db *core.DB) http.HandlerFunc {
 			       purpose               = $4,
 			       employer              = $5,
 			       monthly_income_kobo   = $6,
+			       -- COALESCE(NULLIF(...)) on the text fields: an empty string from a
+			       -- product that does not collect them must not wipe a value already
+			       -- on the row. The obligation is a plain assignment because zero IS a
+			       -- meaningful answer there.
+			       bvn                     = COALESCE(NULLIF($8,''),  bvn),
+			       employment_type         = COALESCE(NULLIF($9,''),  employment_type),
+			       monthly_obligation_kobo = $10,
+			       applicant_phone         = COALESCE(NULLIF($11,''), applicant_phone),
+			       applicant_email         = COALESCE(NULLIF($12,''), applicant_email),
 			       updated_at            = NOW()
 			 WHERE id = $7 AND status = 'draft'`+scope, args...)
 		if err != nil {

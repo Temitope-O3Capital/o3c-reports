@@ -39,6 +39,11 @@ var PageCatalog = []CatalogModule{
 	}},
 	{Key: "sales", Label: "Sales & BD", Icon: "trending_up", Pages: []CatalogPage{
 		{"sales", "Sales & CRM"},
+		// Supervision of the sales floor: Team (Live) and the Teams roster. A separate
+		// key from "sales" because that one is the day-to-day module and is held well
+		// outside the sales floor — gating the supervisor screens on it meant any
+		// holder could open them by typing the URL, since only the sidebar hid the links.
+		{"sales_team", "Sales Team & Supervision"},
 		{"bd", "Business Development"},
 		{"bd_employers", "Employer Register"},
 		{"bd_pipeline", "BD Pipeline"},

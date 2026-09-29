@@ -1,0 +1,319 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SectionCard, Button, Modal, Input, Textarea, Spinner, EmptyState } from '../../components/UI'
+import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
+import { apiFetch, apiPost } from '../../lib/api'
+import { toast } from 'sonner'
+import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
+import { fmtNum, fmtDate } from '../../lib/fmt'
+
+// My Day — the officer's own record of what they did.
+//
+// A sales officer's work is mostly outside the building: an employer visit, a call from
+// the car, a customer met at a branch. None of it was recorded anywhere, so a day spent
+// on four employer visits that produced no lead that afternoon showed up as nothing at
+// all, and there was no way for the officer to show otherwise.
+//
+// Two halves, matching the two things the backend stores separately (migration 307):
+// the individual entries, and the end-of-day report. They are not the same statement —
+// "I logged six calls" and "I am done, and here is what I make of today" are different,
+// and a day with entries but no report is a day still in progress.
+
+interface DayActivity {
+  id: number
+  type: string
+  subject: string
+  body?: string
+  outcome?: string
+  location?: string
+  contact_id?: number | null
+  contact_name?: string | null
+  occurred_at: string
+}
+interface DayReport {
+  id: number
+  report_date: string
+  summary: string
+  plan: string
+  submitted_at?: string | null
+}
+
+const TYPES = [
+  { value: 'visit', label: 'Visit', hint: 'You went somewhere' },
+  { value: 'call', label: 'Call', hint: 'You rang someone' },
+  { value: 'meeting', label: 'Meeting', hint: 'A scheduled sit-down' },
+  { value: 'note', label: 'Note', hint: 'Anything else worth recording' },
+]
+
+const TYPE_ICON: Record<string, string> = {
+  visit: 'location_on', call: 'call', meeting: 'groups', note: 'sticky_note_2',
+}
+const TYPE_COLOR: Record<string, string> = {
+  visit: PURPLE, call: BLUE, meeting: NAVY, note: 'var(--txt3)',
+}
+const typeLabel = (t: string) => TYPES.find(x => x.value === t)?.label ?? t
+
+export function MyDay({ onLogged }: { onLogged?: () => void }) {
+  const [activities, setActivities] = useState<DayActivity[]>([])
+  const [report, setReport] = useState<DayReport | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [logOpen, setLogOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await apiFetch<{ activities: DayActivity[]; report: DayReport | null }>('/api/sales/my-day')
+      setActivities(r?.activities ?? [])
+      setReport(r?.report ?? null)
+    } catch (e: any) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { visit: 0, call: 0, meeting: 0, note: 0 }
+    activities.forEach(a => { if (c[a.type] != null) c[a.type]++ })
+    return c
+  }, [activities])
+
+  const submitted = !!report?.submitted_at
+
+  return (
+    <SectionCard
+      title="My Day"
+      subtitle={`${fmtDate(new Date().toISOString().slice(0, 10))} · ${fmtNum(activities.length)} logged`}
+      badge={activities.length || undefined}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {submitted && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN,
+            }}>
+              <span className="material-symbols-rounded" aria-hidden style={{ fontSize: 15 }}>task_alt</span>
+              Day submitted
+            </span>
+          )}
+          <Button size="sm" variant="primary" icon="add" onClick={() => setLogOpen(true)}>Log Activity</Button>
+        </div>
+      }
+      style={{ marginBottom: SP[4] }}
+    >
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '30px 0' }}><Spinner size={22} /></div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+
+          {/* The day in four numbers */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(90px,1fr))', gap: SP[2] }}>
+            {TYPES.map(t => (
+              <div key={t.value} style={{
+                padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.lg, background: 'var(--bg)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                  <span className="material-symbols-rounded" aria-hidden
+                    style={{ fontSize: 14, color: TYPE_COLOR[t.value] }}>{TYPE_ICON[t.value]}</span>
+                  <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    {t.label}
+                  </span>
+                </div>
+                <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: counts[t.value] ? 'var(--txt)' : 'var(--txt3)', lineHeight: 1 }}>
+                  {counts[t.value]}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* What happened, latest first */}
+          {activities.length === 0 ? (
+            <EmptyState icon="event_note" title="Nothing logged yet today"
+              description="Record a visit, a call or a meeting as it happens — it takes a few seconds and it is what your day looks like to your head."
+              action={{ label: 'Log Activity', icon: 'add', onClick: () => setLogOpen(true) }} />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {activities.map(a => (
+                <div key={a.id} style={{
+                  display: 'flex', gap: SP[3], padding: `${SP[2]} 0`,
+                  borderBottom: '1px solid var(--bdr)', alignItems: 'flex-start',
+                }}>
+                  <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', minWidth: 44, paddingTop: 2 }}>
+                    {new Date(a.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span className="material-symbols-rounded" aria-hidden style={{
+                    fontSize: 17, color: TYPE_COLOR[a.type], flexShrink: 0, marginTop: 1,
+                  }}>{TYPE_ICON[a.type] ?? 'circle'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)' }}>
+                      {a.subject}
+                    </div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>
+                      {typeLabel(a.type)}
+                      {a.location && <> · {a.location}</>}
+                      {a.contact_name && <> · {a.contact_name}</>}
+                      {a.outcome && <> · {a.outcome}</>}
+                    </div>
+                    {a.body && (
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{a.body}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DailyReport report={report} activityCount={activities.length} onSaved={load} />
+        </div>
+      )}
+
+      {logOpen && (
+        <LogActivityModal
+          onClose={() => setLogOpen(false)}
+          onDone={() => { setLogOpen(false); load(); onLogged?.() }}
+        />
+      )}
+    </SectionCard>
+  )
+}
+
+// ── The end-of-day report ─────────────────────────────────────────────────────
+
+function DailyReport({ report, activityCount, onSaved }: {
+  report: DayReport | null; activityCount: number; onSaved: () => void
+}) {
+  const [summary, setSummary] = useState(report?.summary ?? '')
+  const [plan, setPlan] = useState(report?.plan ?? '')
+  const [busy, setBusy] = useState(false)
+
+  // Re-seed when the day reloads, but never overwrite what the officer is mid-way
+  // through typing — a background refresh must not eat a half-written report.
+  useEffect(() => {
+    setSummary(s => (s ? s : report?.summary ?? ''))
+    setPlan(p => (p ? p : report?.plan ?? ''))
+  }, [report])
+
+  const submitted = !!report?.submitted_at
+
+  async function save(submit: boolean) {
+    if (submit && !summary.trim()) { toast.error('Write a line about the day before submitting it'); return }
+    setBusy(true)
+    try {
+      await apiFetch('/api/sales/my-day/report', {
+        method: 'PUT',
+        body: JSON.stringify({ summary: summary.trim(), plan: plan.trim(), submit }),
+      })
+      toast.success(submit ? 'Day submitted' : 'Draft saved')
+      onSaved()
+    } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{
+      padding: SP[3], borderRadius: RADIUS.lg,
+      background: submitted ? `${GREEN}0A` : 'var(--bg)',
+      border: `1px solid ${submitted ? `${GREEN}33` : 'var(--bdr)'}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: SP[2], marginBottom: SP[3], flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>End-Of-Day Report</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            {submitted
+              ? `Submitted ${new Date(report!.submitted_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. You can still correct it.`
+              : activityCount === 0
+                ? 'A day with nothing to log is worth reporting too — say so here.'
+                : 'Your head sees this against today on their calendar.'}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <Textarea label="How did today go?" value={summary} onChange={e => setSummary(e.target.value)}
+          rows={3} placeholder="e.g. Two employer visits in Ikeja. Dangote HR want a presentation for 40 staff." />
+        <Textarea label="What is next? (Optional)" value={plan} onChange={e => setPlan(e.target.value)}
+          rows={2} placeholder="e.g. Prepare the Dangote deck, call back Mr Adeyemi on Monday." />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button size="sm" variant="secondary" loading={busy} onClick={() => save(false)}>Save Draft</Button>
+          <Button size="sm" variant="primary" loading={busy} onClick={() => save(true)}>
+            {submitted ? 'Update' : 'Submit Day'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Logging one thing ─────────────────────────────────────────────────────────
+
+function LogActivityModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [type, setType] = useState('visit')
+  const [subject, setSubject] = useState('')
+  const [location, setLocation] = useState('')
+  const [body, setBody] = useState('')
+  const [outcome, setOutcome] = useState('')
+  const [leadId, setLeadId] = useState('')
+  const [leads, setLeads] = useState<Array<{ id: number; first_name?: string; last_name?: string }>>([])
+  const [saving, setSaving] = useState(false)
+
+  // The officer's own open leads, so an activity can be tied to one. Optional on
+  // purpose: an employer visit that has not produced a lead yet is exactly the work
+  // that used to vanish, and requiring a lead would make it unloggable again.
+  useEffect(() => {
+    apiFetch<{ data: any[] }>('/api/sales/leads?limit=100')
+      .then(r => setLeads(r?.data ?? []))
+      .catch(() => { /* the picker is optional; failing to load it must not block logging */ })
+  }, [])
+
+  async function save() {
+    if (!subject.trim()) { toast.error('Say briefly what this was'); return }
+    setSaving(true)
+    try {
+      await apiPost('/api/sales/activity', {
+        type,
+        subject: subject.trim(),
+        location: location.trim(),
+        body: body.trim(),
+        outcome: outcome.trim(),
+        contact_id: leadId ? Number(leadId) : null,
+      })
+      toast.success('Logged')
+      onDone()
+    } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
+  const leadOptions = leads.map(l => ({
+    value: String(l.id),
+    label: [l.first_name, l.last_name].filter(Boolean).join(' ') || `Lead ${l.id}`,
+  }))
+
+  return (
+    <Modal open onClose={onClose} title="Log Activity" width={480}
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={saving} onClick={save}>Log It</Button>
+        </div>
+      }>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <SelectMenuField label="What was it?" value={type} onChange={setType}
+          options={TYPES} searchable={false} />
+        <Input label="In a few words" value={subject} onChange={e => setSubject(e.target.value)}
+          placeholder={type === 'visit' ? 'e.g. Visited Dangote HR' : type === 'call' ? 'e.g. Called Mr Adeyemi' : 'e.g. Met the Ikeja branch manager'}
+          hint="This is what the entry reads as on your day." autoFocus />
+        {type === 'visit' && (
+          <Input label="Where" value={location} onChange={e => setLocation(e.target.value)}
+            placeholder="e.g. Ikeja, Lagos" />
+        )}
+        {leadOptions.length > 0 && (
+          <SelectMenuField label="About a lead? (Optional)" value={leadId} onChange={setLeadId}
+            options={leadOptions} clearLabel="Not about a specific lead"
+            placeholder="Choose a lead…"
+            hint="Linking it puts this on the lead's own history and keeps it from going stale." />
+        )}
+        <Input label="Outcome (Optional)" value={outcome} onChange={e => setOutcome(e.target.value)}
+          placeholder="e.g. Interested, wants a presentation" />
+        <Textarea label="Detail (Optional)" value={body} onChange={e => setBody(e.target.value)}
+          rows={3} placeholder="Anything worth remembering next time" />
+      </div>
+    </Modal>
+  )
+}
+
+export default MyDay

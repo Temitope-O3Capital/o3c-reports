@@ -233,7 +233,7 @@ func overviewOfficers(db *core.DB) http.HandlerFunc {
 			       GROUP BY a.officer_id
 			  ) b ON b.officer_id = u.id
 			  LEFT JOIN (
-			      SELECT lead_owner_id,
+			      SELECT sales_owner_id,
 			             COUNT(*) FILTER (WHERE lead_stage NOT IN ('converted','disqualified')) AS open_leads,
 			             COUNT(*) FILTER (WHERE lead_stage = 'qualified')                       AS qualified,
 			             COUNT(*) FILTER (WHERE lead_stage = 'converted'
@@ -248,9 +248,9 @@ func overviewOfficers(db *core.DB) http.HandlerFunc {
 			             COALESCE(SUM(estimated_value_kobo) FILTER (
 			                 WHERE lead_stage NOT IN ('converted','disqualified')), 0)           AS pipeline_value_kobo
 			        FROM crm_contacts
-			       WHERE lead_owner_id IS NOT NULL
-			       GROUP BY lead_owner_id
-			  ) l ON l.lead_owner_id = u.id
+			       WHERE sales_owner_id IS NOT NULL
+			       GROUP BY sales_owner_id
+			  ) l ON l.sales_owner_id = u.id
 			 WHERE u.deleted_at IS NULL AND (`+salesOfficerPredicate+`)
 			 ORDER BY u.is_active DESC, acquired_period DESC, book_size DESC`, from, to)
 		if err != nil {
@@ -340,12 +340,18 @@ func overviewAttention(db *core.DB) http.HandlerFunc {
 		out["unassigned_book_total"] = scalar(
 			`SELECT COUNT(*) FROM app.customer_acquisition WHERE officer_id IS NULL`)
 
+		// Every worklist below is gated on sales_entered_at, and each list is paired with
+		// a total that must use the SAME gate — a tile reading "25 of 312" where the 312
+		// counts the help desk and the 25 does not is worse than no tile. crm_contacts is
+		// shared with the call centre and Zoho Desk; ungated, these three worklists drew
+		// from 32,092 rows of which 185 were sales leads. See migration 302.
 		if rows, err := db.PGQuery(r.Context(), `
 			SELECT c.id, c.first_name, c.last_name, c.phone, c.lead_stage,
 			       c.next_action_at, u.full_name AS owner_name
 			  FROM crm_contacts c
-			  LEFT JOIN o3c_users u ON u.id = c.lead_owner_id
-			 WHERE c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()
+			  LEFT JOIN o3c_users u ON u.id = c.sales_owner_id
+			 WHERE c.sales_entered_at IS NOT NULL
+			   AND c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()
 			   AND c.lead_stage NOT IN ('converted','disqualified')
 			 ORDER BY c.next_action_at
 			 LIMIT 25`); err == nil {
@@ -353,31 +359,36 @@ func overviewAttention(db *core.DB) http.HandlerFunc {
 		}
 		out["overdue_actions_total"] = scalar(
 			`SELECT COUNT(*) FROM crm_contacts
-			  WHERE next_action_at IS NOT NULL AND next_action_at <= NOW()
+			  WHERE sales_entered_at IS NOT NULL
+			    AND next_action_at IS NOT NULL AND next_action_at <= NOW()
 			    AND lead_stage NOT IN ('converted','disqualified')`)
 
-		// Leads with no owner cannot be worked by anyone; they are the first thing a
-		// team lead should clear each morning.
+		// Leads handed to Sales that nobody has claimed cannot be worked by anyone; they
+		// are the first thing a team lead should clear each morning.
 		if rows, err := db.PGQuery(r.Context(), `
-			SELECT c.id, c.first_name, c.last_name, c.phone, c.lead_source, c.created_at
+			SELECT c.id, c.first_name, c.last_name, c.phone, c.lead_source,
+			       c.sales_entered_at, c.created_at
 			  FROM crm_contacts c
-			 WHERE c.lead_owner_id IS NULL
+			 WHERE c.sales_entered_at IS NOT NULL
+			   AND c.sales_owner_id IS NULL
 			   AND c.lead_stage NOT IN ('converted','disqualified')
-			 ORDER BY c.created_at DESC
+			 ORDER BY c.sales_entered_at DESC
 			 LIMIT 25`); err == nil {
 			out["unowned_leads"] = rows
 		}
 		out["unowned_leads_total"] = scalar(
 			`SELECT COUNT(*) FROM crm_contacts
-			  WHERE lead_owner_id IS NULL AND lead_stage NOT IN ('converted','disqualified')`)
+			  WHERE sales_entered_at IS NOT NULL AND sales_owner_id IS NULL
+			    AND lead_stage NOT IN ('converted','disqualified')`)
 
 		// Stalled: contacted or further along (but still open), untouched for a fortnight.
 		if rows, err := db.PGQuery(r.Context(), `
 			SELECT c.id, c.first_name, c.last_name, c.lead_stage,
 			       c.last_activity_at, u.full_name AS owner_name
 			  FROM crm_contacts c
-			  LEFT JOIN o3c_users u ON u.id = c.lead_owner_id
-			 WHERE c.lead_stage IN (`+workedLeadStagesSQL+`)
+			  LEFT JOIN o3c_users u ON u.id = c.sales_owner_id
+			 WHERE c.sales_entered_at IS NOT NULL
+			   AND c.lead_stage IN (`+workedLeadStagesSQL+`)
 			   AND COALESCE(c.last_activity_at, c.updated_at) < NOW() - INTERVAL '14 days'
 			 ORDER BY COALESCE(c.last_activity_at, c.updated_at)
 			 LIMIT 25`); err == nil {
@@ -385,7 +396,8 @@ func overviewAttention(db *core.DB) http.HandlerFunc {
 		}
 		out["stalled_leads_total"] = scalar(
 			`SELECT COUNT(*) FROM crm_contacts
-			  WHERE lead_stage IN (`+workedLeadStagesSQL+`)
+			  WHERE sales_entered_at IS NOT NULL
+			    AND lead_stage IN (`+workedLeadStagesSQL+`)
 			    AND COALESCE(last_activity_at, updated_at) < NOW() - INTERVAL '14 days'`)
 
 		// How fresh is the customer book? A team lead reading acquisition numbers needs

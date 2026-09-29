@@ -441,10 +441,20 @@ func overviewAcquisitionFunnel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// The funnel's first stage. This counted bd_leads, which has held 0 rows since
+		// leads moved to crm_contacts — so the funnel opened at 0 and every conversion
+		// rate measured against it was either zero or a division by zero. It also ran
+		// the identical query twice and discarded the first result.
+		//
+		// A lead here is a contact SOMEBODY is working as one: the call centre's own book
+		// (lead_owner_id) plus everything handed to or raised by Sales (sales_entered_at).
+		// This is company-wide, so both teams count — but crm_contacts is also where Zoho
+		// Desk support contacts land, and 16,750 people who emailed the help desk are not
+		// an acquisition funnel. Neither predicate admits them.
 		leads := int64(0)
-		db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM bd_leads`) // ignore err — just try
-
-		leadsRows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM bd_leads`)
+		leadsRows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n FROM crm_contacts
+			 WHERE lead_owner_id IS NOT NULL OR sales_entered_at IS NOT NULL`)
 		if len(leadsRows) > 0 {
 			leads = toInt64(leadsRows[0]["n"])
 		}

@@ -310,8 +310,17 @@ var exportDatasets = []exportDataset{
 			{Key: "estimated_value", Label: "Estimated Value (NGN)", Type: colKobo, Expr: "k.estimated_value_kobo"},
 			{Key: "state", Label: "State", Type: colText, Expr: "k.state"},
 			{Key: "city", Label: "City", Type: colText, Expr: "k.city"},
-			{Key: "owner_name", Label: "Lead Owner", Type: colText,
+			// Two owners, as two columns rather than one ambiguous "Lead Owner". This
+			// dataset covers the whole contact store, where one row can be worked by a
+			// call-centre agent and a sales officer at the same time: lead_owner_id is the
+			// call centre's book, sales_owner_id is Sales's (migration 302). Collapsing
+			// them into a single column reports one team's work as the other's.
+			{Key: "owner_name", Label: "Call Centre Owner", Type: colText,
 				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = k.lead_owner_id)`},
+			{Key: "sales_owner_name", Label: "Sales Owner", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = k.sales_owner_id)`},
+			{Key: "sales_source", Label: "Reached Sales Via", Type: colText, Expr: "k.sales_source"},
+			{Key: "sales_entered_at", Label: "Reached Sales On", Type: colDateTime, Expr: "k.sales_entered_at"},
 			{Key: "created_at", Label: "Created", Type: colDateTime, Expr: "k.created_at"},
 			// Stored as qualified_at; shown as Interested, the only way a lead gets there.
 			{Key: "qualified_at", Label: "Interested On", Type: colDateTime, Expr: "k.qualified_at"},

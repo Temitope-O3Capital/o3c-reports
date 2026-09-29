@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Page, SectionCard, KpiCard, Spinner, ErrBanner, Modal } from '../../components/UI'
+import { TeamCalendar } from './TeamCalendar'
+import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -113,6 +115,15 @@ export default function SalesSupervisor() {
           icon="alarm" accent={Number(t.overdue_followups) > 0 ? AMBER : NAVY} />
         <KpiCard label="Converted MTD" value={fmtNum(t.converted_mtd)} icon="verified" accent={GREEN} />
         <KpiCard label="Open Pipeline" value={fmtKobo(t.pipeline_kobo)} icon="payments" accent={PURPLE} />
+      </div>
+
+      {/* A month of the floor, a square per officer per day. This is what redefines the
+          page: the wallboard below says what each officer is HOLDING right now, which is
+          a stock figure and looks the same whether they worked today or not. The calendar
+          says what they DID, day by day — the question a head actually opens this page
+          with, and one nothing in the workspace could answer before the daily log. */}
+      <div style={{ marginBottom: SP[4] }}>
+        <TeamCalendar />
       </div>
 
       {/* Agent wallboard */}
@@ -298,10 +309,9 @@ function SetTargetsModal({ officers, onClose, onDone }: {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div style={{ gridColumn: '1 / -1' }}>
           <label style={lbl}>Officer</label>
-          <select value={officer} onChange={e => setOfficer(e.target.value)} style={inp}>
-            <option value="">— Select Officer —</option>
-            {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
-          </select>
+          <SelectMenu value={officer} onChange={setOfficer}
+            options={officers.map(o => ({ value: String(o.id), label: o.full_name }))}
+            placeholder="Choose an officer…" ariaLabel="Officer to set a target for" leadingIcon="badge" />
         </div>
         <div>
           <label style={lbl}>Period</label>
@@ -411,10 +421,12 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={lbl}>Strategy</label>
-            <select value={strategy} onChange={e => { setStrategy(e.target.value as any); setPreview(null) }} style={field}>
-              <option value="round_robin">Round-Robin (Even Split)</option>
-              <option value="by_state">By State (Keep States Together)</option>
-            </select>
+            <SelectMenu value={strategy} onChange={v => { setStrategy(v as any); setPreview(null) }}
+              options={[
+                { value: 'round_robin', label: 'Round-Robin', hint: 'Even split across officers' },
+                { value: 'by_state', label: 'By State', hint: 'Keep each state with one officer' },
+              ]}
+              searchable={false} ariaLabel="How to split the leads" />
           </div>
           <div>
             <label style={lbl}>Limit (Blank = All)</label>

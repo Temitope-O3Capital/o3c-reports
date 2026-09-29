@@ -512,6 +512,7 @@ func main() {
 			handlers.RegisterSalesTeams(r, db)        // flexible head→officers team model
 			handlers.RegisterSalesOverview(r, db)     // the team lead's dashboard
 			handlers.RegisterSalesApplications(r, db) // raise loan/card applications for a customer
+			handlers.RegisterSalesActivity(r, db)     // the officer's logged day + the head's calendar over it
 		})
 		r.Route("/api/cards", func(r chi.Router) {
 			handlers.RegisterCards(r, db)

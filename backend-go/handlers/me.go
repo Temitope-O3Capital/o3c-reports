@@ -86,7 +86,12 @@ func meDashboard(db *core.DB) http.HandlerFunc {
 			SELECT
 			  (SELECT COUNT(*) FROM helpdesk_tickets WHERE assigned_to=$1 AND status NOT IN ('resolved','closed')) AS open_tickets,
 			  (SELECT COUNT(*) FROM loan_applications WHERE assigned_to_user_id=$1 AND status NOT IN ('active','closed','rejected','cancelled')) AS my_apps,
-			  (SELECT COUNT(*) FROM bd_leads WHERE assigned_to=$1 AND stage NOT IN ('won','lost')) AS my_leads,
+			  -- Leads left bd_leads for crm_contacts when the two lead books were merged;
+			  -- bd_leads has held 0 rows since, so this KPI read 0 for every member of
+			  -- staff, on every dashboard, regardless of how many leads they owned.
+			  (SELECT COUNT(*) FROM crm_contacts
+			    WHERE sales_owner_id=$1
+			      AND lead_stage NOT IN ('converted','disqualified')) AS my_leads,
 			  (SELECT COUNT(*) FROM collection_assignments WHERE agent_user_id=$1 AND status='active') AS my_queue
 		`, uid); err == nil && len(rows) > 0 {
 			kpi["open_tickets"] = int(toInt64(rows[0]["open_tickets"]))
@@ -142,13 +147,22 @@ func meDashboard(db *core.DB) http.HandlerFunc {
 			out["applications"] = apps
 		}
 
-		// ── My BD leads ───────────────────────────────────────────────────────
-
+		// ── My leads ──────────────────────────────────────────────────────────
+		//
+		// Reads crm_contacts, the single lead store, for the same reason as the KPI
+		// above: bd_leads is empty and this list was always empty with it. The lead has
+		// no `title` column — a lead is a person — so the customer's name is the title,
+		// and the ordering key is the lead's own activity rather than row mtime, which
+		// on a synced table moves for reasons that are not the officer's work.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT id, title, stage, potential_value_kobo, created_at
-			FROM bd_leads
-			WHERE assigned_to=$1 AND stage NOT IN ('won','lost')
-			ORDER BY updated_at DESC LIMIT 10
+			SELECT id,
+			       NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') AS title,
+			       lead_stage AS stage,
+			       COALESCE(estimated_value_kobo,0) AS potential_value_kobo,
+			       created_at
+			FROM crm_contacts
+			WHERE sales_owner_id=$1 AND lead_stage NOT IN ('converted','disqualified')
+			ORDER BY COALESCE(last_activity_at, updated_at) DESC LIMIT 10
 		`, uid); err == nil {
 			leads := make([]leadRow, 0, len(rows))
 			for _, row := range rows {

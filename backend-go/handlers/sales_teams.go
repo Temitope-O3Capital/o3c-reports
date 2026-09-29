@@ -26,6 +26,15 @@ import (
 //   • own  — an officer: their own leads + the unowned pool (claimable).
 // A sales_head who has NOT been given a team yet falls back to 'all', so nothing
 // is stranded before an admin configures the teams.
+//
+// All three tiers narrow WITHIN the leads that have reached Sales — they never widen
+// past it. applyLeadScope gates on sales_entered_at first and scopes second, because
+// the two are not interchangeable: "unowned" is not the same question as "a lead".
+// Before migration 302 the queue scoped on lead_owner_id, which is the CALL CENTRE's
+// owner column and is set on every one of its 15,349 contacts and on no sales lead at
+// all. "Their own + the unowned pool" therefore resolved, for an officer, to nothing
+// of theirs plus every contact no agent had claimed — 15,146 rows, all of them people
+// who had emailed the help desk, and not one genuine lead.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type leadScopeMode string
@@ -77,12 +86,22 @@ func salesLeadScope(r *http.Request, db *core.DB, u *core.Claims) (leadScopeMode
 	if u.CanSeeAllRows() && !isSalesHead(u) {
 		return scopeAll, nil
 	}
-	// A head scoped to their team — unless they run no team yet (fallback to all so
-	// the 2 existing sales heads aren't stranded before teams are configured).
+	// Running a team is what grants team scope, not carrying the sales_head role.
+	// The two are not the same thing and the structure is the more truthful of the
+	// two: Team Ozioma and Team Ikechukwu Okoro are both headed by officers whose role
+	// is sales_officer, and under a role-only test each would run a team and still see
+	// nothing but their own leads. An admin naming someone head of a team IS the
+	// decision to let them see that team; requiring a second, separate role change to
+	// make it take effect just produces heads who silently cannot do their job.
+	//
+	// Checked before the role so a sales_head who runs a team is scoped to it rather
+	// than falling through to 'all'.
+	if ids := teamHeadOfficerIDs(r, db, u.ID); len(ids) > 0 {
+		return scopeTeam, ids
+	}
+	// A sales head with no team yet sees everything, so the heads who predate the team
+	// structure are not stranded before an admin configures it.
 	if isSalesHead(u) {
-		if ids := teamHeadOfficerIDs(r, db, u.ID); len(ids) > 0 {
-			return scopeTeam, ids
-		}
 		return scopeAll, nil
 	}
 	return scopeOwn, nil
@@ -92,6 +111,20 @@ func salesLeadScope(r *http.Request, db *core.DB, u *core.Claims) (leadScopeMode
 // (leads are aliased `c`). A head may narrow with ?owner_id=<id>|unassigned within
 // whatever their scope already permits.
 func applyLeadScope(r *http.Request, db *core.DB, u *core.Claims, where []string, args []any, n int) ([]string, []any, int) {
+	// The gate, applied before any scoping and independent of the caller: a contact is
+	// reachable as a lead only once it has actually reached Sales. Everything below
+	// narrows within this, so no role — not even 'all' — can surface a helpdesk contact
+	// or a call-centre lead that was never handed over. See migration 302.
+	where = append(where, "c.sales_entered_at IS NOT NULL")
+
+	// No session → match nothing. Every route that reaches here is authenticated, so
+	// this is unreachable in practice, but the 'own' branch below dereferences u and a
+	// scoping helper must never be the thing that fails open (or panics) if a caller is
+	// ever mounted outside the auth middleware.
+	if u == nil || u.ID == 0 {
+		return append(where, "FALSE"), args, n
+	}
+
 	mode, ids := salesLeadScope(r, db, u)
 	owner := qstr(r, "owner_id")
 	switch mode {
@@ -99,10 +132,10 @@ func applyLeadScope(r *http.Request, db *core.DB, u *core.Claims, where []string
 		switch owner {
 		case "":
 		case "unassigned":
-			where = append(where, "c.lead_owner_id IS NULL")
+			where = append(where, "c.sales_owner_id IS NULL")
 		default:
 			if id, err := parseUserID(owner); err == nil {
-				where = append(where, fmt.Sprintf("c.lead_owner_id = $%d", n))
+				where = append(where, fmt.Sprintf("c.sales_owner_id = $%d", n))
 				args = append(args, id)
 				n++
 			}
@@ -110,22 +143,22 @@ func applyLeadScope(r *http.Request, db *core.DB, u *core.Claims, where []string
 	case scopeTeam:
 		switch owner {
 		case "unassigned":
-			where = append(where, "c.lead_owner_id IS NULL")
+			where = append(where, "c.sales_owner_id IS NULL")
 		case "":
-			where = append(where, fmt.Sprintf("(c.lead_owner_id = ANY($%d) OR c.lead_owner_id IS NULL)", n))
+			where = append(where, fmt.Sprintf("(c.sales_owner_id = ANY($%d) OR c.sales_owner_id IS NULL)", n))
 			args = append(args, ids)
 			n++
 		default:
 			// A head narrowing to one officer — allowed regardless of team so a
 			// mis-typed id simply returns nothing rather than leaking another team.
 			if id, err := parseUserID(owner); err == nil {
-				where = append(where, fmt.Sprintf("c.lead_owner_id = $%d", n))
+				where = append(where, fmt.Sprintf("c.sales_owner_id = $%d", n))
 				args = append(args, id)
 				n++
 			}
 		}
 	default: // own
-		where = append(where, fmt.Sprintf("(c.lead_owner_id = $%d OR c.lead_owner_id IS NULL)", n))
+		where = append(where, fmt.Sprintf("(c.sales_owner_id = $%d OR c.sales_owner_id IS NULL)", n))
 		args = append(args, u.ID)
 		n++
 	}
@@ -184,6 +217,42 @@ func listSalesTeams(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not load members", err)
 			return
 		}
+		// Per-officer lead figures, rolled up to the team below. A roster that only says
+		// who is on which team answers an org-chart question; the page is used to see how
+		// the teams are doing, which needs the book attached to the names.
+		//
+		// The head is counted in their own team's figures — a head carries leads too, and
+		// teamHeadOfficerIDs already treats them as part of the team everywhere else, so
+		// leaving them out here would make this page disagree with the Leads queue.
+		perf, err := db.PGQuery(r.Context(), `
+			WITH roster AS (
+			    SELECT m.team_id, m.user_id FROM app.sales_team_members m
+			    UNION
+			    SELECT t.id, t.head_user_id FROM app.sales_teams t WHERE t.head_user_id IS NOT NULL
+			)
+			SELECT r.team_id,
+			       COUNT(c.id) FILTER (WHERE c.lead_stage IN (`+openLeadStagesSQL+`))      AS open_leads,
+			       COUNT(c.id) FILTER (WHERE c.lead_stage = 'qualified')                    AS qualified,
+			       COUNT(c.id) FILTER (WHERE c.lead_stage = 'converted'
+			                             AND c.converted_at >= date_trunc('month', NOW()))  AS converted_mtd,
+			       COUNT(c.id) FILTER (WHERE c.next_action_at IS NOT NULL
+			                             AND c.next_action_at <= NOW()
+			                             AND c.lead_stage IN (`+openLeadStagesSQL+`))       AS overdue,
+			       COALESCE(SUM(c.estimated_value_kobo) FILTER (
+			           WHERE c.lead_stage IN (`+openLeadStagesSQL+`)), 0)                   AS pipeline_kobo
+			  FROM roster r
+			  LEFT JOIN app.crm_contacts c
+			         ON c.sales_owner_id = r.user_id AND c.sales_entered_at IS NOT NULL
+			 GROUP BY r.team_id`)
+		if err != nil {
+			respondErrLog(w, 500, "Could not load team performance", err)
+			return
+		}
+		perfByTeam := map[int64]map[string]any{}
+		for _, p := range perf {
+			perfByTeam[toInt64(p["team_id"])] = p
+		}
+
 		byTeam := map[int64][]map[string]any{}
 		for _, m := range members {
 			tid := toInt64(m["team_id"])
@@ -199,11 +268,22 @@ func listSalesTeams(db *core.DB) http.HandlerFunc {
 			if mem == nil {
 				mem = []map[string]any{}
 			}
-			out = append(out, map[string]any{
+			row := map[string]any{
 				"id": tid, "name": str(t["name"]), "head_user_id": toInt64(t["head_user_id"]),
 				"head_name": str(t["head_name"]), "is_active": t["is_active"],
 				"member_count": toInt64(t["member_count"]), "members": mem,
-			})
+			}
+			// Zeroed rather than absent when a team has no leads yet, so the page renders
+			// "0" instead of a blank where a number belongs.
+			p := perfByTeam[tid]
+			for _, k := range []string{"open_leads", "qualified", "converted_mtd", "overdue", "pipeline_kobo"} {
+				if p != nil {
+					row[k] = toInt64(p[k])
+				} else {
+					row[k] = int64(0)
+				}
+			}
+			out = append(out, row)
 		}
 		respond(w, out, "pg")
 	}

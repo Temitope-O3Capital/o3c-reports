@@ -3,7 +3,17 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ErrBanner, DateFilter, filterInputStyle } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
+import { fmtNum, fmtPct, today } from '../../lib/fmt'
+
+/** First day of the month N months before this one, as YYYY-MM-DD. */
+function monthsAgo(n: number): string {
+  const d = new Date()
+  // Day 1 before shifting the month: on the 31st, setMonth(-1) would land on a month
+  // that has no 31st and roll forward, skipping a month.
+  d.setDate(1)
+  d.setMonth(d.getMonth() - n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
 import { currentUser, isSalesHead } from '../../hooks/useAuth'
 import { NAVY, GREEN, AMBER, RED, BLUE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { EArea, EFunnel } from '../../components/echarts'
@@ -73,7 +83,26 @@ export default function SalesCohort() {
   const [officer,  setOfficer]  = useState('')   // '' = all officers (head only)
   const [loading,  setLoading]  = useState(true)
   const [err,      setErr]      = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState(monthStart())
+  // Two years back, not the current month.
+  //
+  // This page defaulted to monthStart() → today(), and that one default broke both of its
+  // headline panels — not by any fault in their queries, but because a cohort page cannot
+  // say anything about a one-month window:
+  //
+  //   New Accounts: Monthly Trend   one month of data is one point, and a single-point
+  //                                 trend line draws nothing.
+  //   Avg 6m Retention              the filter became cohort_month >= the 1st of this
+  //                                 month, leaving only a cohort zero months old. Six-month
+  //                                 retention on it is NULL by definition, so the tile
+  //                                 showed "—" for ever.
+  //
+  // Both work on real data as soon as the window is long enough: the 2026-03, 2026-02 and
+  // 2026-01 cohorts report 47.6%, 16.3% and 43.5% six-month retention respectively.
+  //
+  // 24 months matches the horizon the cohort query already uses (it builds cohorts from
+  // the last 24 months and returns at most 24 rows), so the default asks for exactly what
+  // the backend is prepared to answer rather than a window it will silently truncate.
+  const [dateFrom, setDateFrom] = useState(monthsAgo(24))
   const [dateTo,   setDateTo]   = useState(today())
 
   const officerQ = officer ? `&officer_id=${officer}` : ''

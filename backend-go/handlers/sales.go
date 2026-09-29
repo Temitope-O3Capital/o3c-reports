@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -12,17 +13,28 @@ import (
 // salesOfficerPredicate decides who counts as a sales/account officer, as a SQL
 // fragment over an `o3c_users u`.
 //
-// It is deliberately not a bare `u.role IN (...)` list. Role literals were the
-// reason every per-officer view rendered empty: nobody in o3c_users carries a
-// sales_* role, yet people are demonstrably doing the job. Holding a book or
-// carrying a target is evidence of the role regardless of the label on the
-// account, so the predicate treats those as qualifying too. That way an officer
-// shows up the moment they are given customers, without waiting on an admin to
-// re-label them.
+// It is deliberately not a bare `u.role IN (...)` list. Role literals alone were the
+// reason every per-officer view once rendered empty, and each clause here is a
+// DELIBERATE act that puts someone on the sales floor: carrying a sales role, being
+// given a sales target, or being put on a sales team.
+//
+// HOLDING CUSTOMERS IS NOT ONE OF THEM, and used to be. "Is the account officer on at
+// least one customer" sounds like evidence of doing the job, but measured on 28 Sept
+// 2026 it put seven people into Team Performance who are not on the sales floor —
+// the MD, the CFO, the COO, the CMO, and the cards, settlement and finance heads —
+// each because they personally hold a customer or two. They were ranked in the sales
+// league table against officers carrying real books, which flatters nobody and makes
+// the table's averages meaningless.
+//
+// Every one of those seven had no sales target and sat on no team; all 15 genuine
+// officers and heads are kept by the clauses below. An officer given customers but no
+// target and no team no longer appears here on that basis alone — putting them on a
+// team is the act that says they are on the floor, and it takes one click on Teams.
 const salesOfficerPredicate = `
-	u.role IN ('sales_officer','sales_head','head_sales','bd_officer','bd_head')
-	OR EXISTS (SELECT 1 FROM customer_officers co WHERE co.officer_id = u.id)
-	OR EXISTS (SELECT 1 FROM sales_targets st WHERE st.user_id = u.id)`
+	u.role IN ('sales_officer','sales_head','head_sales','account_officer','bd_officer','bd_head')
+	OR EXISTS (SELECT 1 FROM sales_targets st WHERE st.user_id = u.id)
+	OR EXISTS (SELECT 1 FROM app.sales_team_members m WHERE m.user_id = u.id)
+	OR EXISTS (SELECT 1 FROM app.sales_teams t WHERE t.head_user_id = u.id)`
 
 // crmLeadStageCase maps the stored lead_stage vocabulary onto the five display
 // stages the sales UI colours (Prospect/Qualified/Proposal/Negotiation/Won). Shared
@@ -132,15 +144,19 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 			"unowned_leads": []core.Row{},
 		}
 
-		// Team totals across the whole lead book.
+		// Team totals across the whole SALES lead book. The sales_entered_at gate is what
+		// makes "the whole lead book" mean the sales book: crm_contacts is shared with
+		// the call centre and the help desk, so an ungated count reported 32,092 leads
+		// when Sales had 185 — 16,752 of the rest were Zoho Desk support contacts.
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT
 			  COUNT(*) FILTER (WHERE status='lead')                                              AS total_leads,
-			  COUNT(*) FILTER (WHERE status='lead' AND lead_owner_id IS NULL)                     AS unowned_leads,
+			  COUNT(*) FILTER (WHERE status='lead' AND sales_owner_id IS NULL)                     AS unowned_leads,
 			  COUNT(*) FILTER (WHERE status='customer' AND converted_at>=DATE_TRUNC('month',NOW())) AS converted_mtd,
 			  COUNT(*) FILTER (WHERE status='lead' AND next_action_at::date < CURRENT_DATE)        AS overdue_followups,
 			  COALESCE(SUM(estimated_value_kobo) FILTER (WHERE status='lead'),0)                   AS pipeline_kobo
-			FROM crm_contacts`); len(rows) > 0 {
+			FROM crm_contacts
+			WHERE sales_entered_at IS NOT NULL`); len(rows) > 0 {
 			out["totals"] = rows[0]
 		}
 
@@ -158,7 +174,7 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 			  COALESCE(SUM(c.estimated_value_kobo) FILTER (WHERE c.status='lead'),0)               AS pipeline_kobo,
 			  (SELECT COUNT(*) FROM customer_officers co WHERE co.officer_id=u.id)                 AS book_size
 			FROM o3c_users u
-			LEFT JOIN crm_contacts c ON c.lead_owner_id = u.id
+			LEFT JOIN crm_contacts c ON c.sales_owner_id = u.id
 			WHERE u.deleted_at IS NULL AND u.is_active AND (`+salesOfficerPredicate+`)
 			GROUP BY u.id, u.full_name, u.role, u.is_active
 			ORDER BY open_leads DESC, converted_mtd DESC, u.full_name`); len(rows) > 0 {
@@ -185,8 +201,9 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 			  NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') AS name,
 			  COALESCE(lead_source,'unrecorded') AS lead_source, phone, created_at
 			FROM crm_contacts
-			WHERE status='lead' AND lead_owner_id IS NULL
-			ORDER BY created_at DESC NULLS LAST
+			WHERE status='lead' AND sales_owner_id IS NULL
+			  AND sales_entered_at IS NOT NULL
+			ORDER BY sales_entered_at DESC NULLS LAST
 			LIMIT 12`); len(rows) > 0 {
 			out["unowned_leads"] = rows
 		}
@@ -206,8 +223,9 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 // render — the officer's home page was a white screen. This rebuilds the handler
 // to emit exactly that contract from the tables that actually hold sales data:
 //
-//   - leads/pipeline  → crm_contacts, owned via lead_owner_id (the canonical
-//     lead-owner column used across the sales module)
+//   - leads/pipeline  → crm_contacts, owned via sales_owner_id (Sales's own owner
+//     column, distinct from the call centre's lead_owner_id;
+//     see migration 302 and applyLeadScope)
 //   - target          → sales_targets.disbursement_kobo for the current month
 //   - achieved        → loans + FDs booked this month on the CIFs this officer
 //     owns (customer_officers) — the SAME attribution the
@@ -255,7 +273,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			       ELSE ROUND(COUNT(*) FILTER (WHERE status = 'customer')::numeric
 			                  / COUNT(*)::numeric * 100, 1) END                                AS conversion_rate_pct
 			FROM crm_contacts
-			WHERE lead_owner_id = $1`, uid); len(rows) > 0 {
+			WHERE sales_owner_id = $1`, uid); len(rows) > 0 {
 			result["my_leads"] = rows[0]["my_leads"]
 			result["won_mtd"] = rows[0]["won_mtd"]
 			result["conversion_rate_pct"] = rows[0]["conversion_rate_pct"]
@@ -335,7 +353,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			         COUNT(*)                              AS count,
 			         COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
 			  FROM crm_contacts
-			  WHERE lead_owner_id = $1 AND status = 'lead'
+			  WHERE sales_owner_id = $1 AND status = 'lead'
 			  GROUP BY 1
 			) s
 			ORDER BY CASE stage WHEN 'Prospect' THEN 1 WHEN 'Qualified' THEN 2
@@ -356,7 +374,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			  updated_at,
 			  0                                                                                 AS lead_score
 			FROM crm_contacts
-			WHERE lead_owner_id = $1
+			WHERE sales_owner_id = $1
 			ORDER BY updated_at DESC NULLS LAST
 			LIMIT 15`, uid); len(rows) > 0 {
 			result["recent_leads"] = rows
@@ -373,7 +391,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			  COUNT(c.id) FILTER (WHERE DATE_TRUNC('month', c.converted_at) = m.m) AS won
 			FROM months m
 			LEFT JOIN crm_contacts c
-			  ON c.lead_owner_id = $1
+			  ON c.sales_owner_id = $1
 			 AND (DATE_TRUNC('month', c.created_at) = m.m
 			   OR DATE_TRUNC('month', c.converted_at) = m.m)
 			GROUP BY m.m ORDER BY m.m`, uid); len(rows) > 0 {
@@ -385,11 +403,11 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 		// book size, so an officer who has not converted yet is ordered by effort.
 		if rows, _ := db.PGQuery(ctx, `
 			WITH officer AS (
-			  SELECT lead_owner_id AS uid,
+			  SELECT sales_owner_id AS uid,
 			         COUNT(*) FILTER (WHERE status='customer'
 			                          AND converted_at >= DATE_TRUNC('month',NOW())) AS won,
 			         COUNT(*) AS owned
-			  FROM crm_contacts WHERE lead_owner_id IS NOT NULL GROUP BY 1
+			  FROM crm_contacts WHERE sales_owner_id IS NOT NULL GROUP BY 1
 			),
 			ranked AS (
 			  SELECT uid, RANK() OVER (ORDER BY won DESC, owned DESC) AS rnk,
@@ -412,7 +430,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			                   AND (last_activity_at IS NULL
 			                        OR last_activity_at < NOW() - INTERVAL '14 days'))          AS stalled_leads
 			FROM crm_contacts
-			WHERE lead_owner_id = $1 AND status = 'lead'`, uid); len(rows) > 0 {
+			WHERE sales_owner_id = $1 AND status = 'lead'`, uid); len(rows) > 0 {
 			result["followups_due"] = rows[0]["followups_due"]
 			result["followups_overdue"] = rows[0]["followups_overdue"]
 			result["stalled_leads"] = rows[0]["stalled_leads"]
@@ -425,7 +443,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			  next_action_at, lead_stage, phone,
 			  COALESCE(estimated_value_kobo,0) AS estimated_value_kobo
 			FROM crm_contacts
-			WHERE lead_owner_id = $1 AND status = 'lead' AND next_action_at IS NOT NULL
+			WHERE sales_owner_id = $1 AND status = 'lead' AND next_action_at IS NOT NULL
 			ORDER BY next_action_at ASC
 			LIMIT 12`, uid); len(rows) > 0 {
 			result["next_followups"] = rows
@@ -597,17 +615,29 @@ func salesContactKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
 		to := qstr(r, "to")
-		rows, err := db.PGQuery(r.Context(), `
+		// Scoped to the caller's sales book, using the same gate and scope as the Contacts
+		// list above it. Unscoped, these four counted the whole 46k-row crm_contacts
+		// table: "Total Contacts" was overwhelmingly helpdesk tickets, and "Conversion
+		// Rate" was the helpdesk's customer ratio printed on a Sales page under a Sales
+		// label. A KPI that does not agree with the table beneath it teaches people to
+		// distrust both.
+		u := core.UserFromCtx(r.Context())
+		whereParts, sargs, _ := applyLeadScope(r, db, u, nil, nil, 3)
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 				COUNT(*)                                                                      AS total,
-				COUNT(*) FILTER (WHERE updated_at >= DATE_TRUNC('month', NOW()))              AS active_this_month,
-				COUNT(*) FILTER (WHERE ($1='' OR created_at::date >= $1::date)
-				                   AND ($2='' OR created_at::date <= $2::date))               AS new_this_month,
+				COUNT(*) FILTER (WHERE c.updated_at >= DATE_TRUNC('month', NOW()))            AS active_this_month,
+				COUNT(*) FILTER (WHERE ($1='' OR c.sales_entered_at::date >= $1::date)
+				                   AND ($2='' OR c.sales_entered_at::date <= $2::date))       AS new_this_month,
+				-- Converted on ANY product line, not status='customer'. A lead who took a
+				-- loan or a fixed deposit is converted even though the cards-shaped status
+				-- never moved — that was the whole point of migration 304.
 				CASE WHEN COUNT(*) = 0 THEN 0::numeric
-				     ELSE ROUND(COUNT(*) FILTER (WHERE status='customer')::numeric
+				     ELSE ROUND(COUNT(*) FILTER (WHERE c.converted_line IS NOT NULL)::numeric
 				                / COUNT(*)::numeric * 100, 1)
 				END                                                                           AS conversion_rate_pct
-			FROM crm_contacts`, from, to)
+			FROM crm_contacts c
+			WHERE %s`, strings.Join(whereParts, " AND ")), append([]any{from, to}, sargs...)...)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total": int64(0), "active_this_month": int64(0),
@@ -624,15 +654,39 @@ func salesTaskKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
 		to := qstr(r, "to")
-		rows, err := db.PGQuery(r.Context(), `
+		// Scoped the same way listTasks scopes its list: your own follow-ups by default,
+		// your team's if you run one, everything only with an all-rows role. Unscoped,
+		// "Overdue" counted the whole company's overdue follow-ups above a table showing
+		// only yours.
+		// Every placeholder below has to be referenced by the predicate that ships with
+		// it — the driver rejects a statement supplied more parameters than it binds — so
+		// the args are built alongside the clause rather than up front.
+		u := core.UserFromCtx(r.Context())
+		args := []any{from, to}
+		scope := "FALSE" // no session → count nothing rather than everything
+		if u != nil {
+			mode, ids := salesLeadScope(r, db, u)
+			switch {
+			case mode == scopeAll:
+				scope = "TRUE"
+			case mode == scopeTeam && len(ids) > 0:
+				scope = "t.assigned_to = ANY($3)"
+				args = append(args, ids)
+			default:
+				scope = "(t.assigned_to = $3 OR t.created_by = $3)"
+				args = append(args, u.ID)
+			}
+		}
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
-				COUNT(*)                                                                      AS total,
-				COUNT(*) FILTER (WHERE status='open')                                        AS open,
-				COUNT(*) FILTER (WHERE status NOT IN ('done','cancelled') AND due_date<NOW()) AS overdue,
-				COUNT(*) FILTER (WHERE status='done'
-				    AND ($1='' OR updated_at::date >= $1::date)
-				    AND ($2='' OR updated_at::date <= $2::date))                             AS completed_this_month
-			FROM crm_tasks`, from, to)
+				COUNT(*)                                                                        AS total,
+				COUNT(*) FILTER (WHERE t.status='open')                                         AS open,
+				COUNT(*) FILTER (WHERE t.status NOT IN ('done','cancelled') AND t.due_date<NOW()) AS overdue,
+				COUNT(*) FILTER (WHERE t.status='done'
+				    AND ($1='' OR t.updated_at::date >= $1::date)
+				    AND ($2='' OR t.updated_at::date <= $2::date))                              AS completed_this_month
+			FROM crm_tasks t
+			WHERE %s`, scope), args...)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total": int64(0), "open": int64(0),

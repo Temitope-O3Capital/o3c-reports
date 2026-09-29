@@ -468,8 +468,15 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 			lastName = parts[1]
 		}
 
-		// The BD officer owns what they raise unless an explicit assignee is supplied;
-		// lead_owner_id mirrors assigned_to so the lead also surfaces in the Sales queue.
+		// The BD officer owns what they raise unless an explicit assignee is supplied.
+		//
+		// sales_owner_id and sales_entered_at are what put the lead in the Sales queue.
+		// This used to mirror assigned_to into lead_owner_id and claim in a comment that
+		// doing so surfaced the lead in Sales; it never did after migration 302 moved the
+		// queue onto Sales's own owner column, and lead_owner_id is the call centre's
+		// book. A BD lead is in Sales from the moment it is raised — BD raises it FOR
+		// Sales — so it is stamped here rather than waiting for a hand-off that has no
+		// step to fire on.
 		var assignedTo any = user.ID
 		if b.AssignedTo != nil && *b.AssignedTo != 0 {
 			assignedTo = *b.AssignedTo
@@ -480,10 +487,12 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 			`INSERT INTO crm_contacts
 			 (first_name, last_name, phone, email, employer, employer_id, notes, status,
 			  lead_stage, lead_source, source, source_type, estimated_value_kobo,
-			  assigned_to, lead_owner_id, created_by, created_at, updated_at)
+			  assigned_to, sales_owner_id, created_by, created_at, updated_at,
+			  sales_entered_at, sales_source)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,'lead',
 			         $8,'business_dev','business_dev','bd_self_sourced',$9,
-			         $10,$10,$11,NOW(),NOW())
+			         $10,$10,$11,NOW(),NOW(),
+			         NOW(),'business_dev')
 			 RETURNING id`,
 			firstName, lastName, b.ContactPhone, b.ContactEmail,
 			nullIfEmpty(get(b.CompanyName)), b.EmployerID, b.Notes,
@@ -577,9 +586,11 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 			q += fmt.Sprintf(", stage_changed_at=CASE WHEN c.lead_stage IS DISTINCT FROM $%d THEN NOW() ELSE c.stage_changed_at END", n-1)
 		}
 		if b.AssignedTo != nil {
-			// Keep assigned_to and lead_owner_id in step so BD and Sales agree on owner.
+			// Keep assigned_to and sales_owner_id in step so BD and Sales agree on owner.
+			// sales_owner_id, not lead_owner_id: reassigning a BD lead must move it in the
+			// Sales queue, and must not touch the call centre's own book.
 			add("assigned_to", *b.AssignedTo)
-			add("lead_owner_id", *b.AssignedTo)
+			add("sales_owner_id", *b.AssignedTo)
 		}
 		if b.Notes != nil {
 			add("notes", *b.Notes)
@@ -843,10 +854,12 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 				INSERT INTO crm_contacts
 					(first_name, last_name, phone, email, employer, notes, status, lead_stage,
 					 lead_source, source, source_type, estimated_value_kobo,
-					 assigned_to, lead_owner_id, created_by, created_at, updated_at)
+					 assigned_to, sales_owner_id, created_by, created_at, updated_at,
+					 sales_entered_at, sales_source)
 				VALUES ($1,$2,$3,$4,$5,$6,'lead',$7,
 				        'business_dev','business_dev','bd_self_sourced',$8,
-				        $9,$9,$9,NOW(),NOW())`,
+				        $9,$9,$9,NOW(),NOW(),
+				        NOW(),'business_dev')`,
 				firstName, lastName, coalesce(phone, ""), coalesce(email, ""),
 				nullIfEmpty(companyName), coalesce(notes, ""), leadStage, valueKobo, user.ID)
 			if err != nil {

@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { EBar } from '../../components/echarts'
-import { Page, KpiCard, SectionCard, DataTable, Sk, DateFilter, Modal } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, Sk, DateFilter, Modal, Tabs } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { SelectMenu } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate, fmtDatetime, n } from '../../lib/fmt'
 import { RED, GREEN, BLUE, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -161,9 +162,19 @@ export default function SalesOverview() {
   const [err, setErr] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string | number>>(new Set())
   const [assignFor, setAssignFor] = useState<{ cifs: string[]; label: string } | null>(null)
+  // Which of the four questions the reader is asking. Defaults to Acquisition, the one
+  // the KPI strip above the tabs is already answering.
+  const [tab, setTab] = useState('acquisition')
 
   const qs = win.from || win.to ? `?from=${win.from}&to=${win.to}` : ''
   const windowLabel = win.from || win.to ? `${fmtDate(win.from)} – ${fmtDate(win.to)}` : 'All time'
+
+  // The count on the Needs Attention tab: the three worklists that are somebody's job
+  // today. The unassigned book is deliberately NOT in it — it is a standing backlog of
+  // 20,600, and adding it would pin the badge to a number that never moves and never
+  // means "act now", which is the whole reason the banner version of it was removed.
+  const attentionCount =
+    n(attn?.overdue_actions_total) + n(attn?.unowned_leads_total) + n(attn?.stalled_leads_total)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -372,34 +383,28 @@ export default function SalesOverview() {
         </div>
       )}
 
-      {(noTeam || n(summary?.unassigned) > 0) && !loading && (
+      {/* The standing "20,600 customers have no account officer" banner is deliberately
+          gone. It was true, and it stayed true every single day, so it had stopped being
+          a notice and become furniture at the top of the page — the one place a reader's
+          eye lands first, spent on a fact nobody was going to act on that morning. The
+          number itself is not lost: it is a tile in Needs Attention below, which is where
+          a standing backlog belongs, and it still deep-links to the unassigned book.
+
+          The "nobody holds a book yet" caveat is kept, because unlike the backlog it is a
+          transient first-run state that a single action clears for good. */}
+      {noTeam && !loading && (
         <div style={{ display: 'grid', gap: 10, marginBottom: SP[4] }}>
-          {noTeam && (
-            <Caveat icon="group_add" tone={BLUE}>
-              <strong>Nobody holds a book yet.</strong> Officers appear here as soon as
-              they are given customers. You can assign to any active user, so this does
-              not wait on new accounts or role changes.{' '}
-              <button
-                onClick={() => navigate('/sales/book?officer_id=unassigned')}
-                style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
-              >
-                Assign the Book
-              </button>
-            </Caveat>
-          )}
-          {n(summary?.unassigned) > 0 && (
-            <Caveat icon="assignment_late" tone={AMBER}>
-              <strong>{fmtNum(summary?.unassigned)} customers have no account officer.</strong>{' '}
-              Ownership used to live in the retired card system and was never carried
-              across, so the book starts unassigned.{' '}
-              <button
-                onClick={() => navigate('/sales/book?officer_id=unassigned')}
-                style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
-              >
-                Assign Them
-              </button>
-            </Caveat>
-          )}
+          <Caveat icon="group_add" tone={BLUE}>
+            <strong>Nobody holds a book yet.</strong> Officers appear here as soon as
+            they are given customers. You can assign to any active user, so this does
+            not wait on new accounts or role changes.{' '}
+            <button
+              onClick={() => navigate('/sales/book?officer_id=unassigned')}
+              style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
+            >
+              Assign the Book
+            </button>
+          </Caveat>
         </div>
       )}
 
@@ -443,6 +448,29 @@ export default function SalesOverview() {
           onClick={() => navigate('/sales/leads')} />
       </div>
 
+      {/* ── The nine sections below live behind three tabs ──────────────────────
+          They used to stack, which made this the longest page in the workspace: a KPI
+          strip, a six-tile band and then nine cards, most of a dozen screens of
+          scrolling. Nothing was wrong with any one of them — the problem was that
+          answering "how are we doing?" meant scrolling past "which branch?" and "whose
+          feed is stale?" to get there.
+
+          The strip and the tile band stay above the tabs on purpose: they are the summary
+          and the navigation, and they answer the page's first question without a click.
+          The tabs are the three reasons someone opens this page — how the team is
+          performing, what is in the pipeline against target, and what needs doing today. */}
+      <Tabs
+        tabs={[
+          { key: 'acquisition', label: 'Acquisition' },
+          { key: 'pipeline', label: 'Pipeline & Targets' },
+          { key: 'team', label: 'Team' },
+          { key: 'attention', label: 'Needs Attention', badge: attentionCount || undefined },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+
+      {tab === 'acquisition' && (<>
       {/* Acquisition trend (period-wired) + lead sources (period-wired) */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
         <SectionCard
@@ -499,6 +527,9 @@ export default function SalesOverview() {
         </SectionCard>
       </div>
 
+      </>)}
+
+      {tab === 'pipeline' && (<>
       {/* Pipeline by product + team targets (current state — not window-scoped) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: SP[4] }}>
         <SectionCard title="Open Pipeline by Product" subtitle="Leads in play, by line: click to filter">
@@ -582,6 +613,9 @@ export default function SalesOverview() {
         </SectionCard>
       </div>
 
+      </>)}
+
+      {tab === 'team' && (<>
       {/* Team league table (period-wired) */}
       <SectionCard
         title="Team Performance"
@@ -662,6 +696,9 @@ export default function SalesOverview() {
         )}
       </SectionCard>
 
+      </>)}
+
+      {tab === 'attention' && (<>
       {/* What needs attention + book health */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
         <SectionCard title="Needs Attention" subtitle="Book gaps and leads that have stopped moving">
@@ -784,6 +821,8 @@ export default function SalesOverview() {
         </SectionCard>
       )}
 
+      </>)}
+
       {assignFor && (
         <AssignModal
           cifs={assignFor.cifs}
@@ -849,14 +888,12 @@ function AssignModal({ cifs, label, onClose, onDone }: {
         </div>
         <div>
           <label style={lbl}>Sales Rep</label>
-          <select value={officer} onChange={e => setOfficer(e.target.value)} style={inp}>
-            <option value="">— Select Rep —</option>
-            {officers.map(o => (
-              <option key={o.id} value={o.id}>
-                {o.full_name}{o.book_size > 0 ? ` · ${fmtNum(o.book_size)} on book` : ''}
-              </option>
-            ))}
-          </select>
+          <SelectMenu value={officer} onChange={setOfficer}
+            options={officers.map(o => ({
+              value: String(o.id), label: o.full_name,
+              hint: o.book_size > 0 ? `${fmtNum(o.book_size)} on book` : 'No book yet',
+            }))}
+            placeholder="Choose a rep…" ariaLabel="Sales rep to assign to" leadingIcon="badge" />
         </div>
         <div>
           <label style={lbl}>Reason <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}>(Optional)</span></label>

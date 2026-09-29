@@ -132,73 +132,110 @@ func listContacts(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
-		where := "1=1"
-		var args []any
-		n := 1
+
+		// crm_contacts is shared by Sales, the call centre and Zoho Desk, and this
+		// handler used to open with `1=1` — no gate and no owner scope — so the Contacts
+		// page rendered all 31,053 non-customer rows: 15,748 call-centre contacts and
+		// 15,305 helpdesk tickets, of which exactly 185 had ever reached Sales. Every row
+		// came with Edit, Archive and Bulk Assign. That is the same hole migration 302
+		// closed on the Leads page, still open one route over.
+		//
+		// The fix is deliberately the SAME gate and the SAME scope rules as Leads rather
+		// than a second set: one table, one mental model, and a rep who cannot see a
+		// contact as a lead cannot see it here either. applyLeadScope appends the
+		// sales_entered_at gate before any role-based widening, so no caller — including
+		// 'all' — can reach a contact that never reached Sales.
+		u := core.UserFromCtx(r.Context())
+		whereParts, args, n := applyLeadScope(r, db, u, nil, nil, 1)
 
 		if q := qstr(r, "q"); q != "" {
 			if clause, sargs, nn := buildCustomerSearch(q,
 				[]string{"c.first_name", "c.last_name", "c.email", "c.cif_number", "c.phone"}, "c.phone", n); clause != "" {
-				where += " AND " + clause
+				whereParts = append(whereParts, clause)
 				args = append(args, sargs...)
 				n = nn
 			}
 		}
 		if v := qstr(r, "status"); v != "" {
-			where += fmt.Sprintf(" AND c.status=$%d", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.status=$%d", n))
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "exclude_status"); v != "" {
-			where += fmt.Sprintf(" AND c.status != $%d", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.status != $%d", n))
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "source"); v != "" {
-			where += fmt.Sprintf(" AND c.source=$%d", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.source=$%d", n))
+			args = append(args, v)
+			n++
+		}
+		// How the contact reached Sales (call_centre | business_dev | self), which is the
+		// distinction a rep actually filters on. c.source is the upstream system that
+		// created the row and reads 'call_centre' or 'zoho_desk' for every row in the
+		// table, so it can never usefully narrow a Sales list.
+		if v := qstr(r, "sales_source"); v != "" {
+			whereParts = append(whereParts, fmt.Sprintf("c.sales_source=$%d", n))
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "source_type"); v != "" {
-			where += fmt.Sprintf(" AND c.source_type=$%d", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.source_type=$%d", n))
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "employer_id"); v != "" {
-			where += fmt.Sprintf(" AND c.employer_id=$%d", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.employer_id=$%d", n))
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "assigned_to"); v != "" {
-			where += fmt.Sprintf(" AND c.assigned_to=$%d", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.assigned_to=$%d", n))
 			args = append(args, v)
 			n++
 		}
+		// Date filters run on sales_entered_at, not created_at: what matters on a Sales
+		// page is when the contact reached Sales, not when the call centre or the helpdesk
+		// first created the row — which for a backfilled forward is a different month.
 		if v := qstr(r, "from"); v != "" {
-			where += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.sales_entered_at::date >= $%d::date", n))
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "to"); v != "" {
-			where += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
+			whereParts = append(whereParts, fmt.Sprintf("c.sales_entered_at::date <= $%d::date", n))
 			args = append(args, v)
 			n++
 		}
+		where := strings.Join(whereParts, " AND ")
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT c.*,
 			       u.full_name  AS assigned_name,
+			       so.full_name AS sales_owner_name,
 			       cb.full_name AS created_by_name,
 			       e.name       AS employer_name,
 			       (SELECT COUNT(*) FROM crm_deals      d WHERE d.contact_id=c.id)                       AS deal_count,
 			       (SELECT COUNT(*) FROM crm_activities a WHERE a.contact_id=c.id)                       AS activity_count,
-			       (SELECT COUNT(*) FROM crm_tasks      t WHERE t.contact_id=c.id AND t.status='open')   AS open_tasks
+			       (SELECT COUNT(*) FROM crm_tasks      t WHERE t.contact_id=c.id AND t.status='open')   AS open_tasks,
+			       -- The real activity trail lives in app.activities; crm_activities has
+			       -- never had a row written to it. Counting only the latter is why every
+			       -- contact looked untouched.
+			       --
+			       -- Joined on contact_id, not lead_id: both columns reference crm_contacts,
+			       -- but lead_id carries ZERO rows for the sales-gated leads (measured), so
+			       -- the natural-looking column is the wrong one. leadTimeline uses contact_id
+			       -- for the same reason.
+			       (SELECT COUNT(*) FROM app.activities a WHERE a.contact_id=c.id)                       AS sales_activity_count,
+			       (SELECT MAX(a.occurred_at) FROM app.activities a WHERE a.contact_id=c.id)             AS last_touch_at
 			FROM crm_contacts c
 			LEFT JOIN o3c_users u  ON u.id=c.assigned_to
+			LEFT JOIN o3c_users so ON so.id=c.sales_owner_id
 			LEFT JOIN o3c_users cb ON cb.id=c.created_by
 			LEFT JOIN employers e  ON e.id=c.employer_id
 			WHERE %s
-			ORDER BY c.updated_at DESC
+			ORDER BY c.sales_entered_at DESC NULLS LAST, c.updated_at DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), append(args, limit, offset)...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -1112,27 +1149,47 @@ func listTasks(db *core.DB) http.HandlerFunc {
 		// this handler ran ALTER TABLE on every request — moved to a migration).
 		limit := qint(r, "limit", 200, 1, 500)
 		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "sign in first")
+			return
+		}
 		where := "1=1"
 		var args []any
 		n := 1
 
-		// view param: my | team | all (also legacy mine=true)
+		// view param: my | team | all (also legacy mine=true).
+		//
+		// An OMITTED view used to mean 'all', so the Tasks page — which never sent the
+		// param — showed every task in the company to every rep who could open it. A
+		// follow-up is private working instruction between the person who raised it and
+		// the person who owns it; the default is now 'my', and the wider views have to be
+		// both asked for AND permitted. Only someone who runs a team or carries an
+		// all-rows role can widen, so asking for ?view=all as a rep returns your own work
+		// rather than an error — the narrower answer is the safe one.
 		view := qstr(r, "view")
-		if view == "my" || r.URL.Query().Get("mine") == "true" {
-			where += fmt.Sprintf(" AND t.assigned_to=$%d", n)
-			args = append(args, user.ID)
-			n++
-		} else if view == "team" {
-			// Same department as current user — join through o3c_users
-			where += fmt.Sprintf(` AND t.assigned_to IN (
-				SELECT id FROM o3c_users WHERE department=(
-					SELECT department FROM o3c_users WHERE id=$%d
-				) AND is_active=TRUE
-			)`, n)
+		if r.URL.Query().Get("mine") == "true" {
+			view = "my"
+		}
+		mode, teamIDs := salesLeadScope(r, db, user)
+		if view == "team" || view == "all" {
+			switch {
+			case mode == scopeAll:
+				// permitted: no owner predicate at all
+				view = "all"
+			case mode == scopeTeam && len(teamIDs) > 0:
+				where += fmt.Sprintf(" AND t.assigned_to = ANY($%d)", n)
+				args = append(args, teamIDs)
+				n++
+				view = "team"
+			default:
+				view = "my" // asked to widen, not permitted to
+			}
+		}
+		if view != "team" && view != "all" {
+			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR t.created_by=$%d)", n, n)
 			args = append(args, user.ID)
 			n++
 		}
-		// view == "all" or empty: no extra filter
 
 		if v := qstr(r, "status"); v != "" {
 			where += fmt.Sprintf(" AND t.status=$%d", n)

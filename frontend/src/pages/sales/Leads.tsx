@@ -6,6 +6,8 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import NewApplicationModal from '../../components/NewApplicationModal'
+import { LeadDrawer } from './LeadDrawer'
+import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { currentUser, isSalesHead, allRoles, hasPage } from '../../hooks/useAuth'
 import { MGMT } from '../../lib/roles'
@@ -34,7 +36,7 @@ interface Lead {
   employer: string; employer_name: string | null; occupation: string
   lead_stage: string; lead_source: string
   product_interest: string | null
-  lead_owner_id: number | null; owner_name: string | null
+  sales_owner_id: number | null; owner_name: string | null
   estimated_value_kobo: number | null
   next_action_at: string | null
   last_activity_at: string | null
@@ -125,6 +127,23 @@ export default function SalesLeads() {
   const [funnel, setFunnel] = useState<Funnel | null>(null)
   const [sources, setSources] = useState<Source[]>([])
   const [officers, setOfficers] = useState<Officer[]>([])
+  // The lead record opened from a row. Everything about one lead — its facts, its
+  // actions and its history from every team — lives in the drawer rather than being
+  // spread across the row, a modal and a page the officer has to navigate away to.
+  //
+  // Driven by ?open=<lead id> rather than local state so a lead is addressable from
+  // outside this page: a row in the Follow-Ups queue says what to do but not who it is
+  // about, and the way back to the lead has to be one click. Replace, not push, so Back
+  // leaves the page rather than stepping through every drawer that was opened.
+  const openLeadId = Number(params.get('open')) || null
+  const setOpenLeadId = useCallback((id: number | null) => {
+    setParams(prev => {
+      const q = new URLSearchParams(prev)
+      if (id) q.set('open', String(id))
+      else q.delete('open')
+      return q
+    }, { replace: true })
+  }, [setParams])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -135,6 +154,9 @@ export default function SalesLeads() {
   const due = params.get('due') ?? ''
   const line = params.get('line') ?? ''
   const source = params.get('source') ?? ''
+  // How the lead reached Sales (call_centre | business_dev | self) — distinct from
+  // `source` above, which is where the contact originally came from.
+  const salesSource = params.get('sales_source') ?? ''
   const stalled = params.get('stalled') ?? ''
   const includeCustomers = params.get('include_customers') === '1'
   const [search, setSearch] = useState('')
@@ -182,11 +204,12 @@ export default function SalesLeads() {
     if (due) p.set('due', due)
     if (line) p.set('line', line)
     if (source) p.set('source', source)
+    if (salesSource) p.set('sales_source', salesSource)
     if (stalled) p.set('stalled', stalled)
     if (includeCustomers) p.set('include_customers', '1')
     if (dq) p.set('q', dq)
     return p.toString()
-  }, [offset, stage, owner, due, line, source, stalled, includeCustomers, dq])
+  }, [offset, stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -207,13 +230,13 @@ export default function SalesLeads() {
   }, [query])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setOffset(0) }, [stage, owner, due, line, source, stalled, includeCustomers, dq])
+  useEffect(() => { setOffset(0) }, [stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq])
 
   // Assign a single lead to an officer (heads). Reuses the lead PATCH — no bespoke
   // endpoint needed — then refreshes so the owner column updates in place.
   async function assignTo(leadId: number, officerId: number) {
     try {
-      await apiFetch(`/api/sales/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ lead_owner_id: officerId }) })
+      await apiFetch(`/api/sales/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ sales_owner_id: officerId }) })
       toast.success('Lead assigned')
       setAssignLead(null)
       await load()
@@ -399,7 +422,7 @@ export default function SalesLeads() {
               Customer 360
             </Button>
           )}
-          {r.lead_source === 'call_centre' && r.lead_owner_id !== meId
+          {r.lead_source === 'call_centre' && r.sales_owner_id !== meId
             && r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
             <Button size="sm" variant="secondary" onClick={() => claim(r.id)}>Claim</Button>
           )}
@@ -457,15 +480,35 @@ export default function SalesLeads() {
               border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
             }}
           />
+          {/* Which of the three doors into Sales the lead came through. Every lead in this
+              queue arrived by one of them, so it is the filter that actually partitions
+              the list — unlike lead_source, which is about where the contact originated. */}
+          <div style={{ width: 170 }}>
+            <SelectMenu
+              value={salesSource}
+              onChange={v => { const p = new URLSearchParams(params); v ? p.set('sales_source', v) : p.delete('sales_source'); setParams(p) }}
+              options={[
+                { value: 'call_centre', label: 'Call Centre', hint: 'Forwarded to Sales' },
+                { value: 'business_dev', label: 'Business Dev', hint: 'Raised by BD' },
+                { value: 'self', label: 'Self-Sourced', hint: 'Entered by an officer' },
+              ]}
+              clearLabel="All Sources" searchable={false}
+              ariaLabel="Filter by how the lead reached Sales" leadingIcon="call_split"
+            />
+          </div>
           {isHead && (
-            <select value={owner}
-              onChange={e => { const p = new URLSearchParams(params); e.target.value ? p.set('owner_id', e.target.value) : p.delete('owner_id'); setParams(p) }}
-              title="Filter by owner"
-              style={{ padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', maxWidth: 180 }}>
-              <option value="">All Officers</option>
-              <option value="unassigned">Unassigned Pool</option>
-              {officers.map(o => <option key={o.id} value={String(o.id)}>{o.full_name}</option>)}
-            </select>
+            <div style={{ width: 190 }}>
+              <SelectMenu
+                value={owner}
+                onChange={v => { const p = new URLSearchParams(params); v ? p.set('owner_id', v) : p.delete('owner_id'); setParams(p) }}
+                options={[
+                  { value: 'unassigned', label: 'Unclaimed Pool', hint: 'Forwarded, nobody has taken it' },
+                  ...officers.filter(o => o.is_active).map(o => ({ value: String(o.id), label: o.full_name })),
+                ]}
+                clearLabel="All Officers"
+                ariaLabel="Filter by owner" leadingIcon="person"
+              />
+            </div>
           )}
           {isHead && <Button variant="secondary" icon="shuffle" onClick={() => setDistOpen(true)}>Distribute</Button>}
           <Button variant="primary" icon="person_add" onClick={() => setNewOpen(true)}>New Lead</Button>
@@ -618,6 +661,7 @@ export default function SalesLeads() {
             skeletonRows={8}
             emptyText="No leads match. Create one with New Lead"
             keyFn={r => r.id}
+            onRowClick={r => setOpenLeadId(r.id)}
           />
           {total > PAGE_SIZE && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)' }}>
@@ -832,6 +876,15 @@ export default function SalesLeads() {
         )}
       </Modal>
 
+      <LeadDrawer
+        leadId={openLeadId}
+        officers={officers}
+        meId={meId ?? 0}
+        canManage={isHead}
+        onClose={() => setOpenLeadId(null)}
+        onChanged={load}
+      />
+
       {isHead && distOpen && (
         <DistributeModal officers={officers} meId={meId} onClose={() => setDistOpen(false)} onDone={() => { setDistOpen(false); load() }} />
       )}
@@ -869,10 +922,9 @@ function AssignModal({ lead, officers, onClose, onAssign }: {
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
           Hand <strong style={{ color: 'var(--txt)' }}>{[lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'this lead'}</strong> to an officer.
         </div>
-        <Select label="Officer" value={officerId} onChange={e => setOfficerId(e.target.value)}>
-          <option value="">Choose an Officer…</option>
-          {officers.filter(o => o.is_active).map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
-        </Select>
+        <SelectMenuField label="Officer" value={officerId} onChange={setOfficerId}
+          options={officers.filter(o => o.is_active).map(o => ({ value: String(o.id), label: o.full_name }))}
+          placeholder="Choose an officer…" required />
       </div>
     </Modal>
   )

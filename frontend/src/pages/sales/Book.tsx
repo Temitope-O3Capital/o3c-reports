@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Page, KpiCard, SectionCard, DataTable, Modal, Button, Select, Input, Sk,
+  Page, KpiCard, SectionCard, DataTable, Modal, Button, Select, Input, Sk, TblSearch,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { SelectMenu } from '../../components/SelectMenu'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, n } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -78,6 +79,10 @@ export default function SalesBook() {
 
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState(params.get('q') ?? '')
+  // null = let the server order it (relationships first). A header click names a column
+  // from the backend's whitelist; the keys here must match bookSortable in sales_book.go.
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const officerFilter = params.get('officer_id') ?? ''
   const crossSell = params.get('segment') === 'cross_sell'
 
@@ -102,8 +107,11 @@ export default function SalesBook() {
     if (dq) p.set('q', dq)
     if (officerFilter) p.set('officer_id', officerFilter)
     if (crossSell) p.set('segment', 'cross_sell')
+    // Omitted entirely when no header is active, so the server applies its own default —
+    // relationships first, then arrears, then size. See bookOrderBy.
+    if (sortKey) { p.set('sort', sortKey); p.set('dir', sortDir) }
     return p.toString()
-  }, [offset, dq, officerFilter, crossSell])
+  }, [offset, dq, officerFilter, crossSell, sortKey, sortDir])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -371,24 +379,26 @@ export default function SalesBook() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isHead && (
-            <select
-              value={officerFilter}
-              onChange={e => {
-                const p = new URLSearchParams(params)
-                e.target.value ? p.set('officer_id', e.target.value) : p.delete('officer_id')
-                setParams(p)
-              }}
-              style={{
-                padding: '7px 10px', borderRadius: RADIUS.md, fontSize: TEXT.sm,
-                border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
-              }}
-            >
-              <option value="">All Officers</option>
-              <option value="unassigned">Unassigned</option>
-              {officers.map(o => (
-                <option key={o.id} value={o.id}>{o.full_name} ({o.book_size})</option>
-              ))}
-            </select>
+            <div style={{ width: 210 }}>
+              <SelectMenu
+                value={officerFilter}
+                onChange={v => {
+                  const p = new URLSearchParams(params)
+                  v ? p.set('officer_id', v) : p.delete('officer_id')
+                  setParams(p)
+                }}
+                options={[
+                  { value: 'unassigned', label: 'Unassigned', hint: 'No account officer' },
+                  // Book size as the subtitle rather than in brackets after the name, so
+                  // a long list stays scannable by name.
+                  ...officers.map(o => ({
+                    value: String(o.id), label: o.full_name,
+                    hint: `${o.book_size} customer${o.book_size === 1 ? '' : 's'}`,
+                  })),
+                ]}
+                clearLabel="All Officers" ariaLabel="Filter the book by officer" leadingIcon="person"
+              />
+            </div>
           )}
           <button
             onClick={() => {
@@ -407,15 +417,6 @@ export default function SalesBook() {
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>trending_up</span>
             Cross-Sell Targets
           </button>
-          <input
-            placeholder="Search name, CIF, phone…"
-            defaultValue={search}
-            onKeyDown={e => { if (e.key === 'Enter') setSearch((e.target as HTMLInputElement).value) }}
-            style={{
-              padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, width: 240,
-              border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
-            }}
-          />
           {isHead && selected.size > 0 && (
             <Button variant="primary" icon="how_to_reg" onClick={() => setAssignOpen(true)}>
               Assign {selected.size}
@@ -482,6 +483,13 @@ export default function SalesBook() {
         title={officerFilter === 'unassigned' ? 'Unassigned Customers' : 'Customers'}
         subtitle={loading ? undefined : `${fmtNum(pageFrom)}–${fmtNum(pageTo)} of ${fmtNum(total)}`}
         padding={false}
+        actions={
+          /* The search belongs to the table, not to the page. It filters these rows and
+             nothing else on the screen, and sitting up in the page header it read as a
+             global search — so it is here, against the thing it acts on. */
+          <TblSearch value={search} onChange={setSearch} width={260}
+            placeholder="Search name, CIF, phone…" ariaLabel="Search customers in this book" />
+        }
       >
         <DataTable<BookRow>
           cols={cols}
@@ -497,6 +505,13 @@ export default function SalesBook() {
           }
           keyFn={r => r.cif}
           onRowClick={r => navigate(`/sales/book/${r.cif}`)}
+          /* Server-side. The headers were marked sortable while the backend ignored
+             sort entirely, so clicking one reordered the 50 rows on screen and looked
+             like it had sorted all 20,727 — "highest DPD" showed the highest DPD on
+             this page. */
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSortChange={(k, d) => { setSortKey(k); setSortDir(d); setOffset(0) }}
         />
 
         {total > PAGE_SIZE && (

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { EArea, EBar } from '../../components/echarts'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { MyDay } from './MyDay'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -287,6 +288,12 @@ export default function SalesMyDashboard() {
           sub={data.target_pct >= 100 ? 'target achieved' : 'still to book this month'}
           color={tColor} urgent={data.target_pct < 70} onClick={() => navigate('/sales/targets')} />
       </MyDaySection>
+
+      {/* The officer's own record of the day — visits, calls, meetings, and the
+          end-of-day report their head reads. First panel on purpose: it is the only
+          thing on this page the officer WRITES rather than reads, and it is the work
+          that had no record at all before it existed. */}
+      <MyDay onLogged={load} />
 
       {/* Target progress bar */}
       <SectionCard title="Target Progress" style={{ marginBottom: SP[4] }}>
