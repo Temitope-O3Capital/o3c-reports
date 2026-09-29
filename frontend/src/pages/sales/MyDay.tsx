@@ -72,6 +72,20 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
   }, [])
   useEffect(() => { load() }, [load])
 
+  // Outcome codes are stored, not labels — so the day would otherwise read
+  // "answered_interested" back at the officer who chose "Answered — Interested".
+  // Loaded from the same endpoint the form picks from, so the two can never disagree.
+  const [dispLabels, setDispLabels] = useState<Record<string, string>>({})
+  useEffect(() => {
+    apiFetch<{ data: Record<string, { code: string; label: string }[]> }>('/api/sales/activity/dispositions')
+      .then(r => {
+        const m: Record<string, string> = {}
+        Object.values(r?.data ?? {}).forEach(list => list.forEach(d => { m[d.code] = d.label }))
+        setDispLabels(m)
+      })
+      .catch(() => { /* falls back to the raw code, which is still readable */ })
+  }, [])
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { visit: 0, call: 0, meeting: 0, note: 0 }
     activities.forEach(a => { if (c[a.type] != null) c[a.type]++ })
@@ -87,13 +101,17 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
       badge={activities.length || undefined}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {submitted && (
+          {/* "Accounted for", not "submitted". The day's summary is derived from these
+              entries, so logging the work IS filing the day — there is no second step to
+              have completed. The old chip read "Day submitted" and only appeared once an
+              officer had typed a report, which made a fully-worked day look unfinished. */}
+          {activities.length > 0 && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
               fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN,
             }}>
               <span className="material-symbols-rounded" aria-hidden style={{ fontSize: 15 }}>task_alt</span>
-              Day submitted
+              Day accounted for
             </span>
           )}
           <Button size="sm" variant="primary" icon="add" onClick={() => setLogOpen(true)}>Log Activity</Button>
@@ -152,7 +170,7 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
                       {typeLabel(a.type)}
                       {a.location && <> · {a.location}</>}
                       {a.contact_name && <> · {a.contact_name}</>}
-                      {a.outcome && <> · {a.outcome}</>}
+                      {a.outcome && <> · {dispLabels[a.outcome] ?? a.outcome}</>}
                     </div>
                     {a.body && (
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{a.body}</div>
@@ -196,14 +214,19 @@ function DailyReport({ report, activityCount, onSaved }: {
   const submitted = !!report?.submitted_at
 
   async function save(submit: boolean) {
-    if (submit && !summary.trim()) { toast.error('Write a line about the day before submitting it'); return }
+    // Either field on its own is a legitimate note — "what is next" with nothing to report
+    // about today is exactly what an officer writes after a quiet day.
+    if (!summary.trim() && !plan.trim()) {
+      toast.error('Write something first — this is optional, so an empty note saves nothing.')
+      return
+    }
     setBusy(true)
     try {
       await apiFetch('/api/sales/my-day/report', {
         method: 'PUT',
         body: JSON.stringify({ summary: summary.trim(), plan: plan.trim(), submit }),
       })
-      toast.success(submit ? 'Day submitted' : 'Draft saved')
+      toast.success('Note saved')
       onSaved()
     } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
   }
@@ -214,28 +237,38 @@ function DailyReport({ report, activityCount, onSaved }: {
       background: submitted ? `${GREEN}0A` : 'var(--bg)',
       border: `1px solid ${submitted ? `${GREEN}33` : 'var(--bdr)'}`,
     }}>
+      {/* Optional, and said so plainly. The day's numbers are derived from the entries
+          above, so this is no longer the thing that files the day — it is the place for
+          what the entries cannot show: why the afternoon was lost, what the branch manager
+          hinted at, what to warn the next officer about. Presenting it as a required
+          submission is why sales_daily_reports never held a single row: nobody types their
+          day twice, and the second telling is the one that gets skipped. */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: SP[2], marginBottom: SP[3], flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>End-Of-Day Report</div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>
+            Anything Worth Adding? <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span>
+          </div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
             {submitted
-              ? `Submitted ${new Date(report!.submitted_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. You can still correct it.`
+              ? `Added ${new Date(report!.submitted_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. You can still change it.`
               : activityCount === 0
-                ? 'A day with nothing to log is worth reporting too — say so here.'
-                : 'Your head sees this against today on their calendar.'}
+                ? 'A day with nothing to log is worth explaining — say so here and your head will see it.'
+                : 'Your day is already accounted for by the entries above. Add a note only if there is something they do not show.'}
           </div>
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-        <Textarea label="How did today go?" value={summary} onChange={e => setSummary(e.target.value)}
-          rows={3} placeholder="e.g. Two employer visits in Ikeja. Dangote HR want a presentation for 40 staff." />
+        <Textarea label="Anything the entries do not show?" value={summary} onChange={e => setSummary(e.target.value)}
+          rows={2} placeholder="e.g. Ikeja branch flooded, lost the afternoon. Dangote HR want a presentation for 40 staff." />
         <Textarea label="What is next? (Optional)" value={plan} onChange={e => setPlan(e.target.value)}
           rows={2} placeholder="e.g. Prepare the Dangote deck, call back Mr Adeyemi on Monday." />
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Button size="sm" variant="secondary" loading={busy} onClick={() => save(false)}>Save Draft</Button>
-          <Button size="sm" variant="primary" loading={busy} onClick={() => save(true)}>
-            {submitted ? 'Update' : 'Submit Day'}
+          {/* One button. "Save Draft" and "Submit Day" drew a distinction that no longer
+              exists now that nothing depends on the day being submitted. */}
+          <Button size="sm" variant="secondary" loading={busy} onClick={() => save(true)}
+            disabled={!summary.trim() && !plan.trim()}>
+            {submitted ? 'Update Note' : 'Save Note'}
           </Button>
         </div>
       </div>

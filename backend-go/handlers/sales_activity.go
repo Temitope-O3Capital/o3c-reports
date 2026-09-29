@@ -33,11 +33,120 @@ var salesActivityTypes = map[string]string{
 	"note":    "Note",
 }
 
+// ── Dispositions ─────────────────────────────────────────────────────────────
+//
+// What CAME OF the activity, as a controlled vocabulary rather than the free-text
+// "Outcome" box this form used to carry. Free text cannot be counted, so a head could not
+// answer "how many visits got past the gatekeeper this month" from 200 hand-typed
+// outcomes, and two officers describing the same result wrote it two ways.
+//
+// A CALL DELIBERATELY REUSES THE CALL CENTRE'S CODES. A sales officer's phone call and an
+// agent's phone call are the same act, so answered_interested / callback / no_answer /
+// wrong_number mean the same thing and land in the same `outcome` column vocabulary
+// (app.activities.outcome here, call_center_dispositions.outcome there). That is what makes
+// "interested calls this month" answerable across both teams instead of per-team. Adding a
+// sales-only synonym for a call outcome would silently split that number, so don't.
+//
+// Visits and meetings get their own codes because there is no call-centre equivalent — an
+// agent never fails to get past a gatekeeper. Kept short on purpose: a list long enough to
+// need thought is a list people stop filling in honestly.
+type salesDisposition struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+	Hint  string `json:"hint"`
+	// NeedsNote makes the write-up mandatory. Served to the form so the browser and the
+	// server enforce the same rule rather than the browser alone.
+	NeedsNote bool `json:"needs_note,omitempty"`
+	// NeedsFollowUp means this outcome is meaningless without a date to come back on.
+	// "They asked me to call back" with no callback date is how a lead is lost politely.
+	NeedsFollowUp bool `json:"needs_follow_up,omitempty"`
+	// Qualifies marks the one outcome that moves a linked lead to 'qualified'. Only a
+	// stated interest qualifies a lead — a callback request does not. Kept in step with
+	// the call centre's rule, which is the canonical one.
+	Qualifies bool `json:"qualifies,omitempty"`
+	// Closes marks outcomes that end the pursuit, so the form can warn before saving.
+	Closes bool `json:"closes,omitempty"`
+}
+
+var salesDispositions = map[string][]salesDisposition{
+	// Same codes as ccDispositions. See the note above before editing.
+	"call": {
+		{Code: "answered_interested", Label: "Answered — Interested", Qualifies: true,
+			Hint: "They said yes in principle. This is what qualifies the lead."},
+		{Code: "callback", Label: "Callback Requested", NeedsFollowUp: true,
+			Hint: "They asked you to come back at a specific time."},
+		{Code: "not_ready", Label: "Interested, Not Now", NeedsFollowUp: true,
+			Hint: "Interested but not this cycle — stays in your queue for later."},
+		{Code: "price_objection", Label: "Price Objection", NeedsNote: true,
+			Hint: "Say what they objected to; it is the most useful thing you can record."},
+		{Code: "no_answer", Label: "No Answer", Hint: "Rang out. Nothing decided."},
+		{Code: "wrong_number", Label: "Wrong Number", Closes: true,
+			Hint: "Not the person. The lead cannot be worked on this number."},
+		{Code: "answered_not_interested", Label: "Answered — Not Interested", Closes: true, NeedsNote: true,
+			Hint: "A clear no. Say why, so the next campaign does not repeat it."},
+		{Code: "not_eligible", Label: "Not Eligible", Closes: true, NeedsNote: true,
+			Hint: "They do not qualify for the product. Say which criterion."},
+		{Code: "do_not_call", Label: "Asked Not To Be Contacted", Closes: true,
+			Hint: "Suppresses them from future campaigns. Use only if they asked."},
+	},
+	"visit": {
+		{Code: "visit_interested", Label: "Met Them — Interested", Qualifies: true,
+			Hint: "You saw the decision maker and they said yes in principle."},
+		{Code: "visit_met_no_decision", Label: "Met Them — No Decision", NeedsFollowUp: true,
+			Hint: "You got in front of them but nothing was settled."},
+		{Code: "visit_gatekeeper", Label: "Did Not Get Past Reception", NeedsFollowUp: true,
+			Hint: "Never reached the decision maker. Worth another attempt."},
+		{Code: "visit_documents", Label: "Collected Documents",
+			Hint: "You came away with paperwork the application needs."},
+		{Code: "visit_closed", Label: "Premises Closed",
+			Hint: "Nobody there. Not a refusal."},
+		{Code: "visit_not_interested", Label: "Met Them — Not Interested", Closes: true, NeedsNote: true,
+			Hint: "A clear no in person. Say why."},
+	},
+	"meeting": {
+		{Code: "meeting_interested", Label: "Interested", Qualifies: true,
+			Hint: "They committed in principle."},
+		{Code: "meeting_proposal", Label: "Wants A Proposal", NeedsFollowUp: true,
+			Hint: "Asked for something in writing. Set the date you will send it."},
+		{Code: "meeting_deferred", Label: "Deferred", NeedsFollowUp: true,
+			Hint: "Parked for now, with a date to return to it."},
+		{Code: "meeting_not_interested", Label: "Not Interested", Closes: true, NeedsNote: true,
+			Hint: "They declined. Say why."},
+	},
+	// A note has no outcome: it is the record itself, not the result of an attempt.
+	"note": {},
+}
+
+// findSalesDisposition returns the disposition for a kind, and whether it is valid for it.
+// Scoping by kind is the point: "Did Not Get Past Reception" must not be selectable on a
+// phone call, and a form that offers it is a form that will eventually record it.
+func findSalesDisposition(kind, code string) (salesDisposition, bool) {
+	for _, d := range salesDispositions[kind] {
+		if d.Code == code {
+			return d, true
+		}
+	}
+	return salesDisposition{}, false
+}
+
+// listSalesDispositions serves the vocabulary to the form.
+//
+// Sales cannot read /api/call-center/dispositions — that whole route group is gated on the
+// call_center page, which no sales role holds — so the codes have to be served here. They
+// are the same codes for a call; see the note on salesDispositions.
+func listSalesDispositions() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": salesDispositions}) //nolint:errcheck
+	}
+}
+
 func RegisterSalesActivity(r chi.Router, db *core.DB) {
 	access := core.RequirePages("sales", "crm_contacts")
 
 	// The officer's own day.
 	r.With(access).Post("/activity", logSalesActivity(db))
+	r.With(access).Get("/activity/dispositions", listSalesDispositions())
 	r.With(access).Get("/my-day", getMyDay(db))
 	r.With(access).Put("/my-day/report", upsertDailyReport(db))
 
@@ -56,15 +165,22 @@ func RegisterSalesActivity(r chi.Router, db *core.DB) {
 // across two places.
 func logSalesActivity(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Type      string `json:"type"`
-		Subject   string `json:"subject"`
-		Body      string `json:"body"`
-		Outcome   string `json:"outcome"`
-		Location  string `json:"location"`
-		ContactID *int64 `json:"contact_id"`
-		CIF       string `json:"cif"`
+		Type    string `json:"type"`
+		Subject string `json:"subject"`
+		Body    string `json:"body"`
+		// Disposition is the controlled code (see salesDispositions). Outcome is kept for
+		// the older callers that still send free text; when a disposition is given it is
+		// what lands in the outcome column, because a counted vocabulary beats prose.
+		Disposition string `json:"disposition"`
+		Outcome     string `json:"outcome"`
+		Location    string `json:"location"`
+		ContactID   *int64 `json:"contact_id"`
+		CIF         string `json:"cif"`
 		// Optional: when it happened, if logging after the fact at the end of the day.
 		OccurredAt string `json:"occurred_at"`
+		// When to come back to this lead. Required by the dispositions that mean
+		// "not now" — see NeedsFollowUp.
+		FollowUpAt string `json:"follow_up_at"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -86,6 +202,36 @@ func logSalesActivity(db *core.DB) http.HandlerFunc {
 		if b.Subject == "" {
 			respondErr(w, 400, "Say briefly what this was — it is what the entry reads as on your day")
 			return
+		}
+
+		// The disposition, and the two rules it carries. Validated server-side as well as
+		// in the form: a rule enforced only in the browser is a rule that is not enforced.
+		var disp salesDisposition
+		hasDisp := false
+		if code := strings.TrimSpace(b.Disposition); code != "" {
+			d, ok := findSalesDisposition(b.Type, code)
+			if !ok {
+				respondErr(w, 422, "That outcome does not belong to a "+salesActivityTypes[b.Type]+
+					". Pick one from the list.")
+				return
+			}
+			disp, hasDisp = d, true
+			if disp.NeedsNote && strings.TrimSpace(b.Body) == "" {
+				respondErr(w, 422, "\""+disp.Label+"\" needs a note saying why — that is the "+
+					"part anyone reading this later actually needs.")
+				return
+			}
+			// A follow-up outcome with no date is the failure this rule exists to stop: the
+			// officer records "they asked me to call back", nothing schedules it, and the
+			// lead goes quiet. Only enforced when a lead is linked, since next_action_at
+			// lives on the lead and there is nowhere to put the date otherwise.
+			if disp.NeedsFollowUp && b.ContactID != nil && *b.ContactID > 0 &&
+				strings.TrimSpace(b.FollowUpAt) == "" {
+				respondErr(w, 422, "\""+disp.Label+"\" needs a date to come back on.")
+				return
+			}
+			// The disposition IS the outcome. Free text loses to a counted code.
+			b.Outcome = disp.Code
 		}
 
 		// Backdating is allowed (an officer logs the day's visits that evening) but only
@@ -136,14 +282,47 @@ func logSalesActivity(db *core.DB) http.HandlerFunc {
 		// stops it showing as stalled. Without this an officer could visit a customer
 		// weekly and the lead would still appear on the "untouched for a fortnight"
 		// worklist, which is the exact thing that makes people distrust a worklist.
+		moved := ""
 		if b.ContactID != nil && *b.ContactID > 0 {
 			db.PGExec(r.Context(), //nolint:errcheck
 				`UPDATE app.crm_contacts SET last_activity_at = NOW(), updated_at = NOW() WHERE id = $1`,
 				*b.ContactID)
+
+			// The follow-up date the disposition demanded, parked where the queue reads it.
+			if fu := strings.TrimSpace(b.FollowUpAt); fu != "" {
+				if t, err := time.Parse(time.RFC3339, fu); err == nil {
+					db.PGExec(r.Context(), //nolint:errcheck
+						`UPDATE app.crm_contacts SET next_action_at = $2, updated_at = NOW() WHERE id = $1`,
+						*b.ContactID, t)
+				}
+			}
+
+			// A stated interest qualifies the lead, and ONLY a stated interest — the same
+			// rule the call centre applies, deliberately. Guarded on the current stage so
+			// logging a visit against an already-approved lead cannot walk it backwards to
+			// 'qualified'; the journey only ever moves forward from here.
+			if hasDisp && disp.Qualifies {
+				res, err := db.PGExec(r.Context(), `
+					UPDATE app.crm_contacts
+					   SET lead_stage  = 'qualified',
+					       qualified_at = COALESCE(qualified_at, NOW()),
+					       updated_at   = NOW()
+					 WHERE id = $1
+					   AND lead_stage IN ('new','contacted')`, *b.ContactID)
+				if err == nil {
+					if aff, _ := res.RowsAffected(); aff > 0 {
+						moved = "qualified"
+					}
+				}
+			}
 		}
-		respond(w, map[string]any{
+		out := map[string]any{
 			"ok": true, "id": toInt64(rows[0]["id"]), "occurred_at": rows[0]["occurred_at"],
-		}, "pg")
+		}
+		if moved != "" {
+			out["moved"] = moved
+		}
+		respond(w, out, "pg")
 	}
 }
 
@@ -202,7 +381,49 @@ func getMyDay(db *core.DB) http.HandlerFunc {
 		if acts == nil {
 			acts = []map[string]any{}
 		}
-		respond(w, map[string]any{"activities": acts, "report": rep}, "pg")
+
+		// The day's report, DERIVED from what was logged rather than typed again.
+		//
+		// Asking an officer to write an end-of-day summary after they have already logged
+		// every visit and call is asking them to type the same day twice, and the second
+		// telling is the one that gets skipped — which is why sales_daily_reports has never
+		// held a row. The activity IS the report. This counts what happened, so the
+		// supervisor's calendar can turn green off real work instead of off a form
+		// somebody remembered to submit.
+		//
+		// The free-text report is not removed: a genuine end-of-day note ("branch flooded,
+		// lost the afternoon") is worth having and cannot be derived. It is now optional
+		// commentary on top of a summary that always exists.
+		summary, _ := db.PGQuery(r.Context(), `
+			SELECT
+			  COUNT(*)                                                      AS logged,
+			  COUNT(*) FILTER (WHERE a.type = 'visit')                      AS visits,
+			  COUNT(*) FILTER (WHERE a.type = 'call')                       AS calls,
+			  COUNT(*) FILTER (WHERE a.type = 'meeting')                    AS meetings,
+			  COUNT(*) FILTER (WHERE a.type = 'note')                       AS notes,
+			  COUNT(DISTINCT a.contact_id) FILTER (WHERE a.contact_id IS NOT NULL) AS leads_touched,
+			  -- Qualifying outcomes across all three kinds, so "did today produce
+			  -- anything" is answerable without reading the list.
+			  COUNT(*) FILTER (WHERE a.outcome IN
+			      ('answered_interested','visit_interested','meeting_interested'))  AS interested,
+			  COUNT(*) FILTER (WHERE a.outcome IN
+			      ('answered_not_interested','visit_not_interested','meeting_not_interested',
+			       'not_eligible','wrong_number','do_not_call'))              AS closed_out,
+			  MIN(a.occurred_at)                                            AS first_at,
+			  MAX(a.occurred_at)                                            AS last_at
+			  FROM app.activities a
+			 WHERE a.actor_user_id = $1 AND COALESCE(a.actor_team,'') = 'sales'
+			   AND (a.occurred_at AT TIME ZONE 'Africa/Lagos')::date = `+dayExpr, args...)
+
+		var derived any
+		if len(summary) > 0 {
+			derived = summary[0]
+		}
+		respond(w, map[string]any{
+			"activities": acts,
+			"report":     rep,
+			"derived":    derived,
+		}, "pg")
 	}
 }
 
@@ -230,8 +451,13 @@ func upsertDailyReport(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.Submit && strings.TrimSpace(b.Summary) == "" {
-			respondErr(w, 400, "Write a line about the day before submitting it")
+		// Either field alone is a legitimate note. This used to demand a summary whenever
+		// Submit was set, which blocked the commonest real note after a quiet day — a plan
+		// for tomorrow with nothing to report about today. The day itself no longer depends
+		// on this record existing (the summary is derived from the activities), so the only
+		// thing worth refusing is an entirely empty write.
+		if strings.TrimSpace(b.Summary) == "" && strings.TrimSpace(b.Plan) == "" {
+			respondErr(w, 400, "There is nothing to save — write a note or a plan first")
 			return
 		}
 

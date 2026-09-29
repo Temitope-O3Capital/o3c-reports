@@ -13,15 +13,21 @@ import { fmtNum, fmtDate } from '../../lib/fmt'
 // existed (migration 307) none of that was answerable, because an officer's visits and
 // calls were never written down anywhere.
 //
-// THE THREE STATES OF A DAY, and why a simple submitted/not-submitted mark is not enough:
+// THE STATES OF A DAY. Work is the positive state, not paperwork:
 //
-//   submitted          the officer signed the day off       — green
-//   worked, no report  entries logged, no report yet        — amber: in progress, or forgotten
-//   nothing at all     no entries, no report                — blank: the one to ask about
+//   worked            entries logged                   — green (with a ring if they
+//                                                        also left an end-of-day note)
+//   nothing at all    no entries                       — blank: the one to ask about
 //
-// A two-state mark would fold the middle case into "not submitted" and put an officer who
-// logged nine visits in the same bucket as one who was not seen all day. Those are
-// opposite problems and only one of them needs a conversation.
+// This used to make "report submitted" the green state and "worked but no report" amber,
+// which punished an officer for not typing their day a second time. The day's summary is
+// now DERIVED from the entries (see getMyDay), so there is no form left to fail to submit
+// and no reason to mark a fully-worked day as incomplete. sales_daily_reports never held a
+// single row across the whole pilot, which is what that amber state was really measuring.
+//
+// The optional end-of-day note survives as a ring on the square, because a genuine remark
+// ("branch flooded, lost the afternoon") cannot be derived from activity and is worth
+// spotting. It is commentary on the day, not permission for the day to count.
 //
 // Weekends are dimmed rather than hidden: a blank Saturday is expected, and a worked
 // Saturday is worth seeing.
@@ -115,17 +121,18 @@ export function TeamCalendar() {
   // month flagged as unreported on the 3rd.
   const elapsed = days.filter(d => d <= today && !isWeekend(d))
   const totals = useMemo(() => {
-    let submitted = 0, worked = 0, silent = 0
+    let worked = 0, noted = 0, silent = 0
     officers.forEach(o => {
       const m = byOfficer.get(o.id)
       elapsed.forEach(d => {
         const c = m?.get(d)
-        if (c?.report_submitted) submitted++
-        else if (c && c.activities > 0) worked++
-        else silent++
+        if (c && c.activities > 0) {
+          worked++
+          if (c.report_submitted) noted++ // worked AND left a remark
+        } else silent++
       })
     })
-    return { submitted, worked, silent }
+    return { worked, noted, silent }
   }, [officers, byOfficer, elapsed])
 
   function shift(months: number) {
@@ -160,9 +167,9 @@ export function TeamCalendar() {
             display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'center',
             padding: `${SP[3]} ${SP[4]}`, borderBottom: '1px solid var(--bdr)',
           }}>
-            <Legend color={GREEN} label="Day submitted" count={totals.submitted} />
-            <Legend color={AMBER} label="Worked, not submitted" count={totals.worked} />
+            <Legend color={GREEN} label="Worked" count={totals.worked} />
             <Legend color="var(--bdr)" label="Nothing logged" count={totals.silent} />
+            {totals.noted > 0 && <Legend color={BLUE} label="With a note" count={totals.noted} />}
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               Weekdays up to today only
             </span>
@@ -255,17 +262,20 @@ function DaySquare({ cell, day, today, onClick }: {
 }) {
   const future = day > today
   const weekend = isWeekend(day)
-  const submitted = !!cell?.report_submitted
   const worked = !!cell && cell.activities > 0
+  const noted = !!cell?.report_submitted // an end-of-day remark, on top of the work
 
-  const bg = submitted ? GREEN : worked ? AMBER : future ? 'transparent' : weekend ? 'var(--bg)' : 'var(--bdr)'
+  // Green means worked. A day with entries is a day accounted for, whether or not the
+  // officer also wrote a remark — the summary is derived from the entries themselves.
+  const bg = worked ? GREEN : future ? 'transparent' : weekend ? 'var(--bg)' : 'var(--bdr)'
   const title = future
     ? fmtDate(day)
-    : submitted
-      ? `${fmtDate(day)} — day submitted, ${cell!.activities} logged`
-      : worked
-        ? `${fmtDate(day)} — ${cell!.activities} logged, not submitted`
-        : `${fmtDate(day)} — nothing logged`
+    : worked
+      ? `${fmtDate(day)} — ${cell!.activities} logged`
+        + (cell!.visits ? `, ${cell!.visits} visit${cell!.visits === 1 ? '' : 's'}` : '')
+        + (cell!.calls ? `, ${cell!.calls} call${cell!.calls === 1 ? '' : 's'}` : '')
+        + (noted ? ' · has a note' : '')
+      : `${fmtDate(day)} — nothing logged`
 
   return (
     <button
@@ -273,9 +283,11 @@ function DaySquare({ cell, day, today, onClick }: {
       disabled={future}
       style={{
         width: 20, height: 20, borderRadius: 4, background: bg,
-        border: day === today ? `2px solid ${NAVY}` : '1px solid transparent',
+        // The ring marks a day that carries a written remark, so a head can find the one
+        // square with something to read on it without opening thirty.
+        border: day === today ? `2px solid ${NAVY}` : noted ? `2px solid ${BLUE}` : '1px solid transparent',
         cursor: future ? 'default' : 'pointer', padding: 0, display: 'block',
-        opacity: future ? 0.35 : weekend && !worked && !submitted ? 0.5 : 1,
+        opacity: future ? 0.35 : weekend && !worked ? 0.5 : 1,
       }}
     />
   )

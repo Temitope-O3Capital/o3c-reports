@@ -26,12 +26,37 @@
 // as already passed and cannot be picked. A 409 explaining that you cannot move
 // backwards is a worse way to learn it than never being offered the move.
 
-import { useEffect, useMemo, useState } from 'react'
-import { Modal, Input, Textarea, Button } from './UI'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Modal, Input, Textarea, Button, Spinner } from './UI'
+import { SelectMenuField } from './SelectMenu'
 import { apiFetch, apiPost } from '../lib/api'
-import { NAVY, GREEN, AMBER, RED, RADIUS, TEXT, FW, SP, INTER } from '../lib/design'
+import { useDebouncedValue } from '../hooks/useDebounce'
+import { NAVY, GREEN, AMBER, RED, BLUE, RADIUS, TEXT, FW, SP, INTER } from '../lib/design'
 import { fmtDate } from '../lib/fmt'
 import { toast } from 'sonner'
+
+// ── Dispositions ─────────────────────────────────────────────────────────────
+//
+// Served by GET /api/sales/activity/dispositions, keyed by activity kind. The shape
+// mirrors salesDisposition in backend-go/handlers/sales_activity.go; the two rules that
+// matter here (needs_note, needs_follow_up) are enforced in BOTH places on purpose — the
+// browser so the officer is told before they lose their typing, the server because a rule
+// enforced only in the browser is not enforced.
+interface Disposition {
+  code: string
+  label: string
+  hint: string
+  needs_note?: boolean
+  needs_follow_up?: boolean
+  qualifies?: boolean
+  closes?: boolean
+}
+
+/** Local date-time for an <input type="datetime-local">, which has no timezone. */
+function localDateTimeValue(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 // ── The lead journey ──────────────────────────────────────────────────────────
 //
@@ -92,6 +117,12 @@ const DAY_KINDS: { kind: string; label: string; icon: string; blurb: string }[] 
 // A date input wants YYYY-MM-DD in LOCAL time. toISOString() would shift a Lagos
 // afternoon into the previous day for anyone west of UTC.
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// Module-scoped so LeadField and NewLeadInline below share the form's own field label
+// style rather than each inventing one that drifts from it.
+const label: React.CSSProperties = {
+  fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 6,
+}
 const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDate(d) }
 
 export interface SalesActivityLead {
@@ -125,9 +156,18 @@ export default function SalesActivityModal({
   // Officer-mode only
   const [subject, setSubject]   = useState('')
   const [location, setLocation] = useState('')
-  const [outcome, setOutcome]   = useState('')
   const [leadId, setLeadId]     = useState('')
-  const [myLeads, setMyLeads]   = useState<{ id: number; label: string }[]>([])
+  const [leadName, setLeadName] = useState('')
+
+  // When it happened. The backend has always accepted a backdated occurred_at (bounded to
+  // seven days, never future) and this form never sent one, so an officer who logged
+  // Friday's visits on Monday had them all recorded as Monday's — which is what made the
+  // supervisor's calendar disagree with the week people actually worked.
+  const [when, setWhen] = useState('')
+
+  // What came of it, from the shared vocabulary rather than a free-text box.
+  const [disposition, setDisposition] = useState('')
+  const [dispCatalogue, setDispCatalogue] = useState<Record<string, Disposition[]>>({})
 
   const current    = (lead?.stage ?? '').toLowerCase()
   const closedAs   = CLOSED_STAGES[current]
@@ -139,27 +179,31 @@ export default function SalesActivityModal({
   useEffect(() => {
     if (!open) return
     setKind(isDay ? 'visit' : ''); setNote(''); setFollow('')
-    setSubject(''); setLocation(''); setOutcome(''); setLeadId('')
+    setSubject(''); setLocation(''); setLeadId(''); setLeadName('')
+    setDisposition('')
+    // Defaults to now, so the common case (logging as you go) needs no thought and the
+    // uncommon one (catching up on Monday) is one field away.
+    setWhen(localDateTimeValue(new Date()))
     setErr(null); setSaving(false)
   }, [open, lead?.id, isDay])
 
-  // The officer's own leads, so a day activity can be tied to one. Optional by design:
-  // an employer visit that has not produced a lead yet is exactly the work that used to
-  // go unrecorded, and requiring a lead would make it unloggable again.
+  // The outcome vocabulary. Loaded once per open; a failure leaves the picker absent
+  // rather than blocking the save, because recording that a visit happened at all is worth
+  // more than recording what came of it.
   useEffect(() => {
-    if (!open || !isDay || myLeads.length > 0) return
+    if (!open || Object.keys(dispCatalogue).length > 0) return
     let cancelled = false
-    apiFetch<{ data: { id: number; first_name?: string; last_name?: string; name?: string }[] }>('/api/sales/leads?limit=100')
-      .then(r => {
-        if (cancelled) return
-        setMyLeads((r?.data ?? []).map(l => ({
-          id: l.id,
-          label: (l.name || [l.first_name, l.last_name].filter(Boolean).join(' ') || `Lead ${l.id}`).trim(),
-        })))
-      })
-      .catch(() => { /* the picker is optional; failing to load it must not block logging */ })
+    apiFetch<{ data: Record<string, Disposition[]> }>('/api/sales/activity/dispositions')
+      .then(r => { if (!cancelled) setDispCatalogue(r?.data ?? {}) })
+      .catch(() => { /* optional */ })
     return () => { cancelled = true }
-  }, [open, isDay, myLeads.length])
+  }, [open, dispCatalogue])
+
+  const dispsForKind = dispCatalogue[kind] ?? []
+  const chosenDisp   = dispsForKind.find(d => d.code === disposition) ?? null
+  // Clearing on a kind change is what stops "Did Not Get Past Reception" surviving a switch
+  // from Visit to Call, where the server would refuse it as not belonging to that kind.
+  useEffect(() => { setDisposition('') }, [kind])
 
   useEffect(() => { setErr(null) }, [kind])
 
@@ -185,6 +229,24 @@ export default function SalesActivityModal({
     if (isDay) {
       if (!kind) return 'Pick what kind of activity this was.'
       if (!subject.trim()) return 'Say briefly what this was — it is what the entry reads as on your day.'
+      // Same two bounds the server applies, checked here so the officer is told before
+      // they lose what they have typed rather than after.
+      if (when) {
+        const t = new Date(when)
+        if (Number.isNaN(t.getTime())) return 'That date is not a real date.'
+        if (t.getTime() > Date.now() + 2 * 60_000) {
+          return 'That is in the future — log what happened, not what is planned.'
+        }
+        if (t.getTime() < Date.now() - 7 * 86_400_000) {
+          return 'That is more than a week ago. Ask your head to record it if it still needs to go on the record.'
+        }
+      }
+      if (chosenDisp?.needs_note && !note.trim()) {
+        return `"${chosenDisp.label}" needs a note saying why — that is the part anyone reading this later actually needs.`
+      }
+      if (chosenDisp?.needs_follow_up && leadId && !followUp) {
+        return `"${chosenDisp.label}" needs a date to come back on.`
+      }
       return null
     }
     if (!kind) return 'Pick what happened.'
@@ -197,15 +259,24 @@ export default function SalesActivityModal({
     setErr(null); setSaving(true)
     try {
       if (isDay) {
-        await apiPost('/api/sales/activity', {
+        const res = await apiPost<{ ok: boolean; moved?: string }>('/api/sales/activity', {
           type: kind,
           subject: subject.trim(),
           location: location.trim(),
           body: note.trim(),
-          outcome: outcome.trim(),
+          disposition: disposition || undefined,
           contact_id: leadId ? Number(leadId) : null,
+          // Sent as an absolute instant: datetime-local has no zone, so the Date is built
+          // in the officer's own timezone and serialised with an offset. Sending the bare
+          // local string would be read as UTC and land an hour out for Lagos.
+          ...(when ? { occurred_at: new Date(when).toISOString() } : {}),
+          ...(followUp && leadId ? { follow_up_at: new Date(followUp).toISOString() } : {}),
         })
-        toast.success('Logged to your day')
+        if (res?.moved === 'qualified' && leadName) {
+          toast.success(`Logged. ${leadName} is now Interested.`)
+        } else {
+          toast.success('Logged to your day')
+        }
         onSaved()
         return
       }
@@ -230,9 +301,6 @@ export default function SalesActivityModal({
 
   // ── Styles ──────────────────────────────────────────────────────────────────
 
-  const label: React.CSSProperties = {
-    fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 6,
-  }
   const chip = (on: boolean): React.CSSProperties => ({
     display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', minHeight: 30,
     borderRadius: RADIUS.full, cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold,
@@ -319,26 +387,71 @@ export default function SalesActivityModal({
                 placeholder="e.g. Ikeja, Lagos" />
             )}
 
-            {myLeads.length > 0 && (
-              <div>
-                <label style={label} htmlFor="sa-lead">About A Lead? (Optional)</label>
-                <select id="sa-lead" value={leadId} onChange={e => setLeadId(e.target.value)}
-                  style={{
-                    width: '100%', padding: '9px 11px', border: '1px solid var(--input-bdr)',
-                    borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)',
-                    color: 'var(--txt)', fontFamily: INTER, boxSizing: 'border-box',
-                  }}>
-                  <option value="">Not about a specific lead</option>
-                  {myLeads.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
-                </select>
-                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>
-                  Linking it puts this on the lead's own history and keeps it from going stale.
-                </div>
+            {/* Who it was about. A searchable field rather than a <select>, because the
+                queue runs to hundreds and a native dropdown of 185 names is unusable — and
+                it used to be hidden entirely when the officer had no leads loaded, which is
+                every officer today, since nobody owns a lead yet. A lead can now also be
+                created right here: the work comes first and the record should not require
+                leaving the form you are already in. */}
+            <LeadField
+              leadId={leadId} leadName={leadName}
+              onPick={(id, name) => { setLeadId(id); setLeadName(name) }}
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+              <Input label="When Did This Happen?" type="datetime-local" value={when}
+                onChange={e => setWhen(e.target.value)}
+                hint="Defaults to now. Back-date up to a week if you are catching up." />
+              {dispsForKind.length > 0 && (
+                <SelectMenuField
+                  label="What Came Of It?"
+                  value={disposition}
+                  onChange={setDisposition}
+                  clearLabel="Not recorded"
+                  searchable={false}
+                  options={dispsForKind.map(d => ({ value: d.code, label: d.label, hint: d.hint }))}
+                  hint={chosenDisp?.hint}
+                />
+              )}
+            </div>
+
+            {/* The two consequences a disposition can carry, surfaced the moment it is
+                picked rather than as a validation error after the officer hits save. */}
+            {chosenDisp?.needs_follow_up && (
+              <Input label={leadId ? 'Come Back On' : 'Come Back On (Link A Lead To Set This)'}
+                type="date" value={followUp} disabled={!leadId}
+                onChange={e => setFollow(e.target.value)}
+                hint={leadId
+                  ? 'Goes on the lead as its next action, so the queue brings it back to you.'
+                  : 'A follow-up date needs a lead to sit on — link one above.'} />
+            )}
+            {chosenDisp?.closes && (
+              <div style={{
+                display: 'flex', gap: 8, alignItems: 'flex-start', padding: `${SP[2]} ${SP[3]}`,
+                borderRadius: RADIUS.md, background: `${AMBER}12`, border: `1px solid ${AMBER}3A`,
+                fontSize: TEXT.xs, color: 'var(--txt)',
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: AMBER }}>info</span>
+                <span>This outcome ends the pursuit. Say why in the note — it is what stops the
+                  next campaign calling them again for the same reason.</span>
+              </div>
+            )}
+            {chosenDisp?.qualifies && leadId && (
+              <div style={{
+                display: 'flex', gap: 8, alignItems: 'flex-start', padding: `${SP[2]} ${SP[3]}`,
+                borderRadius: RADIUS.md, background: `${GREEN}12`, border: `1px solid ${GREEN}3A`,
+                fontSize: TEXT.xs, color: 'var(--txt)',
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN }}>trending_flat</span>
+                <span>Saves and moves <strong>{leadName || 'the lead'}</strong> to Interested.</span>
               </div>
             )}
 
-            <Input label="Outcome (Optional)" value={outcome} onChange={e => setOutcome(e.target.value)}
-              placeholder="e.g. Interested, wants a presentation" />
+            {/* The free-text "Outcome" box that used to sit here is gone. It asked for the
+                same thing the disposition now captures, in prose nobody could count: a head
+                could not answer "how many visits got past reception this month" from 200
+                hand-typed lines, and two officers wrote the same result two ways. Anything
+                that does not fit a code belongs in the shared note field below. */}
           </>
         ) : (
           <>
@@ -455,9 +568,15 @@ export default function SalesActivityModal({
           <span>{consequence}</span>
         </div>
 
-        <Textarea label={isDay ? 'Detail (Optional)' : 'Notes (Optional)'} value={note} rows={3}
+        {/* Required when the chosen outcome says so — a "Not Interested" or "Not Eligible"
+            with no reason is the entry that makes the next campaign repeat the mistake. */}
+        <Textarea
+          label={chosenDisp?.needs_note ? 'Why (Required)' : isDay ? 'Detail (Optional)' : 'Notes (Optional)'}
+          value={note} rows={3}
           onChange={e => setNote(e.target.value)}
-          placeholder={isForward ? 'What was said, and anything the next person needs' : 'Anything worth knowing next time'} />
+          placeholder={chosenDisp?.needs_note
+            ? 'Say why — this outcome needs it.'
+            : isForward ? 'What was said, and anything the next person needs' : 'Anything worth knowing next time'} />
 
         {/* Follow-up. This is the field that was silently lost for every officer: the old
             My Dashboard form collected it and posted it to an endpoint their role could
@@ -499,5 +618,263 @@ export default function SalesActivityModal({
         )}
       </div>
     </Modal>
+  )
+}
+
+// ── LeadField ────────────────────────────────────────────────────────────────
+//
+// Who the activity was about. A search box rather than a dropdown, for two reasons that
+// both came out of the data: the queue is 185 leads today and a native <select> of that
+// many names cannot be used, and the previous field was hidden entirely unless leads had
+// already loaded — which, with nobody yet owning a lead, meant every officer saw no lead
+// field at all and every activity was logged detached from the person it was about.
+//
+// Searching hits /api/sales/leads?q=, which is already scoped: an officer can only find
+// their own leads and the unclaimed pool, so this cannot become a way to read another
+// team's book.
+//
+// It also creates. An officer standing outside an employer they just visited should not
+// have to abandon the form, go to Leads, create the record, come back and start again —
+// that is the friction that makes people log nothing.
+
+interface LeadHit {
+  id: number
+  first_name?: string | null
+  last_name?: string | null
+  phone?: string | null
+  lead_stage?: string | null
+  owner_name?: string | null
+}
+
+function leadLabel(l: LeadHit): string {
+  return [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || `Lead ${l.id}`
+}
+
+function LeadField({ leadId, leadName, onPick }: {
+  leadId: string
+  leadName: string
+  onPick: (id: string, name: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const [hits, setHits] = useState<LeadHit[]>([])
+  const [busy, setBusy] = useState(false)
+  const [openList, setOpenList] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const dq = useDebouncedValue(q, 250)
+  const boxRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (leadId || dq.trim().length < 2) { setHits([]); return }
+    let cancelled = false
+    setBusy(true)
+    apiFetch<{ data: LeadHit[] }>(`/api/sales/leads?limit=8&q=${encodeURIComponent(dq.trim())}`)
+      .then(r => { if (!cancelled) { setHits(r?.data ?? []); setOpenList(true) } })
+      .catch(() => { if (!cancelled) setHits([]) })
+      .finally(() => { if (!cancelled) setBusy(false) })
+    return () => { cancelled = true }
+  }, [dq, leadId])
+
+  // Clicking away closes the result list without clearing what was typed.
+  useEffect(() => {
+    if (!openList) return
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpenList(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [openList])
+
+  if (leadId) {
+    return (
+      <div>
+        <label style={label}>About</label>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+          border: `1px solid ${NAVY}33`, borderRadius: RADIUS.md, background: `${NAVY}0A`,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 17, color: NAVY }}>person</span>
+          <span style={{ flex: 1, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+            {leadName || `Lead ${leadId}`}
+          </span>
+          <button type="button" onClick={() => { onPick('', ''); setQ(''); setHits([]) }}
+            title="Not about this lead"
+            style={{
+              border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)',
+              display: 'inline-flex', alignItems: 'center', padding: 2,
+            }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>close</span>
+          </button>
+        </div>
+        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>
+          This entry will appear on {leadName || 'the lead'}'s own history.
+        </div>
+      </div>
+    )
+  }
+
+  if (creating) {
+    return <NewLeadInline initialName={q} onCancel={() => setCreating(false)}
+      onCreated={(id, name) => { setCreating(false); onPick(String(id), name) }} />
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <label style={label} htmlFor="sa-leadsearch">About A Lead? (Optional)</label>
+      <div style={{ position: 'relative' }}>
+        <span className="material-symbols-rounded" style={{
+          position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)',
+          fontSize: 17, color: 'var(--txt3)', pointerEvents: 'none',
+        }}>search</span>
+        <input
+          id="sa-leadsearch" value={q} onChange={e => setQ(e.target.value)}
+          onFocus={() => { if (hits.length) setOpenList(true) }}
+          placeholder="Search by name or phone…"
+          style={{
+            width: '100%', padding: '9px 11px 9px 32px', border: '1px solid var(--input-bdr)',
+            borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)',
+            color: 'var(--txt)', fontFamily: INTER, boxSizing: 'border-box',
+          }} />
+        {busy && (
+          <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}>
+            <Spinner size={14} />
+          </span>
+        )}
+      </div>
+
+      {openList && q.trim().length >= 2 && (
+        <div style={{
+          position: 'absolute', zIndex: 30, left: 0, right: 0, marginTop: 4,
+          background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
+          boxShadow: '0 8px 24px rgba(0,0,0,.14)', maxHeight: 260, overflowY: 'auto',
+        }}>
+          {hits.map(h => (
+            <button key={h.id} type="button"
+              onClick={() => { onPick(String(h.id), leadLabel(h)); setOpenList(false) }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', border: 'none',
+                background: 'none', cursor: 'pointer', padding: '8px 11px',
+                borderBottom: '1px solid var(--bdr)', fontFamily: INTER,
+              }}>
+              <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.semibold }}>
+                {leadLabel(h)}
+              </div>
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+                {[h.phone, h.lead_stage, h.owner_name ? `with ${h.owner_name}` : 'unclaimed']
+                  .filter(Boolean).join(' · ')}
+              </div>
+            </button>
+          ))}
+          {!busy && hits.length === 0 && (
+            <div style={{ padding: '10px 11px', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+              No lead matches “{q.trim()}”.
+            </div>
+          )}
+          <button type="button" onClick={() => { setCreating(true); setOpenList(false) }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
+              border: 'none', background: 'none', cursor: 'pointer', padding: '9px 11px',
+              color: NAVY, fontFamily: INTER, fontSize: TEXT.sm, fontWeight: FW.semibold,
+            }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>person_add</span>
+            Register “{q.trim()}” as a new lead
+          </button>
+        </div>
+      )}
+
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>
+        Linking it puts this on the lead's own history and stops it showing as stalled.
+      </div>
+    </div>
+  )
+}
+
+// ── NewLeadInline ────────────────────────────────────────────────────────────
+//
+// The minimum createLead actually requires: a name, one way to reach them, and a source.
+// Nothing else, because every extra field here is a reason to close the form and log
+// nothing. The rest is enrichment and belongs on the lead itself later.
+function NewLeadInline({ initialName, onCancel, onCreated }: {
+  initialName: string
+  onCancel: () => void
+  onCreated: (id: number, name: string) => void
+}) {
+  // A typed search is usually the person's name, so split it rather than make them retype.
+  const parts = initialName.trim().split(/\s+/)
+  const [first, setFirst] = useState(parts[0] ?? '')
+  const [last, setLast]   = useState(parts.slice(1).join(' '))
+  const [phone, setPhone] = useState('')
+  const [source, setSource] = useState('')
+  const [sources, setSources] = useState<{ code: string; label: string }[]>([])
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiFetch<{ data: { code: string; label: string }[] }>('/api/sales/leads/sources')
+      .then(r => {
+        const list = r?.data ?? []
+        setSources(list)
+        // Default to a self-sourced code when one exists: an officer creating a lead from
+        // their own visit IS the origination, and pre-selecting it saves the commonest pick.
+        const self = list.find(s => /self|walk|referral/i.test(s.code))
+        if (self) setSource(self.code)
+      })
+      .catch(() => { /* the select renders empty and the save will say what is missing */ })
+  }, [])
+
+  const save = useCallback(async () => {
+    if (!first.trim() && !last.trim()) { setErr('A first or last name is required.'); return }
+    if (!phone.trim()) { setErr('A phone number is required — a lead with no way to reach it is not a lead.'); return }
+    if (!source) { setErr('Pick where this lead came from, so the origination is credited.'); return }
+    setErr(null); setSaving(true)
+    try {
+      const res = await apiPost<{ id: number; possible_duplicate_of?: number | null }>('/api/sales/leads', {
+        first_name: first.trim(), last_name: last.trim(),
+        phone: phone.trim(), lead_source: source,
+      })
+      const name = [first.trim(), last.trim()].filter(Boolean).join(' ')
+      // createLead warns rather than blocks on a matching phone — the same person can come
+      // back as a fresh opportunity — so surface it instead of swallowing it.
+      if (res?.possible_duplicate_of) {
+        toast.warning('Created — but someone with this number already exists. Worth checking.')
+      } else {
+        toast.success(`${name} added to your leads`)
+      }
+      onCreated(res.id, name)
+    } catch (e: any) {
+      const msg = e?.message || 'Could not create the lead'
+      setErr(msg); toast.error(msg)
+    } finally { setSaving(false) }
+  }, [first, last, phone, source, onCreated])
+
+  return (
+    <div style={{
+      padding: SP[3], borderRadius: RADIUS.md, border: `1px solid ${BLUE}3A`,
+      background: `${BLUE}0A`, display: 'flex', flexDirection: 'column', gap: SP[2],
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 17, color: BLUE }}>person_add</span>
+        <strong style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>New lead</strong>
+        <span style={{ flex: 1 }} />
+        <button type="button" onClick={onCancel}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', fontSize: TEXT.xs }}>
+          Cancel
+        </button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
+        <Input label="First Name" value={first} onChange={e => setFirst(e.target.value)} autoFocus />
+        <Input label="Last Name" value={last} onChange={e => setLast(e.target.value)} />
+      </div>
+      <Input label="Phone" value={phone} onChange={e => setPhone(e.target.value)}
+        placeholder="e.g. 08031234567" />
+      <SelectMenuField label="Where From?" value={source} onChange={setSource}
+        options={sources.map(s => ({ value: s.code, label: s.label }))}
+        placeholder="Pick a source" />
+      {err && (
+        <div style={{ fontSize: TEXT.xs, color: RED }}>{err}</div>
+      )}
+      <Button variant="primary" loading={saving} onClick={save} icon="check">
+        Create And Link
+      </Button>
+    </div>
   )
 }
