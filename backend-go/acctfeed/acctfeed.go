@@ -216,7 +216,13 @@ RETURNING (xmax = 0) AS inserted`
 // testNameRE flags test/dummy/vendor cards by their cardholder name (e.g. "O3CAPITAL
 // TEST CARD", "Bevertec"). Skipped at ingest so they never enter the card book. RE2 uses
 // \b for word boundaries (not Postgres's \m/\M).
-var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy|fastest)\b|testcard|questtest`)
+//
+// Must stay identical to app.is_test_card_name and the three other copies
+// (custfeed/ingest.go, handlers/customer360.go, txnfeed/txnfeed.go). 'fastest' was
+// dropped in migration 312: it matched six real 2018 race prize cards (FASTEST
+// MALE/FEMALE, JNR/SNR) carrying balances and ATM withdrawals, and no genuine test card,
+// so this feed had been discarding real cardholders' rows at ingest.
+var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy)\b|testcard|questtest`)
 
 func apply(_ *core.DB) feedcore.Applier {
 	return func(ctx context.Context, tx *sql.Tx, lines []string, meta feedcore.FileMeta) (inserted, updated, rejected int, err error) {

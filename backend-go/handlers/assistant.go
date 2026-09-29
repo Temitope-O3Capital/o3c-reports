@@ -42,6 +42,13 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+// unassignedPoolLabel names the bucket a lead with no sales owner falls into.
+// get_lead_ownership both SELECTs this literal and then has to recognise it again in the
+// rows that come back, so it is declared once: a label that drifted between those two
+// places would silently turn "nobody owns anything" into "an officer called 'unassigned
+// pool' owns everything".
+const unassignedPoolLabel = "unassigned pool"
+
 // ── configuration ───────────────────────────────────────────────────────────
 
 // assistantMaxToolRounds bounds the tool loop. Two rounds is enough for
@@ -594,7 +601,7 @@ func assistantTools() []assistantTool {
 				cond := strings.Join(where, " AND ")
 
 				rows, err := db.PGQuery(ctx, `
-					SELECT COALESCE(NULLIF(usr.full_name,''),'unassigned pool') AS owner,
+					SELECT COALESCE(NULLIF(usr.full_name,''),'`+unassignedPoolLabel+`') AS owner,
 					       COUNT(*)                                             AS leads_owned,
 					       COUNT(*) FILTER (WHERE c.lead_stage IN (`+workedLeadStagesSQL+`)) AS working_now
 					FROM crm_contacts c
@@ -607,11 +614,39 @@ func assistantTools() []assistantTool {
 				if err != nil {
 					return nil, err
 				}
+				// Is there any OWNED lead in these rows at all? Measured 29 Sept 2026 there
+				// is not one anywhere in the platform: sales_owner_id is NULL on every row
+				// of crm_contacts, so the whole book sits in the pool and this tool returns
+				// the single row "unassigned pool: 185".
+				//
+				// Handed that row bare, a model narrates it as a distribution — "the team
+				// is carrying 185 leads" — or worse, answers "how many leads does <officer>
+				// have?" with silence that reads as zero-because-they-are-idle. Both are
+				// wrong for the same reason: nobody has an owner yet, which is a fact about
+				// the system, not about anyone's workload. Say so explicitly rather than
+				// leaving the model to infer it from an absence.
+				ownedAny := false
+				for _, row := range rows {
+					if str(row["owner"]) != unassignedPoolLabel {
+						ownedAny = true
+						break
+					}
+				}
+
+				note := "Leads with no owner appear as '" + unassignedPoolLabel + "'. leads_owned is the officer's whole book; " +
+					"working_now is only those contacted or further along (qualified, handed to sales, documents requested, application submitted, approved), which is always a smaller number. " +
+					"Do not describe leads_owned as being worked. Quote the rows as given; never add them up yourself."
+				if !ownedAny {
+					note = "NO LEAD IN THIS SCOPE HAS AN OWNER YET — every row is in the unassigned pool, so there is no " +
+						"per-officer distribution to report. Say plainly that leads have not been assigned to anyone yet and " +
+						"that the pool is waiting to be claimed or distributed. Do NOT present the pool count as a person's " +
+						"workload, do NOT say a named officer has zero leads as though that were a fact about their " +
+						"performance, and do NOT infer that anyone is idle. " + note
+				}
 				return map[string]any{
-					"by_owner": rows,
-					"note": "Leads with no owner appear as 'unassigned pool'. leads_owned is the officer's whole book; " +
-						"working_now is only those contacted or further along (qualified, handed to sales, documents requested, application submitted, approved), which is always a smaller number. " +
-						"Do not describe leads_owned as being worked. Quote the rows as given; never add them up yourself.",
+					"by_owner":           rows,
+					"anyone_owns_a_lead": ownedAny,
+					"note":               note,
 				}, nil
 			},
 		},

@@ -272,7 +272,14 @@ func ccListForwards(db *core.DB) http.HandlerFunc {
 		}
 
 		rows, err := db.PGQuery(ctx, `
-			SELECT f.id, f.lead_id, f.contact_id, f.forwarded_by, f.forwarded_by_name,
+			SELECT f.id, f.lead_id, f.contact_id, f.forwarded_by,
+			       -- Fall back to the joined user, the way sales_owner_name below already
+			       -- does. forwarded_by_name is a denormalised copy, and it was NULL on all
+			       -- 223 forwards while 95 of them carried a perfectly good forwarded_by —
+			       -- so "who forwarded this?" read blank even where the answer was known.
+			       -- Migration 313 backfilled the stored column; this keeps the display
+			       -- right regardless of what is stored.
+			       COALESCE(f.forwarded_by_name, fb.full_name) AS forwarded_by_name,
 			       f.customer_name, f.customer_phone, f.customer_cif, f.product_interest,
 			       f.notes, f.forwarded_at, f.resolved_at, f.outcome,
 			       `+forwardStatusExpr+` AS status,
@@ -282,6 +289,7 @@ func ccListForwards(db *core.DB) http.HandlerFunc {
 			       cc.name AS campaign_name, mc.name AS marketing_campaign_name
 			  FROM call_center_lead_forwards f
 			  LEFT JOIN crm_contacts c        ON c.id  = f.contact_id
+			  LEFT JOIN o3c_users fb          ON fb.id = f.forwarded_by
 			  LEFT JOIN o3c_users ow          ON ow.id = c.account_manager_id
 			  LEFT JOIN call_center_leads l   ON l.id  = f.lead_id
 			  LEFT JOIN o3c_users la          ON la.id = l.assigned_to

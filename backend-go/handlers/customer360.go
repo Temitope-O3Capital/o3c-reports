@@ -76,7 +76,12 @@ const c360PersonCIFs = `(SELECT c2.cif FROM app.customers c2
 // search). These come from the customer/card feed (custfeed/acctfeed) so they can't be durably
 // deleted; filtering by name pattern keeps them out of view for good. Uses the c. alias
 // and begins with " AND " so it appends to an existing WHERE.
-const notTestCust = ` AND (COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,'')) !~* '\m(test|bevertec|dummy|fastest)\M|testcard|questtest'`
+//
+// Must stay identical to app.is_test_card_name and the three other copies
+// (acctfeed/acctfeed.go, custfeed/ingest.go, txnfeed/txnfeed.go). 'fastest' was dropped
+// in migration 312: it matched six real 2018 race prize cards, which this predicate had
+// therefore been hiding from the customer directory and search.
+const notTestCust = ` AND (COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,'')) !~* '\m(test|bevertec|dummy)\M|testcard|questtest'`
 
 // isSyntheticID reports whether an id is an internal placeholder handle generated for a
 // customer that has no real card CIF: a 'cid:'-prefixed party key, or a 'W'/'Z' followed

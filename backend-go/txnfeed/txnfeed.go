@@ -298,9 +298,14 @@ WHERE NOT EXISTS (
   AND NOT EXISTS (
     -- Drop transactions that belong to a test/dummy/vendor card, so they stay out of the
     -- ledger just like the card is kept out of the book (acctfeed skips it at ingest).
+    --
+    -- Must stay identical to app.is_test_card_name and the three other copies
+    -- (acctfeed/acctfeed.go, custfeed/ingest.go, handlers/customer360.go). 'fastest' was
+    -- dropped in migration 312: it matched six real 2018 race prize cards, whose ATM
+    -- withdrawals this predicate had therefore been keeping out of the ledger.
     SELECT 1 FROM app.accounts ta
     WHERE ta.account_no = v.account_no
-      AND ta.name_on_card ~* '\m(test|bevertec|dummy|fastest)\M|testcard|questtest'
+      AND ta.name_on_card ~* '\m(test|bevertec|dummy)\M|testcard|questtest'
 )
 ON CONFLICT (row_hash) WHERE row_hash IS NOT NULL DO NOTHING`
 

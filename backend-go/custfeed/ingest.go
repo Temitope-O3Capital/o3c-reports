@@ -20,7 +20,12 @@ import (
 // "TEST 1"). These are skipped at ingest so they never enter app.customers — they used
 // to reappear after every manual delete precisely because this feed re-created them.
 // RE2 uses \b for word boundaries (not Postgres's \m/\M).
-var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy|fastest)\b|testcard|questtest`)
+//
+// Must stay identical to app.is_test_card_name and the three other copies
+// (acctfeed/acctfeed.go, handlers/customer360.go, txnfeed/txnfeed.go). 'fastest' was
+// dropped in migration 312: it matched six real 2018 race prize cards (FASTEST
+// MALE/FEMALE, JNR/SNR) carrying balances and ATM withdrawals, and no genuine test card.
+var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy)\b|testcard|questtest`)
 
 // Dir returns the cust_file directory. DATA_FEED_DIR points at the drop root; the
 // customer stream is one subdirectory of it.
