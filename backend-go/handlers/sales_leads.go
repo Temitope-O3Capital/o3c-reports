@@ -140,20 +140,50 @@ func rescanCustomerLeads(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Only a sales head can run the customer match")
 			return
 		}
+		// A phone is only evidence of identity when it resolves to ONE person.
+		//
+		// Two guards, and both are load-bearing. The old query had `normalise_ng_phone(phone)
+		// IS NOT NULL` plus `ORDER BY cu.cif LIMIT 1`, which meant it guessed:
+		//
+		//   - IS NOT NULL does not mean "is a phone number". app.normalise_ng_phone keeps the
+		//     raw text when there are too few digits (deliberately — see its comment), so
+		//     'MATHEW ABAKE' typed into the phone field survives it. 35 leads and 1,021
+		//     customers hold such values; on the customer side they are padded placeholders
+		//     ('800000' on 338 rows, '00' on 63), so one lead entered as '800000' would have
+		//     matched 338 customers. Hence the ^0[0-9]{10}$ shape check.
+		//
+		//   - A shape check alone is NOT enough, and this is the part easy to miss:
+		//     08012345678 is a perfectly well-formed number held by 4,113 distinct CIFs, and
+		//     08000000000 by 2,234. Placeholders are made of real digits. So the match must
+		//     also be unique at the PERSON level — party_id where there is one, falling back
+		//     to the CIF itself, because a party legitimately holds several CIFs (CIF is a
+		//     cards-only id) and picking one of that person's own cards is harmless.
+		//
+		// Measured 2026-09-29 before the fix: of 166 flagged leads, 147 matched a number held
+		// by one customer, 13 matched several CIFs belonging to the SAME person, and 6 matched
+		// a number two DIFFERENT people share — those six were attributed by lowest CIF.
+		//
+		// When a number resolves to more than one person we now flag nothing rather than
+		// choose. That is a deliberate false negative: this endpoint is a convenience rescan a
+		// sales head can re-run, so missing a lead costs a click, while naming the wrong human
+		// writes a stranger's CIF into the lead and into everything downstream that reads it.
 		res, err := db.PGExec(r.Context(), `
 			UPDATE app.crm_contacts c
 			   SET already_customer     = true,
-			       matched_customer_cif = (
-			         SELECT cu.cif FROM app.customers cu
-			          WHERE app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c.phone)
-			          ORDER BY cu.cif LIMIT 1),
+			       matched_customer_cif = m.cif,
 			       customer_matched_at  = now()
-			 WHERE c.lead_stage <> 'converted'
-			   AND COALESCE(c.already_customer, false) = false
-			   AND app.normalise_ng_phone(c.phone) IS NOT NULL
-			   AND EXISTS (
-			     SELECT 1 FROM app.customers cu
-			      WHERE app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c.phone))`)
+			  FROM (
+			    SELECT c2.id, min(cu.cif) AS cif
+			      FROM app.crm_contacts c2
+			      JOIN app.customers cu
+			        ON app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c2.phone)
+			     WHERE c2.lead_stage <> 'converted'
+			       AND COALESCE(c2.already_customer, false) = false
+			       AND app.normalise_ng_phone(c2.phone) ~ '^0[0-9]{10}$'
+			     GROUP BY c2.id
+			    HAVING count(DISTINCT COALESCE(cu.party_id::text, 'cif:' || cu.cif)) = 1
+			  ) m
+			 WHERE c.id = m.id`)
 		if err != nil {
 			respondErrLog(w, 500, "Rescan failed", err)
 			return

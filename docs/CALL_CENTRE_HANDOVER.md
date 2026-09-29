@@ -234,6 +234,38 @@ It was **not** deleted: the file also defines `jsonRows`, used across the packag
 it broke the build in a dozen places. It now carries a header saying so. If you are cleaning
 up, move `jsonRows` to a shared file **first**.
 
+**Three phone normalisers, two conventions — and they are not interchangeable.** A catalogue
+sweep on 2026-09-29 (the method from §1) found:
+
+| Function | Returns | Used by |
+|---|---|---|
+| `app.norm_phone` | last **10** digits, `''` when blank | 80 Go sites — the match key |
+| `app.normalise_ng_phone` | `0` + last 10 = **11** digits, **raw text when too short** | 7 Go sites + a Go twin, `normaliseNGPhone` |
+| `core.norm_phone` | 11 digits, NULL when invalid | **nothing** |
+
+`app.norm_phone(x) = core.norm_phone(y)` can never be true for a valid number — one has the
+leading zero, the other does not. The first two conventions are deliberate (a match key versus
+a dialable number) and every comparison found uses one convention on *both* sides, so they are
+correct today. **`core.norm_phone` is an orphan in the `core` schema with no caller anywhere**;
+it was left in place rather than dropped, because dropping it needs a migration and it is
+harmless while unreferenced. If you reach for it, don't — use `app.norm_phone`.
+
+The trap worth internalising: `normalise_ng_phone` returning the raw string for short input
+means `IS NOT NULL` does **not** mean "is a phone number", and a well-formed number is not
+evidence of identity either — `08012345678` is held by **4,113 distinct CIFs** and
+`08000000000` by 2,234. Any identity match on a phone needs *both* a shape check and a
+uniqueness check at the person level. See `rescanCustomerLeads` in `sales_leads.go` for the
+shape of it.
+
+**`app.calls_on_shared_numbers` inlines `norm_phone`'s body and has no blank guard — and is
+read by nothing.** It computes `people_on_this_number` with `right(regexp_replace(…),10)`
+written out longhand instead of calling `app.norm_phone`, and without the `length(…) = 10`
+guard from §3, so on the 44 calls with a blank or short phone it compares `'' = ''` and counts
+strangers. Its maximum reported figure is 4,855 people on one number, which is the
+`08012345678` placeholder rather than a finding. Left as-is because **no Go or TypeScript file
+references it** — fixing it would cost a migration and a deploy for zero current readers. If
+you ever surface it on a screen, make it call `app.norm_phone` and add the length guard first.
+
 **`app.contact_suppressions` is empty.** `ccNotOnDNCExpr` now delegates to `app.is_suppressed`,
 so the dialler, the SMS/WhatsApp sender and dunning share one definition of "must not contact".
 Behaviour is unchanged today only because nothing in Go writes that table — the moment
