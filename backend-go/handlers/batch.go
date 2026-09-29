@@ -331,6 +331,17 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, fmt.Sprintf("collections_dunning:ok(%d)", n))
 	}
 
+	// The lifecycle score, finally able to act. Resolves the win-back audience and — only
+	// when RETENTION_CALL_QUEUE is 'on' — queues it for calling. Today it resolves to a
+	// refusal, because a win-back call is marketing and nobody has granted marketing
+	// consent on any channel; the heartbeat records that rather than queueing anyone.
+	if n, err := batchQueueRetentionCalls(ctx, db); err != nil {
+		slog.Error("Batch: retention call queue failed", "err", err)
+		steps = append(steps, "retention_call_queue:FAILED")
+	} else {
+		steps = append(steps, fmt.Sprintf("retention_call_queue:ok(%d)", n))
+	}
+
 	// Status must reflect the STEPS, not just batchErr.
 	//
 	// Only the first two steps assign batchErr; steps 3-15 append ":FAILED" to
@@ -489,10 +500,15 @@ func batchSyncCollectionsToDialler(ctx context.Context, db *core.DB) (int64, err
 		  WHERE d.dpd > 0 AND d.outstanding_kobo > 0
 		) x
 		WHERE length(norm_phone) = 10
-		  AND NOT EXISTS (
-		    SELECT 1 FROM dnc_list dn
-		    WHERE right(regexp_replace(COALESCE(dn.phone,''),'\D','','g'),10) = x.norm_phone
-		  )
+		  -- ONE definition of "do not contact", not two. This checked dnc_list by hand
+		  -- and knew nothing of app.contact_suppressions, the table every other surface
+		  -- honours — so a customer who opted out there was still queued for a
+		  -- collections call while the arrears reminder correctly left them alone.
+		  -- app.is_suppressed covers both, and matches on party or email as well as a
+		  -- normalised phone, and honours channel='all'. contact_suppressions is empty
+		  -- today so this blocks nobody now; it is the difference between an opt-out
+		  -- that works and one that works in three places out of four.
+		  AND NOT app.is_suppressed(x.party_id, x.phone, NULL, 'call')
 		  AND NOT EXISTS (
 		    SELECT 1 FROM call_center_contacts t
 		    WHERE right(regexp_replace(COALESCE(t.phone,''),'\D','','g'),10) = x.norm_phone
