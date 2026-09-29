@@ -461,6 +461,14 @@ func listLeads(db *core.DB) http.HandlerFunc {
 				n = nn
 			}
 		}
+		// Where the lead is. Derived from the campaign at load (migration 317) because the
+		// contact record never carried a city or state of its own — Lagos and FCT are the
+		// only two values, matching the contact lists the leads came from.
+		if st := qstr(r, "state"); st != "" {
+			where = append(where, fmt.Sprintf("btrim(COALESCE(c.state,'')) = $%d", n))
+			args = append(args, st)
+			n++
+		}
 		// Campaign the lead came from. Filters on the MARKETING campaign id, which is what
 		// source_campaign_id holds — migration 314 explains why joining the dialler table
 		// here would return a real campaign name belonging to a different campaign.

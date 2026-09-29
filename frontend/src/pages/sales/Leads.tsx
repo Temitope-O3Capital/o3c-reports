@@ -141,6 +141,7 @@ export default function SalesLeads() {
   // filtered queue is a link someone can be sent. getAll, because tags are repeatable and
   // repeating one means AND on the server — narrowing, which is the point of a filter.
   const campaignId = params.get('campaign_id') ?? ''
+  const leadState = params.get('state') ?? ''
   const activeTags = params.getAll('tag')
   const stalled = params.get('stalled') ?? ''
   const includeCustomers = params.get('include_customers') === '1'
@@ -199,6 +200,7 @@ export default function SalesLeads() {
     if (source) p.set('source', source)
     if (salesSource) p.set('sales_source', salesSource)
     if (campaignId) p.set('campaign_id', campaignId)
+    if (leadState) p.set('state', leadState)
     activeTags.forEach(t => p.append('tag', t))
     if (stalled) p.set('stalled', stalled)
     if (includeCustomers) p.set('include_customers', '1')
@@ -207,7 +209,7 @@ export default function SalesLeads() {
     // activeTags is a fresh array each render, so it is joined into a stable string for the
     // dependency list — passing the array itself would refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offset, stage, owner, due, line, source, salesSource, campaignId, activeTags.join('|'), stalled, includeCustomers, dq])
+  }, [offset, stage, owner, due, line, source, salesSource, campaignId, leadState, activeTags.join('|'), stalled, includeCustomers, dq])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -532,6 +534,26 @@ export default function SalesLeads() {
               />
             </div>
           )}
+          {/* Where the lead is. Only two values exist (migration 317 derives them from the
+              campaign), so a fixed two-option filter is honest rather than a guess at a
+              longer list. Labelled Abuja for FCT because that is what people say — FCT is
+              the state on the record, Abuja is the city, and the officers' offices say Abuja. */}
+          <div style={{ width: 150 }}>
+            <SelectMenu
+              value={leadState}
+              onChange={v => {
+                const p = new URLSearchParams(params)
+                v ? p.set('state', v) : p.delete('state')
+                setParams(p); setOffset(0)
+              }}
+              options={[
+                { value: 'Lagos', label: 'Lagos' },
+                { value: 'FCT',   label: 'Abuja (FCT)' },
+              ]}
+              clearLabel="Anywhere" searchable={false}
+              ariaLabel="Filter by location" leadingIcon="location_on"
+            />
+          </div>
           {/* Which campaign brought the lead in. Offers only campaigns present in this
               caller's own queue, with counts, so it never lists a campaign that would
               return nothing. */}
