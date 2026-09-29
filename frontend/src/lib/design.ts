@@ -95,6 +95,13 @@ export const PURPLE = '#7C3AED'
 // ── Theme token type ─────────────────────────────────────────────────────────
 export type ThemeVars = React.CSSProperties & {
   '--bg'?: string
+  // A recessed surface one step back from --bg: progress-bar tracks, the well behind a
+  // meter, subtle inline panels. It was USED in eight components and DEFINED in none, so
+  // every one rendered with no background — an invisible progress track, and a transparent
+  // strip in the sales activity dialog. Easy to miss because an undefined custom property
+  // makes the whole declaration invalid rather than falling back to something wrong: the
+  // element ends up with no background instead of the wrong one.
+  '--bg2'?: string
   '--sb'?: string; '--sb2'?: string; '--sb-bdr'?: string
   '--topbar-bg'?: string
   '--grp'?: string
@@ -118,6 +125,9 @@ export type ThemeVars = React.CSSProperties & {
 // ── Light theme ───────────────────────────────────────────────────────────────
 export const LIGHT: ThemeVars = {
   '--bg': '#FAFBFC',
+  // Darker than --th-bg (#F6F8FC) so a track reads as a well on a white card rather than
+  // vanishing into it.
+  '--bg2': '#EDF0F6',
   '--sb': '#0E2841',                       // sidebar: O3 navy
   '--sb2': '#14324F',                      // sidebar secondary (cmdk bg, hover)
   '--sb-bdr': '#0A1E33',
@@ -147,6 +157,9 @@ export const LIGHT: ThemeVars = {
 // ── Dark theme ────────────────────────────────────────────────────────────────
 export const DARK: ThemeVars = {
   '--bg': '#0E1722',
+  // Lighter than --card (#131F2D) rather than darker: on dark, a recessed well reads as a
+  // lift, and going darker than the page background would make it disappear instead.
+  '--bg2': '#1B2836',
   '--sb': '#0A1E33',
   '--sb2': '#102A44',
   '--sb-bdr': '#0D2240',

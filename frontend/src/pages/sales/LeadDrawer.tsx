@@ -223,7 +223,9 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
               and forming the opinion the label records. Anyone who can see the lead can
               label it: a tag is a note, not a state change, and gating it behind ownership
               would leave a head unable to mark up the pool they are about to distribute. */}
-          <TagEditor leadId={lead.id} tags={lead.tags ?? []} onChanged={refresh} />
+          {/* Array.isArray rather than ?? []: tags is a Postgres text[] and a non-array
+              would reach .map inside the editor. See pgTextArray in sales_leads.go. */}
+          <TagEditor leadId={lead.id} tags={Array.isArray(lead.tags) ? lead.tags : []} onChanged={refresh} />
 
           {/* History */}
           <div>

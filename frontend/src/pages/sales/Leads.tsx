@@ -346,7 +346,12 @@ export default function SalesLeads() {
           </div>
           {/* Labels. Shown on the row rather than only in the drawer, because their whole
               purpose is to let a rep pick the next call out of a list at a glance. */}
-          {!!r.tags?.length && (
+          {/* Array.isArray, not a length check. tags is a Postgres text[] and briefly
+              arrived as the literal string "{}" — two characters, so a ?.length guard
+              passed and .map threw, taking the whole page down. The server now sends a real
+              array (pgTextArray); this makes a row that is somehow not one render as no
+              labels instead of breaking the list. */}
+          {Array.isArray(r.tags) && r.tags.length > 0 && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
               {r.tags.map(t => (
                 <span key={t} style={{

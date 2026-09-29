@@ -557,7 +557,10 @@ export default function SalesActivityModal({
           fontSize: TEXT.xs, color: kind ? 'var(--txt2)' : 'var(--txt3)', lineHeight: 1.45,
           minHeight: 32, display: 'flex', alignItems: 'center', gap: 7,
           padding: kind ? '8px 11px' : 0, borderRadius: RADIUS.md,
-          background: kind ? (isForward ? `${NAVY}0A` : 'var(--bg2, transparent)') : 'transparent',
+          // --bg2 is now a defined token (lib/design.ts). It was not, and the `transparent`
+          // fallback here meant this strip rendered with no background at all whenever the
+          // chosen kind only records rather than moves the lead — which is most of them.
+          background: kind ? (isForward ? `${NAVY}0A` : 'var(--bg2)') : 'transparent',
           border: kind && isForward ? `1px solid ${NAVY}22` : '1px solid transparent',
         }}>
           {kind && (

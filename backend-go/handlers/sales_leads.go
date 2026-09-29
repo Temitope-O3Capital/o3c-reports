@@ -570,11 +570,81 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// tags leaves Postgres as text[] and reaches here as the literal string
+		// `{corporate,"price objection"}` — see pgTextArray. Converted before encoding so
+		// the client gets a real JSON array and never has to know the difference.
+		for i := range rows {
+			rows[i]["tags"] = pgTextArray(rows[i]["tags"])
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"data": rows, "total": total, "limit": limit, "offset": offset,
 		})
 	}
+}
+
+// pgTextArray turns a Postgres array literal into a real Go slice.
+//
+// core.normalizeVal converts every []byte the driver hands back into a string, which is
+// right for UUIDs, JSON and BYTEA but wrong for text[]: an aggregated tag list arrived on
+// the wire as the literal string `{corporate,"price objection"}` rather than an array. The
+// Leads page then did tags.map() on a string and the whole page threw — and the empty case
+// was worse than the populated one, because "{}" is two characters long, so a `?.length`
+// guard passed before failing on .map.
+//
+// Converted here rather than in core.normalizeVal: that function cannot tell a text[] from
+// any other []byte without the column's type OID, and guessing from the shape would turn a
+// note that happens to start with { into an array.
+//
+// Handles the quoting Postgres actually emits — elements are quoted when they contain a
+// comma, a space, a brace or a quote, with backslash escapes inside — which matters because
+// a two-word tag like "price objection" is always quoted.
+func pgTextArray(v any) []string {
+	s, ok := v.(string)
+	if !ok {
+		if already, ok2 := v.([]string); ok2 {
+			return already
+		}
+		return []string{}
+	}
+	s = strings.TrimSpace(s)
+	if len(s) < 2 || s[0] != '{' || s[len(s)-1] != '}' {
+		return []string{}
+	}
+	s = s[1 : len(s)-1]
+	if s == "" {
+		return []string{}
+	}
+	out := []string{}
+	var cur strings.Builder
+	inQuotes, escaped := false, false
+	for _, ch := range s {
+		switch {
+		case escaped:
+			cur.WriteRune(ch)
+			escaped = false
+		case ch == '\\':
+			escaped = true
+		case ch == '"':
+			inQuotes = !inQuotes
+		case ch == ',' && !inQuotes:
+			out = append(out, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteRune(ch)
+		}
+	}
+	out = append(out, cur.String())
+	// NULL elements arrive as the bare word NULL; a tag is NOT NULL so this only guards
+	// against the column being changed later.
+	kept := make([]string, 0, len(out))
+	for _, t := range out {
+		if t != "" && t != "NULL" {
+			kept = append(kept, t)
+		}
+	}
+	return kept
 }
 
 // ── Lead tags ────────────────────────────────────────────────────────────────
@@ -1031,6 +1101,8 @@ func getLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Lead not found")
 			return
 		}
+		// Same text[] conversion as listLeads — the drawer's label editor expects an array.
+		rows[0]["tags"] = pgTextArray(rows[0]["tags"])
 		// id_number is encrypted at rest; never widen this endpoint to expose it.
 		delete(rows[0], "id_number_enc")
 		delete(rows[0], "id_number_hmac")
