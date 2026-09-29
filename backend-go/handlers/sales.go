@@ -1134,16 +1134,36 @@ func salesByLeadSource(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND created_at::date <= $%d", len(args)+1)
 			args = append(args, to)
 		}
+		// `approved` used to mean `status NOT IN ('declined')`, which was wrong twice
+		// over, and the second way was the worse one:
+		//
+		//  1. A pending application is not an approved one. Every row currently in
+		//     loan_applications is status='submitted', stage='risk_review' — nothing has
+		//     been approved at all — yet the Attribution page rendered a green 100%
+		//     approval rate off this column.
+		//  2. 'declined' is only ONE of the two spellings a rejection gets. los.go
+		//     writes status='declined'; stageToStatus() in loans.go writes 'rejected'
+		//     for the stage-move path. So an application rejected through the LOS board
+		//     counted as approved, permanently and invisibly.
+		//
+		// Counted explicitly now, against the vocabulary the code actually writes, and
+		// split three ways so the caller cannot collapse "not yet decided" into either
+		// outcome. amount_approved_kobo follows the same gate: summing it for pending
+		// rows is how a disbursement figure gets asserted before anyone approved a naira.
+		const approvedStatuses = `('approved','active','booked','disbursed')`
+		const declinedStatuses = `('declined','rejected','cancelled')`
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
-			    COALESCE(lead_source,'unknown') AS lead_source,
-			    COUNT(*)                        AS total_applications,
-			    COUNT(CASE WHEN status NOT IN ('declined') THEN 1 END) AS approved,
-			    COALESCE(SUM(CASE WHEN status NOT IN ('declined') THEN amount_approved_kobo END),0) AS disbursement_kobo
+			    COALESCE(NULLIF(lead_source,''),'unknown') AS lead_source,
+			    COUNT(*)                                   AS total_applications,
+			    COUNT(*) FILTER (WHERE status IN %[2]s)     AS approved,
+			    COUNT(*) FILTER (WHERE status IN %[3]s)     AS declined,
+			    COUNT(*) FILTER (WHERE status NOT IN %[2]s AND status NOT IN %[3]s) AS in_progress,
+			    COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status IN %[2]s),0) AS disbursement_kobo
 			FROM loan_applications
-			%s
-			GROUP BY COALESCE(lead_source,'unknown')
-			ORDER BY total_applications DESC`, where), args...)
+			%[1]s
+			GROUP BY COALESCE(NULLIF(lead_source,''),'unknown')
+			ORDER BY total_applications DESC`, where, approvedStatuses, declinedStatuses), args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return

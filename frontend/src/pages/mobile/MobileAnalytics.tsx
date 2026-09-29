@@ -55,7 +55,9 @@ interface PrevTotals { installs: number; sessions: number; loyal_users: number; 
 interface SeriesRow { date: string; installs: number; sessions: number; loyal_users: number }
 // `ordered` is false for an app event the backend's afFunnelOrder never placed in the
 // journey; the sort appends those alphabetically, so their position carries no meaning.
-interface FunnelRow { event_name: string; unique_users: number; event_count: number; ordered: boolean; rank: number }
+// `same_as` names an EARLIER event this one duplicates exactly, day for day — two
+// names Blink emits for one moment, which is not a step (see afAliasedSteps).
+interface FunnelRow { event_name: string; unique_users: number; event_count: number; ordered: boolean; rank: number; same_as?: string; same_as_prev?: boolean }
 interface ScoreRaw { key: string; media_source: string; impressions: number; clicks: number; installs: number; sessions: number; loyal_users: number; cost_usd: number }
 interface Scored extends ScoreRaw { ctr: Measure; cvr: Measure; cpi: Measure; usage: Measure; spi: Measure }
 interface CountryRow { country: string; installs: number; sessions: number; loyal_users: number; cost_usd: number }
@@ -215,7 +217,10 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
   // without the Unplaced badge" rather than back to the phantom drop.
   const seqSteps: SeqStep[] = funnel
     .filter(f => f.unique_users > 0)
-    .map(f => ({ name: prettyEvent(f.event_name), users: f.unique_users, ordered: f.ordered !== false }))
+    .map(f => ({
+      name: prettyEvent(f.event_name), users: f.unique_users, ordered: f.ordered !== false,
+      sameAs: f.same_as ? prettyEvent(f.same_as) : undefined,
+    }))
   const seq = checkSequence(seqSteps)
   // Event names are distinct and prettyEvent is deterministic, so names identify steps.
   const verified = new Set(seq.verified.map(s => s.name))
@@ -231,6 +236,11 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
       // Everywhere else this is "—": the old code printed 2,522% here.
       fromPrev: !prev
         ? na('not_reported', 'First step in the journey — nothing precedes it.')
+        // Checked BEFORE the conversion is computed: two names for one moment would
+        // otherwise render a confident ~100%, which reads as "nobody drops out here"
+        // when the truth is that there is no "here" to drop out of.
+        : s.sameAs === prev.name
+          ? na('not_reported', `Blink reports this with exactly the same daily user count as ${prev.name}, every day both occur — one event under two names, not two steps. A conversion between them would be 100% by construction.`)
         : comparable
           ? rate(s.users, prev.users, 1, 'users at the previous step')
           : na('not_reported', s.ordered
@@ -638,6 +648,10 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
                 {!r.ordered && (
                   <span title="Present in the data but absent from the declared journey — listed alphabetically, so its position means nothing."
                         style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: `${SLATE}22`, color: SLATE, cursor: 'help' }}>Unplaced</span>
+                )}
+                {r.sameAs && (
+                  <span title={`Identical daily user count to ${r.sameAs} on every day both occur — Blink emits two names for one moment, so this is not a separate stage of the journey.`}
+                        style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: `${AMBER}22`, color: AMBER, cursor: 'help' }}>Same As {r.sameAs}</span>
                 )}
               </span>
             )},
