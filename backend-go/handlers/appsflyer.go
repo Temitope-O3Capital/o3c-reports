@@ -78,76 +78,31 @@ var afFunnelOrder = []string{
 // tolerance threshold: that would be tuning the check until the data looks clean, and
 // it is the gross misordering this guard exists to catch.
 //
-// SOME "STEPS" ARE THE SAME EVENT UNDER THREE NAMES. Comparing steps WITHIN a single
-// day removes the user-days problem entirely — on one day, unique_users really is
-// unique users — and that test found something the window totals hid. Over
-// 2026-08-29→09-28, kyc_start and registration_details_submitted carry an IDENTICAL
-// count on all 21 days they both appear (48 user-days each); af_complete_registration
-// matches both on 20 of those 21 (47). They are not three stages a user passes
-// through, they are one moment Blink reports three times, so a "conversion rate"
-// between them is near-100% by construction and means nothing.
+// A WARNING ABOUT PER-DAY COMPARISONS, WRITTEN AFTER GETTING THIS WRONG.
 //
-// That, not a bad ordering, is what most of the residual violations were: reordering
-// events that move in lockstep can never make them monotonic. afAliasedSteps below
-// detects it from the per-day counts and marks the later row `same_as` (the earlier
-// name it duplicates), so the client can say "same event as X" instead of implying a
-// stage. Which of the names Blink should actually emit is a question for the app team;
-// until they answer, the page says what is true rather than inventing a funnel out of
-// one event.
-
-// afAliasMinDays is how many days two events must BOTH appear on before identical
-// daily counts are called aliasing rather than coincidence. Two rare events can match
-// for two or three days by chance; matching on ten-plus separate days does not happen
-// to genuinely distinct steps. This is a floor on evidence, not a tolerance on the
-// comparison — the counts themselves must agree exactly, on every shared day.
-const afAliasMinDays = 10
-
-// afAliasedSteps maps each event that duplicates an EARLIER one in the funnel to that
-// earlier event's name — names that are not separate steps at all.
+// Comparing two events WITHIN a single day looks like it should settle the ordering,
+// because on one day unique_users really is unique users and the user-days inflation
+// above disappears. On 2026-09-29 that test appeared to show that kyc_start and
+// registration_details_submitted are one event under two names: identical user counts
+// on all 21 days they both appear. A detector was built and shipped on that basis.
 //
-// Every pair is compared, not just neighbours. The real case is not adjacent: over
-// 2026-08-29→09-28 the duplicate of registration_details_submitted (rank 4) is
-// kyc_start (rank 8), four steps further down. An adjacency-only version of this
-// function found nothing on live data and silently did no work.
+// It was wrong, and the reason matters more than the mistake. These steps see one to
+// four users A DAY (mean 2.29, busiest day 4). Two events at that volume will report
+// the same integer on most days by arithmetic alone, so "identical for 21 days" is
+// almost no evidence at all. Counting DAYS of agreement measures patience, not signal.
 //
-// `daily` is one row per event per day; events observed on different sets of days are
-// by definition not the same event.
-func afAliasedSteps(rows []core.Row, daily []core.Row) map[string]string {
-	byEvent := map[string]map[string]int64{}
-	for _, r := range daily {
-		ev := str(r["event_name"])
-		if byEvent[ev] == nil {
-			byEvent[ev] = map[string]int64{}
-		}
-		byEvent[ev][str(r["d"])] = toInt64(r["uu"])
-	}
-	sameDays := func(a, b map[string]int64) bool {
-		if len(a) < afAliasMinDays || len(a) != len(b) {
-			return false
-		}
-		for d, v := range a {
-			if w, ok := b[d]; !ok || w != v {
-				return false
-			}
-		}
-		return true
-	}
-	// rows arrive in funnel order, so the FIRST match found scanning backwards is the
-	// earliest-ranked name for that moment — the one the journey is described by, and
-	// the only one of the group that keeps its step-to-step conversion.
-	out := map[string]string{}
-	for i := 1; i < len(rows); i++ {
-		cur := str(rows[i]["event_name"])
-		for j := 0; j < i; j++ {
-			earlier := str(rows[j]["event_name"])
-			if sameDays(byEvent[earlier], byEvent[cur]) {
-				out[cur] = earlier
-				break
-			}
-		}
-	}
-	return out
-}
+// What separates them is the repeat count, which the users-only test never looked at.
+// Over the same window kyc_start fires 189 times against 82 user-days (2.30 each) while
+// registration_details_submitted fires 114 against 81 (1.41) and
+// af_complete_registration 80 against 76 (1.05). Same people, same days, very different
+// behaviour — three distinct events, not three names. That KYC is started 2.3 times per
+// user-day is itself worth someone's attention; it reads like users retrying.
+//
+// So the residual violations are what the block above always said they were: user-days
+// artefacts. There is no aliasing to detect, and the detector has been removed rather
+// than left in place looking vigilant. If you are tempted to write it again: compare
+// event_count as well as unique_users, and require the daily counts to be large enough
+// that agreeing on them means something.
 
 // afFunnelRank returns a stable ordering rank for an event name.
 func afFunnelRank(name string) int {
@@ -467,24 +422,6 @@ func appsflyerFunnel(db *core.DB) http.HandlerFunc {
 			rank := afFunnelRank(str(row["event_name"]))
 			row["rank"] = rank
 			row["ordered"] = rank < len(afFunnelOrder)
-		}
-
-		// Flag adjacent steps that are one event under two names (see the block above
-		// afFunnelRank). Best-effort: if the per-day query fails, every row simply
-		// keeps same_as_prev=false and the client behaves exactly as it did before.
-		daily, _ := db.PGQuery(ctx, `
-			SELECT event_name, activity_date::text AS d,
-			       COALESCE(SUM(unique_users),0) AS uu
-			FROM appsflyer_events WHERE `+where+`
-			GROUP BY event_name, activity_date`, args...)
-		alias := afAliasedSteps(rows, daily)
-		for _, row := range rows {
-			// Names the earlier event this row duplicates, empty when it is a step in
-			// its own right. Whether that duplicate happens to be the row directly
-			// above — the only place a meaningless ~100% conversion would be drawn —
-			// the client can see for itself; it does not need a second field to
-			// disagree with.
-			row["same_as"] = alias[str(row["event_name"])]
 		}
 		respond(w, map[string]any{"funnel": rows}, "pg")
 	}

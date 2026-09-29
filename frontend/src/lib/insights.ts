@@ -91,17 +91,6 @@ export interface SeqStep {
   users: number
   /** False for a step present in the data but absent from the declared order. */
   ordered: boolean
-  /**
-   * Names an EARLIER step carrying an identical per-day user count on every day both
-   * occur — i.e. this is not a separate step at all, but the same moment reported
-   * under a second event name. Where such a pair is adjacent, a conversion between
-   * them is ~100% by construction and says nothing, so callers must not print one.
-   *
-   * Decided by the backend from per-day counts (afAliasedSteps), because a window
-   * total cannot tell a duplicate apart from a step everyone genuinely passes. Absent
-   * on an older backend, which simply means nothing is flagged.
-   */
-  sameAs?: string
 }
 
 export interface SeqViolation {
