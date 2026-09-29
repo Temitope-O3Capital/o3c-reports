@@ -7,6 +7,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
 import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { hasPage } from '../../hooks/useAuth'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -168,8 +169,12 @@ function MilestoneTimeline({
         })}
       </div>
 
-      {/* Add milestone */}
-      {!showForm ? (
+      {/* Add milestone. Gated on recovery_assign, which is what
+          POST /cases/{id}/legal-milestone requires — recovery_agent holds only `recovery`, so
+          this button and Assign Solicitor below both 403'd for the agent who lives on the legal
+          tracker. Cases.tsx and CaseDetail.tsx already gate on the same page; Legal.tsx was the
+          outlier. */}
+      {!hasPage('recovery_assign') ? null : !showForm ? (
         <button onClick={() => setShowForm(true)} style={{
           marginTop: 14, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY,
           background: 'none', border: `1px solid ${NAVY}30`,
@@ -517,7 +522,9 @@ export default function RecoveryLegal() {
             width: 84,
             render: row => (
               <ActionRow actions={[
-                { icon: 'account_balance', label: 'Assign Solicitor', onClick: () => setSolCase(row) },
+                ...(hasPage('recovery_assign')
+                  ? [{ icon: 'account_balance', label: 'Assign Solicitor', onClick: () => setSolCase(row) }]
+                  : []),
                 { icon: 'timeline',        label: 'View Timeline',    onClick: () => setTlCase(row) },
               ]} />
             ),

@@ -164,7 +164,15 @@ export default function SalesLeads() {
   // Head vs officer: heads (and executives) get the owner filter, the Distribute
   // action and per-lead assignment; officers work their own book + claim from the pool.
   const me = currentUser()
-  const isHead = isSalesHead(me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
+  // isSalesHead ALONE, matching the server. The `|| MGMT.has(r)` widening that used to be here
+  // admitted md, coo, cmo, exec_overview and internal_control_head — none of which Go's
+  // salesHeadRoles accepts (admin, sales_head, head_sales, head_ops, cfo). distributeLeads
+  // answers 403 "Only a sales head can distribute leads" for every one of them, and it bit the
+  // CMO hardest: core/auth.go grants cmo `sales_team` precisely because "the CMO runs Sales and
+  // BD", so they can open the supervisor screen whose headline action is Distribute and have
+  // every click refused. Hiding a control the role cannot use is the honest reading of
+  // "management oversees the floor" — the server decides, and it already has.
+  const isHead = isSalesHead(me)
   const [distOpen, setDistOpen] = useState(false)
   const [assignLead, setAssignLead] = useState<Lead | null>(null)
   const [raiseLead, setRaiseLead] = useState<Lead | null>(null)

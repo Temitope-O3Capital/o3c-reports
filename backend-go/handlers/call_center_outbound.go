@@ -379,11 +379,17 @@ func ccCreateCampaign(db *core.DB) http.HandlerFunc {
 		if b.Status == "" {
 			b.Status = "active"
 		}
+		// 'sales' was missing here, and from the call_center_campaigns CHECK (migration 310
+		// widens it). Migration 162 added 'sales' to helpdesk_calls and call_center_contacts,
+		// and LogCallModal offers it — so a CALL could legally be stamped sales while the
+		// CAMPAIGN those calls belong to could not, and creating one answered 400. The
+		// outbound sales floor had to mislabel its campaigns 'marketing', which made every
+		// report keyed on campaign purpose count sales activity as marketing.
 		switch b.Purpose {
-		case "", "collections", "marketing", "support", "retention", "other":
+		case "", "collections", "marketing", "sales", "support", "retention", "other":
 			// ok (empty allowed — campaign purpose can be set later)
 		default:
-			respondErr(w, 400, "invalid purpose (collections|marketing|support|retention|other)")
+			respondErr(w, 400, "invalid purpose (collections|marketing|sales|support|retention|other)")
 			return
 		}
 		user := core.UserFromCtx(r.Context())

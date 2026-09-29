@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"unicode"
@@ -622,20 +623,46 @@ func buildSegmentWhere(c segmentCriteria) (string, []any) {
 		args = append(args, c.MaxOutstandingKobo)
 		n++
 	}
+	// DPD buckets, matching the values the platform actually PRODUCES.
+	//
+	// This switch was written against a five-step ladder ending "91+", which nothing emits.
+	// app.collections_delinquent_unified (migrations 137/198/299) produces a seven-step ladder
+	// whose tail is '91-180', '181-360' and '360+', and the collections queue filter offers
+	// exactly those. So a segment built on ANY deep-DPD bucket matched no case, contributed no
+	// clause, and — because the block below is skipped when `parts` is empty — applied NO DPD
+	// FILTER AT ALL.
+	//
+	// That is the dangerous direction for a targeting rule: ask for the 90+ slice, get the
+	// ENTIRE BOOK, then message all of it. A segment returning nobody gets noticed; one
+	// returning everybody looks like a successful campaign.
+	//
+	// An unrecognised bucket now fails CLOSED — a FALSE disjunct, so it selects nobody rather
+	// than everybody. '90+' and '91+' are kept as accepted synonyms because saved segments may
+	// still hold them. '0' is <= 0 rather than = 0 to match every other ladder in the codebase.
 	if len(c.DPDBuckets) > 0 {
 		var parts []string
 		for _, b := range c.DPDBuckets {
 			switch b {
 			case "0":
-				parts = append(parts, "COALESCE(dpd,0) = 0")
+				parts = append(parts, "COALESCE(dpd,0) <= 0")
 			case "1-30":
 				parts = append(parts, "COALESCE(dpd,0) BETWEEN 1 AND 30")
 			case "31-60":
 				parts = append(parts, "COALESCE(dpd,0) BETWEEN 31 AND 60")
 			case "61-90":
 				parts = append(parts, "COALESCE(dpd,0) BETWEEN 61 AND 90")
-			case "91+":
+			case "91-180":
+				parts = append(parts, "COALESCE(dpd,0) BETWEEN 91 AND 180")
+			case "181-360":
+				parts = append(parts, "COALESCE(dpd,0) BETWEEN 181 AND 360")
+			case "360+":
+				parts = append(parts, "COALESCE(dpd,0) > 360")
+			case "90+", "91+":
 				parts = append(parts, "COALESCE(dpd,0) > 90")
+			default:
+				slog.Warn("contact list segment: unknown dpd bucket — selecting nobody for it "+
+					"rather than widening the audience", "bucket", b)
+				parts = append(parts, "FALSE")
 			}
 		}
 		if len(parts) > 0 {
