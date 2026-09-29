@@ -33,6 +33,10 @@ interface Lead {
   already_customer?: boolean; matched_customer_cif?: string
   converted_cif?: string; converted_line?: string; converted_ref?: string
   open_cif?: string
+  source_campaign_id?: number | null
+  campaign_name?: string | null
+  campaign_source?: 'marketing' | 'dialler' | null
+  tags?: string[] | null
 }
 
 interface TimelineRow {
@@ -215,6 +219,12 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
 
           <Facts lead={lead} />
 
+          {/* Labels. Editable here because this is where an officer is looking at the lead
+              and forming the opinion the label records. Anyone who can see the lead can
+              label it: a tag is a note, not a state change, and gating it behind ownership
+              would leave a head unable to mark up the pool they are about to distribute. */}
+          <TagEditor leadId={lead.id} tags={lead.tags ?? []} onChanged={refresh} />
+
           {/* History */}
           <div>
             <div style={{
@@ -268,6 +278,143 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
   )
 }
 
+// ── Labels ───────────────────────────────────────────────────────────────────
+//
+// Free-form, but canonical: the server stores lowercase and trimmed (migration 314), and
+// refuses anything else. Normalising here as well means the officer sees what will actually
+// be stored as they type, rather than having "Corporate" quietly become "corporate" after
+// the save — and it stops the same label existing three ways, which is the failure that
+// makes a tag filter useless within a month.
+//
+// Suggestions come from the labels already in use in this caller's scope, so the second
+// person to need "price objection" picks the existing one instead of inventing
+// "price-objection" beside it.
+
+/** Same rule as canonicalTag in backend-go/handlers/sales_leads.go. */
+function canonicalTag(s: string): string {
+  return s.toLowerCase().trim().split(/\s+/).join(' ')
+}
+const TAG_OK = /^[a-z0-9][a-z0-9 _-]*$/
+
+function TagEditor({ leadId, tags, onChanged }: {
+  leadId: number
+  tags: string[]
+  onChanged: () => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [suggest, setSuggest] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!adding || suggest.length > 0) return
+    apiFetch<{ data: { tag: string }[] }>('/api/sales/lead-tags')
+      .then(r => setSuggest((r?.data ?? []).map(t => t.tag)))
+      .catch(() => { /* typing still works without suggestions */ })
+  }, [adding, suggest.length])
+
+  const add = useCallback(async (raw: string) => {
+    const tag = canonicalTag(raw)
+    if (!tag) return
+    if (tag.length < 2 || tag.length > 32 || !TAG_OK.test(tag)) {
+      toast.error('A label is 2–32 characters: letters, numbers, spaces, - or _, not starting with a space.')
+      return
+    }
+    if (tags.includes(tag)) { setDraft(''); setAdding(false); return }
+    setBusy(true)
+    try {
+      await apiPost(`/api/sales/leads/${leadId}/tags`, { tag })
+      setDraft(''); setAdding(false); onChanged()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not add that label') }
+    finally { setBusy(false) }
+  }, [leadId, tags, onChanged])
+
+  const remove = useCallback(async (tag: string) => {
+    setBusy(true)
+    try {
+      await apiFetch(`/api/sales/leads/${leadId}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' })
+      onChanged()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not remove that label') }
+    finally { setBusy(false) }
+  }, [leadId, onChanged])
+
+  const unused = suggest.filter(s => !tags.includes(s))
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: SP[2],
+      }}>
+        <h3 style={{ margin: 0, fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>Labels</h3>
+        {busy && <Spinner size={13} />}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {tags.map(t => (
+          <span key={t} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 5px 3px 10px',
+            borderRadius: RADIUS.full, background: `${PURPLE}16`, color: PURPLE,
+            fontSize: TEXT.xs, fontWeight: FW.semibold,
+          }}>
+            {t}
+            <button type="button" onClick={() => remove(t)} disabled={busy}
+              aria-label={`Remove ${t}`} title={`Remove ${t}`}
+              style={{
+                border: 'none', background: 'none', padding: 0, cursor: busy ? 'wait' : 'pointer',
+                color: PURPLE, display: 'inline-flex', alignItems: 'center', opacity: .75,
+              }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>close</span>
+            </button>
+          </span>
+        ))}
+
+        {!adding && (
+          <button type="button" onClick={() => setAdding(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px',
+              borderRadius: RADIUS.full, border: '1px dashed var(--bdr)', background: 'none',
+              color: 'var(--txt3)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
+            }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>
+            {tags.length ? 'Add' : 'Add a label'}
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div style={{ marginTop: SP[2] }}>
+          <Input
+            label="New Label" autoFocus value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); add(draft) }
+              if (e.key === 'Escape') { setDraft(''); setAdding(false) }
+            }}
+            placeholder="e.g. corporate, price objection, callback dec"
+            hint="Stored lowercase so the same label cannot exist twice. Enter to add, Escape to cancel." />
+          {unused.length > 0 && (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: SP[2], alignItems: 'center' }}>
+              <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Already in use:</span>
+              {unused.slice(0, 10).map(s => (
+                <button key={s} type="button" onClick={() => add(s)} disabled={busy}
+                  style={{
+                    padding: '2px 9px', borderRadius: RADIUS.full, border: '1px solid var(--bdr)',
+                    background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT['2xs'],
+                    fontWeight: FW.semibold, cursor: 'pointer',
+                  }}>{s}</button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: SP[2] }}>
+            <Button size="sm" variant="primary" loading={busy} onClick={() => add(draft)}>Add</Button>
+            <Button size="sm" variant="secondary" onClick={() => { setDraft(''); setAdding(false) }}>Cancel</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Pieces ────────────────────────────────────────────────────────────────────
 
 const STAGE_COLOR: Record<string, string> = {
@@ -297,6 +444,11 @@ function Facts({ lead }: { lead: Lead }) {
     ['Location', [lead.city, lead.state].filter(Boolean).join(', ') || undefined],
     ['Reached Sales Via', lead.sales_source ? humanise(lead.sales_source) : undefined],
     ['Reached Sales On', lead.sales_entered_at ? fmtDate(lead.sales_entered_at) : undefined],
+    // Not humanised: campaign names are data, and title-casing "CRC July Campaign (FCT
+    // Individuals)" would mangle a name someone chose deliberately.
+    ['Campaign', lead.campaign_name
+      ? lead.campaign_name + (lead.campaign_source === 'dialler' ? ' (call-centre list)' : '')
+      : undefined],
     ['Next Action', lead.next_action_at ? fmtDatetime(lead.next_action_at) : undefined],
   ]
   // Only the facts this lead actually has — an empty grid cell reads as missing data

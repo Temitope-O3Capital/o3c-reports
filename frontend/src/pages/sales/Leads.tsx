@@ -47,6 +47,10 @@ interface Lead {
   already_customer?: boolean
   matched_customer_cif?: string | null
   converted_cif?: string | null
+  /** Named from the marketing campaign, falling back to the forward's dialler list. */
+  campaign_name?: string | null
+  campaign_source?: 'marketing' | 'dialler' | null
+  tags?: string[] | null
   // The CIF to open in Customer 360 — set only when that customer exists.
   customer360_cif?: string | null
 }
@@ -56,6 +60,9 @@ interface Funnel {
   product_mix?: Record<string, { count: number; value_kobo: number }>
 }
 interface Source { code: string; label: string }
+/** A label in use, with how many leads in this caller's scope carry it. */
+interface TagCount { tag: string; leads: number }
+interface CampaignCount { id: number; name: string; leads: number }
 interface Officer { id: number; full_name: string; is_active: boolean }
 
 // The stage vocabulary lives once, in lib/leadStages. It used to be declared here and in three
@@ -119,6 +126,8 @@ export default function SalesLeads() {
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([])
+  const [campaigns, setCampaigns] = useState<CampaignCount[]>([])
 
   const stage = params.get('stage') ?? ''
   const owner = params.get('owner_id') ?? ''
@@ -128,6 +137,11 @@ export default function SalesLeads() {
   // How the lead reached Sales (call_centre | business_dev | self) — distinct from
   // `source` above, which is where the contact originally came from.
   const salesSource = params.get('sales_source') ?? ''
+  // Which campaign the lead came from, and any labels on it. Both live in the URL so a
+  // filtered queue is a link someone can be sent. getAll, because tags are repeatable and
+  // repeating one means AND on the server — narrowing, which is the point of a filter.
+  const campaignId = params.get('campaign_id') ?? ''
+  const activeTags = params.getAll('tag')
   const stalled = params.get('stalled') ?? ''
   const includeCustomers = params.get('include_customers') === '1'
   const [search, setSearch] = useState('')
@@ -184,11 +198,16 @@ export default function SalesLeads() {
     if (line) p.set('line', line)
     if (source) p.set('source', source)
     if (salesSource) p.set('sales_source', salesSource)
+    if (campaignId) p.set('campaign_id', campaignId)
+    activeTags.forEach(t => p.append('tag', t))
     if (stalled) p.set('stalled', stalled)
     if (includeCustomers) p.set('include_customers', '1')
     if (dq) p.set('q', dq)
     return p.toString()
-  }, [offset, stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq])
+    // activeTags is a fresh array each render, so it is joined into a stable string for the
+    // dependency list — passing the array itself would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offset, stage, owner, due, line, source, salesSource, campaignId, activeTags.join('|'), stalled, includeCustomers, dq])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -201,6 +220,13 @@ export default function SalesLeads() {
       ])
       setLeads(l.data ?? []); setTotal(l.total ?? 0)
       setFunnel(f.data); setSources(s.data ?? []); setOfficers(o.data ?? [])
+      // The filter vocabularies. Loaded with the queue rather than once on mount, so a tag
+      // applied on the drawer appears in the filter as soon as the list refreshes. Both are
+      // scoped server-side, so they only ever offer what this caller can actually reach.
+      apiFetch<{ data: TagCount[] }>('/api/sales/lead-tags')
+        .then(r => setTagCounts(r?.data ?? [])).catch(() => { /* filter degrades to absent */ })
+      apiFetch<{ data: CampaignCount[] }>('/api/sales/lead-campaigns')
+        .then(r => setCampaigns(r?.data ?? [])).catch(() => { /* same */ })
     } catch (e: any) {
       setErr(e?.message ?? 'Could not load leads')
     } finally {
@@ -310,7 +336,27 @@ export default function SalesLeads() {
           </div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
             {r.phone || r.email}{r.created_at ? <span style={{ color: 'var(--txt3)' }}> · {leadAge(r.created_at)}</span> : null}
+            {/* Where this lead came from. Worth a line on the row because the answer to
+                "why am I calling this person" is usually the campaign that found them. */}
+            {r.campaign_name && (
+              <span title={r.campaign_source === 'dialler'
+                ? 'From a call-centre list with no marketing campaign attached'
+                : 'Marketing campaign'}> · {r.campaign_name}</span>
+            )}
           </div>
+          {/* Labels. Shown on the row rather than only in the drawer, because their whole
+              purpose is to let a rep pick the next call out of a list at a glance. */}
+          {!!r.tags?.length && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
+              {r.tags.map(t => (
+                <span key={t} style={{
+                  fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px',
+                  borderRadius: RADIUS.full, background: `${PURPLE}16`, color: PURPLE,
+                  whiteSpace: 'nowrap',
+                }}>{t}</span>
+              ))}
+            </div>
+          )}
         </div>
       ),
     },
@@ -481,6 +527,26 @@ export default function SalesLeads() {
               />
             </div>
           )}
+          {/* Which campaign brought the lead in. Offers only campaigns present in this
+              caller's own queue, with counts, so it never lists a campaign that would
+              return nothing. */}
+          {campaigns.length > 0 && (
+            <div style={{ width: 210 }}>
+              <SelectMenu
+                value={campaignId}
+                onChange={v => {
+                  const p = new URLSearchParams(params)
+                  v ? p.set('campaign_id', v) : p.delete('campaign_id')
+                  setParams(p); setOffset(0)
+                }}
+                options={campaigns.map(c => ({
+                  value: String(c.id), label: c.name, hint: `${c.leads} lead${c.leads === 1 ? '' : 's'}`,
+                }))}
+                clearLabel="All Campaigns"
+                ariaLabel="Filter by campaign" leadingIcon="campaign"
+              />
+            </div>
+          )}
           {isHead && <Button variant="secondary" icon="shuffle" onClick={() => setDistOpen(true)}>Distribute</Button>}
           <Button variant="primary" icon="person_add" onClick={() => setNewOpen(true)}>New Lead</Button>
         </div>
@@ -494,6 +560,60 @@ export default function SalesLeads() {
           fontSize: TEXT.sm, color: 'var(--txt2)',
         }}>
           {err ?? notice}
+        </div>
+      )}
+
+      {/* Labels, as toggles rather than a dropdown. Tags are multi-select and AND together
+          on the server, so the control has to show what is currently on as well as what is
+          available — a <select> can express neither. Only rendered once something has been
+          labelled, because an empty filter rail is furniture. */}
+      {tagCounts.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: SP[4],
+        }}>
+          <span style={{
+            fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)',
+            textTransform: 'uppercase', letterSpacing: '.05em',
+          }}>Labels</span>
+          {tagCounts.map(t => {
+            const on = activeTags.includes(t.tag)
+            return (
+              <button key={t.tag} type="button" aria-pressed={on}
+                onClick={() => {
+                  const p = new URLSearchParams(params)
+                  const next = on ? activeTags.filter(x => x !== t.tag) : [...activeTags, t.tag]
+                  p.delete('tag'); next.forEach(x => p.append('tag', x))
+                  setParams(p); setOffset(0)
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+                  borderRadius: RADIUS.full, cursor: 'pointer', fontSize: TEXT.xs,
+                  fontWeight: on ? FW.bold : FW.semibold,
+                  border: `1px solid ${on ? PURPLE : 'var(--bdr)'}`,
+                  background: on ? PURPLE : 'var(--card)',
+                  color: on ? '#fff' : 'var(--txt2)',
+                  transition: 'var(--transition-fast)',
+                }}>
+                {t.tag}
+                <span style={{ ...NUM, opacity: .7, fontSize: TEXT['2xs'] }}>{t.leads}</span>
+              </button>
+            )
+          })}
+          {activeTags.length > 0 && (
+            <button type="button"
+              onClick={() => { const p = new URLSearchParams(params); p.delete('tag'); setParams(p); setOffset(0) }}
+              style={{
+                border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT['2xs'],
+                color: 'var(--txt3)', textDecoration: 'underline', padding: 0,
+              }}>
+              clear {activeTags.length > 1 ? `${activeTags.length} labels` : 'label'}
+            </button>
+          )}
+          {activeTags.length > 1 && (
+            <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+              showing leads with <strong>all</strong> of these
+            </span>
+          )}
         </div>
       )}
 

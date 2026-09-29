@@ -114,6 +114,7 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	// they need — but canonical (migration 314), so the list route is what keeps the
 	// filter honest: it offers what is actually in use rather than a fixed menu.
 	r.With(access).Get("/lead-tags", listLeadTags(db))
+	r.With(access).Get("/lead-campaigns", listLeadCampaigns(db))
 	r.With(access).Post("/leads/{id}/tags", addLeadTag(db))
 	r.With(access).Delete("/leads/{id}/tags/{tag}", removeLeadTag(db))
 
@@ -633,6 +634,33 @@ func listLeadTags(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// listLeadCampaigns returns the marketing campaigns the caller's own queue actually came
+// from, with counts, so the filter offers real choices rather than every campaign that has
+// ever run. Scoped the same way the queue is, for the same reason as listLeadTags.
+//
+// Only app.campaigns is joined. The dialler's call_center_campaigns shares an id range with
+// it and carries different names for the same numbers (migration 314), so a filter built by
+// joining that table would offer one campaign's name and select another's leads.
+func listLeadCampaigns(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
+		where, args, _ := applyLeadScope(r, db, u,
+			[]string{"c.lead_stage <> 'converted'", "c.source_campaign_id IS NOT NULL"}, nil, 1)
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT c.source_campaign_id AS id, mc.name, COUNT(*) AS leads
+			  FROM crm_contacts c
+			  JOIN campaigns mc ON mc.id = c.source_campaign_id
+			 WHERE `+strings.Join(where, " AND ")+`
+			 GROUP BY 1, 2
+			 ORDER BY leads DESC, mc.name`, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Could not load campaigns", err)
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
 // addLeadTag puts a label on a lead. Anyone who can see the lead can label it: a tag is a
 // note, not a state change, and gating it behind ownership would leave a head unable to
 // mark up the pool they are about to distribute.
@@ -969,17 +997,31 @@ func getLead(db *core.DB) http.HandlerFunc {
 			       f.forwarded_by_name  AS cc_forwarded_by,
 			       f.notes              AS cc_forward_notes,
 			       f.product_interest   AS cc_product_interest,
-			       f.forwarded_at       AS cc_forwarded_at
+			       f.forwarded_at       AS cc_forwarded_at,
+			       -- Same two-namespace rule as the list query: the marketing campaign is
+			       -- authoritative, the dialler list is the fallback for leads that never
+			       -- had one, and the two id ranges overlap so they need separate joins
+			       -- (migration 314).
+			       COALESCE(mc.name, ccc.name) AS campaign_name,
+			       CASE WHEN mc.name IS NOT NULL THEN 'marketing'
+			            WHEN ccc.name IS NOT NULL THEN 'dialler' END AS campaign_source,
+			       COALESCE(
+			           (SELECT array_agg(lt.tag ORDER BY lt.tag)
+			              FROM app.crm_lead_tags lt WHERE lt.contact_id = c.id),
+			           '{}'::text[]
+			       ) AS tags
 			  FROM crm_contacts c
 			  LEFT JOIN o3c_users u  ON u.id  = c.sales_owner_id
 			  LEFT JOIN o3c_users cb ON cb.id = c.created_by
 			  LEFT JOIN employers e  ON e.id  = c.employer_id
+			  LEFT JOIN campaigns mc ON mc.id = c.source_campaign_id
 			  LEFT JOIN LATERAL (
-			      SELECT forwarded_by_name, notes, product_interest, forwarded_at
+			      SELECT forwarded_by_name, notes, product_interest, forwarded_at, cc_campaign_id
 			        FROM call_center_lead_forwards
 			       WHERE contact_id = c.id
 			       ORDER BY forwarded_at DESC LIMIT 1
 			  ) f ON true
+			  LEFT JOIN call_center_campaigns ccc ON ccc.id = f.cc_campaign_id
 			 WHERE c.id = $1`, chi.URLParam(r, "id"))
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
