@@ -11,6 +11,10 @@ import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, StatusPill, HeroButton, LiveBadge, relTime } from '../../components/MyWorkspace'
 import NewApplicationModal, { type DraftApp } from '../../components/NewApplicationModal'
+// One dialog for every Sales surface. The local copy that used to live in this file
+// posted to /api/crm/activities, which a sales officer's role cannot reach — every save
+// from this page was refused with a 403, so the follow-up date went nowhere.
+import SalesActivityModal, { type SalesActivityLead } from '../../components/SalesActivityModal'
 import { productLabel } from '../../lib/products'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -70,86 +74,6 @@ function dueMeta(iso: string): { label: string; color: string } {
   return { label: fmtDate(iso), color: 'var(--txt2)' }
 }
 
-// ── Log-activity quick action ───────────────────────────────────────────────
-//
-// The call-centre station's per-row "Log" button is the interaction that keeps its
-// data alive. This is the sales equivalent: log a touch against a lead and, because
-// the backend syncs last_activity_at / next_action_at, the follow-up worklist and
-// the "stalled" counters update the moment it saves.
-
-function LogActivityModal({ lead, onClose, onSaved }: {
-  lead: { id: number; name: string | null }; onClose: () => void; onSaved: () => void
-}) {
-  const [type, setType] = useState('call')
-  const [subject, setSubject] = useState('')
-  const [body, setBody] = useState('')
-  const [outcome, setOutcome] = useState('')
-  const [nextFollow, setNextFollow] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  async function save() {
-    setSaving(true)
-    try {
-      await apiPost('/api/crm/activities', {
-        contact_id: lead.id, type,
-        subject: subject || null, body: body || null, outcome: outcome || null,
-        next_follow_up: nextFollow ? new Date(nextFollow).toISOString() : null,
-        completed: true,
-      })
-      toast.success('Activity logged')
-      onSaved()
-    } catch (e: any) { toast.error(e.message ?? 'Could not log activity') }
-    finally { setSaving(false) }
-  }
-
-  const field: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, fontSize: TEXT.base,
-    border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
-  }
-  const lbl: React.CSSProperties = { fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4, display: 'block' }
-
-  return (
-    <Modal open onClose={onClose} title={`Log Activity: ${lead.name ?? 'Lead'}`} width={480}
-      footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Log Activity'}</button>
-        </div>
-      }>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={lbl}>Type</label>
-            <select value={type} onChange={e => setType(e.target.value)} style={field}>
-              <option value="call">Call</option>
-              <option value="meeting">Meeting</option>
-              <option value="email">Email</option>
-              <option value="visit">Visit</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="note">Note</option>
-            </select>
-          </div>
-          <div>
-            <label style={lbl}>Next Follow-Up</label>
-            <input type="date" value={nextFollow} onChange={e => setNextFollow(e.target.value)} style={field} />
-          </div>
-        </div>
-        <div>
-          <label style={lbl}>Subject</label>
-          <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Discussed loan top-up" style={field} />
-        </div>
-        <div>
-          <label style={lbl}>Notes</label>
-          <textarea value={body} onChange={e => setBody(e.target.value)} rows={3} placeholder="What happened?" style={{ ...field, resize: 'vertical' }} />
-        </div>
-        <div>
-          <label style={lbl}>Outcome</label>
-          <input value={outcome} onChange={e => setOutcome(e.target.value)} placeholder="e.g. Interested, callback booked" style={field} />
-        </div>
-      </div>
-    </Modal>
-  )
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -158,7 +82,7 @@ export default function SalesMyDashboard() {
   const [data, setData] = useState<SalesAgentDash | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [logLead, setLogLead] = useState<{ id: number; name: string | null } | null>(null)
+  const [logLead, setLogLead] = useState<SalesActivityLead | null>(null)
   const [appOpen, setAppOpen] = useState(false)
   const [editDraft, setEditDraft] = useState<DraftApp | null>(null)
   const [drafts, setDrafts] = useState<DraftApp[]>([])
@@ -236,8 +160,8 @@ export default function SalesMyDashboard() {
     { key: 'potential_value_kobo', label: 'Est. Value', render: r => <span style={NUM}>{fmtKobo(r.potential_value_kobo)}</span> },
     { key: 'updated_at', label: 'Last Updated', render: r => fmtDate(r.updated_at) },
     { key: 'id', label: '', render: r => (
-      <button onClick={e => { e.stopPropagation(); setLogLead({ id: r.id, name: r.contact_name || r.company_name }) }}
-        style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED, background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '3px 10px', cursor: 'pointer' }}>Log</button>
+      <button onClick={e => { e.stopPropagation(); setLogLead({ id: r.id, name: r.contact_name || r.company_name, stage: r.stage }) }}
+        style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '3px 10px', cursor: 'pointer' }}>Log</button>
     )},
   ]
 
@@ -325,8 +249,8 @@ export default function SalesMyDashboard() {
                       <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{f.lead_stage === 'qualified' ? 'interested' : f.lead_stage?.replace(/_/g, ' ')}{f.phone ? ` · ${f.phone}` : ''}</div>
                     </div>
                     <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
-                    <button onClick={() => setLogLead({ id: f.id, name: f.name })}
-                      style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED, background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '3px 10px', cursor: 'pointer' }}>Log</button>
+                    <button onClick={() => setLogLead({ id: f.id, name: f.name, stage: f.lead_stage })}
+                      style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '3px 10px', cursor: 'pointer' }}>Log</button>
                   </div>
                 )
               })}
@@ -424,7 +348,8 @@ export default function SalesMyDashboard() {
       )}
 
       {logLead && (
-        <LogActivityModal lead={logLead} onClose={() => setLogLead(null)} onSaved={() => { setLogLead(null); load() }} />
+        <SalesActivityModal open lead={logLead} onClose={() => setLogLead(null)}
+          onSaved={() => { setLogLead(null); load() }} />
       )}
 
       <NewApplicationModal

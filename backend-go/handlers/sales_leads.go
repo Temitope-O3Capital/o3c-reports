@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -1194,14 +1195,59 @@ var leadStageShown = map[string]string{
 	"converted": "Converted", "disqualified": "Disqualified",
 }
 
+// parseLeadFollowUp accepts a bare date ("2026-10-03") or a full RFC3339 timestamp and
+// returns the moment to park in next_action_at, or "" for "no follow-up set".
+//
+// A bare date becomes 17:00 LOCAL, not midnight UTC. Midnight is how a follow-up is born
+// overdue the instant it is saved, and a UTC midnight reads as the previous day for
+// anyone west of UTC — the same bug the activity modal's occurred_at already guards.
+// The second return is a message for the agent, empty when the value is fine.
+func parseLeadFollowUp(s string) (any, string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, ""
+	}
+	var t time.Time
+	var err error
+	if len(s) == 10 {
+		t, err = time.ParseInLocation("2006-01-02", s, time.Local)
+		if err == nil {
+			t = t.Add(17 * time.Hour)
+		}
+	} else {
+		t, err = time.Parse(time.RFC3339, s)
+	}
+	if err != nil {
+		return nil, "That follow-up date could not be read. Use a date like 2026-10-03."
+	}
+	// Yesterday is a typo, not a plan. Today is allowed: "call them back this afternoon"
+	// is a real thing to set at 09:00.
+	if t.Before(time.Now().AddDate(0, 0, -1)) {
+		return nil, "That follow-up date is in the past. Pick today or later."
+	}
+	if t.After(time.Now().AddDate(1, 0, 0)) {
+		return nil, "That follow-up is more than a year out. Check the year."
+	}
+	return t, ""
+}
+
 // logLeadActivity records what happened on a lead. A forward kind moves the lead to its
 // stage (forward only, owner rules as for moving a stage); a record-only kind — call,
 // meeting, email, note — goes on the timeline and leaves the stage alone.
+//
+// FollowUpAt sets crm_contacts.next_action_at, which is what the follow-up worklist,
+// the "due today" tile and the stalled-lead counters all read. It arrived here when the
+// Sales module was unified onto one dialog: the old My Dashboard form had a follow-up
+// date and posted it to /api/crm/activities, an endpoint gated on the crm_* pages that
+// no sales officer holds — so every one of those saves was refused and the date was
+// never recorded. Carrying it here is what made unifying the dialogs lossless.
 func logLeadActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Kind string `json:"kind"`
 			Note string `json:"note"`
+			// Optional: "2026-10-03" or a full RFC3339 timestamp.
+			FollowUpAt string `json:"follow_up_at"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -1216,6 +1262,11 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 		note := strings.TrimSpace(req.Note)
 		if len([]rune(note)) > 2000 {
 			respondErr(w, 422, "Keep the note to 2,000 characters or fewer.")
+			return
+		}
+		followUp, ferr := parseLeadFollowUp(req.FollowUpAt)
+		if ferr != "" {
+			respondErr(w, 422, ferr)
 			return
 		}
 
@@ -1251,8 +1302,16 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 				respondErrLog(w, 500, "Could not log activity", err)
 				return
 			}
-			db.PGExec(r.Context(), `UPDATE crm_contacts SET last_activity_at = NOW(), updated_at = NOW() WHERE id = $1`, contactID) //nolint:errcheck
-			respond(w, map[string]any{"ok": true, "moved": false, "activity_id": id}, "pg")
+			// COALESCE($2, next_action_at): passing no follow-up leaves an existing one
+			// alone. Logging a call must not silently clear the callback someone already
+			// booked, which a bare assignment would do on every save.
+			db.PGExec(r.Context(), `
+				UPDATE crm_contacts
+				   SET last_activity_at = NOW(),
+				       next_action_at   = COALESCE($2, next_action_at),
+				       updated_at       = NOW()
+				 WHERE id = $1`, contactID, followUp) //nolint:errcheck
+			respond(w, map[string]any{"ok": true, "moved": false, "activity_id": id, "follow_up_at": followUp}, "pg")
 			return
 		}
 
@@ -1281,8 +1340,9 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 			       stage_changed_at = NOW(),
 			       qualified_at = CASE WHEN qualified_at IS NULL THEN NOW() ELSE qualified_at END,
 			       last_activity_at = NOW(),
+			       next_action_at   = COALESCE($3, next_action_at),
 			       updated_at = NOW()
-			 WHERE id = $1`, contactID, stage); err != nil {
+			 WHERE id = $1`, contactID, stage, followUp); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
@@ -1299,7 +1359,7 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
-		respond(w, map[string]any{"ok": true, "moved": true, "from": current, "to": stage}, "pg")
+		respond(w, map[string]any{"ok": true, "moved": true, "from": current, "to": stage, "follow_up_at": followUp}, "pg")
 	}
 }
 

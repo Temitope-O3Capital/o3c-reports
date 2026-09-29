@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { SectionCard, Button, Modal, Input, Textarea, Spinner, EmptyState } from '../../components/UI'
-import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
-import { apiFetch, apiPost } from '../../lib/api'
+import { SectionCard, Button, Textarea, Spinner, EmptyState } from '../../components/UI'
+// The day log and the lead log are one dialog now — see components/SalesActivityModal.
+// This file used to carry a second component also called LogActivityModal, which is part
+// of how Sales ended up with four different "Log Activity" forms.
+import SalesActivityModal from '../../components/SalesActivityModal'
+import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtDate } from '../../lib/fmt'
@@ -164,12 +167,12 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
         </div>
       )}
 
-      {logOpen && (
-        <LogActivityModal
-          onClose={() => setLogOpen(false)}
-          onDone={() => { setLogOpen(false); load(); onLogged?.() }}
-        />
-      )}
+      <SalesActivityModal
+        open={logOpen}
+        officerMode
+        onClose={() => setLogOpen(false)}
+        onSaved={() => { setLogOpen(false); load(); onLogged?.() }}
+      />
     </SectionCard>
   )
 }
@@ -240,80 +243,5 @@ function DailyReport({ report, activityCount, onSaved }: {
   )
 }
 
-// ── Logging one thing ─────────────────────────────────────────────────────────
-
-function LogActivityModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [type, setType] = useState('visit')
-  const [subject, setSubject] = useState('')
-  const [location, setLocation] = useState('')
-  const [body, setBody] = useState('')
-  const [outcome, setOutcome] = useState('')
-  const [leadId, setLeadId] = useState('')
-  const [leads, setLeads] = useState<Array<{ id: number; first_name?: string; last_name?: string }>>([])
-  const [saving, setSaving] = useState(false)
-
-  // The officer's own open leads, so an activity can be tied to one. Optional on
-  // purpose: an employer visit that has not produced a lead yet is exactly the work
-  // that used to vanish, and requiring a lead would make it unloggable again.
-  useEffect(() => {
-    apiFetch<{ data: any[] }>('/api/sales/leads?limit=100')
-      .then(r => setLeads(r?.data ?? []))
-      .catch(() => { /* the picker is optional; failing to load it must not block logging */ })
-  }, [])
-
-  async function save() {
-    if (!subject.trim()) { toast.error('Say briefly what this was'); return }
-    setSaving(true)
-    try {
-      await apiPost('/api/sales/activity', {
-        type,
-        subject: subject.trim(),
-        location: location.trim(),
-        body: body.trim(),
-        outcome: outcome.trim(),
-        contact_id: leadId ? Number(leadId) : null,
-      })
-      toast.success('Logged')
-      onDone()
-    } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
-  }
-
-  const leadOptions = leads.map(l => ({
-    value: String(l.id),
-    label: [l.first_name, l.last_name].filter(Boolean).join(' ') || `Lead ${l.id}`,
-  }))
-
-  return (
-    <Modal open onClose={onClose} title="Log Activity" width={480}
-      footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={saving} onClick={save}>Log It</Button>
-        </div>
-      }>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <SelectMenuField label="What was it?" value={type} onChange={setType}
-          options={TYPES} searchable={false} />
-        <Input label="In a few words" value={subject} onChange={e => setSubject(e.target.value)}
-          placeholder={type === 'visit' ? 'e.g. Visited Dangote HR' : type === 'call' ? 'e.g. Called Mr Adeyemi' : 'e.g. Met the Ikeja branch manager'}
-          hint="This is what the entry reads as on your day." autoFocus />
-        {type === 'visit' && (
-          <Input label="Where" value={location} onChange={e => setLocation(e.target.value)}
-            placeholder="e.g. Ikeja, Lagos" />
-        )}
-        {leadOptions.length > 0 && (
-          <SelectMenuField label="About a lead? (Optional)" value={leadId} onChange={setLeadId}
-            options={leadOptions} clearLabel="Not about a specific lead"
-            placeholder="Choose a lead…"
-            hint="Linking it puts this on the lead's own history and keeps it from going stale." />
-        )}
-        <Input label="Outcome (Optional)" value={outcome} onChange={e => setOutcome(e.target.value)}
-          placeholder="e.g. Interested, wants a presentation" />
-        <Textarea label="Detail (Optional)" value={body} onChange={e => setBody(e.target.value)}
-          rows={3} placeholder="Anything worth remembering next time" />
-      </div>
-    </Modal>
-  )
-}
 
 export default MyDay

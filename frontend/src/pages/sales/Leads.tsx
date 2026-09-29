@@ -6,6 +6,7 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import NewApplicationModal from '../../components/NewApplicationModal'
+import SalesActivityModal, { type SalesActivityLead } from '../../components/SalesActivityModal'
 import { LeadDrawer } from './LeadDrawer'
 import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -72,28 +73,8 @@ const STAGES = [
 // Open = still being worked: every stage except converted and disqualified.
 const OPEN_STAGES = STAGES.map(s => s.key).filter(k => k !== 'converted' && k !== 'disqualified')
 
-// Log activity — "what happened". Forward kinds move the lead to their stage and are only
-// offered when that stage is later than the lead's current one; record kinds only add to
-// the timeline and are allowed on any lead, converted and disqualified included.
-// Converted keeps its own Convert action and disqualified its own path.
-const FORWARD_KINDS = [
-  { kind: 'interested',            stage: 'qualified',             label: 'Interested' },
-  { kind: 'handed_to_sales',       stage: 'handed_to_sales',       label: 'Handed to Sales' },
-  { kind: 'documents_requested',   stage: 'documents_requested',   label: 'Documents Requested' },
-  { kind: 'application_submitted', stage: 'application_submitted', label: 'Application Submitted' },
-  { kind: 'approved',              stage: 'approved',              label: 'Approved' },
-]
-const RECORD_KINDS = [
-  { kind: 'call',    label: 'Call' },
-  { kind: 'meeting', label: 'Meeting' },
-  { kind: 'email',   label: 'Email' },
-  { kind: 'note',    label: 'Note' },
-]
-function forwardKinds(current: string) {
-  const i = OPEN_STAGES.indexOf(current)
-  return i < 0 ? [] : FORWARD_KINDS.filter(k => OPEN_STAGES.indexOf(k.stage) > i)
-}
-const defaultKind = (current: string) => forwardKinds(current)[0]?.kind ?? RECORD_KINDS[0].kind
+// The activity kinds — which move a lead forward, which only record — used to be
+// declared here as well. They now live once, in components/SalesActivityModal.
 
 const stageColor = (s: string) => STAGES.find(x => x.key === s)?.color ?? '#6B7280'
 const stageLabel = (s: string) => STAGES.find(x => x.key === s)?.label ?? s
@@ -197,8 +178,8 @@ export default function SalesLeads() {
 
   // Log activity / convert / disqualify
   const [acting, setActing] = useState<Lead | null>(null)
-  const [action, setAction] = useState<'activity' | 'convert' | 'disqualify'>('activity')
-  const [actionKind, setActionKind] = useState('call')
+  const [action, setAction] = useState<'convert' | 'disqualify'>('convert')
+  const [logLead, setLogLead] = useState<SalesActivityLead | null>(null)
   const [actionCIF, setActionCIF] = useState('')
   const [actionNote, setActionNote] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
@@ -288,25 +269,15 @@ export default function SalesLeads() {
         await apiFetch(`/api/sales/leads/${acting.id}/convert`, {
           method: 'POST', body: JSON.stringify({ cif: actionCIF, note: actionNote }),
         })
-      } else if (action === 'disqualify') {
+      } else {
         await apiFetch(`/api/sales/leads/${acting.id}/disqualify`, {
           method: 'POST', body: JSON.stringify({ reason: actionNote }),
         })
-      } else {
-        // Log what happened; the server moves the stage when the kind is a forward one.
-        const note = actionNote.trim()
-        const res = await apiPost<{ ok: boolean; moved: boolean; from?: string; to?: string; activity_id?: number }>(
-          `/api/sales/leads/${acting.id}/activity`,
-          note ? { kind: actionKind, note } : { kind: actionKind },
-        )
-        const fwd = FORWARD_KINDS.find(k => k.kind === actionKind)
-        toast.success(res?.moved ? `Moved to ${stageLabel(res.to ?? fwd?.stage ?? actionKind)}` : 'Activity logged')
       }
       setActing(null); setActionCIF(''); setActionNote('')
       await load()
     } catch (e: any) {
-      if (action === 'activity') toast.error(e?.message ?? 'Could not log the activity')
-      else setErr(e?.message ?? 'That did not work')
+      setErr(e?.message ?? 'That did not work')
     } finally {
       setActionBusy(false)
     }
@@ -326,9 +297,11 @@ export default function SalesLeads() {
   // Customer 360 is guarded by the 'customer360' page; management can always open it.
   const canC360 = hasPage('customer360', me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
 
+  // Logging opens the shared Sales dialog; convert and disqualify keep the local one,
+  // because they are decisions about the lead's existence rather than a record of what
+  // happened, and they ask for different things (a CIF, a reason).
   function openLogActivity(r: Lead) {
-    setActing(r); setAction('activity')
-    setActionKind(defaultKind(r.lead_stage)); setActionNote('')
+    setLogLead({ id: r.id, name: [r.first_name, r.last_name].filter(Boolean).join(' ') || null, stage: r.lead_stage })
   }
 
   const cols: TableCol<Lead>[] = [
@@ -762,15 +735,12 @@ export default function SalesLeads() {
         </div>
       </Modal>
 
-      {/* Log activity / convert / disqualify */}
+      {/* Convert / disqualify. Logging what happened moved to the shared Sales dialog
+          below — it was the third copy of the same form in this module. */}
       <Modal
         open={!!acting}
         onClose={() => setActing(null)}
-        title={
-          action === 'convert' ? 'Convert to Customer'
-            : action === 'disqualify' ? 'Disqualify Lead'
-              : 'Log Activity'
-        }
+        title={action === 'convert' ? 'Convert to Customer' : 'Disqualify Lead'}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
             {action !== 'disqualify' && !!acting && acting.lead_stage !== 'converted' && acting.lead_stage !== 'disqualified' ? (
@@ -784,12 +754,11 @@ export default function SalesLeads() {
                 variant="primary" loading={actionBusy}
                 disabled={
                   (action === 'convert' && !actionCIF.trim()) ||
-                  (action === 'disqualify' && !actionNote.trim()) ||
-                  (action === 'activity' && (!actionKind || actionNote.length > 2000))
+                  (action === 'disqualify' && !actionNote.trim())
                 }
                 onClick={runAction}
               >
-                {action === 'convert' ? 'Convert' : action === 'disqualify' ? 'Disqualify' : 'Log Activity'}
+                {action === 'convert' ? 'Convert' : 'Disqualify'}
               </Button>
             </div>
           </div>
@@ -801,47 +770,6 @@ export default function SalesLeads() {
               {[acting.first_name, acting.last_name].filter(Boolean).join(' ')} · currently{' '}
               <StagePill stage={acting.lead_stage} />
             </div>
-
-            {action === 'activity' && (() => {
-              const fwd = forwardKinds(acting.lead_stage)
-              const moving = FORWARD_KINDS.find(k => k.kind === actionKind)
-              const labelStyle = { fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)' } as const
-              return (
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
-                    <label htmlFor="lead-activity-kind" style={labelStyle}>What Happened</label>
-                    <Select id="lead-activity-kind" value={actionKind} onChange={e => setActionKind(e.target.value)}>
-                      {fwd.length > 0 && (
-                        <optgroup label="Moves the Lead Forward">
-                          {fwd.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
-                        </optgroup>
-                      )}
-                      <optgroup label="Record Only">
-                        {RECORD_KINDS.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
-                      </optgroup>
-                    </Select>
-                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-                      {moving
-                        ? <>Moves the lead to <strong>{stageLabel(moving.stage)}</strong>.</>
-                        : 'Adds to the timeline; the stage does not change.'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
-                    <label htmlFor="lead-activity-note" style={labelStyle}>Note (Optional)</label>
-                    <textarea
-                      id="lead-activity-note"
-                      value={actionNote} onChange={e => setActionNote(e.target.value)} rows={3} maxLength={2000}
-                      placeholder="What was said or agreed"
-                      style={{
-                        width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, resize: 'vertical',
-                        border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
-                        fontSize: TEXT.sm, fontFamily: 'inherit', boxSizing: 'border-box',
-                      }}
-                    />
-                  </div>
-                </>
-              )
-            })()}
 
             {action === 'convert' && (
               <>
@@ -883,6 +811,13 @@ export default function SalesLeads() {
           </div>
         )}
       </Modal>
+
+      <SalesActivityModal
+        open={!!logLead}
+        lead={logLead}
+        onClose={() => setLogLead(null)}
+        onSaved={() => { setLogLead(null); load() }}
+      />
 
       <LeadDrawer
         leadId={openLeadId}

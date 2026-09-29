@@ -1,11 +1,11 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Page, ErrBanner, Spinner, SectionCard, Modal } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { Page, ErrBanner, Spinner, SectionCard } from '../../components/UI'
+import SalesActivityModal from '../../components/SalesActivityModal'
+import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
-import { toast } from 'sonner'
 import { currentUser, allRoles, hasPage } from '../../hooks/useAuth'
 import { MGMT } from '../../lib/roles'
 
@@ -93,24 +93,10 @@ const PRIORITY_COLOR: Record<string, string> = {
   high: RED, medium: AMBER, low: GREEN,
 }
 
-// Activity kinds that move the lead forward (POST /api/sales/leads/{id}/activity). The
-// stored stage for "Interested" is 'qualified'. Only kinds later than the contact's
-// current lead_stage are offered; with no lead_stage all five are offered and the
-// server's 409 explains a stage that is already at/after the chosen one.
-const FORWARD_KINDS = [
-  { kind: 'interested',            stage: 'qualified',             label: 'Interested' },
-  { kind: 'handed_to_sales',       stage: 'handed_to_sales',       label: 'Handed to Sales' },
-  { kind: 'documents_requested',   stage: 'documents_requested',   label: 'Documents Requested' },
-  { kind: 'application_submitted', stage: 'application_submitted', label: 'Application Submitted' },
-  { kind: 'approved',              stage: 'approved',              label: 'Approved' },
-]
-const LEAD_OPEN_ORDER = ['new', 'contacted', 'qualified', 'handed_to_sales', 'documents_requested', 'application_submitted', 'approved']
-function leadForwardKinds(stage: string | null | undefined) {
-  if (!stage) return FORWARD_KINDS
-  const i = LEAD_OPEN_ORDER.indexOf(stage)
-  if (i < 0) return [] // converted / disqualified: nothing moves forward
-  return FORWARD_KINDS.filter(k => LEAD_OPEN_ORDER.indexOf(k.stage) > i)
-}
+// The lead journey — which kinds move a lead forward, and in what order — now lives in
+// components/SalesActivityModal, which is the one dialog every Sales surface opens. It
+// was declared here, again in pages/sales/Leads.tsx, and a third time in the backend;
+// two of those copies had already drifted on whether 'other' was a valid kind.
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null
@@ -133,13 +119,9 @@ export default function ContactDetail() {
   const [error,   setError]   = useState<string | null>(null)
   const [tab,     setTab]     = useState<'overview' | 'activities' | 'deals' | 'tasks'>('overview')
 
-  // Log activity modal
+  // Log activity — the form itself lives in components/SalesActivityModal, so all this
+  // page owns is whether it is open.
   const [showActivity, setShowActivity] = useState(false)
-  const [actType,  setActType]  = useState('call')
-  const [actSubj,  setActSubj]  = useState('')
-  const [actBody,  setActBody]  = useState('')
-  const [actOutc,  setActOutc]  = useState('')
-  const [saving,   setSaving]   = useState(false)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setError(null)
@@ -153,39 +135,11 @@ export default function ContactDetail() {
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['deals','crm'] })
 
-  async function logActivity() {
-    setSaving(true)
-    try {
-      const fwd = FORWARD_KINDS.find(k => k.kind === actType)
-      if (fwd) {
-        // Moves the lead forward — the contact id is the lead id. Note = the body text.
-        const note = actBody.trim()
-        const res = await apiPost<{ ok: boolean; moved: boolean; from?: string; to?: string; activity_id?: number }>(
-          `/api/sales/leads/${id}/activity`, note ? { kind: actType, note } : { kind: actType },
-        )
-        const to = FORWARD_KINDS.find(k => k.stage === res?.to)?.label ?? fwd.label
-        toast.success(res?.moved === false ? 'Activity logged' : `Moved to ${to}`)
-        setActType('call')
-      } else {
-        await apiPost(`/api/crm/activities`, {
-          contact_id: Number(id), type: actType, subject: actSubj, body: actBody, outcome: actOutc,
-        })
-        toast.success('Activity logged')
-      }
-      setShowActivity(false)
-      setActSubj(''); setActBody(''); setActOutc('')
-      load()
-    } catch (e: any) { toast.error(e.message) }
-    finally { setSaving(false) }
-  }
-
   if (loading) return <Page title="Contact" subtitle=""><div style={{ display:'flex', justifyContent:'center', padding:80 }}><Spinner size={32} /></div></Page>
   if (error || !data) return <Page title="Contact" subtitle=""><ErrBanner error={error ?? 'Not found'} onRetry={load} /></Page>
 
   const { contact, deals, activities, tasks } = data
   const statusColor = STATUS_COLOR[contact.status] ?? '#6B7280'
-  const fwdKinds = leadForwardKinds(contact.lead_stage)
-  const isForward = FORWARD_KINDS.some(k => k.kind === actType)
   // Customer 360: a converted contact with a CIF, for users who can open that page.
   const me = currentUser()
   const canC360 = hasPage('customer360', me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
@@ -400,55 +354,17 @@ export default function ContactDetail() {
         </SectionCard>
       )}
 
-      {/* Log Activity modal */}
-      <Modal open={showActivity} onClose={() => setShowActivity(false)} title="Log Activity" width={440}
-        footer={
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={logActivity} disabled={saving}
-              style={{ padding:`${SP[2]} ${SP[5]}`, borderRadius:RADIUS.md, border:'none', background:NAVY, color:'#fff', fontSize:TEXT.base, fontWeight:FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display:'inline-flex', alignItems:'center', gap:6 }}>
-              {saving && <Spinner size={13} color="#fff" />}Log
-            </button>
-            <button onClick={() => setShowActivity(false)} style={{ padding:`${SP[2]} ${SP[4]}`, borderRadius:RADIUS.md, border:'1px solid var(--bdr)', background:'var(--card)', color:'var(--txt)', fontSize:TEXT.base, cursor:'pointer' }}>Cancel</button>
-          </div>
-        }
-      >
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <div>
-            <label htmlFor="contact-activity-type" style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Type</label>
-            <select id="contact-activity-type" value={actType} onChange={e => setActType(e.target.value)}
-              style={{ width:'100%', padding:`${SP[2]} 10px`, border:'1px solid var(--input-bdr)', borderRadius:RADIUS.md, fontSize:TEXT.base, background:'var(--input-bg)', color:'var(--txt)', boxSizing:'border-box' }}>
-              {fwdKinds.length > 0 && (
-                <optgroup label="Moves the Lead Forward">
-                  {fwdKinds.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
-                </optgroup>
-              )}
-              <optgroup label="Record Only">
-                {['call','email','meeting','note','other'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
-              </optgroup>
-            </select>
-            {isForward && (
-              <div style={{ fontSize:TEXT.xs, color:'var(--txt3)', marginTop:5 }}>
-                Moves the lead to {FORWARD_KINDS.find(k => k.kind === actType)?.label}. Only the notes are sent with it (max 2000 characters).
-              </div>
-            )}
-          </div>
-          <div>
-            <label style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Subject</label>
-            <input value={actSubj} onChange={e => setActSubj(e.target.value)}
-              style={{ width:'100%', padding:`${SP[2]} 10px`, border:'1px solid var(--input-bdr)', borderRadius:RADIUS.md, fontSize:TEXT.base, background:'var(--input-bg)', color:'var(--txt)', boxSizing:'border-box' }} />
-          </div>
-          <div>
-            <label style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Notes</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={actBody} onChange={e => setActBody(e.target.value)} rows={3} maxLength={isForward ? 2000 : undefined}
-              style={{ width:'100%', padding:'8px 10px', border:'1px solid var(--input-bdr)', borderRadius:7, fontSize:TEXT.base, background:'var(--input-bg)', color:'var(--txt)', boxSizing:'border-box', resize:'vertical' }} />
-          </div>
-          <div>
-            <label style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Outcome</label>
-            <input value={actOutc} onChange={e => setActOutc(e.target.value)}
-              style={{ width:'100%', padding:`${SP[2]} 10px`, border:'1px solid var(--input-bdr)', borderRadius:RADIUS.md, fontSize:TEXT.base, background:'var(--input-bg)', color:'var(--txt)', boxSizing:'border-box' }} />
-          </div>
-        </div>
-      </Modal>
+      {/* One dialog for the whole module. The form that used to sit here offered the
+          forward kinds and the record-only kinds in one flat dropdown, and sent the
+          record-only ones to /api/crm/activities — an endpoint gated on the crm_* pages
+          that no sales officer holds, so those saves were refused and nothing reached
+          the timeline. */}
+      <SalesActivityModal
+        open={showActivity}
+        lead={{ id: Number(id), name: `${contact.first_name} ${contact.last_name}`.trim(), stage: contact.lead_stage }}
+        onClose={() => setShowActivity(false)}
+        onSaved={() => { setShowActivity(false); load() }}
+      />
     </Page>
   )
 }
