@@ -3737,9 +3737,21 @@ func hdBulkRecordEvent(ctx context.Context, db *core.DB, ticketIDs []int64, acto
 // hdValidStatus reports whether s is a canonical ticket status. Permissive enough to
 // cover every state the importer, UI and merge path produce, but it rejects free-form
 // typos that would silently create ghost statuses no query filters on (P5).
+// NARROWED to what the helpdesk_tickets CHECK constraint actually admits.
+//
+// It also returned true for "cancelled" and "merged", which the constraint rejects — so both
+// passed Go validation and then failed at the database, turning what looks like a legitimate
+// request into a 500. Neither has ever been written (every one of the 40,232 tickets is open
+// or closed), so this was latent; but approving a value the storage layer refuses guarantees a
+// confusing error instead of a useful one.
+//
+// "escalated" is the third value outside the constraint and deliberately stays: the write path
+// rewrites it to in_progress before it reaches the column — see the comment there recording
+// that 0 of 35,035 tickets were ever escalated because of exactly this mismatch. Adding a
+// status here means adding it to the CHECK in a migration first.
 func hdValidStatus(s string) bool {
 	switch s {
-	case "open", "in_progress", "pending", "escalated", "resolved", "closed", "cancelled", "merged":
+	case "open", "in_progress", "pending", "escalated", "resolved", "closed":
 		return true
 	}
 	return false

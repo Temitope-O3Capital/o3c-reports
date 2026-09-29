@@ -150,10 +150,22 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			ORDER BY (LOWER(a.status) IN ('active','open')) DESC, COALESCE(t.n,0) DESC, a.cif`, cif)
 
 		// ── Loans from the CBS/Udara book ─────────────────────────────────────
+		// dpd and is_npl come from the canonical functions rather than being inferred here.
+		// This page used to hardcode "dpd": 0 on every active loan and set is_delinquent from
+		// the STATUS alone, so it disagreed with the rest of the platform in both directions:
+		// a borrower at DPD 400 whose CBS status still read 'Active' showed DPD 0 and no
+		// delinquency flag on their own profile, while every risk dashboard counted them NPL.
+		// app.is_npl (migration 261) is the one definition — DPD > 90 OR Defaulting/Expired.
 		cbsLoans, _ := db.PGQuery(ctx, `
 			SELECT cbs_account_number, product_name, status,
 			       outstanding_principal_kobo, loan_amount_kobo, interest_rate,
-			       start_date, maturity_date
+			       start_date, maturity_date,
+			       app.cbs_loan_dpd(status, start_date, maturity_date, first_installment_date,
+			                        loan_amount_kobo, outstanding_principal_kobo) AS dpd,
+			       app.is_npl(status,
+			                  app.cbs_loan_dpd(status, start_date, maturity_date,
+			                                   first_installment_date, loan_amount_kobo,
+			                                   outstanding_principal_kobo)) AS is_npl
 			FROM cbs_loans WHERE cbs_customer_id IN `+personCBSIDs+`
 			ORDER BY start_date DESC`, cif)
 
@@ -457,7 +469,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		// Final fallback: if we still don't have a real name (master/CRM blank or a
-		// phone slipped into the field), use the card's "Name On Card".
+		// open = NOT IN ('Closed','Revoked');  non-performing = app.is_npl (migration 261).
 		if !isNameLike(str(profile["name"])) {
 			for _, p := range prodRows {
 				if noc := str(p["name_on_card"]); isNameLike(noc) {
@@ -491,12 +503,15 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 					"product_type":      l["product_name"],
 					"outstanding_kobo":  l["outstanding_principal_kobo"],
 					"disbursed_kobo":    l["loan_amount_kobo"],
-					"dpd":               0,
+					"dpd":               toInt64(l["dpd"]),
 					"status":            status,
 					"next_payment_date": l["maturity_date"],
 				})
 			}
-			if status == "Defaulting" || status == "Expired" {
+			// Both halves of the rule, from the database. Testing the status alone missed
+			// every borrower whose schedule is deep in arrears while CBS still calls them
+			// Active — the DPD > 90 half of app.is_npl.
+			if toBool(l["is_npl"]) {
 				hasDelinquent = true
 			}
 		}

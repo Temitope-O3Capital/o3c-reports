@@ -10,6 +10,7 @@ import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtCount } from '../../lib/fmt'
 import { INTER, NAVY, NUM, GREEN, AMBER, RED, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { isCallCentreSupervisor } from '../../lib/roles'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,6 +41,14 @@ const fieldStyle: React.CSSProperties = {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CallCenterDNC() {
+  // The DNC list is a regulatory record, and all three mutations here were ungated while
+  // the API refuses every one of them for a non-supervisor: ccAddToDNC, ccRemoveFromDNC and
+  // the bulk remove each answer 403 "Only a call-centre supervisor can change the Do Not
+  // Call list". The backend comment says that gate was added because "any agent could add or
+  // wipe opt-outs"; this page was never updated to match, so an agent saw three live-looking
+  // controls on an opt-out register and every click failed. Queue.tsx already gates on the
+  // same shared helper.
+  const canEditDNC = isCallCentreSupervisor()
   const [rows, setRows] = useState<DNCEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -220,9 +229,9 @@ export default function CallCenterDNC() {
     },
     { key: '_actions', label: '', sortable: false, align: 'right',
       render: r => {
-        const actions: RowAction[] = [
-          { icon: 'remove_circle', label: 'Remove', onClick: () => confirmRemoveSingle(r), danger: true },
-        ]
+        const actions: RowAction[] = canEditDNC
+          ? [{ icon: 'remove_circle', label: 'Remove', onClick: () => confirmRemoveSingle(r), danger: true }]
+          : []
         return <ActionRow actions={actions} />
       },
     },
@@ -231,7 +240,7 @@ export default function CallCenterDNC() {
   // DataTable already renders the "N selected" bar, its background and a Clear button —
   // bulkBar holds ONLY the action buttons (matches Employers/Pipeline). Passing a whole
   // re-styled bar here produced a bar-inside-a-bar with the count and close doubled.
-  const bulkBar = (
+  const bulkBar = !canEditDNC ? null : (
     <button
       onClick={() => setRemoveConfirm(true)}
       style={{ ...btnDanger, padding: `${SP[1]} ${SP[3]}`, fontSize: TEXT.sm }}
@@ -247,10 +256,12 @@ export default function CallCenterDNC() {
       loading={loading && rows.length === 0}
       skeletonKpis={3}
       actions={
+        canEditDNC ? (
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           Add to DNC
         </button>
+        ) : null
       }
     >
       {/* onRetry passes its click event straight into load(silent?), and a MouseEvent is

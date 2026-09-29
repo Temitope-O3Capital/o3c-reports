@@ -347,6 +347,17 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 				a.OccurredAt = &t
 			}
 		}
+		// A future date pins the entry to the top of that customer's timeline for ever.
+		//
+		// The step branch below already refused one, but only for type='step' — every other
+		// type (call, visit, meeting, note, handoff) had no bound at all, while the Sales
+		// equivalent logSalesActivity refuses both a future date and anything over a week old.
+		// Applied to every type here, with the same 6-hour tolerance the step branch uses so a
+		// clock skew or a timezone-naive client is not punished for it.
+		if a.OccurredAt != nil && a.OccurredAt.After(time.Now().Add(6*time.Hour)) {
+			respondErr(w, 422, "That date is in the future. Log what has happened, not what is planned.")
+			return
+		}
 		// A handoff is outstanding until the target team acts.
 		if a.Type == "handoff" && strings.TrimSpace(a.Status) == "" {
 			a.Status = "open"
@@ -378,16 +389,13 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 			// it must not appear in the open-handoff rails that filter on status.
 			a.Status = ""
 			// The date the thing HAPPENED, which is usually not today — an agent records
-			// Friday's branch visit on Monday. Left unset it falls back to now, which is
-			// what LogActivity already does.
+			// Friday's branch visit on Monday. Left unset it falls back to now, which is what
+			// LogActivity already does.
 			//
-			// A future date is refused rather than quietly clamped: a mistyped year is how
-			// a step ends up at the top of every timeline forever.
-			if a.OccurredAt != nil && a.OccurredAt.After(time.Now().Add(6*time.Hour)) {
-				respondErr(w, 422, "That date is in the future. Record a step when it has "+
-					"actually happened.")
-				return
-			}
+			// The future-date refusal that used to live here now applies to EVERY type, above:
+			// a mistyped year pins an entry to the top of a timeline for ever whatever its
+			// type, and two copies of one rule at one threshold is the duplication this
+			// codebase keeps getting caught by.
 		}
 
 		// A follow-up has a home of its own: crm_tasks. Writing a task-shaped ACTIVITY

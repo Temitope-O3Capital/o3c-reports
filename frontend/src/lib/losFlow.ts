@@ -12,7 +12,7 @@ import { hasPage } from '../hooks/useAuth'
 
 export type LosStage =
   | 'draft' | 'submitted' | 'document_collection' | 'risk_review'
-  | 'risk_head_review' | 'pending_conditions' | 'finance_approval'
+  | 'risk_head_review' | 'pending_committee' | 'pending_conditions' | 'finance_approval'
   | 'booking' | 'active' | 'declined'
 
 export interface StageMeta {
@@ -48,6 +48,16 @@ export const STAGE_FLOW: StageMeta[] = [
   { key: 'document_collection', label: 'Document Collection', short: 'Documents',  owner: 'Risk Officer',   forward: 'risk_review',         forwardPage: 'los_risk_review',     action: 'Send to Risk Review',group: 'origination', ...C.blue },
   { key: 'risk_review',         label: 'Risk Review',         short: 'Risk',       owner: 'Risk Officer',   forward: 'risk_head_review',    forwardPage: 'los_risk_review',     action: 'Recommend to Risk Head',group: 'risk',        ...C.amber },
   { key: 'risk_head_review',    label: 'Risk Head Review',    short: 'Risk Head',  owner: 'Risk Head',      forward: 'pending_conditions',  forwardPage: 'los_risk_head',       action: 'Approve (Credit)',group: 'risk',        ...C.amber },
+  // pending_committee was MISSING from this list while los.go has had an exit for it since
+  // the stage was given one, precisely so a stranded file could be moved on. Absent here,
+  // stageMeta() fell through to its default and reported key 'draft', forward null and
+  // forwardPage null — so canAdvance, canDecline and canRequestInfo all returned false and
+  // the risk head saw the stage with NO action bar: exactly the dead end los.go:326 says the
+  // transition exists to remove, while risk.go goes on counting the file as pending in their
+  // KPI. Sits here because risk_head_review is where Go routes in from, and forwards to
+  // pending_conditions on los_risk_head, matching allowedTransitions and
+  // transitionRequiredPage. Excluded from STAGE_SEQUENCE below — see there.
+  { key: 'pending_committee',   label: 'Pending Committee',   short: 'Committee',  owner: 'Risk Head',      forward: 'pending_conditions',  forwardPage: 'los_risk_head',       action: 'Approve (Committee)',group: 'risk',        ...C.amber },
   { key: 'pending_conditions',  label: 'Pending Conditions',  short: 'Conditions', owner: 'Finance Officer',forward: 'finance_approval',    forwardPage: 'los_finance',         action: 'Clear Conditions → Finance',group: 'finance',     ...C.purple },
   { key: 'finance_approval',    label: 'Finance Approval',    short: 'Finance',    owner: 'Finance Head',   forward: 'booking',             forwardPage: 'los_finance_approve', action: 'Approve Disbursement',group: 'finance',     ...C.purple },
   { key: 'booking',             label: 'Booking',             short: 'Booking',    owner: 'Card Ops',       forward: 'active',              forwardPage: 'los_booking',         action: 'Book & Disburse', group: 'ops',         ...C.navy },
@@ -56,9 +66,10 @@ export const STAGE_FLOW: StageMeta[] = [
 ]
 
 const STAGE_MAP: Record<string, StageMeta> = Object.fromEntries(STAGE_FLOW.map(s => [s.key, s]))
-
-// The linear happy-path sequence (excludes declined) — for the stepper.
-export const STAGE_SEQUENCE: LosStage[] = STAGE_FLOW.filter(s => s.key !== 'declined').map(s => s.key)
+// The happy-path stepper. pending_committee is excluded alongside declined: both are
+// exceptional stages that no application passes through on the normal route, and adding
+// either would draw an extra node on every file's progress bar.
+export const STAGE_SEQUENCE: LosStage[] = STAGE_FLOW.filter(s => s.key !== 'declined' && s.key !== 'pending_committee').map(s => s.key)
 
 export function stageMeta(stage?: string | null): StageMeta {
   return (stage && STAGE_MAP[stage]) || { key: 'draft', label: prettyStage(stage), short: prettyStage(stage), owner: '—', forward: null, forwardPage: null, action: null, group: 'origination', ...C.grey }
@@ -84,7 +95,9 @@ export function canAdvance(stage?: string | null): boolean {
 // Stages that can still be declined (a live credit decision is in play). Sales-only
 // stages (draft/submitted/document_collection) are pre-decision; booking is post-credit
 // (a booking failure is an ops issue, not a decline).
-const DECLINABLE: LosStage[] = ['risk_review', 'risk_head_review', 'pending_conditions', 'finance_approval']
+// pending_committee included: los.go's declineRequiredPage accepts a decline from it, and
+// omitting it here was half of why a file parked at that stage had no action bar at all.
+const DECLINABLE: LosStage[] = ['risk_review', 'risk_head_review', 'pending_committee', 'pending_conditions', 'finance_approval']
 export function canDecline(stage?: string | null): boolean {
   if (!stage || !DECLINABLE.includes(stage as LosStage)) return false
   const m = stageMeta(stage)

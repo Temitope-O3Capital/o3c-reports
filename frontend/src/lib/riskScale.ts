@@ -115,8 +115,21 @@ export function fmtScore(s: number | null | undefined): string {
 // ── DPD (days past due) buckets ────────────────────────────────────────────────
 // Consolidated here because Portfolio, Vintage Detail and the dashboards each
 // declared their own dpdColor / dpdLabel with divergent hex and an NPL cut-off that
-// disagreed (one file treated NPL as 90+, another as 180+). The single standard is
-// NPL = DPD > 90, matching app.cbs_loan_dpd and riskPortfolioKPIs on the backend.
+// disagreed (one file treated NPL as 90+, another as 180+).
+//
+// THE STANDARD IS app.is_npl, NOT "DPD > 90". This comment used to claim the standard was
+// "NPL = DPD > 90, matching app.cbs_loan_dpd" — the wrong function, and half the rule.
+// Migration 261 defines it: non-performing is DPD > 90 **OR** a CBS status of Defaulting or
+// Expired. Because these helpers took only a number, a loan with status 'Expired' sitting at
+// DPD 10 was badged "1–30 DPD" in the par30 colour on the very page whose filter chips —
+// built on app.is_npl server-side — file it under 90+ (NPL). Ticking "1–30" then made it
+// disappear. On the live book that gap is not marginal: Defaulting and Expired carry N670m
+// of N847m open, and the ratio reads 9.8% by a DPD-only count against 79.1% canonically.
+//
+// So the resolver takes an OPTIONAL status, and the non-performing test wins over any DPD
+// range exactly as app.is_npl does. Pass it wherever the row has one. Omitting it gives the
+// DPD-only ladder, which is correct only where there genuinely is no status to hand — a
+// bucket-keyed count the server has already classified, for instance.
 
 export interface DpdBucket {
   key: string
@@ -138,11 +151,23 @@ export const DPD_BUCKETS: DpdBucket[] = [
   { key: 'npl',     label: '90+ DPD (NPL)',  short: '90+',     color: RED,       test: d => d > 90 },
 ]
 
-function dpdBucket(dpd: number | null | undefined): DpdBucket {
+// The CBS statuses that are non-performing whatever the schedule says — the second half of
+// app.is_npl (migration 261). Kept beside the ladder so the two are read together.
+const NON_PERFORMING_STATUS = new Set(['defaulting', 'expired'])
+
+export function isNplStatus(status?: string | null): boolean {
+  return NON_PERFORMING_STATUS.has((status ?? '').trim().toLowerCase())
+}
+
+function dpdBucket(dpd: number | null | undefined, status?: string | null): DpdBucket {
+  // Status wins, so a Defaulting or Expired loan reads as non-performing however current its
+  // schedule looks. app.cbs_loan_dpd floors a Defaulting loan at 30, which is what used to
+  // make these render "31–60" instead of NPL.
+  if (isNplStatus(status)) return DPD_BUCKETS[DPD_BUCKETS.length - 1]
   const d = Number(dpd) || 0
   return DPD_BUCKETS.find(b => b.test(d)) ?? DPD_BUCKETS[0]
 }
 
-export function dpdColor(dpd: number | null | undefined): string { return dpdBucket(dpd).color }
-export function dpdLabel(dpd: number | null | undefined): string { return dpdBucket(dpd).label }
-export function dpdBucketKey(dpd: number | null | undefined): string { return dpdBucket(dpd).key }
+export function dpdColor(dpd: number | null | undefined, status?: string | null): string { return dpdBucket(dpd, status).color }
+export function dpdLabel(dpd: number | null | undefined, status?: string | null): string { return dpdBucket(dpd, status).label }
+export function dpdBucketKey(dpd: number | null | undefined, status?: string | null): string { return dpdBucket(dpd, status).key }

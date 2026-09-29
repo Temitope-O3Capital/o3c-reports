@@ -441,8 +441,8 @@ export default function RiskPortfolio() {
       key: 'dpd', label: 'DPD', align: 'right', sortable: true,
       render: r => (
         <div style={{ textAlign: 'right' }}>
-          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: dpdColor(r.dpd) }}>{r.dpd}</span>
-          <div style={{ fontSize: TEXT.xs, color: dpdColor(r.dpd), fontWeight: FW.semibold }}>{dpdLabel(r.dpd)}</div>
+          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: dpdColor(r.dpd, r.status) }}>{r.dpd}</span>
+          <div style={{ fontSize: TEXT.xs, color: dpdColor(r.dpd, r.status), fontWeight: FW.semibold }}>{dpdLabel(r.dpd, r.status)}</div>
         </div>
       ),
     },

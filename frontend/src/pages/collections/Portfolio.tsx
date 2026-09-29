@@ -58,10 +58,18 @@ interface PortfolioKpis {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// A local copy of the shared ladder that disagreed with it at the bottom: `dpd > 30` meant
+// the WHOLE 1–30 bucket painted GREEN, so a card thirty days past due was coloured exactly
+// like a current one — while DpdBadge below prints the SERVER's bucket string ("1-30") as the
+// text. The label said past due and the colour said current, in the same pill.
+//
+// Boundaries now match lib/riskScale's DPD_BUCKETS: current is <= 0, and anything at least a
+// day down is amber or worse.
 function dpdColor(dpd: number): string {
   if (dpd > 90) return RED
   if (dpd > 60) return '#EA580C'
-  if (dpd > 30) return AMBER
+  if (dpd > 30) return '#C2410C'
+  if (dpd >= 1) return AMBER
   return GREEN
 }
 

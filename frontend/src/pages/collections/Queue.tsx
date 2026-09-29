@@ -596,17 +596,35 @@ function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loadi
 
 // ── Right panel: account detail ───────────────────────────────────────────────
 
-const ACTION_TABS = [
+// Escalate posts to the same collections_assign-gated endpoint as the row button, so it is
+// offered only to the roles that hold it. Shown to everyone, the whole tab 403'd for the
+// agents who live on this page.
+const ACTION_TABS_BASE = [
   { key: 'call',     label: 'Log Call' },
   { key: 'ptp',      label: 'Record PTP' },
   { key: 'payment',  label: 'Log Payment' },
-  { key: 'escalate', label: 'Escalate' },
 ]
+const ESCALATE_TAB = { key: 'escalate', label: 'Escalate' }
+function actionTabs(isHead: boolean) {
+  return isHead ? [...ACTION_TABS_BASE, ESCALATE_TAB] : ACTION_TABS_BASE
+}
 
 function SendToRecoveryButton({ assignment, onDone }: { assignment: Assignment; onDone: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Two gates, and the role one was missing entirely.
+  //
+  // POST /collections-ops/{id}/send-to-recovery is gated on `collections_assign`, which
+  // collections_agent does not hold — yet this button rendered for everyone, so the agent who
+  // works this queue all day saw it on every deep-DPD row and got Forbidden each time. The
+  // page already computes isHead from HEAD_ROLES and uses it further down; it simply was not
+  // applied here. AccountDetail.tsx had the mirror-image bug: it hid escalation when DPD > 90,
+  // which is exactly the set that should escalate.
+  //
+  // The DPD test is this page's own judgement — the server has no DPD precondition at all — so
+  // it stays, but now sits behind the role the endpoint actually requires.
+  if (!HEAD_ROLES.includes(storedRole())) return null
   const eligible = ['91-180', '181-360', '360+'].includes(assignment.dpd_bucket)
   if (!eligible) return null
 
@@ -848,11 +866,11 @@ function DetailPanel({
         <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Actions
         </div>
-        <Tabs tabs={ACTION_TABS} active={tab} onChange={setTab} />
+        <Tabs tabs={actionTabs(HEAD_ROLES.includes(storedRole()))} active={tab} onChange={setTab} />
         {tab === 'call'     && <LogCallTab     assignmentId={assignment.id} onDone={refreshHistory} />}
         {tab === 'ptp'      && <RecordPTPTab   assignmentId={assignment.id} onDone={refreshHistory} />}
         {tab === 'payment'  && <LogPaymentTab  assignmentId={assignment.id} onDone={refreshHistory} />}
-        {tab === 'escalate' && <EscalateTab    assignmentId={assignment.id} onDone={refreshHistory} />}
+        {tab === 'escalate' && HEAD_ROLES.includes(storedRole()) && <EscalateTab    assignmentId={assignment.id} onDone={refreshHistory} />}
       </div>
     </div>
   )

@@ -854,11 +854,18 @@ export default function CollectionsAccountDetail() {
             <Btn label="Log Payment"  icon="payments"   color={GREEN} onClick={() => setModal('payment')} />
           </>
         )}
+        {/* RESOLVING is head-only, FLAGGING is not — and this pair sat outside the isHead
+            block below, so an agent could raise a flag and was then shown the button to
+            clear it, which 403s. PUT /collections/watchlist/{id}/resolve is gated on
+            collections_assign; POST /collections/watchlist is deliberately open, so the
+            asymmetry below is the server's, faithfully rendered. */}
         {d.watchlist_id ? (
-          <Btn
-            label="Resolve Flag" icon="flag_check" color={AMBER}
-            onClick={() => { setRvStatus('resolved'); setRvNotes(''); setModal('watchlist_resolve') }}
-          />
+          isHead ? (
+            <Btn
+              label="Resolve Flag" icon="flag_check" color={AMBER}
+              onClick={() => { setRvStatus('resolved'); setRvNotes(''); setModal('watchlist_resolve') }}
+            />
+          ) : null
         ) : (
           <Btn
             label="Flag Watchlist" icon="flag" color={AMBER}
@@ -876,7 +883,13 @@ export default function CollectionsAccountDetail() {
               icon={d.assignment_id ? 'swap_horiz' : 'person_add'}
               onClick={() => { setNewAgentId(''); setModal('reassign') }}
             />
-            {d.assignment_id && d.dpd_lower <= 90 && (
+            {/* The DPD test was INVERTED: `dpd_lower <= 90` hid Send to Recovery on exactly
+                the accounts that should go — this same file labels DPD > 90 the "Recovery"
+                zone — while offering it on a 45-DPD one. The queue page requires the
+                opposite (91-180 / 181-360 / 360+), so two screens in one module enforced
+                contradictory rules and the server has no DPD precondition at all. Aligned to
+                the queue, and to what this page's own zone label already says. */}
+            {d.assignment_id && d.dpd_lower > 90 && (
               <Btn label="Send to Recovery" icon="gavel"      color={RED} onClick={() => setModal('send_to_recovery')} />
             )}
           </>

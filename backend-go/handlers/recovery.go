@@ -41,8 +41,25 @@ func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.With(assign).Put("/cases/{id}/solicitor", recoverySetSolicitor(db))
 	r.With(assign).Post("/cases/{id}/legal-milestone", recoveryAddLegalMilestone(db))
 	r.With(assign).Post("/debt-sales", recoveryCreateDebtSale(db))
-	r.With(assign).Put("/debt-sales/{id}/approve", recoveryApproveDebtSale(db))
-	r.With(assign).Put("/debt-sales/{id}/reject", recoveryRejectDebtSale(db))
+	// THE APPROVAL CHAIN IS NOT SUPERVISOR-GATED — IT IS STAGE-GATED, AND THE TWO DISAGREED.
+	//
+	// These two carried `assign` (recovery_assign), which the CFO does not hold. But
+	// recoveryApproveDebtSale admits only `user.Role == prog.required`, and the FINAL stage's
+	// required role is cfo. So the one role permitted to sign the last stage was the one the
+	// middleware rejected: every debt sale reached 'pending_cfo' and stopped there for ever,
+	// never posting its GL entry. Stages one and two worked — head_ops and coo both hold
+	// recovery_assign — which is what made this look like a CFO permissions glitch rather than
+	// a dead state machine. core/auth.go's own comment says the CFO holds `recovery` and
+	// `recovery_write_off` precisely so "the chain would [not] 403 at the final stage"; it
+	// simply never covered this pair.
+	//
+	// They keep the router-level `recovery` gate (line 18), which every signatory in the chain
+	// holds, and the authority stays where it belongs and is far tighter than any page: the
+	// handler admits only the exact required stage role (or admin) and refuses self-approval.
+	// Granting the CFO `recovery_assign` instead would also have handed it case assignment and
+	// legal milestones it was never meant to have.
+	r.Put("/debt-sales/{id}/approve", recoveryApproveDebtSale(db))
+	r.Put("/debt-sales/{id}/reject", recoveryRejectDebtSale(db))
 	r.With(assign).Delete("/debt-sales/{id}", recoveryDeleteDebtSale(db))
 }
 
