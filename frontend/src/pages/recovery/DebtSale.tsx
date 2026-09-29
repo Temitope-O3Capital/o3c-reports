@@ -10,6 +10,7 @@ import { useFocusParam } from '../../hooks/useFocusParam'
 import { fmtKoboExact, fmtKobo, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { hasPage } from '../../hooks/useAuth'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -305,6 +306,10 @@ export default function DebtSales() {
       skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* POST /debt-sales requires recovery_assign, which recovery_agent does not hold, so
+              this rendered for everyone and 403'd. The delete action further down was already
+              gated (on admin) — only creation was missed. */}
+          {hasPage('recovery_assign') && (
           <button
             onClick={() => setCreateOpen(true)}
             style={{
@@ -316,6 +321,7 @@ export default function DebtSales() {
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             Record Sale
           </button>
+          )}
         </div>
       }
     >

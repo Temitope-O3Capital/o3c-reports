@@ -2544,10 +2544,43 @@ func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
 				affected, _ = res.RowsAffected()
 			}
 			if affected == 0 {
+				// party_id, data_source and customer_name are RESOLVED here rather than left
+				// NULL. The generator (collectionsGenerateAssignments) stamps all three and
+				// refuses any row it cannot name a party for — "no party can be named for this
+				// debt". This path wrote none of them, so a bulk-assigned row was unresolvable
+				// to a person: udaraCrossedRows and the nightly escalation sweep both classify
+				// on data_source/party_id and simply could not see it.
+				//
+				// Resolved in SQL from whichever namespace the key belongs to — the cards
+				// customer master for a plain CIF, app.cbs_links for a 'UD-' key, never by
+				// matching a Udara id against app.customers.cif. Left NULL when neither
+				// resolves, which is honest: the row is still created (a head asked for it) but
+				// nothing pretends to know whose debt it is.
 				if _, iErr := db.PGExec(ctx,
 					`INSERT INTO collection_assignments
-					   (cif_number, account_cif, agent_user_id, assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
-					 VALUES ($1,$1,$2,$3,$4,$5,'active',CURRENT_DATE,NOW(),NOW())`,
+					   (cif_number, account_cif, agent_user_id, assigned_by, dpd_bucket, outstanding_kobo,
+					    party_id, customer_name, data_source, product_type,
+					    status, assignment_date, created_at, updated_at)
+					 SELECT $1, $1, $2, $3, $4, $5,
+					        r.party_id, r.full_name,
+					        'manual',
+					        CASE WHEN $1 LIKE '`+udaraCIFPrefix+`%' THEN 'loan' ELSE 'card' END,
+					        'active', CURRENT_DATE, NOW(), NOW()
+					   FROM (
+					     SELECT c.party_id, c.full_name FROM app.customers c
+					      WHERE $1 NOT LIKE '`+udaraCIFPrefix+`%'
+					        AND COALESCE(NULLIF(c.cif,''), c.contact_id) = $1
+					     UNION ALL
+					     SELECT lnk.entity_id, p.full_name
+					       FROM app.cbs_links lnk
+					       LEFT JOIN app.parties p ON p.party_id = lnk.entity_id
+					      WHERE $1 LIKE '`+udaraCIFPrefix+`%'
+					        AND lnk.entity_type = 'party'
+					        AND lnk.cbs_customer_id = substring($1 from 4)
+					     UNION ALL
+					     SELECT NULL::bigint, NULL::text
+					   ) r
+					  LIMIT 1`,
 					acc.CIF, b.AgentUserID, assignedBy, acc.DPDBucket, acc.OutstandingKobo); iErr != nil {
 					continue
 				}

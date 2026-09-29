@@ -70,7 +70,15 @@ function messageLine(t: Ticket): string {
 // 'escalated' is deliberately NOT here. It is not a legal value in
 // helpdesk_tickets_status_check, so this chip matched nothing and always showed
 // an empty list. Escalation is a flag now and has its own bucket chip below.
-const STATUS_CHIPS = [{ value: 'open', label: 'Open' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }]
+// 'resolved' and 'closed' ARE legal values and had no chip — so the two statuses covering
+// 38,771 of the 40,232 tickets could not be filtered for at all.
+const STATUS_CHIPS = [
+  { value: 'open', label: 'Open' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
+]
 // Scope tabs — available to everyone, including leaf agents, because assisting on
 // another team's ticket first requires being able to find it.
 const SCOPE_TABS = [

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Modal, Spinner } from './UI'
 import { apiFetch, apiPost } from '../lib/api'
 import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, SORA, FW, RADIUS, SP, TEXT } from '../lib/design'
+import { TICKET_TYPES } from '../lib/ticketTypes'
 import { toast } from 'sonner'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from './CustomerSearch'
 
@@ -262,12 +263,9 @@ const TICKET_TYPE_FOR_PURPOSE: Record<string, string> = {
   sales:       'Pitching / Marketing',
   collections: 'Collection',
 }
-const TICKET_TYPES_CALL = [
-  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Failed Transaction',
-  'Card Dispute', 'Statement Request', 'Loan Complaint', 'Collection',
-  'FD Enquiry', 'App Download', 'Technical / App Issue', 'Pitching / Marketing',
-  'Complaint (CBN reportable)', 'Others',
-]
+// This file held the COMPLETE list while NewTicket and HelpdeskSettings held a nine-member
+// subset, so a type assigned here was unroutable there. All three now read lib/ticketTypes.
+const TICKET_TYPES_CALL = TICKET_TYPES
 
 // outcome → the disposition it implies. Only the mechanical ones; a "completed" call's
 // business result is a human judgement, so we leave that to the agent.

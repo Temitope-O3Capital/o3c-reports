@@ -9,13 +9,11 @@ export interface InitialCustomer { cif?: string; name?: string; phone?: string }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-const TICKET_TYPES = [
-  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Card Dispute',
-  'Statement Request', 'Loan Complaint', 'FD Enquiry', 'Technical / App Issue',
-  'Complaint (CBN reportable)',
-] as const
-
-type TicketType = typeof TICKET_TYPES[number]
+// TICKET_TYPES and TicketType come from lib/ticketTypes now. This file's own copy was five
+// members short — Failed Transaction, Collection, App Download, Pitching / Marketing and
+// Others — so a type the call form legitimately assigns to a ticket could not be selected
+// here, and the TicketType union did not admit it.
+import { TICKET_TYPES, type TicketType } from '../../lib/ticketTypes'
 
 // ── Field styles ──────────────────────────────────────────────────────────────
 

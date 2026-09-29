@@ -23,11 +23,10 @@ interface RoutingRule {
 
 const QUEUES = ['general', 'collections', 'cards', 'loans', 'compliance', 'technical', 'vip']
 
-const TICKET_TYPES = [
-  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Card Dispute',
-  'Statement Request', 'Loan Complaint', 'FD Enquiry', 'Technical / App Issue',
-  'Complaint (CBN reportable)',
-]
+// From lib/ticketTypes. This copy was five short — Failed Transaction, Collection, App
+// Download, Pitching / Marketing, Others — which meant the screen that OWNS routing and SLAs
+// could not write a rule for types the call form assigns every day.
+import { TICKET_TYPES } from '../../lib/ticketTypes'
 
 const CHANNELS = ['portal', 'email', 'phone', 'whatsapp', 'sms', 'walk-in']
 

@@ -9,6 +9,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { LiveBadge, relTime, myUserId } from '../../components/MyWorkspace'
+import { isSalesHead } from '../../hooks/useAuth'
 
 // The sales team-lead's live view — the counterpart of the call-centre supervisor
 // wallboard. It answers, at a glance: who is carrying what, what is unowned, and
@@ -91,6 +92,14 @@ export default function SalesSupervisor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>updated {agoSecs < 2 ? 'now' : `${agoSecs}s ago`}</span>
           <LiveBadge />
+          {/* Both writes are sales-head only on the server — POST /targets sits behind
+              requireSalesHead, and distributeLeads refuses anyone salesHeadRoles does not list
+              (admin, sales_head, head_sales, head_ops, cfo). This page had NO role gate at all,
+              only the route-level `sales_team` page — which core/auth.go grants the CMO on
+              purpose ("the CMO runs Sales and BD"), so the CMO could open the very screen whose
+              headline action is Distribute and be refused on every click. md and coo hit the
+              same wall. */}
+          {isSalesHead() && <>
           <button onClick={() => setTargetFor({ id: 0, full_name: '' })}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>flag</span>
@@ -101,6 +110,7 @@ export default function SalesSupervisor() {
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>hub</span>
             Distribute Leads{unowned > 0 ? ` (${fmtNum(unowned)})` : ''}
           </button>
+          </>}
         </div>
       }
     >
