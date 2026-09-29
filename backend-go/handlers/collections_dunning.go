@@ -21,6 +21,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,19 @@ import (
 const (
 	dunningDefaultMaxPerRun = 100
 	dunningThrottleDays     = 7
+
+	// Below this, a reminder costs more than the debt. Measured on the live book
+	// 2026-09-29: 242 of 909 delinquent facilities — 27% of the queue by count — sit
+	// under ₦1,000 and hold ₦14,942 BETWEEN THEM. The selection was ordered by DPD
+	// descending, so the first arrears demands this company would ever have sent
+	// included a ₦5.00 balance 2,048 days past due and a ₦360.00 balance at 2,634.
+	// A formal demand for ₦5 does not recover ₦5; it spends a relationship.
+	dunningDefaultMinKobo = 100_000 // ₦1,000
+
+	// What counts as fresh enough for a reminder to be the right instrument. A nudge
+	// works while the debt is recent and the person still recognises it; at several
+	// years it is recovery's job, not a text message's.
+	dunningDefaultFreshDays = 90
 )
 
 // dunningMode returns "live" only when explicitly configured. Anything else — unset,
@@ -43,12 +57,59 @@ func dunningMode(ctx context.Context, db *core.DB) string {
 }
 
 func dunningMaxPerRun(ctx context.Context, db *core.DB) int {
-	if v := strings.TrimSpace(resolveCredKey(ctx, db, "COLLECTIONS_DUNNING_MAX_PER_RUN")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
+	return dunningIntSetting(ctx, db, "COLLECTIONS_DUNNING_MAX_PER_RUN", dunningDefaultMaxPerRun, false)
+}
+
+// dunningMinKobo is the materiality floor: facilities owing less are never chased.
+func dunningMinKobo(ctx context.Context, db *core.DB) int {
+	return dunningIntSetting(ctx, db, "COLLECTIONS_DUNNING_MIN_KOBO", dunningDefaultMinKobo, true)
+}
+
+// dunningFreshDays is the DPD inside which a reminder is contacted FIRST. It orders,
+// it does not exclude — see the note on dunningMaxDPD.
+func dunningFreshDays(ctx context.Context, db *core.DB) int {
+	return dunningIntSetting(ctx, db, "COLLECTIONS_DUNNING_FRESH_DAYS", dunningDefaultFreshDays, false)
+}
+
+// dunningMaxDPD is an upper age bound, and it DEFAULTS TO OFF (0 = no bound).
+//
+// That default is deliberate and is not the same kind of judgement as the floor below
+// it. Skipping a ₦5 balance forgoes ₦5. Excluding everything past three years would
+// have withheld every reminder from 140 facilities holding ₦392m of real, owed money —
+// a decision about whether to pursue a debt at all, which belongs to Collections and
+// not to a default in a source file. The mechanism is here so they can set it; until
+// they do, an old debt is still reminded about, just after the recoverable ones.
+func dunningMaxDPD(ctx context.Context, db *core.DB) int {
+	return dunningIntSetting(ctx, db, "COLLECTIONS_DUNNING_MAX_DPD", 0, true)
+}
+
+// dunningIntSetting reads a whole-number setting from config.
+func dunningIntSetting(ctx context.Context, db *core.DB, key string, def int, allowZero bool) int {
+	raw := resolveCredKey(ctx, db, key)
+	n := dunningParseSetting(raw, def, allowZero)
+	if n == def && strings.TrimSpace(raw) != "" && strings.TrimSpace(raw) != strconv.Itoa(def) {
+		slog.Warn("ignoring unreadable dunning setting, using default",
+			"key", key, "value", raw, "default", def)
 	}
-	return dunningDefaultMaxPerRun
+	return n
+}
+
+// dunningParseSetting is the parsing rule, kept pure so the policy can be tested
+// without a database. allowZero distinguishes "0 means off" (the age bound) from
+// "0 is meaningless here, use the default" (the batch size).
+//
+// Anything unreadable falls back to the DOCUMENTED DEFAULT, never to "no limit": a
+// typo in a config value must not quietly widen who receives a demand for money.
+func dunningParseSetting(raw string, def int, allowZero bool) int {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 || (n == 0 && !allowZero) {
+		return def
+	}
+	return n
 }
 
 // dunningCandidate is one delinquent facility with its resolved contact details.
@@ -110,7 +171,8 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		  -- olabode.sanusi@firstbanknigeria.com. Disclosure and misdirected collection.
 		  LEFT JOIN app.customers c          ON d.arm = 'cards' AND c.cif = d.raw_cif
 		 WHERE d.dpd > 0
-		   AND d.outstanding_kobo > 0
+		   AND d.outstanding_kobo >= $3
+		   AND ($4 = 0 OR d.dpd <= $4)
 		   AND NOT EXISTS (
 		       SELECT 1 FROM app.dunning_sends ds
 		        -- Throttle on the namespaced key, not the raw id: keyed bare, a card customer's
@@ -120,8 +182,15 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		          AND ds.outcome IN ('sent','staff_preview')
 		          AND ds.sent_at > NOW() - make_interval(days => $1)
 		   )
-		 ORDER BY d.dpd DESC
-		 LIMIT $2`, dunningThrottleDays, dunningMaxPerRun(ctx, db))
+		 -- Recoverability, not age. This was ORDER BY dpd DESC, which sounds right and
+		 -- is backwards: it reaches the oldest debt first, where a reminder does least,
+		 -- and the freshest last. With a nightly cap that is not a tie-break, it is the
+		 -- whole policy — at 5 facilities a night the 450 cases inside 90 days, holding
+		 -- ₦1.08bn, would have waited months behind debts from 2018.
+		 ORDER BY (d.dpd <= $5) DESC, d.outstanding_kobo DESC, d.dpd DESC
+		 LIMIT $2`,
+		dunningThrottleDays, dunningMaxPerRun(ctx, db),
+		dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db), dunningFreshDays(ctx, db))
 	if err != nil {
 		WorkerBeat(ctx, db, "collections_dunning", "error", "", err.Error())
 		return 0, fmt.Errorf("select dunning candidates: %w", err)
