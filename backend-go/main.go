@@ -604,6 +604,12 @@ func main() {
 			handlers.RegisterAppsFlyer(r, db)     // acquisition read API (Marketing → Acquisition)
 			handlers.RegisterAppsFlyerSync(r, db) // sync trigger + status
 		})
+		// Who may receive a message. Read-only: it sizes a segment and reports who is
+		// excluded and why, so a campaign is costed against consent before it is built
+		// rather than discovered afterwards.
+		r.Route("/api/audience", func(r chi.Router) {
+			handlers.RegisterAudience(r, db)
+		})
 		r.Route("/api/recon", func(r chi.Router) {
 			handlers.RegisterRecon(r, db)
 		})
