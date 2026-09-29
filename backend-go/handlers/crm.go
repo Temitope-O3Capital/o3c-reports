@@ -125,7 +125,10 @@ var contactUpdateCols = []string{
 	"first_name", "last_name", "phone", "email", "state", "city", "address",
 	"date_of_birth", "gender", "occupation", "employer", "income_range",
 	"id_type", "source", "cif_number", "status",
-	"assigned_to", "account_manager_id", "tags", "notes",
+	// No "tags": labels live in app.crm_lead_tags (migration 314) and the column was
+	// dropped in 315. Leaving it here would have let a caller start writing a second,
+	// unfilterable answer to "what is this lead tagged".
+	"assigned_to", "account_manager_id", "notes",
 }
 
 func listContacts(db *core.DB) http.HandlerFunc {
@@ -282,7 +285,6 @@ func createContact(db *core.DB) http.HandlerFunc {
 			CIFNumber   *string `json:"cif_number"`
 			Status      *string `json:"status"`
 			AssignedTo  *int64  `json:"assigned_to"`
-			Tags        *string `json:"tags"`
 			Notes       *string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
@@ -313,13 +315,13 @@ func createContact(db *core.DB) http.HandlerFunc {
 			  (first_name, last_name, phone, email, state, city, address,
 			   date_of_birth, gender, occupation, employer, income_range,
 			   id_type, id_number_enc, id_number_hmac, source, cif_number, status,
-			   assigned_to, tags, notes, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+			   assigned_to, notes, created_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 			RETURNING *`,
 			b.FirstName, b.LastName, b.Phone, b.Email, b.State, b.City, b.Address,
 			b.DateOfBirth, b.Gender, b.Occupation, b.Employer, b.IncomeRange,
 			b.IDType, idNumEnc, idNumHmac, src, b.CIFNumber, st,
-			b.AssignedTo, b.Tags, b.Notes, user.ID)
+			b.AssignedTo, b.Notes, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -634,7 +636,7 @@ func listAccounts(db *core.DB) http.HandlerFunc {
 			  c.cif_number, c.status, c.source, c.source_type,
 			  c.employer_id, c.bd_assignment_id,
 			  c.account_manager_id, c.assigned_to,
-			  c.tags, c.notes, c.updated_at, c.created_at,
+			  c.notes, c.updated_at, c.created_at,
 			  am.full_name   AS account_manager_name,
 			  e.name         AS employer_name,
 			  -- Loan aggregates

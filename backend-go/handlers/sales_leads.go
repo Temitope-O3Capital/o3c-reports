@@ -1308,7 +1308,9 @@ func updateLead(db *core.DB) http.HandlerFunc {
 		allowed := []string{
 			"first_name", "last_name", "phone", "email", "state", "city", "address",
 			"occupation", "employer", "employer_id", "income_range", "lead_source",
-			"sales_owner_id", "estimated_value_kobo", "next_action_at", "notes", "tags",
+			// No "tags": labels are their own table with their own routes
+			// (POST/DELETE /leads/{id}/tags), and the column was dropped in 315.
+			"sales_owner_id", "estimated_value_kobo", "next_action_at", "notes",
 			"product_interest",
 		}
 		// REASSIGNMENT THROUGH THE GENERIC PATCH.

@@ -31,7 +31,9 @@ interface Contact {
   lead_stage?:      string | null
   converted_cif?:   string | null
   status:           string
-  tags:             string | null
+  // No `tags` — the column was dropped in migration 315. Labels live in app.crm_lead_tags
+  // and are edited on the lead drawer, which is where an officer is when they form the
+  // opinion a label records.
   notes:            string | null
   assigned_name:    string | null
   created_by_name:  string | null
@@ -249,7 +251,6 @@ export default function ContactDetail() {
               <InfoRow label="Assigned To"   value={contact.assigned_name} />
               <InfoRow label="Created By"    value={contact.created_by_name} />
               <InfoRow label="Created"       value={fmtDate(contact.created_at)} />
-              <InfoRow label="Tags"          value={contact.tags} />
             </div>
             {contact.notes && (
               <div style={{ marginTop:12, padding:'10px 12px', background:'var(--row-hvr)', borderRadius:RADIUS.md, fontSize:TEXT.base, color:'var(--txt2)' }}>
