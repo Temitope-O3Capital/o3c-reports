@@ -57,7 +57,7 @@ interface SeriesRow { date: string; installs: number; sessions: number; loyal_us
 // journey; the sort appends those alphabetically, so their position carries no meaning.
 // `same_as` names an EARLIER event this one duplicates exactly, day for day — two
 // names Blink emits for one moment, which is not a step (see afAliasedSteps).
-interface FunnelRow { event_name: string; unique_users: number; event_count: number; ordered: boolean; rank: number; same_as?: string; same_as_prev?: boolean }
+interface FunnelRow { event_name: string; unique_users: number; event_count: number; ordered: boolean; rank: number; same_as?: string }
 interface ScoreRaw { key: string; media_source: string; impressions: number; clicks: number; installs: number; sessions: number; loyal_users: number; cost_usd: number }
 interface Scored extends ScoreRaw { ctr: Measure; cvr: Measure; cpi: Measure; usage: Measure; spi: Measure }
 interface CountryRow { country: string; installs: number; sessions: number; loyal_users: number; cost_usd: number }
