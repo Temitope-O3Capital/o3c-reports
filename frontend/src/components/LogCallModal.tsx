@@ -162,6 +162,11 @@ const DISPOSITION_COPY: Record<string, DispCopy> = {
   'Using Another Provider':                    { notesLabel: 'Who, and Why Them',       notesPh: 'The provider, and what they offer that we did not…',      resLabel: '', resPh: '', hideRes: true },
   'No Longer Needs the Product':               { notesLabel: 'Why Not Anymore',         notesPh: 'What changed in their circumstances…',                    resLabel: '', resPh: '', hideRes: true },
   'Not Interested in Returning':               { notesLabel: 'Reason Given',            notesPh: 'What they said when they declined…',                      resLabel: '', resPh: '', hideRes: true },
+  // The three read out of the Other notes on 29 Sept. Each prompt asks for the one detail that
+  // makes the outcome actionable rather than merely recorded.
+  'Registration Not Completed':                { notesLabel: 'Where They Got Stuck',    notesPh: 'Which step · OTP, documents, a field that would not accept…', resLabel: 'To Finish It', resPh: 'What they need from us to complete it…' },
+  'Says They Have Paid — To Verify':           { notesLabel: 'What They Say They Paid', notesPh: 'Amount · date · channel · any reference or receipt…',        resLabel: 'To Check',     resPh: 'Where to look before this is treated as paid…' },
+  'Nothing Due This Cycle':                    { notesLabel: 'Why Nothing Is Due',      notesPh: 'e.g. card issued this month, first statement not out yet…',  resLabel: '', resPh: '', hideRes: true },
 }
 // The disposition's field mapping, falling back to the category's when the disposition
 // has no special form (so nothing is ever unlabelled).
@@ -190,8 +195,13 @@ export function dispositionCopy(disposition: string, purpose: string): DispCopy 
 // It is last in every list on purpose, and it is worthless without an explanation — so
 // the requirement is enforced here AND on the server (ccDispositionNeedsNote), because
 // the browser is not the only client.
+// 'Registration Not Completed' and 'Promise to Pay' were added 29 Sept off the back of the
+// Other notes: three support calls recorded a signup abandoned mid-flow, and one recorded
+// "PAYING IN 2WEEKS TIME" with nowhere to put it — a promise made on a support call is still a
+// promise and belongs in the same promise book.
 const SUPPORT_DISPOSITIONS = [
   'Issue Resolved', 'Closed', 'Information Provided', 'Escalated', 'Complaint Logged',
+  'Registration Not Completed', 'Promise to Pay',
   'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer', 'Call Dropped',
   'Customer Rejected the Call', OTHER_DISPOSITION,
 ]
@@ -203,6 +213,7 @@ const LEAD_DISPOSITIONS = [
   'Interested', 'Not Ready Yet', 'Information Sent — Awaiting Reply',
   'Not Eligible', 'Not Interested', 'Rate or Charges Too High',
   'Wants a Product We Do Not Offer', 'Converted', 'Callback Scheduled',
+  'Registration Not Completed',
   'Wrong Number', 'Do Not Call', 'Unreachable / No Answer',
   'Customer Rejected the Call', 'Call Dropped', OTHER_DISPOSITION,
 ]
@@ -214,7 +225,11 @@ const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   // on our side, not ready is a timing objection worth calling back.
   marketing:    LEAD_DISPOSITIONS,
   sales:        LEAD_DISPOSITIONS,
-  collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer', 'Customer Rejected the Call', 'Call Dropped', OTHER_DISPOSITION],
+  // 'Says They Have Paid' is deliberately NOT 'Paid': Paid asserts the money is in and CLOSES
+  // the contact, and closing on an unverified claim stops us chasing a debt that may still be
+  // outstanding. Two Other notes were exactly this. 'Nothing Due This Cycle' likewise reads as
+  // a refusal if recorded as anything else.
+  collections:  ['Promise to Pay', 'Paid', 'Says They Have Paid — To Verify', 'Nothing Due This Cycle', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer', 'Customer Rejected the Call', 'Call Dropped', OTHER_DISPOSITION],
   // Retention was MISSING, so dispositionsFor('retention') fell through to the support
   // list and every win-back outcome the API defines was unreachable from this form. The
   // seven below are the ONLY place a churn reason is ever captured — a schema-wide search

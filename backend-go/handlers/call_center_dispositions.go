@@ -57,8 +57,12 @@ var ccDispositions = []ccDisposition{
 		Purposes: []string{"marketing"}, Hint: "Closes the contact — no further calls"},
 	{Code: "callback", Label: "Callback Requested", Status: "", NeedsCallback: true, Connected: true,
 		Hint: "Served again at the time you set, ahead of everything else"},
+	// 'support' added 29 Sept: a SUPPORT call recorded "SAID HE IS PAYING IN 2WEEKS TIME,
+	// THAT HE CANT PAY NOW" and had to file it under Other, because the support vocabulary
+	// carried no payment outcome. A promise made on a support call is still a promise, and
+	// it belongs in the same promise book — filed as Other it reaches nobody.
 	{Code: "ptp", Label: "Promise to Pay", Status: "", Connected: true,
-		Purposes: []string{"collections"}, Hint: "Recorded in the Collections promise book"},
+		Purposes: []string{"collections", "support"}, Hint: "Recorded in the Collections promise book"},
 	// "Not eligible" and "not ready" were being forced into "Not Interested",
 	// which CLOSES the contact. They are different outcomes with different
 	// follow-ups, and collapsing them lost every not-yet lead worth calling back.
@@ -109,6 +113,35 @@ var ccDispositions = []ccDisposition{
 	// and Connected is false because no conversation took place.
 	{Code: "call_rejected", Label: "Customer Rejected the Call", Status: "", Connected: false,
 		Hint: "They declined the call itself — rests for the cooldown, then returns to the queue"},
+
+	// ── Read out of the "Other" notes, 29 Sept ────────────────────────────────
+	//
+	// "Other" was added on 2026-09-28 as a BACKLOG, not a landfill: the whole justification
+	// for offering it was that what agents write there becomes the next named outcome. Eleven
+	// real uses in the first two days, and they cluster:
+	//
+	//   3 — "HE GOT OTP LATER AND HE COULD NOT COMPLATE THE PROCEESS", "WILL CONTINUE THE
+	//       REGISTRATION LATER IN THE DAY", "HAS BEEN BUSY AND WILL CONTINUE THE PROCESS
+	//       LATER". A customer stuck part-way through signup. Nothing in the vocabulary
+	//       covered it, and it is not a refusal — the work is half done and worth finishing.
+	//   2 — "SAID HE HAS BEEN DEBITED AND HAS FORWARDED THE RECEIPT TO US VIA EMAIL",
+	//       "WAS DEBITED 43K THEN HE PAID 20K ADDITIONAL AMOUNT". They say they have paid.
+	//       That is NOT "Paid", which asserts the money is in and closes the contact; it is a
+	//       claim to check against the book, and closing on it would stop us chasing a debt
+	//       that may still be outstanding.
+	//   1 — "JUST GOT A NEW CARD AND HE IS NOT MEANT TO PAY PAYMENT THIS MONTH". Nothing is
+	//       owed this cycle. Recorded as anything else it reads as a refusal to pay.
+	//
+	// None of the three closes the contact: each one leaves work to do.
+	{Code: "registration_incomplete", Label: "Registration Not Completed", Status: "", Connected: true,
+		Purposes: []string{"marketing", "sales", "support"},
+		Hint:     "They started signing up and stopped — stays in the queue so someone can finish it with them"},
+	{Code: "payment_to_verify", Label: "Says They Have Paid — To Verify", Status: "", Connected: true,
+		Purposes: []string{"collections", "support"},
+		Hint:     "They claim a payment we cannot see. Stays OPEN until it is matched — never closes on the claim alone"},
+	{Code: "not_yet_due", Label: "Nothing Due This Cycle", Status: "", Connected: true,
+		Purposes: []string{"collections"},
+		Hint:     "No payment is owed yet — rests and returns when it is"},
 
 	// ── Call Log outcomes that used to have no consequence at all ─────────────
 	//
@@ -296,6 +329,16 @@ func ccDispositionCode(s string) string {
 	// classed as a raw telephony outcome by isRawCallOutcome and rejected at the log
 	// path, which is exactly why the form says "Issue Resolved" — so it has to resolve
 	// to the same code the queue uses. Tested before the generic "resolved" below.
+	// Before the generic payment cases below: "Says They Have Paid — To Verify" contains
+	// "paid", and treating it as Paid would close a contact on an unverified claim.
+	case strings.Contains(l, "to verify"), strings.Contains(l, "says they have paid"),
+		strings.Contains(l, "claims payment"):
+		return "payment_to_verify"
+	case strings.Contains(l, "registration not completed"),
+		strings.Contains(l, "registration incomplete"), strings.Contains(l, "signup incomplete"):
+		return "registration_incomplete"
+	case strings.Contains(l, "nothing due"), strings.Contains(l, "not yet due"):
+		return "not_yet_due"
 	case strings.Contains(l, "issue resolved"):
 		return "resolved"
 	// "information provided" (we answered their question, support) and "information

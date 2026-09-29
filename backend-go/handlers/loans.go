@@ -11,6 +11,27 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+// DO NOT MOUNT THIS ROUTER. It is not registered in main.go and must not be.
+//
+// It writes loan_applications.stage using loanStages below — a vocabulary that shares exactly
+// ONE value ('submitted') with the LOS pipeline in los.go that actually owns the column:
+//
+//	here    new, submitted, doc_collection,       under_review, finance_review, approved, rejected, on_hold
+//	los.go  draft, submitted, document_collection, risk_review,  risk_head_review, pending_conditions,
+//	        finance_approval, booking, active, declined
+//
+// There is no CHECK constraint on the column, so both would write freely. Mounting this would
+// let a PATCH set a stage the LOS pipeline cannot advance (allowedTransitions misses it),
+// losFlow.ts renders every one of them through its Draft fallback with no action bar, and
+// risk.go's pending-queue predicate — stage IN ('risk_review','risk_head_review',
+// 'pending_committee') — never sees 'under_review', so the file vanishes from Risk's inbox
+// while still counting as an open application.
+//
+// It is kept rather than deleted ONLY because this file also defines jsonRows, which is used
+// across the package; deleting the file breaks the build in a dozen places. Verified
+// 2026-09-29: RegisterLoans, createLoan, updateLoan and loanStages have zero references
+// outside this file. If you need what this router does, use the LOS handlers instead; if you
+// are cleaning up, move jsonRows to a shared file first and then delete the rest.
 func RegisterLoans(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("loans"))
 	r.Get("/", listLoans(db))

@@ -432,7 +432,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 				// to be called could still be texted by every campaign.
 				claimed, _ := db.PGQuery(ctx, `
 					UPDATE campaign_contacts
-					SET sms_status = CASE WHEN `+ccNotOnDNCExpr("campaign_contacts.phone")+` THEN 'sending' ELSE 'skipped' END,
+					SET sms_status = CASE WHEN `+ccNotSuppressedExpr("campaign_contacts.phone", "sms")+` THEN 'sending' ELSE 'skipped' END,
 					    updated_at = NOW()
 					WHERE id=$1 AND sms_status='pending'
 					RETURNING sms_status`, cid)
@@ -459,7 +459,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 				// handset through a different app is not a different consent.
 				claimed, _ := db.PGQuery(ctx, `
 					UPDATE campaign_contacts
-					SET whatsapp_status = CASE WHEN `+ccNotOnDNCExpr("campaign_contacts.phone")+` THEN 'sending' ELSE 'skipped' END,
+					SET whatsapp_status = CASE WHEN `+ccNotSuppressedExpr("campaign_contacts.phone", "whatsapp")+` THEN 'sending' ELSE 'skipped' END,
 					    updated_at = NOW()
 					WHERE id=$1 AND whatsapp_status='pending'
 					RETURNING whatsapp_status`, cid)
@@ -1203,7 +1203,7 @@ func prepareCampaignRecipients(ctx context.Context, db *core.DB, campaignID int6
 			UPDATE campaign_contacts
 			SET whatsapp_status='skipped', updated_at=NOW()
 			WHERE campaign_id=$1 AND whatsapp_status='pending'
-			  AND NOT (`+ccNotOnDNCExpr("campaign_contacts.phone")+`)`, campaignID)
+			  AND NOT (`+ccNotSuppressedExpr("campaign_contacts.phone", "whatsapp")+`)`, campaignID)
 	}
 	if isSMS {
 		_, _ = db.PGExec(ctx, `
@@ -1214,7 +1214,7 @@ func prepareCampaignRecipients(ctx context.Context, db *core.DB, campaignID int6
 			UPDATE campaign_contacts
 			SET sms_status='skipped', updated_at=NOW()
 			WHERE campaign_id=$1 AND sms_status='pending'
-			  AND NOT (`+ccNotOnDNCExpr("campaign_contacts.phone")+`)`, campaignID)
+			  AND NOT (`+ccNotSuppressedExpr("campaign_contacts.phone", "sms")+`)`, campaignID)
 	}
 	if isEmail {
 		if err := ensureMailSchema(ctx, db); err == nil {

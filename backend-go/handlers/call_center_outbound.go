@@ -230,9 +230,33 @@ func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
 // "x.phone" or a bind parameter — never a bare column name that dnc_list also has.
 // TestDNCExprIsAlwaysQualified enforces this.
 func ccNotOnDNCExpr(phoneCol string) string {
-	return `NOT EXISTS (SELECT 1 FROM dnc_list d
-	                     WHERE norm_phone(d.phone) = norm_phone(` + phoneCol + `)
-	                       AND length(norm_phone(d.phone)) = 10)`
+	return ccNotSuppressedExpr(phoneCol, "call")
+}
+
+// ccNotSuppressedExpr renders "we are allowed to contact this number on this channel".
+//
+// THE GAP THIS CLOSES. There were two definitions of "must not contact" and the send paths
+// used the weaker one. app.is_suppressed (migration 259) checks app.contact_suppressions — by
+// party, normalised phone or email, honouring channel='all' — AND dnc_list for every
+// voice-adjacent channel; its COMMENT says "Every automated send path must gate on this."
+// Exactly one caller obeyed that: collections_dunning.go. The outbound dial queue and the
+// SMS/WhatsApp campaign sender checked dnc_list only, so a live suppression with channel='all'
+// would stop a dunning letter while the dialler rang them and the campaign texted them.
+//
+// Latent rather than live when this was written: contact_suppressions held 0 rows and nothing
+// in Go writes it, so the two definitions agreed by accident. It arms the moment anyone
+// populates the table — which is what migration 259 built it for.
+//
+// The channel matters. Passing 'call' for an SMS send would honour a channel='all' suppression
+// but miss one recorded specifically against 'sms', so the campaign sender passes its own.
+//
+// As a side effect this removes the shadowing hazard TestDNCExprIsAlwaysQualified exists to
+// catch: the phone column is now a function ARGUMENT evaluated in the outer query rather than
+// a value inside a subquery that has its own `phone` column, so an unqualified reference can
+// no longer silently resolve to dnc_list.phone and suppress the entire table. That test stays
+// as belt-and-braces — an ambiguous column is now a loud SQL error instead of silent wrongness.
+func ccNotSuppressedExpr(phoneCol, channel string) string {
+	return `NOT app.is_suppressed(NULL::bigint, ` + phoneCol + `, NULL::text, '` + channel + `')`
 }
 
 // ccLeadWorkableExpr renders "this lead is worth handing to an agent": not already

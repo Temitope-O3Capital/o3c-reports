@@ -15,16 +15,41 @@ import (
 // is the load-bearing half: app.norm_phone returns '' (never NULL) for anything it
 // cannot parse, so a bare equality is TRUE when both sides are blank — which would
 // suppress every contact with no phone on file.
-func TestDNCExpressionNormalisesBothSidesAndGuardsBlank(t *testing.T) {
+// UPDATED 2026-09-29. The expression now delegates to app.is_suppressed (migration 259), so
+// the two guarantees this test was written for moved INTO that function rather than
+// disappearing. They are still the guarantees that matter and they are still enforced:
+//
+//	both sides normalised   app.norm_phone(s.phone) = app.norm_phone(p_phone)
+//	blank phone guarded     length(app.norm_phone(p_phone)) = 10   (on both branches)
+//
+// The delegation happened because there were two definitions of "must not contact" and the
+// send paths used the weaker one: app.is_suppressed checks contact_suppressions AND dnc_list,
+// while this expression read dnc_list alone — so a suppression with channel='all' would stop a
+// dunning letter while the dialler still rang them and a campaign still texted them.
+//
+// What stays assertable in Go: that the expression EXCLUDES rather than flags, that it hands
+// the caller's column through untouched, and that it is not comparing phones itself. A bare
+// equality reappearing here is the blank-matches-blank bug this test is named for.
+func TestDNCExpressionExcludesAndDelegatesTheBlankGuard(t *testing.T) {
 	expr := ccNotOnDNCExpr("cc.phone")
-	if !strings.Contains(expr, "norm_phone(d.phone)") || !strings.Contains(expr, "norm_phone(cc.phone)") {
-		t.Errorf("both sides must be normalised:\n%s", expr)
+	if !strings.Contains(expr, "app.is_suppressed(") {
+		t.Errorf("no longer delegates to the one suppression rule — if the check has been "+
+			"inlined again it must re-normalise BOTH sides and guard length()=10, or a "+
+			"contact with no phone on file matches a blank listed phone and the whole "+
+			"queue is suppressed:\n%s", expr)
 	}
-	if !strings.Contains(expr, "length(norm_phone(d.phone)) = 10") {
-		t.Errorf("a blank phone must not match a blank phone:\n%s", expr)
+	if !strings.Contains(expr, "cc.phone") {
+		t.Errorf("the caller's phone column must reach the function unmodified:\n%s", expr)
 	}
-	if !strings.Contains(expr, "NOT EXISTS") {
+	// Exclude, not flag. Without the negation the dialler rings precisely the people who
+	// asked not to be rung.
+	if !strings.HasPrefix(strings.TrimSpace(expr), "NOT ") {
 		t.Errorf("suppression must exclude, not merely flag:\n%s", expr)
+	}
+	// And it must not do its own phone comparison — that is the function's job now, and an
+	// inline equality would bypass the blank guard that lives there.
+	if strings.Contains(expr, "norm_phone(d.phone)") {
+		t.Errorf("expression is comparing phones itself again:\n%s", expr)
 	}
 }
 

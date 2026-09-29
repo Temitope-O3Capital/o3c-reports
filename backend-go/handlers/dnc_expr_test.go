@@ -58,19 +58,49 @@ func TestDNCExprIsAlwaysQualified(t *testing.T) {
 	}
 }
 
-// The shape of the rendered SQL is what makes qualification necessary, so pin it:
-// if the subquery ever stops selecting from a table with a `phone` column, this test
-// and the rule it enforces should be revisited together.
-func TestDNCExprShapeStillShadows(t *testing.T) {
+// This canary did its job, and is rewritten here to match what it caught.
+//
+// It used to pin that the expression selected `FROM dnc_list d`, precisely so that if the
+// subquery ever stopped reading a table with a `phone` column, this test and
+// TestDNCExprIsAlwaysQualified would be revisited together. On 2026-09-29 the expression was
+// changed to delegate to app.is_suppressed — which checks contact_suppressions AND dnc_list,
+// closing a gap where the dialler and the campaign sender honoured only the latter while
+// dunning honoured both — and this test failed exactly as intended.
+//
+// All three of its original concerns are still enforced, now inside the SQL function:
+// dnc_list is read by app.is_suppressed for call/sms/whatsapp, and the length()=10 blank-phone
+// guard lives there too (`length(app.norm_phone(p_phone)) = 10` on both branches). What is
+// pinned here is the delegation itself — if it ever unwinds back to an inline subquery, the
+// shadowing hazard returns and the qualification rule becomes load-bearing again.
+func TestDNCExprDelegatesToTheOneSuppressionRule(t *testing.T) {
 	sql := ccNotOnDNCExpr("call_center_contacts.phone")
-	if !strings.Contains(sql, "FROM dnc_list d") {
-		t.Fatalf("ccNotOnDNCExpr no longer reads dnc_list; revisit TestDNCExprIsAlwaysQualified: %s", sql)
+
+	// Schema-qualified: unqualified would resolve through search_path, and this decides
+	// whether someone who opted out gets called.
+	if !strings.Contains(sql, "app.is_suppressed(") {
+		t.Fatalf("ccNotOnDNCExpr no longer delegates to app.is_suppressed — if it has gone "+
+			"back to an inline dnc_list subquery the shadowing hazard is live again, and "+
+			"TestDNCExprIsAlwaysQualified becomes load-bearing rather than belt-and-braces: %s", sql)
 	}
-	if !strings.Contains(sql, "length(norm_phone(d.phone)) = 10") {
-		t.Error("the length()=10 guard is gone — a blank phone would match a blank listed " +
-			"phone and suppress every contact with no number on file")
-	}
-	if !strings.Contains(sql, "norm_phone(call_center_contacts.phone)") {
+	if !strings.Contains(sql, "call_center_contacts.phone") {
 		t.Errorf("argument was not interpolated where expected: %s", sql)
+	}
+	// The voice channel, so app.is_suppressed's dnc_list branch applies at all.
+	if !strings.Contains(sql, "'call'") {
+		t.Errorf("the dial path must ask about the 'call' channel or dnc_list is skipped: %s", sql)
+	}
+	// It must NEGATE. A missing NOT inverts the rule and calls exactly the people who asked
+	// not to be called — the same shape of failure as the shadowing bug.
+	if !strings.HasPrefix(strings.TrimSpace(sql), "NOT ") {
+		t.Errorf("expression does not negate: %s", sql)
+	}
+
+	// Each channel the campaign sender uses must carry its own value, or a suppression
+	// recorded specifically against 'sms' is silently missed on an SMS send.
+	for _, ch := range []string{"sms", "whatsapp"} {
+		got := ccNotSuppressedExpr("campaign_contacts.phone", ch)
+		if !strings.Contains(got, "'"+ch+"'") {
+			t.Errorf("channel %q not carried into the expression: %s", ch, got)
+		}
 	}
 }
