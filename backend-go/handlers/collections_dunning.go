@@ -233,9 +233,26 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 				continue
 			}
 
-			// One guard, consulted for every channel. Covers contact_suppressions
-			// (per party, phone or email, honouring channel='all') AND the legacy
-			// dnc_list for the voice-adjacent channels.
+			// CONSENT first. Until 2026-09-29 this ran on suppression alone and never
+			// consulted app.party_contact_consent — so a customer who had explicitly
+			// withdrawn servicing contact still received a demand, because withdrawal
+			// and suppression are recorded in different places.
+			//
+			// An arrears reminder is SERVICING, so it is opt-out (see consentIsOptIn in
+			// audience.go): a missing row means never asked, and the reminder stands.
+			// Only a real withdrawal stops it. Requiring opt-in here would have silenced
+			// 282 of 654 delinquent parties — 43% of a ₦2.19bn book — none of whom had
+			// objected to anything.
+			if withdrawn, wErr := contactConsentWithdrawn(ctx, db, cand.PartyID, ch, purposeServicing); wErr == nil && withdrawn {
+				dunningLog(ctx, db, cand, ch, recipient, "", "", "suppressed",
+					"customer withdrew consent for "+ch, tplID)
+				suppressed++
+				continue
+			}
+
+			// SUPPRESSION second. Covers contact_suppressions (per party, phone or
+			// email, honouring channel='all') AND the legacy dnc_list for the
+			// voice-adjacent channels.
 			var blocked bool
 			if sRows, sErr := db.PGQuery(ctx,
 				`SELECT app.is_suppressed($1::bigint, $2, $3, $4) AS blocked`,

@@ -42,7 +42,7 @@ func TestAudienceRejectsAnUnknownChannel(t *testing.T) {
 func TestExclusionReasonsAreDistinct(t *testing.T) {
 	reasons := []string{
 		exNoMoneyHistory, exNoContact, exInCollections,
-		exNoAddress, exNoConsent, exSuppressed,
+		exNoAddress, exNoConsent, exConsentWithdrawn, exSuppressed,
 	}
 	seen := map[string]bool{}
 	for _, r := range reasons {
@@ -54,8 +54,8 @@ func TestExclusionReasonsAreDistinct(t *testing.T) {
 		}
 		seen[r] = true
 	}
-	if len(seen) != 6 {
-		t.Errorf("expected 6 distinct reasons, got %d", len(seen))
+	if len(seen) != 7 {
+		t.Errorf("expected 7 distinct reasons, got %d", len(seen))
 	}
 }
 
@@ -85,6 +85,47 @@ func TestSpecDefaultsAreTheCautiousReading(t *testing.T) {
 
 // Mirrors the parsing in audiencePreview: anything but the literal "false" is true.
 func qstrDefaultTrue(v string) bool { return v != "false" }
+
+// The rule that decides whether a collections programme exists at all.
+//
+// Of 654 delinquent parties above the materiality floor, only 372 carry a servicing
+// consent row. Treating servicing as opt-in would have silenced the other 282 — 43% of
+// a ₦2.19bn book — none of whom had objected to anything; they had simply never been
+// asked. Marketing is the opposite: never asked means no lawful basis, so silence is
+// the correct output.
+func TestServicingIsOptOutAndMarketingIsOptIn(t *testing.T) {
+	if !consentIsOptIn(purposeMarketing) {
+		t.Error("marketing must require a granted consent row — an offer to someone " +
+			"who never agreed has no lawful basis")
+	}
+	if consentIsOptIn(purposeServicing) {
+		t.Error("servicing must NOT require opt-in: a missing row means never asked, " +
+			"not 'said no', and telling a borrower they are in arrears is performance " +
+			"of a contract")
+	}
+}
+
+// A wholesale refusal is only ever correct for an opt-in purpose. An empty consent
+// table must not silence arrears reminders.
+func TestOnlyOptInPurposesCanBeRefusedWholesale(t *testing.T) {
+	// nil DB proves it returns before querying — the servicing path must not even ask.
+	if why := audienceConsentRefusal(context.Background(), nil, purposeServicing, "whatsapp"); why != "" {
+		t.Errorf("servicing must never be refused for want of consent rows; got %q", why)
+	}
+}
+
+// Withdrawal and absence are different states and are counted separately, because they
+// mean opposite things to whoever reads the number: one is a gap in the consent
+// programme to go and fill, the other is a customer who said no and must be left alone.
+func TestWithdrawnIsNotTheSameAsNeverAsked(t *testing.T) {
+	if exNoConsent == exConsentWithdrawn {
+		t.Fatal("never-asked and said-no must not share a bucket")
+	}
+	// No party, no preference to honour — and no query worth running.
+	if withdrawn, err := contactConsentWithdrawn(context.Background(), nil, 0, "sms", purposeServicing); err != nil || withdrawn {
+		t.Errorf("a candidate with no party_id has no recorded withdrawal; got %v, %v", withdrawn, err)
+	}
+}
 
 func TestPurposeConstantsMatchTheStoredVocabulary(t *testing.T) {
 	// These are the values app.party_contact_consent.purpose actually carries. A typo

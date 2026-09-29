@@ -62,6 +62,54 @@ var audienceChannels = map[string]bool{
 	"email": true, "sms": true, "whatsapp": true, "call": true,
 }
 
+// CONSENT IS NOT ONE RULE. This is the correction that matters most in this file, and
+// the first version got it wrong by treating both purposes as opt-in.
+//
+//	MARKETING  is OPT-IN.  No granted row ⇒ refused. An offer to someone who never
+//	                       agreed to receive offers has no lawful basis, so silence is
+//	                       the correct output.
+//	SERVICING  is OPT-OUT. A missing row means NEVER ASKED, not "said no". Telling a
+//	                       borrower they are in arrears on a facility they hold is
+//	                       performance of a contract, not marketing. Only an explicit
+//	                       withdrawal — a row that exists and is not 'granted' — stops it.
+//
+// Measured 2026-09-29, this distinction decides whether a collections programme exists:
+// of 654 delinquent parties above the materiality floor, only 372 carry a servicing
+// consent row. Requiring opt-in for servicing would have silenced the other 282 — 43%
+// of a ₦2.19bn book — not because anyone objected, but because nobody had asked them.
+//
+// Suppression and DNC are separate from both and always win: those ARE a stated "stop",
+// and app.is_suppressed is checked after this either way.
+func consentIsOptIn(purpose string) bool { return purpose == purposeMarketing }
+
+// contactConsentWithdrawn is the single-recipient form of the opt-out rule, for senders
+// that select their own candidates rather than asking for a segment — the arrears
+// reminder picks delinquent FACILITIES, not lifecycle buckets, so it cannot use
+// ResolveAudience but must reach the same verdict.
+//
+// True means the customer has actively said no on this channel for this purpose, or
+// their consent has expired. An absent row is NOT a withdrawal; it means nobody asked.
+//
+// A failed query returns false with the error: the caller then falls through to
+// app.is_suppressed, which is the stricter guard. Erring towards sending on a database
+// blip is wrong for marketing, which is why marketing goes through ResolveAudience where
+// an absent grant refuses outright — this path exists for servicing.
+func contactConsentWithdrawn(ctx context.Context, db *core.DB, partyID int64, channel, purpose string) (bool, error) {
+	if partyID == 0 {
+		return false, nil // no party to hold a preference
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM app.party_contact_consent
+		   WHERE party_id = $1 AND channel = $2 AND purpose = $3
+		     AND (state <> 'granted' OR (expires_at IS NOT NULL AND expires_at <= NOW()))
+		) AS withdrawn`, partyID, channel, purpose)
+	if err != nil || len(rows) == 0 {
+		return false, err
+	}
+	return rows[0]["withdrawn"] == true, nil
+}
+
 // Exclusion reasons, in the order they are tested. Order is part of the contract:
 // each party is counted against the FIRST reason it fails, so the counts add up.
 const (
@@ -69,8 +117,13 @@ const (
 	exNoContact      = "no_contact_details"
 	exInCollections  = "in_collections"
 	exNoAddress      = "no_address_for_channel"
-	exNoConsent      = "no_consent"
-	exSuppressed     = "suppressed"
+	// Never asked, on a purpose that requires asking (marketing).
+	exNoConsent = "no_consent"
+	// Asked and refused, or the consent expired. Counted apart from exNoConsent
+	// because they mean opposite things to whoever reads the number: one is a gap in
+	// the consent programme, the other is a customer who said no.
+	exConsentWithdrawn = "consent_withdrawn"
+	exSuppressed       = "suppressed"
 )
 
 // AudienceSpec is a request for people to contact.
@@ -168,7 +221,9 @@ func ResolveAudience(ctx context.Context, db *core.DB, spec AudienceSpec) (Audie
 		           WHEN ($6 = 'email' AND b.email = '')
 		             OR ($6 <> 'email' AND length(app.norm_phone(b.phone)) <> 10)
 		                                             THEN '` + exNoAddress + `'
-		           WHEN NOT EXISTS (
+		           -- Opt-in ($9 true, marketing): a granted row must exist.
+		           -- Opt-out ($9 false, servicing): only an explicit withdrawal stops it.
+		           WHEN $9 AND NOT EXISTS (
 		                  SELECT 1 FROM app.party_contact_consent c
 		                   WHERE c.party_id = b.party_id
 		                     AND c.channel  = $6
@@ -176,6 +231,14 @@ func ResolveAudience(ctx context.Context, db *core.DB, spec AudienceSpec) (Audie
 		                     AND c.state    = 'granted'
 		                     AND (c.expires_at IS NULL OR c.expires_at > NOW())
 		                )                            THEN '` + exNoConsent + `'
+		           WHEN NOT $9 AND EXISTS (
+		                  SELECT 1 FROM app.party_contact_consent c
+		                   WHERE c.party_id = b.party_id
+		                     AND c.channel  = $6
+		                     AND c.purpose  = $7
+		                     AND (c.state <> 'granted'
+		                          OR (c.expires_at IS NOT NULL AND c.expires_at <= NOW()))
+		                )                            THEN '` + exConsentWithdrawn + `'
 		           WHEN app.is_suppressed(b.party_id, b.phone, b.email, $6)
 		                                             THEN '` + exSuppressed + `'
 		           ELSE NULL
@@ -189,7 +252,8 @@ func ResolveAudience(ctx context.Context, db *core.DB, spec AudienceSpec) (Audie
 		 ORDER BY (excluded_because IS NULL) DESC, value_kobo DESC
 		 LIMIT $8`,
 		strings.Join(spec.Buckets, ","), strings.Join(spec.Tiers, ","), spec.MinValueKobo,
-		spec.RequireMeasured, spec.ExcludeInCollections, channel, purpose, limit)
+		spec.RequireMeasured, spec.ExcludeInCollections, channel, purpose, limit,
+		consentIsOptIn(purpose))
 	if err != nil {
 		return out, fmt.Errorf("resolve audience: %w", err)
 	}
@@ -225,7 +289,14 @@ func ResolveAudience(ctx context.Context, db *core.DB, spec AudienceSpec) (Audie
 
 // audienceConsentRefusal returns a sentence when nothing of this shape could ever
 // qualify, or "" when the request is worth running.
+//
+// Only OPT-IN purposes can be refused wholesale. For servicing, an empty consent table
+// means nobody has been asked and nobody has objected, which is not a reason to stay
+// silent about a debt someone owes — see consentIsOptIn.
 func audienceConsentRefusal(ctx context.Context, db *core.DB, purpose, channel string) string {
+	if !consentIsOptIn(purpose) {
+		return ""
+	}
 	rows, err := db.PGQuery(ctx, `
 		SELECT COUNT(*) FILTER (WHERE purpose = $1)                    AS for_purpose,
 		       COUNT(*) FILTER (WHERE purpose = $1 AND channel = $2)   AS for_both
@@ -270,12 +341,19 @@ func audienceExclusionCounts(ctx context.Context, db *core.DB, spec AudienceSpec
 		         WHEN ($6 = 'email' AND email = '')
 		           OR ($6 <> 'email' AND length(app.norm_phone(phone)) <> 10)
 		                                       THEN '` + exNoAddress + `'
-		         WHEN NOT EXISTS (
+		         WHEN $8 AND NOT EXISTS (
 		                SELECT 1 FROM app.party_contact_consent c
 		                 WHERE c.party_id = base.party_id AND c.channel = $6
 		                   AND c.purpose = $7 AND c.state = 'granted'
 		                   AND (c.expires_at IS NULL OR c.expires_at > NOW())
 		              )                        THEN '` + exNoConsent + `'
+		         WHEN NOT $8 AND EXISTS (
+		                SELECT 1 FROM app.party_contact_consent c
+		                 WHERE c.party_id = base.party_id AND c.channel = $6
+		                   AND c.purpose = $7
+		                   AND (c.state <> 'granted'
+		                        OR (c.expires_at IS NOT NULL AND c.expires_at <= NOW()))
+		              )                        THEN '` + exConsentWithdrawn + `'
 		         WHEN app.is_suppressed(party_id, phone, email, $6)
 		                                       THEN '` + exSuppressed + `'
 		         ELSE 'eligible'
@@ -284,7 +362,8 @@ func audienceExclusionCounts(ctx context.Context, db *core.DB, spec AudienceSpec
 		  FROM base
 		 GROUP BY 1`,
 		strings.Join(spec.Buckets, ","), strings.Join(spec.Tiers, ","), spec.MinValueKobo,
-		spec.RequireMeasured, spec.ExcludeInCollections, channel, purpose)
+		spec.RequireMeasured, spec.ExcludeInCollections, channel, purpose,
+		consentIsOptIn(purpose))
 	if err != nil {
 		return fmt.Errorf("audience exclusion counts: %w", err)
 	}
