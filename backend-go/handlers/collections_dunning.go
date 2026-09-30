@@ -142,24 +142,30 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		return 0, nil
 	}
 
+	// Every collections template, so each facility can be written to in the wording
+	// that matches its age. This was ORDER BY id LIMIT 1 — one template for everyone.
+	// Harmless while only one exists, and a silent trap the moment a second does: the
+	// firmer 360+ copy someone writes tomorrow would sit in the table unused, because
+	// nothing here would ever look past the lowest id. Today that one template is named
+	// "1-30 Days" and is going to 401 facilities over a year old.
 	tplRows, err := db.PGQuery(ctx, `
-		SELECT id, sms_body, whatsapp_body, email_subject, email_body_text, email_body_html
+		SELECT id, name, sms_body, whatsapp_body, email_subject, email_body_text, email_body_html
 		  FROM app.message_templates
 		 WHERE category = 'collections'
-		 ORDER BY id
-		 LIMIT 1`)
+		 ORDER BY id`)
 	if err != nil || len(tplRows) == 0 {
 		WorkerBeat(ctx, db, "collections_dunning", "idle", "no collections template configured", "")
 		return 0, nil
 	}
-	tpl := tplRows[0]
-	tplID := toInt64(tpl["id"])
 
 	// Candidates: delinquent facilities not contacted in the throttle window. Identity
 	// and contact details come from v_contact_identity (freshest phone/email per party),
 	// falling back to the card customer record for the few rows with no party.
 	rows, err := db.PGQuery(ctx, `
-		SELECT d.key_cif AS cif, d.party_id, d.product_name, d.dpd, d.dpd_bucket, d.outstanding_kobo,
+		SELECT * FROM (
+		SELECT DISTINCT ON (COALESCE('p'||d.party_id::text, 'c'||d.key_cif))
+		       d.key_cif AS cif, d.party_id, TRIM(d.product_name) AS product_name,
+		       d.dpd, d.dpd_bucket, d.outstanding_kobo,
 		       COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS full_name,
 		       COALESCE(NULLIF(v.email,''), NULLIF(c.email,''))                         AS email,
 		       COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone
@@ -178,7 +184,10 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		        -- Throttle on the namespaced key, not the raw id: keyed bare, a card customer's
 		        -- send suppressed an unrelated Udara borrower's reminder, and vice versa.
 		        WHERE ds.account_cif = d.key_cif
-		          AND COALESCE(ds.facility,'') = COALESCE(d.product_name,'')
+		          -- BTRIM both sides: Udara ships product names with a trailing space, so a
+		          -- stored "SME LOAN " would not match a freshly trimmed "SME LOAN" and the
+		          -- throttle would let the same facility through again.
+		          AND BTRIM(COALESCE(ds.facility,'')) = BTRIM(COALESCE(d.product_name,''))
 		          AND ds.outcome IN ('sent','staff_preview')
 		          AND ds.sent_at > NOW() - make_interval(days => $1)
 		   )
@@ -187,7 +196,17 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		 -- and the freshest last. With a nightly cap that is not a tie-break, it is the
 		 -- whole policy — at 5 facilities a night the 450 cases inside 90 days, holding
 		 -- ₦1.08bn, would have waited months behind debts from 2018.
-		 ORDER BY (d.dpd <= $5) DESC, d.outstanding_kobo DESC, d.dpd DESC
+		 ORDER BY COALESCE('p'||d.party_id::text, 'c'||d.key_cif),
+		          (d.dpd <= $5) DESC, d.outstanding_kobo DESC, d.dpd DESC
+		) x
+		 -- ONE REMINDER PER PERSON PER NIGHT — the DISTINCT ON above. The throttle only
+		 -- sees rows already written, and the whole batch is chosen before any of it is
+		 -- logged, so a customer with two facilities passed it twice. On 2026-09-30 PAUBEE
+		 -- GLOBAL VENTURE was sent two demands for N54,166,667 in the same minute, to the
+		 -- same address, differing only in DPD. Two at once reads as a broken system and
+		 -- invites the reply that the amount must be wrong. The per-facility throttle still
+		 -- stands, so their second facility comes up on a later night.
+		 ORDER BY (x.dpd <= $5) DESC, x.outstanding_kobo DESC, x.dpd DESC
 		 LIMIT $2`,
 		dunningThrottleDays, dunningMaxPerRun(ctx, db),
 		dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db), dunningFreshDays(ctx, db))
@@ -213,12 +232,14 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 			Email:      strings.TrimSpace(str(r["email"])),
 			Phone:      strings.TrimSpace(str(r["phone"])),
 		}
+		tpl := dunningTemplateFor(tplRows, cand.DPDBucket)
+		tplID := toInt64(tpl["id"])
 		merge := map[string]any{
 			"first_name": dunningFirstName(cand.Name),
 			"full_name":  cand.Name,
 			"facility":   cand.Facility,
 			"dpd":        cand.DPD,
-			"amount":     fmtKoboStr(cand.AmountKobo),
+			"amount":     dunningAmount(cand.AmountKobo),
 			"cif":        cand.CIF,
 		}
 
@@ -367,11 +388,110 @@ func dunningLog(ctx context.Context, db *core.DB, c dunningCandidate,
 		recipient, subject, body, outcome, detail, tplID) //nolint:errcheck
 }
 
-func dunningFirstName(full string) string {
-	if f := strings.Fields(strings.TrimSpace(full)); len(f) > 0 {
-		return f[0]
+// dunningOrgWords are the words that make a name a company rather than a person.
+// Matched whole, against the name upper-cased and stripped of punctuation.
+var dunningOrgWords = map[string]bool{
+	"LTD": true, "LIMITED": true, "PLC": true, "LLC": true, "LLP": true, "INC": true,
+	"COMPANY": true, "CO": true, "CORP": true, "CORPORATION": true, "GROUP": true,
+	"HOLDINGS": true, "ENTERPRISE": true, "ENTERPRISES": true, "VENTURE": true,
+	"VENTURES": true, "GLOBAL": true, "INTERNATIONAL": true, "NIG": true, "NIGERIA": true,
+	"TECHNOLOGY": true, "TECHNOLOGIES": true, "SERVICES": true, "SOLUTIONS": true,
+	"RESOURCES": true, "INVESTMENTS": true, "SOCIETY": true, "COOPERATIVE": true,
+	"ASSOCIATES": true, "PARTNERS": true, "CONSULTING": true, "CONSULT": true,
+	"CONTRACTORS": true, "INDUSTRIES": true, "TRADING": true, "CONCEPTS": true,
+	"HOTEL": true, "HOTELS": true, "RESORTS": true, "FARMS": true, "FOODS": true,
+	"MOTORS": true, "STORES": true, "AGENCY": true, "FOUNDATION": true, "ACADEMY": true,
+	"MINISTRIES": true, "CHURCH": true, "BANK": true, "MICROFINANCE": true,
+}
+
+// dunningLooksLikeOrg reports whether a name belongs to an organisation.
+func dunningLooksLikeOrg(name string) bool {
+	if strings.Contains(name, "&") {
+		return true
 	}
-	return "Customer"
+	for _, w := range strings.Fields(strings.ToUpper(name)) {
+		if dunningOrgWords[strings.Trim(w, ".,()/-")] {
+			return true
+		}
+	}
+	return false
+}
+
+// dunningFirstName picks the greeting. A first name is right for a person and wrong
+// for a company: the 2026-09-30 previews opened a ₦100m demand to AMBIENCE HOTEL AND
+// RESORTS LIMITED with "Dear AMBIENCE," — the first word of a company name, which
+// reads as a mail-merge accident on the one kind of letter that has to look
+// deliberate. A company has no first name, so it is addressed by its own name whole.
+// Case is left exactly as the record holds it; this is a legal entity on a demand for
+// money, not a label to prettify.
+func dunningFirstName(full string) string {
+	fields := strings.Fields(full)
+	if len(fields) == 0 {
+		return "Customer"
+	}
+	joined := strings.Join(fields, " ")
+	if dunningLooksLikeOrg(joined) {
+		return joined
+	}
+	return fields[0]
+}
+
+// dunningAmount renders kobo the way a demand for money has to read — grouped in
+// thousands. fmtKoboStr is right for a log line and wrong here: it wrote
+// "N100000000.00" into the 2026-09-30 previews, a figure no reader can check at a
+// glance, on the kind of notice people already suspect of being a scam.
+func dunningAmount(kobo int64) string {
+	whole, frac := fmtKoboStr(kobo), ""
+	if i := strings.LastIndexByte(whole, '.'); i >= 0 {
+		whole, frac = whole[:i], whole[i:]
+	}
+	sign := ""
+	if strings.HasPrefix(whole, "-") {
+		sign, whole = "-", whole[1:]
+	}
+	var b strings.Builder
+	for i := 0; i < len(whole); i++ {
+		if i > 0 && (len(whole)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(whole[i])
+	}
+	return sign + b.String() + frac
+}
+
+// dunningTemplateMatches reports whether a template is written for a DPD bucket, by
+// looking for the bucket token in its name with digit boundaries either side — so
+// "1-30" does not quietly match a template named for "181-360".
+func dunningTemplateMatches(name, bucket string) bool {
+	name, bucket = strings.ToLower(strings.TrimSpace(name)), strings.ToLower(strings.TrimSpace(bucket))
+	if name == "" || bucket == "" {
+		return false
+	}
+	edge := func(b byte) bool { return (b >= '0' && b <= '9') || b == '-' || b == '+' }
+	for i := 0; i+len(bucket) <= len(name); i++ {
+		if name[i:i+len(bucket)] != bucket {
+			continue
+		}
+		if i > 0 && edge(name[i-1]) {
+			continue
+		}
+		if j := i + len(bucket); j < len(name) && edge(name[j]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// dunningTemplateFor picks the template written for this facility's age, falling back
+// to the lowest-numbered collections template when none names the bucket.
+func dunningTemplateFor(rows []core.Row, bucket string) core.Row {
+	for _, r := range rows {
+		if dunningTemplateMatches(str(r["name"]), bucket) {
+			return r
+		}
+	}
+	return rows[0]
 }
 
 // nullableInt64 keeps a zero id out of a foreign-keyed column.

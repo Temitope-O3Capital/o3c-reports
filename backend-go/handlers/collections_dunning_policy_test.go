@@ -1,6 +1,10 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/o3c/workspace/core"
+)
 
 // The arrears-reminder policy, pinned.
 //
@@ -67,5 +71,84 @@ func TestAgeBoundIsOffUntilCollectionsSetsIt(t *testing.T) {
 	}
 	if got := dunningParseSetting("1095", 0, true); got != 1095 {
 		t.Errorf("Collections must be able to set a bound; got %d", got)
+	}
+}
+
+// ── Rendering: the defects the 2026-09-30 previews exposed ───────────────────
+
+func TestDunningAmountGroupsThousands(t *testing.T) {
+	cases := map[int64]string{
+		10_000_000_000: "100,000,000.00", // the N100000000.00 that shipped
+		5_416_666_700:  "54,166,667.00",
+		100_000:        "1,000.00",
+		99_999:         "999.99",
+		0:              "0.00",
+		500:            "5.00",
+		-100_000:       "-1,000.00",
+	}
+	for kobo, want := range cases {
+		if got := dunningAmount(kobo); got != want {
+			t.Errorf("dunningAmount(%d) = %q, want %q", kobo, got, want)
+		}
+	}
+}
+
+func TestDunningFirstNameAddressesCompaniesWhole(t *testing.T) {
+	orgs := []string{
+		"AMBIENCE HOTEL AND RESORTS LIMITED",
+		"NASSCOOP SOCIETY LTD",
+		"PAUBEE GLOBAL VENTURE",
+		"BENLAD MULTILINKS LTD",
+		"Johnson & Johnson",
+	}
+	for _, o := range orgs {
+		if got := dunningFirstName(o); got != o {
+			t.Errorf("dunningFirstName(%q) = %q, want the whole name", o, got)
+		}
+	}
+	people := map[string]string{
+		"HARRIET ODOMETA":  "HARRIET",
+		"Hammed Musa":      "Hammed",
+		"  Ada  Okonkwo  ": "Ada",
+		"FINTRAK":          "FINTRAK",
+		"":                 "Customer",
+		"   ":              "Customer",
+	}
+	for full, want := range people {
+		if got := dunningFirstName(full); got != want {
+			t.Errorf("dunningFirstName(%q) = %q, want %q", full, got, want)
+		}
+	}
+}
+
+func TestDunningTemplateMatchesRespectsDigitBoundaries(t *testing.T) {
+	if dunningTemplateMatches("Arrears Reminder · 181-360 Days", "1-30") {
+		t.Error("1-30 must not match a template named for 181-360")
+	}
+	if !dunningTemplateMatches("Arrears Reminder · 1-30 Days", "1-30") {
+		t.Error("1-30 should match its own template")
+	}
+	if !dunningTemplateMatches("Final Notice 360+", "360+") {
+		t.Error("360+ should match")
+	}
+	if dunningTemplateMatches("Arrears Reminder · 1-30 Days", "31-60") {
+		t.Error("31-60 must not match the 1-30 template")
+	}
+	if dunningTemplateMatches("Arrears Reminder", "") || dunningTemplateMatches("", "1-30") {
+		t.Error("empty name or bucket must not match")
+	}
+}
+
+func TestDunningTemplateForFallsBackToFirst(t *testing.T) {
+	rows := []core.Row{
+		{"id": int64(7), "name": "Arrears Reminder · 1-30 Days"},
+		{"id": int64(9), "name": "Arrears Reminder · 360+ Days"},
+	}
+	if got := toInt64(dunningTemplateFor(rows, "360+")["id"]); got != 9 {
+		t.Errorf("360+ picked template %d, want 9", got)
+	}
+	// 31-60 has no template of its own: it must still be written to, not skipped.
+	if got := toInt64(dunningTemplateFor(rows, "31-60")["id"]); got != 7 {
+		t.Errorf("31-60 fell back to template %d, want 7", got)
 	}
 }
