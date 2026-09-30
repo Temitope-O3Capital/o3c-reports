@@ -361,3 +361,42 @@ Spreadsheet-loaded; `cif_number` holds account numbers slash-concatenated
 (`2114-9465-7407/1914-9541-5883`) and two customer names in one field. Nothing joins to them.
 `openRecoveryCase` now refuses to create a 56th; the existing 55 were with another session as
 at 2026-09-29 and need a data decision, not code.
+
+### Business Development is built, wired, and has never been used
+
+Do not "fix" the BD pipeline for being empty, and do not build into it. Verified 2026-09-30:
+
+| Table | Rows |
+|---|---|
+| `employers` | 0 |
+| `employer_staff` | 0 |
+| `bd_leads` | 0 |
+| `bd_assignments` | 0 |
+| `bd_assignment_staff` | 0 |
+| `bd_activities` | 0 |
+
+Every part of it exists and is correctly connected: `handlers/business_dev.go` defines 18 routes
+and **is** mounted (`main.go`, `RegisterBusinessDev`), five pages are lazy-loaded in `App.tsx`,
+and the sidebar carries six BD entries. Nothing is broken. There is simply no BD data of any
+kind, and no BD staff — the whole function sits inside the "Sales & BD" department under
+`sales_head` / `sales_officer`. Exactly one person holds a BD role at all: **Doris Nnakwe**
+(`cmo`, with `bd_head` in `extra_roles`).
+
+This is NOT the same situation Sales was in, and conflating them wastes a day. Sales looked
+empty because 185 real leads were hidden by a missing `sales_entered_at` gate and an absent
+owner scope — the data was there. BD has no data. There is nothing to reveal.
+
+Two specifics worth knowing before anyone starts:
+
+- **BD does not live in `crm_contacts`.** It has its own `bd_leads` table with its own shape
+  (`company_name`, `employer_id`, `potential_value_kobo`, `expected_close_date`, `lead_score`).
+  `crm_contacts.lead_source` holds only `call_centre` and NULL — `business_dev` has never been a
+  value in it, so a predicate looking for it there is searching the wrong table, not finding
+  zero rows.
+- **Two of the five pages are invisible to everybody.** `Sidebar.tsx` gates `/bd/my-dashboard`
+  on `vis: ['bd_officer']` and `/bd/assignments` on `vis: ['bd_officer','bd_head']`, and there
+  are **zero** `bd_officer` accounts. This is the same defect that hid the Sales supervisor page
+  (a screen gated behind a role nobody holds). It is deliberately left alone: correcting the
+  gate would surface empty screens to people who have not asked for them. Fix it at the point
+  someone is actually made a BD officer, and fix it then in the same three places page access
+  is decided — `Sidebar.tsx`, `core/auth.go buildRolePages()`, and `hooks/useAuth.ts`.
