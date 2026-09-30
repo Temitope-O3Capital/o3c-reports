@@ -169,7 +169,15 @@ interface ContactProfileData {
     fd_count: number
     card_count: number
     active_card_count: number
+    // Card money, from app.card_balances. Owed and held are separate because the underlying
+    // current_dr_balance is a DEBIT balance: netting them shows a prepaid customer's own funds
+    // as a debt. See the comment on the summary block in handlers/contacts.go.
+    card_owed_kobo: number
+    card_held_kobo: number
+    card_limit_kobo: number
     txn_count: number
+    // Includes cards since 2026-09-30. It was deposits − loans, which omitted card debt from the
+    // one figure on this page that claims to net the customer's position.
     net_position_kobo: number
   }
 
@@ -569,7 +577,13 @@ function KpiStrip({ profile }: { profile: ContactProfileData }) {
     { label: 'Deposits',     value: fmtKoboExact(s?.fd_principal_kobo ?? 0),     sub: `${s?.fd_count ?? 0} fixed deposit${(s?.fd_count ?? 0) === 1 ? '' : 's'}`,  icon: 'savings',                 color: AMBER },
     { label: 'Borrowings',   value: fmtKoboExact(s?.loan_outstanding_kobo ?? 0), sub: `${s?.loan_count ?? 0} active loan${(s?.loan_count ?? 0) === 1 ? '' : 's'}`, icon: 'account_balance_wallet',  color: NAVY  },
     { label: 'Net Position', value: fmtKoboExact(net),                           sub: net >= 0 ? 'net saver' : 'net borrower',                                    icon: 'balance',                 color: net >= 0 ? GREEN : RED },
-    { label: 'Active Cards', value: String(s?.active_card_count ?? 0),       sub: `${s?.card_count ?? 0} on file`,                                            icon: 'credit_card',             color: PURPLE },
+    // A balance, not a count. This tile read "Active Cards: 2" while the customer's card money
+    // appeared nowhere on the page — see the summary block in handlers/contacts.go. Owed and
+    // available are separate tiles' worth of meaning, so the label changes with the sign rather
+    // than netting them and calling a prepaid customer's funds a debt.
+    (s?.card_owed_kobo ?? 0) > 0
+      ? { label: 'Card Owed',    value: fmtKoboExact(s?.card_owed_kobo ?? 0), sub: `${s?.active_card_count ?? 0} active · ${s?.card_count ?? 0} on file`, icon: 'credit_card', color: RED }
+      : { label: 'Card Balance', value: fmtKoboExact(s?.card_held_kobo ?? 0), sub: `available · ${s?.active_card_count ?? 0} active`,                     icon: 'credit_card', color: (s?.card_held_kobo ?? 0) > 0 ? GREEN : PURPLE },
     { label: 'Transactions', value: fmtNum(s?.txn_count ?? 0),              sub: 'lifetime activity',                                                        icon: 'receipt_long',            color: BLUE  },
   ]
   return (
@@ -1692,7 +1706,13 @@ function OverviewTab({ profile, identity, customerKey, onOpenTab, onPepRevealed 
               {[
                 { label: 'Deposits',    value: fmtKoboExact(s.fd_principal_kobo),     sub: `${fmtNum(s.fd_count)} FD${s.fd_count === 1 ? '' : 's'}`,              colour: GREEN },
                 { label: 'Borrowings',  value: fmtKoboExact(s.loan_outstanding_kobo), sub: `${fmtNum(s.loan_count)} loan${s.loan_count === 1 ? '' : 's'}`,        colour: s.loan_outstanding_kobo > 0 ? RED : 'var(--txt)' },
-                { label: 'Net Position',value: fmtKoboExact(s.net_position_kobo),     sub: s.fd_accrued_kobo > 0 ? `+${fmtKoboExact(s.fd_accrued_kobo)} accrued` : 'Deposits − borrowings', colour: s.net_position_kobo >= 0 ? GREEN : RED },
+                // Cards used to be a COUNT here, so no card money appeared anywhere on this page
+                // outside the Cards tab. Owed and available are never netted: the underlying
+                // balance is a debit balance, so a prepaid customer's own funds would read as debt.
+                (s.card_owed_kobo ?? 0) > 0
+                  ? { label: 'Card Owed', value: fmtKoboExact(s.card_owed_kobo), sub: (s.card_limit_kobo ?? 0) > 0 ? `of ${fmtKoboExact(s.card_limit_kobo)} limit` : `${fmtNum(s.active_card_count)} active`, colour: RED }
+                  : { label: 'Card Balance', value: fmtKoboExact(s.card_held_kobo ?? 0), sub: `available · ${fmtNum(s.active_card_count)} active`, colour: (s.card_held_kobo ?? 0) > 0 ? GREEN : 'var(--txt)' },
+                { label: 'Net Position',value: fmtKoboExact(s.net_position_kobo),     sub: 'Deposits + card funds − loans − card debt', colour: s.net_position_kobo >= 0 ? GREEN : RED },
                 { label: 'Cards',       value: fmtNum(s.active_card_count),      sub: `${fmtNum(s.card_count)} on file`,                                     colour: 'var(--txt)' },
               ].map(m => (
                 <div key={m.label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>

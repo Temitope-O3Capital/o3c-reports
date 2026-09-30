@@ -674,6 +674,35 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				activeCards++
 			}
 		}
+		// Card position, from app.card_balances — the canonical balance source. The per-card rows
+		// further up come from app.accounts and each carries its own balance, but the SUMMARY held
+		// only card_count and active_card_count: no card money reached the Overview strip at all,
+		// so a cardholder's balance sat two clicks away in the Cards tab, labelled per card as
+		// "Current Bill". "I can't see the balance in Customer 360" was a fair description.
+		//
+		// OWED AND HELD STAY APART, because current_dr_balance is a DEBIT balance:
+		// receivable_kobo = max(dr,0) is what the customer owes us; float_kobo = max(-dr,0) is the
+		// customer's own money. Netting them into one "card balance" shows a prepaid customer's
+		// funds as a debt — prepaid runs -NGN 178m across 13,516 open cards for exactly that
+		// reason.
+		//
+		// app.card_balances carries no test-card filter of its own, so this applies one.
+		var cardOwed, cardHeld, cardLimit int64
+		if cb, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(cb.receivable_kobo),0)::bigint AS owed,
+			       COALESCE(SUM(cb.float_kobo),0)::bigint      AS held,
+			       COALESCE(SUM(cb.limit_kobo),0)::bigint      AS lim
+			FROM app.card_balances cb
+			LEFT JOIN app.customers c ON c.cif = cb.cif
+			WHERE cb.cif IN `+personCIFs+`
+			  AND (c.cif IS NULL OR `+core.SQLIsNotTestCardName(
+			`(COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,''))`)+`)`,
+			cif); len(cb) > 0 {
+			cardOwed = toInt64(cb[0]["owed"])
+			cardHeld = toInt64(cb[0]["held"])
+			cardLimit = toInt64(cb[0]["lim"])
+		}
+
 		profile["summary"] = map[string]any{
 			"loan_outstanding_kobo": loanOut,
 			"loan_count":            loanCount,
@@ -682,8 +711,15 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			"fd_count":              fdCount,
 			"card_count":            len(prodRows),
 			"active_card_count":     activeCards,
+			"card_owed_kobo":        cardOwed,
+			"card_held_kobo":        cardHeld,
+			"card_limit_kobo":       cardLimit,
 			"txn_count":             txnTotal,
-			"net_position_kobo":     fdPrincipal - loanOut,
+			// Net position now includes cards. It was fdPrincipal - loanOut, which omitted card
+			// money entirely: a customer owing NGN 61m on a card had that absent from the one
+			// figure on Customer 360 that claims to net their position. Card float counts on the
+			// deposit side because it IS the customer's money.
+			"net_position_kobo": fdPrincipal + cardHeld - loanOut - cardOwed,
 		}
 
 		// Collections
