@@ -1241,6 +1241,69 @@ func leadTimeline(db *core.DB) http.HandlerFunc {
 			         a.outcome
 			    FROM app.activities a
 			   WHERE a.contact_id = $1
+			     -- A call-centre call is written to BOTH app.activities and app.helpdesk_calls
+			     -- within milliseconds: 168 of the 199 call activities on sales leads have a
+			     -- helpdesk row inside two seconds. The helpdesk row is the richer record — it
+			     -- carries the duration, the agent and the write-up — so it wins, and the
+			     -- duplicate activity is suppressed rather than shown twice.
+			     --
+			     -- The void/merge filter is repeated INSIDE this check deliberately. A leg that
+			     -- is voided or merged never appears in the branch below, so if it suppressed
+			     -- the activity as well the conversation would disappear from the timeline
+			     -- altogether. The activity survives exactly when the call it mirrors is hidden.
+			     AND NOT (a.type = 'call' AND EXISTS (
+			           SELECT 1
+			             FROM app.helpdesk_calls h2
+			             JOIN crm_contacts c3 ON c3.id = a.contact_id
+			            WHERE length(app.norm_phone(c3.phone)) = 10
+			              AND app.norm_phone(h2.customer_phone) = app.norm_phone(c3.phone)
+			              AND h2.voided_at IS NULL AND h2.merged_into_call_id IS NULL
+			              AND abs(extract(epoch FROM (h2.started_at - a.occurred_at))) < 2))
+			     -- Same duplication one layer up. A stage change and a hand-off are each
+			     -- written to crm_lead_events AND mirrored into app.activities, so the timeline
+			     -- printed both: four of the ten rows on a typical lead were the same two events
+			     -- twice. The lead_event is the better record — it names the stages it moved
+			     -- between, where the activity mirror only says "stage_changed" — so it wins.
+			     AND NOT (a.type IN ('stage_change','handoff') AND EXISTS (
+			           SELECT 1
+			             FROM crm_lead_events e2
+			            WHERE e2.contact_id = a.contact_id
+			              AND abs(extract(epoch FROM (e2.created_at - a.occurred_at))) < 2))
+			)
+			UNION ALL
+			(
+			  -- The calls themselves. This is where the conversation actually lives: what the
+			  -- agent wrote down, how long they talked, and who talked to them. Without it a
+			  -- lead rung seven times showed two lines and no reason anybody was interested —
+			  -- "LPO FOR NNDC" and "HAS A LOAN WITH CHEVRON COOPERATIVE" were sitting in this
+			  -- table unread. 293 written notes cover 146 of the 185 leads in Sales.
+			  --
+			  -- JOINED ON THE PHONE, not on lead_id: only 416 of 1,184 legs carry a lead_id, so
+			  -- joining on it loses two thirds of the history. Safe here because no two sales
+			  -- leads share a number (checked), and length()=10 on BOTH sides is required —
+			  -- app.norm_phone returns '' rather than NULL, so without it every lead with a
+			  -- blank phone matches every call with a blank one.
+			  --
+			  -- voided_at / merged_into_call_id: a dialling episode lands as several legs with
+			  -- the write-up merged onto one. Unfiltered, the ring legs are counted and it reads
+			  -- as though the agent rang four times when they rang once.
+			  SELECT h.started_at, 'call', 'call',
+			         COALESCE(NULLIF(h.disposition,''), initcap(COALESCE(h.direction,'call')) || ' call')
+			           || CASE WHEN COALESCE(h.duration_sec,0) >= 60
+			                   THEN ' · ' || (h.duration_sec/60)::text || 'm ' || (h.duration_sec%60)::text || 's'
+			                   WHEN COALESCE(h.duration_sec,0) > 0
+			                   THEN ' · ' || h.duration_sec::text || 's'
+			                   ELSE '' END,
+			         NULLIF(btrim(COALESCE(h.notes,'')), ''),
+			         COALESCE(NULLIF(h.agent_name,''), 'Call centre'),
+			         'call_center',
+			         NULLIF(h.disposition,'')
+			    FROM app.helpdesk_calls h
+			    JOIN crm_contacts c2 ON c2.id = $1
+			   WHERE length(app.norm_phone(c2.phone)) = 10
+			     AND app.norm_phone(h.customer_phone) = app.norm_phone(c2.phone)
+			     AND h.voided_at IS NULL
+			     AND h.merged_into_call_id IS NULL
 			)
 			UNION ALL
 			(
