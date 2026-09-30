@@ -217,22 +217,53 @@ missing.
 ## 7. Left as-is, with reasons
 
 **Go↔TypeScript vocabulary pairs.** Collections payment channels, collections/recovery step
-types and call-centre lead statuses are each declared once in Go and once in TypeScript. All
-verified in agreement 2026-09-29, and each file's comment names the other as its mirror.
-Unifying them needs a **serving endpoint**, not another shared TS constant — a different job,
-not a smaller one. Contrast `lib/ticketTypes.ts` and `lib/leadStages.ts`, which were TS-to-TS
-duplicates and *were* consolidated, and `customerSteps`, which is served from Go and fetched.
+types and call-centre lead statuses are each declared once in Go and once in TypeScript, and
+each file's comment names the other as its mirror. Unifying them needs a **serving endpoint**,
+not another shared TS constant — a different job, not a smaller one. Contrast
+`lib/ticketTypes.ts` and `lib/leadStages.ts`, which were TS-to-TS duplicates and *were*
+consolidated, and `customerSteps`, which is served from Go and fetched.
 
-**`handlers/loans.go` — unmounted, and must stay that way.** Its `loanStages` vocabulary shares
-exactly **one** value (`submitted`) with the LOS pipeline in `los.go` that actually owns
-`loan_applications.stage`, and there is no CHECK on the column. Mounting it would let a PATCH
-set a stage `allowedTransitions` cannot advance, `losFlow.ts` renders through its Draft
-fallback with no action bar, and `risk.go`'s pending predicate never sees — so the file vanishes
-from Risk's inbox while still counting as open.
+But **do not unify the recovery payment channels until someone decides what they are** — and
+this is the cautionary tale for the whole exercise. `RECOVERY_PAYMENT_CHANNELS` offers six
+options (`Bank Transfer`, `Cash`, `Cheque`, `TPA`, `Legal Settlement`, `Self-Cure`) on three
+live screens. `recovery_payments` holds 269 rows worth **₦921m**, and **not one row carries any
+of those six values**:
 
-It was **not** deleted: the file also defines `jsonRows`, used across the package, and deleting
-it broke the build in a dozen places. It now carries a header saying so. If you are cleaning
-up, move `jsonRows` to a shared file **first**.
+| Actual value | Rows | Naira |
+|---|---|---|
+| `loan repayment` | 89 | 878,621,735 |
+| `TRANSFER` | 99 | 29,204,616 |
+| `REMITA` | 41 | 2,418,277 |
+| `NDD` | 25 | 1,623,952 |
+| `ZENITH` | 6 | 2,301,890 |
+| `legal` | 5 | 5,943,111 |
+| `TRANSFER/NDD` | 3 | 1,005,200 |
+| `recovery` | 1 | 104,500 |
+
+`recoveryOpsPayment` checks only that `channel` is non-empty — there is **no Go whitelist and no
+CHECK constraint**, unlike collections. So history speaks one vocabulary, every new UI entry
+speaks another, and nothing reconciles them. Publishing the TS list from Go would *codify the
+fiction*: it would make six labels look authoritative while 100% of the data disagrees. The
+prerequisite is a business decision — is `loan repayment` (95% of the value) a channel at all,
+and do `TRANSFER`/`REMITA`/`NDD` collapse into `Bank Transfer`? Reconcile first, then enforce in
+one place. Collections is the counter-example of a vocabulary that *is* real: the whitelist is
+enforced by `collectionsPaymentChannels`, though note it only ever saw 11 of 1,812 rows — the
+other 1,801 arrived as `historical import` and `crm_import` through bulk paths that bypass the
+API entirely.
+
+**`handlers/loans.go` — deleted 2026-09-30.** It was an unmounted loan router whose `loanStages`
+vocabulary shared exactly **one** value (`submitted`) with the LOS pipeline in `los.go` that
+actually owns `loan_applications.stage`, with no CHECK on the column. Mounting it would have let
+a PATCH set a stage `allowedTransitions` cannot advance, `losFlow.ts` renders through its Draft
+fallback with no action bar, and `risk.go`'s pending predicate never sees — so the file would
+vanish from Risk's inbox while still counting as open.
+
+It survived that long only because it also defined `jsonRows`, which 22 other files call, so
+deleting it broke the build in a dozen places. `jsonRows` and `toInt64FromStr` now live in
+`handlers/helpers.go` and the router is gone. Nothing referenced the routes: `RegisterLoans` had
+no callers, so none of those 12 endpoints existed at runtime, and the only frontend hits for
+`/api/loans` are fake strings in `mocks/handlers.ts` sample data. If you need what it did, use
+the LOS handlers.
 
 **Three phone normalisers, two conventions — and they are not interchangeable.** A catalogue
 sweep on 2026-09-29 (the method from §1) found:
@@ -256,6 +287,28 @@ evidence of identity either — `08012345678` is held by **4,113 distinct CIFs**
 `08000000000` by 2,234. Any identity match on a phone needs *both* a shape check and a
 uniqueness check at the person level. See `rescanCustomerLeads` in `sales_leads.go` for the
 shape of it.
+
+**And "one person" is not "one party" — two more corrections that only appeared on re-asking.**
+The first pass at that guard counted distinct `party_id`, which was wrong twice, and both errors
+are instructive:
+
+- **`app.parties.party_type` separates `person` (21,406) from `organization` (236),** and a sole
+  proprietor's personal and business records share a phone. Five flagged leads resolved to
+  exactly that, and lowest-CIF picked the **company** every time — lead 11960 `ODIBO AMOS` was
+  attributed to *Bryams Limited*, 8742 `ADESOLA ADESANYA` to *A Global Enterprise*. The lead's
+  own name is the person in every case, which is what made it a correction rather than a guess;
+  migration 318 repointed them. So the earlier note that these were "two different people
+  sharing a number, not knowable from the phone" was **wrong** — it was knowable, and there are
+  **zero** genuine person-versus-person collisions among the 166 flagged leads.
+- **Only a row that could BE the answer gets a vote: `cif IS NOT NULL`.** The 271 `udara_cbs`
+  customer rows carry no CIF and store the phone as `234…`, which `normalise_ng_phone` maps onto
+  the same key. Each was the *same human* under a second `party_id`, so counting them vetoed
+  matches that were never ambiguous — and because they have no CIF, `min(cif)` returned NULL, so
+  8 leads were flagged `already_customer = true` carrying no identity at all.
+
+The general lesson, and it is the §1 pattern again from the other direction: it is not enough to
+ask "is this unique?" — you have to ask "unique *in what*, and can every candidate even be the
+answer?" A count over the wrong grain looks exactly like a count over the right one.
 
 **`app.calls_on_shared_numbers` inlines `norm_phone`'s body and has no blank guard — and is
 read by nothing.** It computes `people_on_this_number` with `right(regexp_replace(…),10)`

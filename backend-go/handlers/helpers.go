@@ -474,3 +474,34 @@ func logCreditEvent(ctx context.Context, db *core.DB, r *http.Request, module, e
 }
 
 // ── CSV helper ────────────────────────────────────────────────────────────────
+
+// ── shared response / parse helpers ───────────────────────────────────────────
+//
+// These two lived in loans.go until 2026-09-30. That file held an unmounted loan router whose
+// stage vocabulary conflicted with the LOS pipeline in los.go, and it was kept alive only
+// because it happened to define jsonRows, which 22 other files in this package call. Moving
+// them here is what finally allowed the dead router to be deleted.
+
+// jsonRows writes rows as a JSON array, never as null — the frontend tables iterate the
+// response directly and a bare null breaks .map().
+func jsonRows(w http.ResponseWriter, rows []core.Row) {
+	w.Header().Set("Content-Type", "application/json")
+	if rows == nil {
+		rows = []core.Row{}
+	}
+	json.NewEncoder(w).Encode(rows) //nolint:errcheck
+}
+
+// toInt64FromStr reads the leading run of digits in s and stops at the first byte that is not
+// one, returning 0 when there is none. Used for path params where a non-numeric id should read
+// as "no id" rather than raise — callers check for 0.
+func toInt64FromStr(s string) int64 {
+	var n int64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n
+}

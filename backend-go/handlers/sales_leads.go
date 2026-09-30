@@ -155,33 +155,64 @@ func rescanCustomerLeads(db *core.DB) http.HandlerFunc {
 		//   - A shape check alone is NOT enough, and this is the part easy to miss:
 		//     08012345678 is a perfectly well-formed number held by 4,113 distinct CIFs, and
 		//     08000000000 by 2,234. Placeholders are made of real digits. So the match must
-		//     also be unique at the PERSON level — party_id where there is one, falling back
-		//     to the CIF itself, because a party legitimately holds several CIFs (CIF is a
-		//     cards-only id) and picking one of that person's own cards is harmless.
+		//     also be unique at the PERSON level, because a party legitimately holds several
+		//     CIFs (CIF is a cards-only id) and picking one of that person's own cards is
+		//     harmless.
 		//
-		// Measured 2026-09-29 before the fix: of 166 flagged leads, 147 matched a number held
-		// by one customer, 13 matched several CIFs belonging to the SAME person, and 6 matched
-		// a number two DIFFERENT people share — those six were attributed by lowest CIF.
+		//   - Only a row that could BE the answer gets a vote: cif IS NOT NULL. Without that,
+		//     the 271 udara_cbs customer rows (no CIF, phone stored as 234…) each counted as a
+		//     separate person and vetoed a match that was never ambiguous — the same human
+		//     under a second party_id. They also made min(cif) return NULL, so 8 leads were
+		//     flagged already_customer = true carrying no identity at all.
 		//
-		// When a number resolves to more than one person we now flag nothing rather than
-		// choose. That is a deliberate false negative: this endpoint is a convenience rescan a
-		// sales head can re-run, so missing a lead costs a click, while naming the wrong human
-		// writes a stranger's CIF into the lead and into everything downstream that reads it.
+		//   - "One person" means one person, not one party. app.parties.party_type separates
+		//     'person' (21,406) from 'organization' (236), and a sole proprietor's personal and
+		//     business records share a phone. Five leads resolved to exactly that — a person
+		//     and their own company — and lowest-CIF picked the COMPANY every time: lead 11960
+		//     'ODIBO AMOS' was attributed to Bryams Limited, 8742 'ADESOLA ADESANYA' to A
+		//     Global Enterprise. The lead's own name is the person, so the person is the match;
+		//     an organization only wins when it is the sole identity on the number.
+		//
+		// Measured 2026-09-30 across the 166 flagged leads: 161 correct, 5 pointing at an
+		// organization when exactly one person was available (repointed by migration 318), and
+		// ZERO where two genuinely different people share the number. Of the current rescan
+		// candidates, 54 match and 4 are refused.
+		//
+		// When a number resolves to more than one person we flag nothing rather than choose.
+		// That is a deliberate false negative: this endpoint is a convenience rescan a sales
+		// head can re-run, so missing a lead costs a click, while naming the wrong human writes
+		// a stranger's CIF into the lead and into everything downstream that reads it.
 		res, err := db.PGExec(r.Context(), `
 			UPDATE app.crm_contacts c
 			   SET already_customer     = true,
 			       matched_customer_cif = m.cif,
 			       customer_matched_at  = now()
 			  FROM (
-			    SELECT c2.id, min(cu.cif) AS cif
-			      FROM app.crm_contacts c2
-			      JOIN app.customers cu
-			        ON app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c2.phone)
-			     WHERE c2.lead_stage <> 'converted'
-			       AND COALESCE(c2.already_customer, false) = false
-			       AND app.normalise_ng_phone(c2.phone) ~ '^0[0-9]{10}$'
-			     GROUP BY c2.id
-			    HAVING count(DISTINCT COALESCE(cu.party_id::text, 'cif:' || cu.cif)) = 1
+			    SELECT lead_id AS id,
+			           CASE WHEN persons = 1 THEN person_cif ELSE any_cif END AS cif
+			      FROM (
+			        SELECT c2.id AS lead_id,
+			               count(DISTINCT identity)                                     AS identities,
+			               count(DISTINCT identity) FILTER (WHERE pt = 'person')         AS persons,
+			               min(cu_cif)              FILTER (WHERE pt = 'person')         AS person_cif,
+			               min(cu_cif)                                                   AS any_cif
+			          FROM (
+			            SELECT c3.id,
+			                   cu.cif                                            AS cu_cif,
+			                   COALESCE(cu.party_id::text, 'cif:' || cu.cif)      AS identity,
+			                   COALESCE(p.party_type, 'unknown')                  AS pt
+			              FROM app.crm_contacts c3
+			              JOIN app.customers cu
+			                ON app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c3.phone)
+			               AND cu.cif IS NOT NULL
+			              LEFT JOIN app.parties p ON p.party_id = cu.party_id
+			             WHERE c3.lead_stage <> 'converted'
+			               AND COALESCE(c3.already_customer, false) = false
+			               AND app.normalise_ng_phone(c3.phone) ~ '^0[0-9]{10}$'
+			          ) c2
+			         GROUP BY c2.id
+			      ) agg
+			     WHERE persons = 1 OR identities = 1
 			  ) m
 			 WHERE c.id = m.id`)
 		if err != nil {
