@@ -31,6 +31,11 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	findings := core.RequirePages("audit_findings", "compliance_all")
 	auditRead := core.RequirePages("audit_trail", "compliance_all")
 
+	// The consent register: who may be contacted, on what basis, and who has never been
+	// asked. Reading is open to compliance staff; recording one needs head level,
+	// because that row is what makes a marketing message lawful.
+	RegisterConsent(r, db, checklists, all)
+
 	// Audit log
 	r.With(auditRead).Get("/audit-log", complianceAuditLogList(db))
 	r.With(all).Post("/audit-log", complianceAuditLogInsert(db))

@@ -275,6 +275,7 @@ const ComplianceDSAR           = lazy(() => import('./pages/compliance/DataSubje
 const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
 const ComplianceConcentration = lazy(() => import('./pages/compliance/ConcentrationRisk'))
 const ComplianceDPARegister   = lazy(() => import('./pages/compliance/DPARegister'))
+const ComplianceConsent       = lazy(() => import('./pages/compliance/ConsentRegister'))
 const CompliancePolicies      = lazy(() => import('./pages/compliance/PolicyDocuments'))
 const ComplianceBoardPack     = lazy(() => import('./pages/compliance/BoardPack'))
 const ComplianceBreach        = lazy(() => import('./pages/compliance/BreachIncidents'))
@@ -1264,6 +1265,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/dsar"            element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/concentration"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/dpa-register"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceDPARegister /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/consent"        element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><ComplianceConsent /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/policies"       element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><CompliancePolicies /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/breach-incidents" element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBreach /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/board-pack"      element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBoardPack /></PageErrorBoundary></RequireAccess>} />
