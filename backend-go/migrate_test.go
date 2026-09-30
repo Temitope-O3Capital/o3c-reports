@@ -84,6 +84,19 @@ var grandfatheredDuplicateMigrations = map[string]bool{
 	// above applies: renaming either would make the runner treat it as new and run
 	// it a second time. Grandfathered for the same reason as 290 just above.
 	"291": true,
+	// 321_say_what_actually_happens_next_and_nothing_else and
+	// 321_a_dropdown_was_never_a_constraint were applied on 2026-09-30 at 11:31 and
+	// 11:41, ten minutes apart, by two sessions working the same day — 291 all over
+	// again. Both are recorded in schema_migrations under their current names, so the
+	// rule above applies unchanged.
+	//
+	// A ledger-rewriting migration was written to rename one properly, then thrown
+	// away: it would have been a third mechanism for something this list already
+	// solves, and its own guard caught that 60 numbers are ALREADY shared in this
+	// ledger going back to 079 — so "no number may be shared" was never the project's
+	// rule. 'a_dropdown' re-adds CHECK constraints over a column it has already
+	// rewritten, which is precisely the second run the rule exists to prevent.
+	"321": true,
 }
 
 var migrationNumberRE = regexp.MustCompile(`^(\d+)_`)
