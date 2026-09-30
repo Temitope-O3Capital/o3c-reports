@@ -771,14 +771,24 @@ export default function Login({ onLogin }: LoginProps) {
                 </div>
 
                 <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-                  {/* Only shown to someone whose sign-in was refused for suspension. It is not a
-                      standing option on the screen. */}
-                  {wasSuspended && (
-                    <button type="button" className="o3-ghost" style={{ fontWeight: FW.bold }}
-                      onClick={() => { setReinstMode(true); setReinstErr(''); setReinstDone(false); setReinstCode('') }}>
-                      I Have a Reinstatement Code
-                    </button>
-                  )}
+                  {/* This link is unconditional, and the first version was wrong to hide it
+                      until a suspended sign-in had been refused. The suspension message only
+                      appears AFTER the password check passes, so somebody handed a code and told
+                      "go and sign in" types the code into the password box, gets "Invalid
+                      credentials", and never sees the way in. That happened the first time it
+                      was used in anger.
+
+                      What hiding it bought was close to nothing: /reinstate answers unknown
+                      account, not-suspended account and wrong code with one identical sentence,
+                      so a standing link reveals that the feature exists and not who it applies
+                      to. The code itself is rate-limited per IP, capped at five attempts per
+                      account in the database, expires in 30 minutes, is single use, and issues
+                      no session — guessing it gains an attacker nothing without the password. */}
+                  <button type="button" className="o3-ghost"
+                    style={wasSuspended ? { fontWeight: FW.bold, color: NAVY } : undefined}
+                    onClick={() => { setReinstMode(true); setReinstErr(''); setReinstDone(false); setReinstCode('') }}>
+                    Been Given a Reinstatement Code?
+                  </button>
                   <button type="button" className="o3-ghost" onClick={() => { setForgotMode(true); setForgotEmail(email); setForgotErr(''); setForgotDone(false) }}>
                     Forgot Your Password?
                   </button>

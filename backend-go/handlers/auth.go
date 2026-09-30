@@ -359,7 +359,15 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid form data")
 			return
 		}
-		email := r.FormValue("username")
+		// Trimmed and lower-cased before it is matched. Sign-in was the one credential path
+		// still comparing the raw field against o3c_users.email exactly, while
+		// /forgot-password and /reinstate both already used LOWER(email) — so a capitalised
+		// first letter or a space left by a phone keyboard's autocomplete produced "Invalid
+		// credentials" for a correct password, recorded no failed attempt, and never reached
+		// the deactivated/suspended messages further down. Verified safe: all 49 live
+		// addresses are already lower-case and trimmed, and no two differ only by case, so
+		// this cannot make one lookup match two accounts.
+		email := strings.ToLower(strings.TrimSpace(r.FormValue("username")))
 		password := r.FormValue("password")
 		if email == "" || password == "" {
 			respondErr(w, 400, "username and password are required")
@@ -382,7 +390,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			        deleted_at,
 			        suspended_at,
 			        last_login
-			 FROM o3c_users WHERE email = $1`, email)
+			 FROM o3c_users WHERE LOWER(email) = $1`, email)
 		if err != nil {
 			respondErr(w, 503, "The database is not answering. Try again in a moment.")
 			return

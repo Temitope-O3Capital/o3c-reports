@@ -784,6 +784,19 @@ function ReinstateCodeModal({ user, onClose }: { user: User; onClose: () => void
           }}>
             {code}
           </div>
+          {/* Said explicitly because the first real use failed on exactly this: the code was
+              handed over with "go and sign in", typed into the password box, and rejected. The
+              instruction is the deliverable here, not the digits. */}
+          <div style={{ padding: '10px 12px', marginBottom: SP[3], borderRadius: RADIUS.md, background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.3)' }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.bold, marginBottom: 2 }}>
+              Tell them where it goes
+            </div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55 }}>
+              On the sign-in page they choose <strong>“Been Given a Reinstatement Code?”</strong>
+              and enter it there. It will <strong>not</strong> work typed into the password box —
+              it is not a password, and it never replaces theirs.
+            </div>
+          </div>
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55, marginBottom: SP[3] }}>
             Shown once. Closing this dialog is the last you will see of it — generate another if
             it gets lost. {expires && <>Expires at <strong>{fmtDatetime(expires)}</strong>, or after five wrong attempts.</>}

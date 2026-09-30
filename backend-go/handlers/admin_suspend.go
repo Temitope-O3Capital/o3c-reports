@@ -244,7 +244,9 @@ func issueReinstateCode(db *core.DB) http.HandlerFunc {
 			"code":       code,
 			"digits":     body.Digits,
 			"expires_at": expires.Format(time.RFC3339),
-			"detail":     "Read this to " + str(rows[0]["full_name"]) + ". It lifts the suspension only — they still sign in with their own password.",
+			"detail": "Read this to " + str(rows[0]["full_name"]) + ". They enter it on the sign-in page " +
+				"under \"Been Given a Reinstatement Code?\" — not in the password box. It lifts the " +
+				"suspension only; they still sign in with their own password.",
 		})
 	}
 }
