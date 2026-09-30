@@ -32,6 +32,7 @@ func RegisterCBSReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/reports/reconciliation", cbsReconciliation(db))
 	r.With(read).Get("/reports/customers", cbsCustomers(db))
 	r.With(read).Get("/reports/customer/{cif}", cbsCustomerDetail(db))
+	r.With(read).Get("/reports/repayments", cbsRepayments(db))
 }
 
 // custName returns a SELECT expression for the customer name — Udara's OWN name
@@ -390,4 +391,94 @@ func firstRow(rows []core.Row) core.Row {
 		return core.Row{}
 	}
 	return rows[0]
+}
+
+// cbsRepayments is the register of money actually received on Udara facilities — every
+// individual general-ledger posting the hourly capture in cbssync/repayments.go has seen,
+// across all borrowers.
+//
+// WHY A REGISTER AND NOT ANOTHER TOTAL. These postings were already reachable, but only if you
+// knew whose to open: a Repaid column on the loan book, a per-borrower panel behind a customer
+// row, a table on the LOS application. There was no way to answer "what came in this week" or
+// "show me every payment" without walking customers one at a time.
+//
+// READ 'observed', NOT 'derived'. Every figure here is a posted GL leg. It is NOT
+// loan_amount - outstanding_principal, which counts a write-off or a restructure as a payment
+// and an interest-only payment as nothing (measured: one facility showed NGN 44,443,556 "paid"
+// against NGN 888 actually posted). Principal and interest stay apart because the ledger posts
+// each half as its own leg, with `component` saying which.
+//
+// THE JOIN IS cbs_loan_account. These rows carry no application_id and no loan_id — a Udara
+// facility is not a workspace loan application — so any reader joining on either returns zero
+// rows for them WITHOUT erroring, which looks like "nobody paid" rather than like a bug.
+//
+// The borrower name comes from Udara's own record (cbs_loans.raw->>'name'), never by looking
+// cbs_customer_id up in app.customers: those are different id namespaces and the lookup returns
+// a different real person on nearly every collision. See custName above.
+func cbsRepayments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		postings := queryRows(ctx, db, `
+			SELECT lr.financial_date,
+			       lr.posted_at,
+			       (lr.posted_at::date - lr.financial_date) AS capture_lag_days,
+			       lr.cbs_loan_account,
+			       cl.cbs_customer_id,
+			       cl.raw->>'name'   AS customer_name,
+			       cl.product_name,
+			       lr.component,
+			       lr.entry_code,
+			       lr.amount_kobo,
+			       lr.principal_kobo,
+			       lr.interest_kobo,
+			       lr.posting_reference,
+			       lr.instrument_number
+			FROM app.loan_repayments lr
+			JOIN cbs_loans cl ON cl.cbs_account_number = lr.cbs_loan_account
+			WHERE lr.ledger_key IS NOT NULL
+			ORDER BY lr.financial_date DESC, lr.posted_at DESC`)
+
+		// The summary carries the capture lag deliberately. Our poller runs hourly over a
+		// 45-day window, so nothing is missed — but a posting does not APPEAR in Udara's
+		// call-over report until days after its value date, and the median lag below is the
+		// honest answer to "is this today's money". Presenting the total without it invites
+		// someone to read a quiet week as no payments rather than as not-yet-published.
+		summary := firstRow(queryRows(ctx, db, `
+			SELECT count(*)                                   AS legs,
+			       count(DISTINCT lr.cbs_loan_account)        AS facilities,
+			       COALESCE(sum(lr.amount_kobo), 0)           AS total_kobo,
+			       COALESCE(sum(lr.principal_kobo), 0)        AS principal_kobo,
+			       COALESCE(sum(lr.interest_kobo), 0)         AS interest_kobo,
+			       min(lr.financial_date)                     AS earliest_value_date,
+			       max(lr.financial_date)                     AS latest_value_date,
+			       max(lr.posted_at)                          AS last_captured_at,
+			       percentile_cont(0.5) WITHIN GROUP (
+			           ORDER BY (lr.posted_at::date - lr.financial_date))
+			                                                  AS median_capture_lag_days,
+			       max(lr.posted_at::date - lr.financial_date) AS worst_capture_lag_days
+			FROM app.loan_repayments lr
+			WHERE lr.ledger_key IS NOT NULL`))
+
+		byMonth := queryRows(ctx, db, `
+			SELECT to_char(date_trunc('month', lr.financial_date), 'Mon YYYY') AS month,
+			       date_trunc('month', lr.financial_date)                      AS month_start,
+			       count(*)                                                    AS legs,
+			       COALESCE(sum(lr.principal_kobo), 0)                         AS principal_kobo,
+			       COALESCE(sum(lr.interest_kobo), 0)                          AS interest_kobo,
+			       COALESCE(sum(lr.amount_kobo), 0)                            AS total_kobo
+			FROM app.loan_repayments lr
+			WHERE lr.ledger_key IS NOT NULL
+			GROUP BY 2
+			ORDER BY 2 DESC`)
+
+		cbsWriteJSON(w, http.StatusOK, map[string]any{
+			"summary":   summary,
+			"by_month":  byMonth,
+			"postings":  postings,
+			"window_note": "Udara's call-over report is the source. The capture runs hourly over " +
+				"a 45-day window, so late-published postings are still picked up; the lag figures " +
+				"describe how long Udara takes to publish, not how long we take to read.",
+		})
+	}
 }

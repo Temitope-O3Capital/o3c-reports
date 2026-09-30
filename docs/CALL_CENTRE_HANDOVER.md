@@ -400,3 +400,45 @@ Two specifics worth knowing before anyone starts:
   gate would surface empty screens to people who have not asked for them. Fix it at the point
   someone is actually made a BD officer, and fix it then in the same three places page access
   is decided — `Sidebar.tsx`, `core/auth.go buildRolePages()`, and `hooks/useAuth.ts`.
+
+---
+
+## 9. "Is Udara realtime?" — no, and the limit is not our poller
+
+Asked 2026-09-30. There are two different clocks here, and conflating them is how someone reads a
+quiet week as "nobody paid".
+
+| What | Cadence | Where |
+|---|---|---|
+| Loans, FDs, customers (the book) | polled every **3 minutes** (`CBS_SYNC_INTERVAL=3m`) | `cbssync/sync.go` |
+| Repayments — money actually received | captured **hourly**, re-walking a **120-day** window | `cbssync/repayments.go` |
+
+Udara's API is **GET-only with no webhooks**, so all of it is polling. "Live" on the Core Banking
+page means "synced minutes ago", never pushed.
+
+**The payment lag is Udara's, not ours.** A posting does not appear in the call-over report on its
+value date. Across all 52 legs captured so far, the gap between value date and our capture averages
+**12 days** and the worst is **38** — and none of that is backfill artefact: every leg came from
+the hourly job. So the newest rows on any repayment screen are always incomplete, and the most
+recent week keeps filling in for a month afterwards. The register at `/core-banking` →
+**Repayments Received** prints the median lag on screen for exactly this reason.
+
+**Why the window went 45 → 120 days.** A 38-day observed worst case left only 7 days of headroom,
+and a posting published past the window is missed **permanently and silently**: `guardLegCount`
+only fires when the window returns *fewer* legs than are already stored, so a leg that never enters
+the window at all is invisible to it. The cost is pages, not risk — `walkWindow` stops as soon as a
+page falls entirely past the cutoff, and the ceiling is 30,000 rows against a ledger about a fifth
+of that.
+
+**What is NOT worth worrying about:** `cbs_sync_runs` carries `interrupted` rows ("Process
+restarted while this run was in flight") and occasional `error` rows reading
+`/api/FixedDepositAccount/v1/Search: context deadline exceeded`. The first are deploys restarting
+the service mid-sync; the second is Udara's own FD endpoint timing out. Both self-heal on the next
+3-minute tick — 48,303 runs have succeeded against 1,125 errors.
+
+**Read repaid off the ledger, never off a balance.** `loan_amount - outstanding_principal` counts a
+write-off or restructure as a payment and an interest-only payment as nothing; measured, one
+facility showed NGN 44,443,556 "paid" against NGN 888 actually posted. And the join key is
+`cbs_loan_account` — these rows carry no `application_id` and no `loan_id`, so a reader joining on
+either returns zero for them **without erroring**. Eight handlers do join that way and are right
+to: they are scoped to workspace-originated applications, and a Udara facility is not one.

@@ -620,6 +620,14 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "milestone_type and milestone_date are required")
 			return
 		}
+		// This value lands in TWO columns — legal_proceedings.proceeding_type and, below,
+		// recovery_cases.legal_stage, which three dashboards read to decide what is "in legal".
+		// Before 2026-09-30 it was unvalidated, and the form offered six Title Case labels the
+		// column had never seen. See recovery_vocab.go.
+		if !isRecoveryLegalStage(b.MilestoneType) {
+			respondErr(w, 422, "milestone_type must be one of: "+vocabList(recoveryLegalStages))
+			return
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO legal_proceedings
 			    (case_id, proceeding_type, filing_date, notes, status, created_at)

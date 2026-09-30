@@ -136,8 +136,18 @@ const (
 	repaymentMaxPages = 60
 
 	// defaultLookbackDays is the financialDate window the hourly job pulls.
-	// Calibrated on the measured posting lag — see the header.
-	defaultLookbackDays = 45
+	//
+	// Raised from 45 to 120 on 2026-09-30, on measurement rather than caution. Udara does not
+	// publish a posting on its value date: across all 52 legs captured so far the lag averages
+	// 12 days and the WORST is 38 — which left the old 45-day window just 7 days of headroom on
+	// an observed case. A posting published later than the window is missed permanently and
+	// silently: guardLegCount only catches the window coming back SHORTER than what is already
+	// stored, so a leg that never enters the window at all is invisible to it.
+	//
+	// The cost is pages, not risk. walkWindow stops as soon as a page falls entirely past the
+	// cutoff, and the ceiling above is 30,000 rows against a ledger roughly a fifth of that, so
+	// 120 days still finishes in a dozen pages.
+	defaultLookbackDays = 120
 
 	// repaymentChannel tags every row this file writes, so ledger-observed
 	// repayments are separable from manual/collections/card ones.

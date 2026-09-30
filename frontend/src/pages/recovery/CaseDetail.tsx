@@ -7,7 +7,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtKobo, fmtExact, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../../lib/design'
-import { RECOVERY_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
+import { RECOVERY_PAYMENT_CHANNELS, RECOVERY_LEGAL_STAGES } from '../../lib/paymentChannels'
 import { toast } from 'sonner'
 
 const POLL_INTERVAL = 10_000
@@ -183,7 +183,9 @@ const STEP_TYPES: { value: string; label: string }[] = [
 
 const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
 const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
-const LEGAL_TYPES    = ['Pre-Litigation Notice', 'Demand Letter', 'Court Filing', 'Judgment', 'Enforcement', 'Other']
+// Writes recovery_cases.legal_stage as well as legal_proceedings.proceeding_type, so it is
+// limited to the four values both columns accept — see RECOVERY_LEGAL_STAGES and migration 321.
+const LEGAL_TYPES    = RECOVERY_LEGAL_STAGES
 
 // ── Timeline activity entry ────────────────────────────────────────────────────
 
@@ -485,7 +487,7 @@ function LegalModal({ caseId, open, onClose, onDone }: {
           <label style={labelStyle}>Milestone Type *</label>
           <select value={type} onChange={e => setType(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
             <option value="">Select…</option>
-            {LEGAL_TYPES.map(t => <option key={t}>{t}</option>)}
+            {LEGAL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

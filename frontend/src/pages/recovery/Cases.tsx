@@ -14,7 +14,7 @@ import { RED, DARKRED, NAVY, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADI
 import { toast } from 'sonner'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
 import { TierBadge, tierFromPct } from '../../components/TierBadge'
-import { RECOVERY_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
+import { RECOVERY_PAYMENT_CHANNELS, RECOVERY_LEGAL_STAGES } from '../../lib/paymentChannels'
 
 // Marks a case bulk-loaded from an uploaded spreadsheet (data_source='manual'),
 // so it reads as distinct from the Udara core-banking feed.
@@ -277,10 +277,11 @@ function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void 
 
 // ── Legal Filing tab ──────────────────────────────────────────────────────────
 
-const PROCEEDING_TYPES = [
-  'Pre-Litigation Notice', 'Demand Letter', 'Court Filing',
-  'Judgment', 'Enforcement', 'Other',
-]
+// The stage this filing moves the case to. This field is written to recovery_cases.legal_stage
+// as well as legal_proceedings.proceeding_type, so it must be one of the four values those
+// columns accept — see RECOVERY_LEGAL_STAGES and migration 321. The six Title Case labels that
+// used to be here had never been submitted once and the columns had never held any of them.
+const PROCEEDING_TYPES = RECOVERY_LEGAL_STAGES
 
 function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void }) {
   const [proceedingType,  setProceedingType]  = useState('')
@@ -320,7 +321,7 @@ function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void })
         <select value={proceedingType} onChange={e => setProceedingType(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}>
           <option value="">Select Type…</option>
-          {PROCEEDING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {PROCEEDING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

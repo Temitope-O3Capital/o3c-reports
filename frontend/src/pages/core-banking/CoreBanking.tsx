@@ -34,6 +34,20 @@ interface CustomerList {
   summary: { total: number; linked: number; with_phone: number; with_email: number }
   customers: Money[]
 }
+// Every GL posting the hourly Udara capture has seen. Money OBSERVED on the ledger, not
+// derived from a balance movement — see the handler comment on cbsRepayments.
+interface RepaymentRegister {
+  summary: {
+    legs: number; facilities: number
+    total_kobo: number; principal_kobo: number; interest_kobo: number
+    earliest_value_date: string | null; latest_value_date: string | null
+    last_captured_at: string | null
+    median_capture_lag_days: number | null; worst_capture_lag_days: number | null
+  }
+  by_month: { month: string; legs: number; principal_kobo: number; interest_kobo: number; total_kobo: number }[]
+  postings: Money[]
+  window_note: string
+}
 interface CustomerDetail {
   cbs: Money
   workspace: Money
@@ -72,6 +86,7 @@ export default function CoreBanking() {
   const [recon, setRecon] = useState<Recon | null>(null)
   const [cust, setCust] = useState<CustomerList | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
+  const [repay, setRepay] = useState<RepaymentRegister | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   // The Udara customer id whose detail modal is open (null = closed). NOT a CIF — that
@@ -87,14 +102,15 @@ export default function CoreBanking() {
     if (!silent) setLoading(true)
     if (!silent) setErr(null)
     try {
-      const [lb, fb, rc, cl, ss] = await Promise.all([
+      const [lb, fb, rc, cl, ss, rp] = await Promise.all([
         apiFetch<LoanBook>('/api/cbs/reports/loan-book'),
         apiFetch<FDBook>('/api/cbs/reports/fd-book'),
         apiFetch<Recon>('/api/cbs/reports/reconciliation'),
         apiFetch<CustomerList>('/api/cbs/reports/customers'),
         apiFetch<SyncStatus>('/api/cbs/sync/status').catch(() => null as any),
+        apiFetch<RepaymentRegister>('/api/cbs/reports/repayments'),
       ])
-      setLoan(lb); setFD(fb); setRecon(rc); setCust(cl); setSync(ss)
+      setLoan(lb); setFD(fb); setRecon(rc); setCust(cl); setSync(ss); setRepay(rp)
     } catch (e: any) {
       if (!silent) setErr(e?.message || 'Failed to load Udara data')
     } finally {
@@ -117,6 +133,7 @@ export default function CoreBanking() {
     { key: 'loans', label: 'Loan Book', badge: loan?.summary?.accounts },
     { key: 'fd', label: 'Fixed Deposits', badge: fd?.summary?.accounts },
     { key: 'recon', label: 'Reconciliation', badge: recon ? (recon.unmatched_loans?.length ?? 0) + (recon.unmatched_fds?.length ?? 0) : undefined },
+    { key: 'repayments', label: 'Repayments Received', badge: n(repay?.summary?.legs) || undefined },
   ]
 
   return (
@@ -137,6 +154,7 @@ export default function CoreBanking() {
       {tab === 'loans' && <LoanTab data={loan} loading={loading} onOpen={setOpenUdaraId} />}
       {tab === 'fd' && <FDTab data={fd} loading={loading} onOpen={setOpenUdaraId} />}
       {tab === 'recon' && <ReconTab data={recon} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'repayments' && <RepaymentsTab data={repay} loading={loading} onOpen={setOpenUdaraId} />}
 
       <CustomerModal udaraId={openUdaraId} onClose={() => setOpenUdaraId(null)} />
     </Page>
@@ -366,6 +384,85 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
           {(!loading && data && (data.unmatched_fds?.length ?? 0) === 0)
             ? <EmptyState icon="check_circle" title="All FDs Linked" description="Every CBS fixed deposit maps to a workspace record." />
             : <DataTable cols={fdCols} rows={data?.unmatched_fds || []} loading={loading} keyFn={(r, i) => r.cbs_account_number || i} onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)} searchKeys={['cbs_account_number', 'cbs_customer_id', 'product_name']} pageSize={10} />}
+        </SectionCard>
+      </div>
+    </>
+  )
+}
+
+// ── Repayments Received ─────────────────────────────────────────────────────
+//
+// Every posting the hourly Udara capture has seen, across all borrowers. These were already
+// reachable before this tab existed, but only per-customer or per-application — so nobody could
+// answer "what came in this week" without opening borrowers one at a time.
+//
+// The lag callout is not decoration. Our poller runs hourly; Udara's call-over report publishes
+// a posting days after its value date, and without saying so a quiet recent week reads as "no
+// payments" rather than "not published yet".
+
+function RepaymentsTab({ data, loading, onOpen }: { data: RepaymentRegister | null; loading: boolean; onOpen: (cif: string) => void }) {
+  const cols: TableCol[] = [
+    { key: 'financial_date', label: 'Value Date', sortable: true,
+      render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtDate(r.financial_date)}</span> },
+    { key: 'customer_name', label: 'Borrower (per Udara)', render: r => r.customer_name || '—' },
+    { key: 'cbs_loan_account', label: 'Facility',
+      render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.cbs_loan_account || '—'}</span> },
+    { key: 'product_name', label: 'Product', render: r => r.product_name || '—' },
+    { key: 'component', label: 'Component',
+      render: r => <StatusTag s={r.component === 'interest' ? 'Interest' : 'Principal'} /> },
+    { key: 'amount_kobo', label: 'Amount', align: 'right', sortable: true,
+      render: r => <span style={{ fontWeight: FW.semibold, color: GREEN }}>{fmtKobo(r.amount_kobo)}</span> },
+    { key: 'capture_lag_days', label: 'Published After', align: 'right', sortable: true,
+      render: r => <span style={{ color: n(r.capture_lag_days) > 21 ? AMBER : TXT3, fontVariantNumeric: 'tabular-nums' }}>
+        {n(r.capture_lag_days)}d</span> },
+    { key: 'posting_reference', label: 'Posting Ref',
+      render: r => <span style={{ fontSize: 12, color: TXT3 }}>{r.posting_reference || '—'}</span> },
+  ]
+  const s = data?.summary
+  const worst = n(s?.worst_capture_lag_days)
+  return (
+    <>
+      <div style={{ background: BLUE + '12', border: `1px solid ${BLUE}40`, borderRadius: 10, padding: SP[4], marginBottom: SP[6], color: TXT2, fontSize: 13 }}>
+        Money <strong>observed on the Udara general ledger</strong> — not inferred from a balance
+        movement, which counts a write-off as a payment and an interest-only payment as nothing.
+        Principal and interest are separate postings, so one repayment usually appears as two rows.
+        {s?.median_capture_lag_days != null && (
+          <> Udara publishes a posting a median of <strong>{fmtNum(s.median_capture_lag_days)} days</strong>
+          {worst > 0 && <> (worst seen {fmtNum(worst)})</>} after its value date, so the most recent
+          days here will fill in later. The capture itself runs hourly.</>
+        )}
+      </div>
+      <div style={grid(220)}>
+        <KpiCard label="Received To Date" value={fmtKobo(s?.total_kobo)} sub={`${fmtNum(s?.legs)} postings · ${fmtNum(s?.facilities)} facilities`} icon="receipt_long" accent={GREEN} loading={loading} />
+        <KpiCard label="Principal" value={fmtKobo(s?.principal_kobo)} icon="account_balance" accent={NAVY} loading={loading} />
+        <KpiCard label="Interest" value={fmtKobo(s?.interest_kobo)} icon="percent" accent={BLUE} loading={loading} />
+        <KpiCard label="Latest Value Date" value={s?.latest_value_date ? fmtDate(s.latest_value_date) : '—'} sub={s?.last_captured_at ? `captured ${fmtDatetime(s.last_captured_at)}` : undefined} icon="update" accent={AMBER} loading={loading} />
+      </div>
+      {(data?.by_month?.length ?? 0) > 0 && (
+        <div style={{ marginTop: SP[6] }}>
+          <SectionCard title="By Value Month" padding={false}>
+            <DataTable
+              cols={[
+                { key: 'month', label: 'Month' },
+                { key: 'legs', label: 'Postings', align: 'right', render: r => fmtNum(r.legs) },
+                { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
+                { key: 'interest_kobo', label: 'Interest', align: 'right', render: r => fmtKobo(r.interest_kobo) },
+                { key: 'total_kobo', label: 'Total', align: 'right', render: r => <span style={{ fontWeight: FW.semibold }}>{fmtKobo(r.total_kobo)}</span> },
+              ]}
+              rows={data?.by_month || []} loading={loading} keyFn={(r, i) => r.month || i} pageSize={12} />
+          </SectionCard>
+        </div>
+      )}
+      <div style={{ marginTop: SP[6] }}>
+        <SectionCard title="Every Posting" padding={false}>
+          {(!loading && data && (data.postings?.length ?? 0) === 0)
+            ? <EmptyState icon="receipt_long" title="No Postings Captured Yet"
+                description="The hourly capture has not seen a repayment on the Udara ledger. Nothing is missing until a posting is published and still absent." />
+            : <DataTable cols={cols} rows={data?.postings || []} loading={loading}
+                keyFn={(r, i) => `${r.posting_reference ?? ''}-${r.cbs_loan_account ?? ''}-${r.component ?? ''}-${i}`}
+                onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
+                searchKeys={['customer_name', 'cbs_loan_account', 'posting_reference', 'product_name', 'cbs_customer_id']}
+                pageSize={25} />}
         </SectionCard>
       </div>
     </>

@@ -877,6 +877,13 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "a positive amount_kobo, payment_date and channel are required")
 			return
 		}
+		// This endpoint starts a GL posting chain (HOP -> COO, write-offs HOP -> COO -> CFO), so
+		// an unrecognised channel is not cosmetic. Until 2026-09-30 the only check was the
+		// non-empty one above; see recovery_vocab.go for the eight values that got in that way.
+		if !isRecoveryPaymentChannel(b.Channel) {
+			respondErr(w, 422, "channel must be one of: "+vocabList(recoveryPaymentChannels))
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
