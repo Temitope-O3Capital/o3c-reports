@@ -441,6 +441,15 @@ export default function Login({ onLogin }: LoginProps) {
   const [regDone,      setRegDone]      = useState(false)
   const [regLoad,      setRegLoad]      = useState(false)
   const [regErr,       setRegErr]       = useState('')
+  // Set when sign-in is refused because the account is suspended, so the offer of a
+  // reinstatement code appears only for the people it applies to. Anyone else seeing it would
+  // learn that suspension is a state accounts can be in, and start guessing codes.
+  const [wasSuspended, setWasSuspended] = useState(false)
+  const [reinstMode,   setReinstMode]   = useState(false)
+  const [reinstCode,   setReinstCode]   = useState('')
+  const [reinstLoad,   setReinstLoad]   = useState(false)
+  const [reinstErr,    setReinstErr]    = useState('')
+  const [reinstDone,   setReinstDone]   = useState(false)
 
   const greeting = (() => {
     // M12: use Intl to resolve the user's OS/browser timezone explicitly,
@@ -490,6 +499,30 @@ export default function Login({ onLogin }: LoginProps) {
     }
   }
 
+  // Entering the code an administrator read out. It lifts the suspension and nothing else —
+  // no session is issued here, so the person still has to sign in with their own password.
+  async function handleReinstate(e: React.FormEvent) {
+    e.preventDefault()
+    const code = reinstCode.trim()
+    if (!email.trim()) { setReinstErr('Enter your work email'); return }
+    if (code.length < 4) { setReinstErr('Enter the code you were given'); return }
+    setReinstLoad(true); setReinstErr('')
+    try {
+      const res = await fetch(`${API}/api/auth/reinstate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), code }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setReinstErr(data.detail || 'That code is not valid'); return }
+      setReinstDone(true)
+    } catch {
+      setReinstErr('Network error. Please try again')
+    } finally {
+      setReinstLoad(false)
+    }
+  }
+
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim()) { triggerErr('Please enter your work email'); return }
@@ -502,7 +535,15 @@ export default function Login({ onLogin }: LoginProps) {
         body: new URLSearchParams({ username: email.trim(), password, remember: remember ? 'true' : 'false' }),
       })
       const data = await res.json()
-      if (!res.ok) { triggerErr(data.detail || 'Invalid credentials'); return }
+      if (!res.ok) {
+        // Branch on error_code, not the sentence. The password was correct in this case —
+        // the account is simply switched off — so offering the code path here does not
+        // help anybody who has not already authenticated.
+        setWasSuspended(data.error_code === 'account_suspended')
+        triggerErr(data.detail || 'Invalid credentials')
+        return
+      }
+      setWasSuspended(false)
       // Credentials checked out — remember the email for next time (even if MFA is
       // still pending, the identity is confirmed at this point).
       try { localStorage.setItem(LAST_EMAIL_KEY, email.trim()) } catch { /* private mode */ }
@@ -645,7 +686,7 @@ export default function Login({ onLogin }: LoginProps) {
           )}
 
           {/* ── Credentials step ── */}
-          {step === 'credentials' && !forgotMode && !regMode && (
+          {step === 'credentials' && !forgotMode && !regMode && !reinstMode && (
             <>
               <div style={{ marginBottom: 32, animation: 'o3rise 340ms cubic-bezier(0.4,0,0.2,1) both' }}>
                 <h1 style={{ fontSize: 26, fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
@@ -730,6 +771,14 @@ export default function Login({ onLogin }: LoginProps) {
                 </div>
 
                 <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                  {/* Only shown to someone whose sign-in was refused for suspension. It is not a
+                      standing option on the screen. */}
+                  {wasSuspended && (
+                    <button type="button" className="o3-ghost" style={{ fontWeight: FW.bold }}
+                      onClick={() => { setReinstMode(true); setReinstErr(''); setReinstDone(false); setReinstCode('') }}>
+                      I Have a Reinstatement Code
+                    </button>
+                  )}
                   <button type="button" className="o3-ghost" onClick={() => { setForgotMode(true); setForgotEmail(email); setForgotErr(''); setForgotDone(false) }}>
                     Forgot Your Password?
                   </button>
@@ -738,6 +787,58 @@ export default function Login({ onLogin }: LoginProps) {
                   </button>
                 </div>
               </form>
+            </>
+          )}
+
+          {/* ── Reinstatement code step ── */}
+          {reinstMode && (
+            <>
+              <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
+                <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
+                  {reinstDone ? 'Access Restored' : 'Enter Your Code'}
+                </h1>
+                <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
+                  {reinstDone
+                    ? 'Your account is switched back on. Sign in with your usual password.'
+                    : 'The code your administrator read to you. It lifts the suspension on your account — you then sign in with your usual password, as always.'}
+                </p>
+              </div>
+
+              {!reinstDone && (
+                <form onSubmit={handleReinstate} noValidate>
+                  <FloatingField
+                    id="reinstate-code"
+                    label="Reinstatement Code"
+                    type="text"
+                    value={reinstCode}
+                    // Digits only, and never longer than the longest code we issue: a field
+                    // that silently accepts a seventh character makes a mistyped code look
+                    // like a rejected one.
+                    onChange={v => setReinstCode(v.replace(/\D/g, '').slice(0, 6))}
+                    autoFocus
+                    autoComplete="one-time-code"
+                  />
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 11 }}>
+                    {reinstErr && <ErrorMsg msg={reinstErr} />}
+                    <PrimaryBtn loading={reinstLoad}>
+                      <span>Restore My Access</span>
+                    </PrimaryBtn>
+                  </div>
+                  <p style={{ fontSize: TEXT.sm, color: txtSecondary, margin: '14px 0 0', lineHeight: 1.6, textAlign: 'center' }}>
+                    Codes expire after 30 minutes and after five wrong tries. Your administrator
+                    can issue another.
+                  </p>
+                </form>
+              )}
+
+              <div style={{ textAlign: 'center', marginTop: 20 }}>
+                <button type="button" className="o3-ghost" onClick={() => {
+                  setReinstMode(false); setReinstDone(false); setReinstErr(''); setReinstCode('')
+                  if (reinstDone) { setWasSuspended(false); setErr('') }
+                }}>
+                  Back to Sign In
+                </button>
+              </div>
             </>
           )}
 

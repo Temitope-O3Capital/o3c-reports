@@ -82,6 +82,25 @@ A party legitimately holding two names is **not** an error — party 708802 hold
 HARRIET ODOMETA and ODOMETA ONOME. Do not make "one party, one name" an invariant; it was
 nearly encoded as a startup guard, which would have been an outage.
 
+### Switching an account off is two separate things
+
+`is_active = FALSE` decides the **next** sign-in. It does nothing to the session the person is
+already in: `core.AuthMiddleware` rejects a token only for being denylisted, expired, or minted
+before that user's `o3c_users.tokens_valid_from`. Until migration 319 nothing in the deactivate
+path moved that watermark, so a deactivated user kept working off the token already in their
+browser until it aged out — the opposite of what anyone clicking "Deactivate" believes.
+
+Both halves happen together now: `core.InvalidateUserTokens(ctx, userID)` advances the
+watermark, and every route that withdraws access calls it. If you add another such route, call
+it there too — the flag alone is not a revocation.
+
+Suspension (`handlers/admin_suspend.go`) is the emergency version of the same thing and reuses
+`is_active` deliberately. The `suspended_*` columns record why, by whom, and hold the
+reinstatement code; they gate nothing on their own, so there is no second "switched off" flag
+to keep in step. The 4/6-digit code lifts the suspension and issues no session — the person
+still needs their own password — which is what makes six digits defensible at all, alongside a
+30-minute expiry and a five-attempt cap enforced in the database rather than in memory.
+
 ---
 
 ## 3. Query traps that will cost you a day

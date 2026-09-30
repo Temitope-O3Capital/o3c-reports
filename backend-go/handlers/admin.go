@@ -38,6 +38,9 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Post("/users/{id}/unlock", unlockUser(db))
 	r.Patch("/users/{id}/deactivate", deactivateUser(db))
 	r.Patch("/users/{id}/reactivate", reactivateUser(db))
+	// The emergency stop, and the short code that lifts it. See admin_suspend.go.
+	r.Post("/users/{id}/suspend", suspendUser(db))
+	r.Post("/users/{id}/reinstate-code", issueReinstateCode(db))
 	r.Get("/roles", listRoles(db))
 	r.Post("/roles", createRole(db))
 	r.Put("/roles/{name}", updateRole(db))
@@ -144,6 +147,8 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			       role, COALESCE(extra_roles,'[]'::jsonb) AS extra_roles, department,
 			       COALESCE(office_location,'') AS office_location, created_at,
 			       must_change_password, last_login, is_active, deleted_at,
+			       suspended_at, suspended_reason,
+			       (SELECT s.full_name FROM o3c_users s WHERE s.id = o3c_users.suspended_by) AS suspended_by_name,
 			       COALESCE((SELECT lf.failure_count FROM login_failures lf WHERE lf.user_id = o3c_users.id), 0) AS failed_logins,
 			       (SELECT lf.last_failure_at FROM login_failures lf WHERE lf.user_id = o3c_users.id) AS last_failed_login
 			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`, args...)
@@ -580,6 +585,11 @@ func deactivateUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "User not found")
 			return
 		}
+		// End the session they are in, not just the next one they would start. Without this,
+		// is_active=FALSE only blocks the next sign-in and a deactivated user keeps working
+		// off the token they already hold until it ages out — which is not what anyone
+		// pressing "Deactivate" believes they are doing.
+		core.InvalidateUserTokens(r.Context(), toInt64(id))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"detail": "User deactivated"}) //nolint:errcheck
 	}
@@ -590,13 +600,29 @@ func reactivateUser(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 
 		// Fetch user — if they've never logged in this is a pending self-registration.
+		// id is selected because the temporary-password mail below attributes itself to it;
+		// without it that call was being handed a user id of 0.
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT email, full_name, last_login FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
+			`SELECT id, email, full_name, last_login FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "User not found")
 			return
 		}
-		db.PGExec(r.Context(), `UPDATE o3c_users SET is_active=TRUE, deleted_at=NULL WHERE id=$1`, id) //nolint:errcheck
+		// Reactivating clears any suspension, including an outstanding reinstatement code.
+		// Leaving suspended_at set would keep the account on the suspended list and in the
+		// banner while it was in fact working, and leaving the code live would keep a
+		// credential valid for an incident that is over.
+		db.PGExec(r.Context(), //nolint:errcheck
+			`UPDATE o3c_users
+			    SET is_active                 = TRUE,
+			        deleted_at                = NULL,
+			        suspended_at              = NULL,
+			        suspended_by              = NULL,
+			        suspended_reason          = NULL,
+			        reinstate_code_hash       = NULL,
+			        reinstate_code_expires_at = NULL,
+			        reinstate_code_attempts   = 0
+			  WHERE id=$1`, id)
 
 		// First-time activation: generate and email credentials.
 		if rows[0]["last_login"] == nil {

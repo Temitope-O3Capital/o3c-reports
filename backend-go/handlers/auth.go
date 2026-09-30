@@ -380,6 +380,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			        COALESCE(is_active, true)             AS is_active,
 			        COALESCE(totp_enabled, false)         AS totp_enabled,
 			        deleted_at,
+			        suspended_at,
 			        last_login
 			 FROM o3c_users WHERE email = $1`, email)
 		if err != nil {
@@ -433,6 +434,26 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if active, _ := u["is_active"].(bool); !active {
+			// A suspension and an ordinary deactivation both land here, but they are not the
+			// same event and the person should not have to guess which one happened to them.
+			// A suspension is reversible in minutes with a code, so the message points at
+			// that path; a deactivation is an offboarding and has no self-service route.
+			//
+			// Neither message names the reason. It is recorded for the administrator, and it
+			// is routinely something the account holder must not read off a login screen.
+			if u["suspended_at"] != nil {
+				// Written out rather than going through respondErr so error_code carries a
+				// stable value the sign-in screen can branch on. Matching on the prose would
+				// break the code-entry path the first time anyone reworded the sentence.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(403)
+				json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+					"detail": "Your access has been suspended. Contact your administrator — " +
+						"they can give you a reinstatement code.",
+					"error_code": "account_suspended",
+				})
+				return
+			}
 			respondErr(w, 403, "Your account is deactivated. Contact your administrator.")
 			return
 		}

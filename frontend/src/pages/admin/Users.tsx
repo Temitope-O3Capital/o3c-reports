@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, ConfirmModal, Modal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime } from '../../lib/fmt'
@@ -27,11 +27,20 @@ interface User {
   failed_logins?: number
   // Set only while a sign-in lockout is in force (too many failed passwords).
   locked_until?: string | null
+  // Set only by the emergency stop. An account can be inactive without being suspended —
+  // that is an ordinary leaver — so these are what separate the two, never is_active alone.
+  suspended_at?: string | null
+  suspended_reason?: string | null
+  suspended_by_name?: string | null
 }
 
 // A lockout lifts on its own, so re-check the expiry rather than trusting the flag.
 function isLocked(u: Pick<User, 'locked_until'>): boolean {
   return !!u.locked_until && new Date(u.locked_until).getTime() > Date.now()
+}
+
+function isSuspended(u: Pick<User, 'suspended_at'>): boolean {
+  return !!u.suspended_at
 }
 
 // Normalize extra_roles, which the users-list API returns as a JSON *string*
@@ -643,6 +652,164 @@ function ApproveModal({ user, onClose, onDone }: {
   )
 }
 
+// ── Emergency stop ────────────────────────────────────────────────────────────
+
+// Suspending is not the same as deactivating and the dialog has to say so, because the two
+// sit next to each other in the same menu. Deactivate is offboarding; this cuts a live
+// session mid-request, and the only way back is a code an administrator reads out.
+function SuspendModal({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    if (!reason.trim()) return
+    setBusy(true)
+    try {
+      await apiFetch(`/api/admin/users/${user.id}/suspend`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() }),
+      })
+      toast.success(`${user.full_name} has been signed out and cannot sign back in`)
+      onDone()
+      onClose()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <ConfirmModal
+      open
+      danger
+      loading={busy}
+      title={`Suspend ${user.full_name}?`}
+      confirmLabel="Suspend Access"
+      onConfirm={submit}
+      onClose={onClose}
+    >
+      <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55, marginBottom: SP[3] }}>
+        Every device they are signed in on is signed out on its next request, and they cannot
+        sign in again. They will be told to contact an administrator. To let them back in you
+        generate a short code from this page and read it to them.
+      </div>
+      <label style={{ display: 'block', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 4 }}>
+        Reason <span style={{ color: RED }}>*</span>
+      </label>
+      <textarea
+        id="suspend-reason"
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        rows={3}
+        maxLength={500}
+        placeholder="Why this account is being cut off — the only record of it."
+        style={{
+          width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: RADIUS.md,
+          border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--txt)',
+          fontSize: TEXT.sm, fontFamily: INTER, resize: 'vertical',
+        }}
+      />
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
+        Recorded in the audit log with your name. The person is never shown it.
+      </div>
+    </ConfirmModal>
+  )
+}
+
+// The code is displayed once and never stored in the clear, so the dialog has to be the
+// handover: big enough to read down a phone line, with the expiry stated.
+function ReinstateCodeModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const [digits, setDigits] = useState<4 | 6>(6)
+  const [code, setCode] = useState<string | null>(null)
+  const [expires, setExpires] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function generate() {
+    setBusy(true)
+    try {
+      const res = await apiFetch<{ code: string; expires_at: string }>(
+        `/api/admin/users/${user.id}/reinstate-code`,
+        { method: 'POST', body: JSON.stringify({ digits }) },
+      )
+      setCode(res.code)
+      setExpires(res.expires_at)
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Reinstatement Code — ${user.full_name}`} width={460}>
+      {!code ? (
+        <div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55, marginBottom: SP[4] }}>
+            Read the code to {user.first_name || user.full_name} yourself. It lifts the suspension
+            and nothing else — they still sign in with their own password, so a code overheard by
+            somebody else is not a way into the account.
+          </div>
+          <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4] }}>
+            {([6, 4] as const).map(d => (
+              <button key={d} onClick={() => setDigits(d)} style={{
+                flex: 1, padding: '10px 0', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: INTER,
+                fontSize: TEXT.sm, fontWeight: FW.bold,
+                border: digits === d ? `1.5px solid ${NAVY}` : '1px solid var(--line)',
+                background: digits === d ? 'rgba(14,40,65,.06)' : 'var(--bg)',
+                color: digits === d ? NAVY : 'var(--txt2)',
+              }}>
+                {d} digits
+                <div style={{ fontSize: 10.5, fontWeight: FW.normal, color: 'var(--txt3)', marginTop: 2 }}>
+                  {d === 6 ? 'Recommended' : 'Easier to read out'}
+                </div>
+              </button>
+            ))}
+          </div>
+          <button onClick={generate} disabled={busy} style={{
+            width: '100%', padding: '11px 0', borderRadius: RADIUS.md, border: 'none',
+            background: busy ? 'var(--line)' : NAVY, color: '#fff',
+            fontSize: TEXT.base, fontWeight: FW.bold, cursor: busy ? 'default' : 'pointer', fontFamily: INTER,
+          }}>
+            {busy ? 'Generating…' : 'Generate Code'}
+          </button>
+        </div>
+      ) : (
+        <div>
+          <div style={{
+            ...NUM, textAlign: 'center', fontSize: 40, fontWeight: FW.bold, letterSpacing: '0.14em',
+            color: NAVY, padding: `${SP[4]} 0`, marginBottom: SP[3],
+            background: 'rgba(14,40,65,.05)', borderRadius: RADIUS.lg, border: '1px solid var(--line)',
+            wordBreak: 'break-all',
+          }}>
+            {code}
+          </div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55, marginBottom: SP[3] }}>
+            Shown once. Closing this dialog is the last you will see of it — generate another if
+            it gets lost. {expires && <>Expires at <strong>{fmtDatetime(expires)}</strong>, or after five wrong attempts.</>}
+          </div>
+          <div style={{ display: 'flex', gap: SP[2] }}>
+            <button onClick={() => { navigator.clipboard?.writeText(code); toast.success('Code copied') }} style={{
+              flex: 1, padding: '10px 0', borderRadius: RADIUS.md, border: '1px solid var(--line)',
+              background: 'var(--bg)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.bold,
+              cursor: 'pointer', fontFamily: INTER,
+            }}>
+              Copy
+            </button>
+            <button onClick={onClose} style={{
+              flex: 1, padding: '10px 0', borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold,
+              cursor: 'pointer', fontFamily: INTER,
+            }}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 export default function AdminUsers() {
   const [rows,      setRows]      = useState<User[]>([])
   const [loading,   setLoading]   = useState(true)
@@ -658,6 +825,8 @@ export default function AdminUsers() {
   const [deactivateOpen, setDeactivateOpen] = useState(false)
   const [approving, setApproving] = useState<User | null>(null)
   const [pendingOnly, setPendingOnly] = useState(false)
+  const [suspending, setSuspending] = useState<User | null>(null)
+  const [codingFor, setCodingFor] = useState<User | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -696,6 +865,18 @@ export default function AdminUsers() {
     }
   }
 
+  // Lifting a suspension from this side, for when the administrator is with the person or has
+  // already spoken to them — the code exists for when they are not.
+  async function reactivateSuspended(u: User) {
+    try {
+      await apiFetch(`/api/admin/users/${u.id}/reactivate`, { method: 'PATCH' })
+      toast.success(`${u.full_name} can sign in again`)
+      load(true)
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
   async function unlockUsers(users: User[]) {
     try {
       await Promise.all(users.map(u => apiFetch(`/api/admin/users/${u.id}/unlock`, { method: 'POST' })))
@@ -707,14 +888,19 @@ export default function AdminUsers() {
     }
   }
 
-  const pendingUsers = useMemo(() => rows.filter(u => !u.is_active && !u.last_login), [rows])
+  // A suspended account is inactive and has never logged in in only one odd case, so exclude
+  // suspensions from "pending approval" explicitly rather than relying on last_login.
+  const pendingUsers = useMemo(() => rows.filter(u => !u.is_active && !u.last_login && !isSuspended(u)), [rows])
   const lockedUsers = useMemo(() => rows.filter(isLocked), [rows])
+  const suspendedUsers = useMemo(() => rows.filter(isSuspended), [rows])
   const selectedLocked = rows.filter(u => selected.has(u.id) && isLocked(u))
 
   const filtered = useMemo(() => rows.filter(u => {
     if (pendingOnly && !(!u.is_active && !u.last_login)) return false
     if (fRoles.size && !fRoles.has(u.role)) return false
-    if (fStatuses.size && !(fStatuses.has(u.is_active ? 'active' : 'inactive') || (isLocked(u) && fStatuses.has('locked')))) return false
+    if (fStatuses.size && !(fStatuses.has(u.is_active ? 'active' : 'inactive')
+        || (isLocked(u) && fStatuses.has('locked'))
+        || (isSuspended(u) && fStatuses.has('suspended')))) return false
     if (fDepts.size && !fDepts.has(u.department)) return false
     if (search) {
       const q = search.toLowerCase()
@@ -752,20 +938,34 @@ export default function AdminUsers() {
       </div>
     ) },
     { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
-    { key: 'is_active', label: 'Status', render: u => <StatusBadge status={isLocked(u) ? 'Locked' : u.is_active ? 'Active' : (!u.last_login ? 'Pending' : 'Inactive')} /> },
+    // Suspended outranks every other state: it is the one an administrator has to act on, and
+    // showing it as a plain "Inactive" would hide an emergency behind the word for a leaver.
+    { key: 'is_active', label: 'Status', render: u => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <StatusBadge status={isSuspended(u) ? 'Suspended' : isLocked(u) ? 'Locked' : u.is_active ? 'Active' : (!u.last_login ? 'Pending' : 'Inactive')} />
+        {isSuspended(u) && u.suspended_reason && (
+          <span title={u.suspended_reason} style={{ fontSize: 10.5, color: 'var(--txt3)', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {u.suspended_reason}
+          </span>
+        )}
+      </div>
+    ) },
     { key: 'last_login', label: 'Last Login', sortable: true,
       render: u => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{u.last_login ? fmtDatetime(u.last_login) : 'Never'}</span> },
     { key: 'created_at', label: 'Created', sortable: true,
       render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(u.created_at)}</span> },
     { key: '_actions', label: '', sortable: false,
       render: u => {
-        const pending = !u.is_active && !u.last_login
+        const pending = !u.is_active && !u.last_login && !isSuspended(u)
         const actions: RowAction[] = [
           ...(isLocked(u) ? [{ icon: 'lock_open', label: 'Unlock', onClick: () => unlockUsers([u]) }] : []),
           ...(pending ? [{ icon: 'how_to_reg', label: 'Approve', onClick: () => setApproving(u) }] : []),
+          // A suspended account's first offer is the way back, not another way to edit it.
+          ...(isSuspended(u) ? [{ icon: 'pin', label: 'Reinstatement Code', onClick: () => setCodingFor(u) }] : []),
           { icon: 'edit', label: 'Edit', onClick: () => setEditing(u) },
           { icon: 'lock_reset', label: 'Reset Password', onClick: () => resetUserPassword(u.id) },
           ...(u.is_active ? [{ icon: 'person_off', label: 'Deactivate', onClick: () => deactivateUser(u.id), danger: true }] : []),
+          ...(u.is_active ? [{ icon: 'block', label: 'Suspend Access', onClick: () => setSuspending(u), danger: true }] : []),
         ]
         return <ActionRow actions={actions} />
       },
@@ -828,6 +1028,45 @@ export default function AdminUsers() {
         </div>
       )}
 
+      {/* A suspension has no timer on it — unlike a lockout, it sits there until a person
+          acts — so it needs to stay in front of whoever opens this page. */}
+      {suspendedUsers.length > 0 && (
+        <div style={{ padding: '12px 16px', marginBottom: 14, borderRadius: RADIUS.lg, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 22, color: RED }}>block</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                {suspendedUsers.length} {suspendedUsers.length === 1 ? 'account is' : 'accounts are'} suspended
+              </div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+                Cut off from every device. A suspension does not lift on its own — reinstate the
+                account, or generate a code for the person to enter at sign-in.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+            {suspendedUsers.map(u => (
+              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: TEXT.sm }}>
+                <span style={{ fontWeight: FW.bold, color: 'var(--txt)' }}>{u.full_name}</span>
+                <span style={{ color: 'var(--txt2)', flex: 1, minWidth: 120 }}>
+                  {u.suspended_reason || 'No reason recorded'}
+                  {u.suspended_by_name && <span style={{ color: 'var(--txt3)' }}> · by {u.suspended_by_name}</span>}
+                  {u.suspended_at && <span style={{ color: 'var(--txt3)' }}> · {fmtDatetime(u.suspended_at)}</span>}
+                </span>
+                <button onClick={() => setCodingFor(u)}
+                  style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: '1px solid rgba(192,0,0,.35)', background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, flexShrink: 0 }}>
+                  Code
+                </button>
+                <button onClick={() => reactivateSuspended(u)}
+                  style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, flexShrink: 0 }}>
+                  Reinstate Now
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <SectionCard title={pendingOnly ? 'Pending Approval' : 'All Users'} badge={filtered.length} padding={false}>
 
         <ExpandableFilterBar
@@ -848,9 +1087,10 @@ export default function AdminUsers() {
               key: 'status',
               label: 'Status',
               options: [
-                { value: 'active',   label: 'Active',   color: GREEN },
-                { value: 'inactive', label: 'Inactive', color: RED },
-                { value: 'locked',   label: 'Locked',   color: RED },
+                { value: 'active',    label: 'Active',    color: GREEN },
+                { value: 'inactive',  label: 'Inactive',  color: RED },
+                { value: 'locked',    label: 'Locked',    color: RED },
+                { value: 'suspended', label: 'Suspended', color: RED },
               ],
               selected: fStatuses,
               onChange: setFStatuses,
@@ -940,10 +1180,23 @@ export default function AdminUsers() {
           onDone={load}
         />
       )}
+      {suspending && (
+        <SuspendModal
+          user={suspending}
+          onClose={() => setSuspending(null)}
+          onDone={() => load(true)}
+        />
+      )}
+      {codingFor && (
+        <ReinstateCodeModal
+          user={codingFor}
+          onClose={() => { setCodingFor(null); load(true) }}
+        />
+      )}
       <ConfirmModal
         open={deactivateOpen}
         title={`Deactivate ${selected.size} user${selected.size !== 1 ? 's' : ''}?`}
-        body="Deactivated users lose access immediately and cannot log in until reactivated."
+        body="Deactivated users are signed out of every device immediately and cannot sign in until reactivated."
         confirmLabel="Deactivate"
         danger
         onConfirm={batchDeactivate}

@@ -344,6 +344,11 @@ func main() {
 		r.With(httprate.Limit(5, time.Minute, ipKey)).Post("/register", handlers.RegisterHandler(db))
 		r.With(httprate.Limit(10, time.Minute, ipKey)).Post("/refresh", RefreshPublic(db))
 		r.With(httprate.Limit(5, time.Minute, ipKey, httprate.WithLimitCounter(pgRL))).Post("/forgot-password", handlers.ForgotPasswordHandler(db))
+		// Lifting a suspension with the short code an administrator read out. Public by
+		// necessity — a suspended person has no session to do it from. Rate-limited like the
+		// other credential endpoints and backed by pgRL so a restart does not reset the
+		// budget; the per-account attempt cap lives in the handler.
+		r.With(httprate.Limit(5, time.Minute, ipKey, httprate.WithLimitCounter(pgRL))).Post("/reinstate", handlers.ReinstateWithCode(db))
 		if cfg.EnableResetAdmin {
 			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
 		}
