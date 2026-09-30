@@ -283,19 +283,55 @@ func TermiiTestSend(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// normalizeTermiiPhone strips spaces, dashes, and a leading + so the number
-// is in the plain international format Termii expects (e.g. 2348012345678).
+// normalizeTermiiPhone puts a number into the plain international form Termii wants
+// (2348012345678), or returns "" when it is not a number worth paying to send to.
+//
+// THE TEN-DIGIT CASE IS THE WHOLE REASON THIS WAS REWRITTEN. The old version handled
+// only the 11-digit 0XXXXXXXXXX form and passed everything else through untouched. But
+// 260 of the 558 phone numbers in the arrears book — 47% — are stored as ten digits
+// with the leading zero already stripped (8059342861), because that is what
+// app.norm_phone produces and what several upstream feeds supply. Those went to Termii
+// as "8059342861", which is not a routable number anywhere. Nearly half the book would
+// have silently failed, one paid API call at a time, and the dunning log would have
+// recorded "failed" against people whose numbers were perfectly good.
+//
+// It now also REFUSES what it cannot fix. The old code returned anything 7 characters
+// or longer, so "7212399" and "802523260" were sent and billed. An empty return makes
+// sendSMS report "invalid phone number", which lands in dunning_sends as a no-contact
+// the collections team can act on, instead of a delivery failure that looks like the
+// customer's phone is off.
 func normalizeTermiiPhone(raw string) string {
-	raw = strings.TrimSpace(raw)
-	raw = strings.ReplaceAll(raw, " ", "")
-	raw = strings.ReplaceAll(raw, "-", "")
-	raw = strings.TrimPrefix(raw, "+")
-	// Treat a local Nigerian 080/090/070/081 number as +234
-	if strings.HasPrefix(raw, "0") && len(raw) == 11 {
-		raw = "234" + raw[1:]
+	var d strings.Builder
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			d.WriteRune(r)
+		}
 	}
-	if len(raw) < 7 {
-		return ""
+	n := d.String()
+
+	switch {
+	// Already international and well formed.
+	case len(n) == 13 && strings.HasPrefix(n, "234"):
+		return n
+	// 234 followed by the local zero, e.g. 2340803... A common double-prefix mistake
+	// when a local number is concatenated onto a country code.
+	case len(n) == 14 && strings.HasPrefix(n, "2340"):
+		return "234" + n[4:]
+	// Local 11-digit: 0803..., 0703..., 0903..., 0913...
+	case len(n) == 11 && n[0] == '0' && isNigerianMobilePrefix(n[1]):
+		return "234" + n[1:]
+	// Ten digits with the leading zero already gone. The 47% case.
+	case len(n) == 10 && isNigerianMobilePrefix(n[0]):
+		return "234" + n
+	// Some other country, already in international form. Left alone rather than
+	// mangled: this book is Nigerian but the function is not Nigeria-only.
+	case len(n) >= 11 && len(n) <= 15:
+		return n
 	}
-	return raw
+	return ""
 }
+
+// isNigerianMobilePrefix reports whether a digit can start a Nigerian mobile number
+// once the leading zero is removed. Every MTN, Airtel, Glo and 9mobile range begins
+// 7, 8 or 9; a number starting 6 (one is in the book) is not a mobile at all.
+func isNigerianMobilePrefix(b byte) bool { return b == '7' || b == '8' || b == '9' }
