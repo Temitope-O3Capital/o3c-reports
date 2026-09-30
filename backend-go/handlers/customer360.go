@@ -83,6 +83,18 @@ const c360PersonCIFs = `(SELECT c2.cif FROM app.customers c2
 var notTestCust = ` AND ` + core.SQLIsNotTestCardName(
 	`(COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,''))`)
 
+// notCardStock keeps pre-personalised Blink cards out of the same lists. They are stock awaiting
+// a cardholder, not people: 1,127 of them, sequential names on the placeholder phone
+// 08000000000, and the directory listed every one with a canonical CUST-<party_id> beside it —
+// which is what made inventory look like customers.
+//
+// Deliberately a SEPARATE fragment applied to full_name ALONE rather than folded into
+// notTestCust above. Stock rows populate all three name columns — full_name "Blink 21",
+// first_name "Blink", last_name "21" — so notTestCust's concatenation reads "Blink 21 Blink 21",
+// which the anchored stock pattern correctly refuses to match. Reusing that expression here
+// would compile, run, and filter nothing.
+var notCardStock = ` AND ` + core.SQLIsNotCardStockName(`c.full_name`)
+
 // isSyntheticID reports whether an id is an internal placeholder handle generated for a
 // customer that has no real card CIF: a 'cid:'-prefixed party key, or a 'W'/'Z' followed
 // only by digits (e.g. W000000000000022, Z000000000034027). These carry no external
@@ -131,7 +143,7 @@ func c360Directory(db *core.DB) http.HandlerFunc {
 		// All predicates use the `c` alias so the same WHERE fragment drives both
 		// the paginated page query (which also joins the product aggregate `a`)
 		// and the summary query (customers only).
-		where := "1=1" + notTestCust
+		where := "1=1" + notTestCust + notCardStock
 		var args []any
 		n := 1
 		if q := qstr(r, "q"); q != "" {
@@ -374,7 +386,10 @@ func c360Search(db *core.DB) http.HandlerFunc {
 		match, args, n := buildCustomerSearch(q,
 			[]string{"c.full_name", "c.first_name", "c.last_name", "c.cif", "c.email"},
 			"c.phone", 1)
-		match = "(" + match + ")" + notTestCust // keep test/dummy/vendor records out of search
+		// Test/dummy/vendor records and card stock both stay out of search. Search matters more
+		// than the directory here: an agent typing "blink" to find a real customer got 1,127
+		// rows of inventory ahead of them.
+		match = "(" + match + ")" + notTestCust + notCardStock
 
 		// Relevance: an exact CIF or exact phone hit sorts first, then a name/CIF prefix,
 		// then everything else — so the obvious match leads the dropdown instead of an

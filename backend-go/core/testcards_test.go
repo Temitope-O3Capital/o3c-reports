@@ -129,3 +129,67 @@ func TestSQLFunctionMatchesGo(t *testing.T) {
 		}
 	}
 }
+
+// ── Card stock ────────────────────────────────────────────────────────────────
+
+// cardStockCorpus pins the boundary cases. The two that matter are the last four: a real person
+// or company whose name merely starts with "blink" must NOT be treated as stock, because the
+// consequence of a false positive here is a paying customer vanishing from the directory.
+var cardStockCorpus = []struct {
+	name  string
+	stock bool
+}{
+	{"Blink 10", true},
+	{"BLINK 1000", true},
+	{"blink 7", true},
+	{"Blink10", true},      // the missing space seen in the feed
+	{"  Blink 21  ", true}, // trimmed before matching
+	{"Blink", false},       // no number
+	{"Blink 10A", false},   // trailing letter
+	{"Blinks Ltd", false},
+	{"Mary Blink", false},
+	{"Blink Nigeria Limited", false},
+	{"", false},
+}
+
+func TestIsCardStockName(t *testing.T) {
+	for _, c := range cardStockCorpus {
+		if got := IsCardStockName(c.name); got != c.stock {
+			t.Errorf("IsCardStockName(%q) = %v, want %v", c.name, got, c.stock)
+		}
+	}
+}
+
+// The SQL function is a separate declaration and SQL cannot read Go, so this is what stops the
+// two drifting — the same guard the test-card pattern has, and the same reason: a pattern that
+// exists twice has already started to disagree.
+func TestSQLCardStockFunctionMatchesGo(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping the live check against app.is_card_stock_name")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	for _, c := range cardStockCorpus {
+		var fromFunction, fromPattern bool
+		if err := db.QueryRow(`SELECT app.is_card_stock_name($1)`, c.name).Scan(&fromFunction); err != nil {
+			t.Fatalf("app.is_card_stock_name(%q): %v", c.name, err)
+		}
+		// The rendered predicate is the negation, so invert it to compare.
+		q := `SELECT NOT (` + SQLIsNotCardStockName(`$1::text`) + `)`
+		if err := db.QueryRow(q, c.name).Scan(&fromPattern); err != nil {
+			t.Fatalf("rendered predicate for %q: %v", c.name, err)
+		}
+		if fromFunction != c.stock {
+			t.Errorf("app.is_card_stock_name(%q) = %v, want %v — the SQL function has drifted from Go",
+				c.name, fromFunction, c.stock)
+		}
+		if fromPattern != c.stock {
+			t.Errorf("SQLIsNotCardStockName(%q) says stock=%v, want %v", c.name, fromPattern, c.stock)
+		}
+	}
+}

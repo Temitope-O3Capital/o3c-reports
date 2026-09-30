@@ -87,3 +87,47 @@ func SQLIsTestCardName(expr string) string {
 func SQLIsNotTestCardName(expr string) string {
 	return expr + ` !~* '` + TestCardNamePattern() + `'`
 }
+
+// ── Card stock ────────────────────────────────────────────────────────────────
+//
+// Pre-personalised Blink cards are loaded into app.customers with a sequential placeholder
+// identity — "Blink 10", "BLINK 1000" — the placeholder phone 08000000000 and no email. There
+// were 1,127 of them on 2026-09-30. They are card stock awaiting a real cardholder, not people.
+//
+// app.is_card_stock_name (migration 306, "card stock is not a customer") is the canonical
+// declaration. It had ONE caller, app.customer_acquisition, so every other customer-facing
+// query counted stock as customers: the retention heatmap read 665 new customers for Sep 2026
+// where 591 were stock, and the Customer 360 directory listed all 1,127 with a canonical
+// CUST-<party_id> beside each one.
+//
+// Rendered here for the same reason the test-card pattern is: so the Go side has one truth
+// rather than a comment asking each site to stay in step.
+//
+// TWO THINGS THIS PATTERN DEPENDS ON, both easy to get wrong:
+//
+// It is anchored at BOTH ends and requires digits and nothing after them, so a real person or
+// company cannot be caught — "Blinks Ltd" and a customer actually surnamed Blink do not match.
+// Loosen the anchors and it starts hiding customers.
+//
+// It must be applied to the NAME COLUMN ALONE, not to the concatenation of
+// full_name/first_name/last_name that the test-card predicate uses. Stock rows populate all
+// three — full_name "Blink 21", first_name "Blink", last_name "21" — so the concatenation reads
+// "Blink 21 Blink 21", which an anchored pattern correctly refuses to match. Passing the
+// concatenation here silently matches nothing and the filter does nothing at all.
+func CardStockNamePattern() string {
+	return `^blink[[:space:]]*[0-9]+$`
+}
+
+// IsCardStockName is the Go rendering, for callers holding a name in memory.
+func IsCardStockName(name string) bool {
+	return cardStockRe.MatchString(strings.TrimSpace(name))
+}
+
+var cardStockRe = regexp.MustCompile(`(?i)` + CardStockNamePattern())
+
+// SQLIsNotCardStockName renders "this name is not card stock" for a WHERE clause. btrim mirrors
+// app.is_card_stock_name, which trims before matching, so a trailing space cannot smuggle a
+// stock row through. Pass a single name column — see the note above.
+func SQLIsNotCardStockName(expr string) string {
+	return `btrim(COALESCE(` + expr + `,'')) !~* '` + CardStockNamePattern() + `'`
+}
