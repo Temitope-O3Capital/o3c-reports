@@ -151,6 +151,13 @@ document cannot tell you.
   the *wrapper*; `o3c-backend.exe` can survive as an orphan still serving the old binary and
   answering health instantly. Verify by the file system: `RESTART.flag` gone **and**
   `o3c-backend-new.exe` gone, then check `schema_migrations`.
+- **`migrations/rollback/rollback_<n>.sql` is a convention, not a rule — 12 of the last 19
+  migrations have one.** Write one where it restores a *previous intention*. Do not write one
+  where the only thing to restore is a defect: **316 deliberately has none**, because reversing
+  it would re-hide the six real customers and seven accounts that migration 312 missed, and a
+  script whose sole function is to reintroduce a known customer-facing bug is worse than its
+  absence. `rollback_318.sql` is the borderline case — it says so in its own header — and is
+  justified only because 318 rewrote data rather than logic.
 - **Verify the *served* bundle, not the one you copied.** `cp -r` leaves every build's hashed
   chunks in `assets/`, so finding your string in *some* chunk proves nothing. Fetch `/`, follow
   `index.html` to the chunk it actually references, grep that one. A live behaviour fix was
