@@ -48,6 +48,7 @@ interface Status {
   worker?: Worker
   eligible_book?: BookCount
   below_floor?: BookCount
+  unreachable?: { people: number; outstanding_kobo: number }
 }
 interface Send {
   id: number
@@ -246,6 +247,14 @@ export default function ArrearsReminders() {
         <KpiCard label="Below The Floor" icon="filter_alt" accent={AMBER}
           value={status.below_floor ? fmtNum(status.below_floor.facilities) : '—'}
           sub={status.below_floor ? `holding ${fmtKobo(status.below_floor.outstanding_kobo)} in total — not chased` : undefined} />
+        {/* Not a statistic — a work item. These borrowers cannot be written to at all,
+            and the run no longer spends its nightly cap discovering that again. */}
+        <KpiCard label="No Way To Reach Them" icon="person_off"
+          accent={(status.unreachable?.people ?? 0) > 0 ? AMBER : 'var(--txt3)'}
+          value={status.unreachable ? fmtNum(status.unreachable.people) : '—'}
+          sub={status.unreachable
+            ? `holding ${fmtKobo(status.unreachable.outstanding_kobo)} — no email, no phone`
+            : undefined} />
         <KpiCard label="Previewed" icon="visibility" accent={NAVY} value={fmtNum(previewed)}
           sub="rendered to the staff inbox" />
         <KpiCard label="Sent To Customers" icon="campaign" accent={tally('sent') > 0 ? GREEN : 'var(--txt3)'}

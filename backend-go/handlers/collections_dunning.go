@@ -206,6 +206,17 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		 -- same address, differing only in DPD. Two at once reads as a broken system and
 		 -- invites the reply that the amount must be wrong. The per-facility throttle still
 		 -- stands, so their second facility comes up on a later night.
+		 --
+		 -- THE CAP IS FOR MESSAGES THAT CAN ARRIVE. The throttle counts only 'sent' and
+		 -- 'staff_preview', so a customer with no email and no phone was re-selected every
+		 -- night forever — three no_contact rows, nothing moved, and because they sort by
+		 -- value they sit at the head of the queue permanently. 6 of the top 20 are
+		 -- unreachable: 6 slots in every 20 spent on post with nowhere to go, while
+		 -- reachable borrowers behind them never come up at all.
+		 -- This does not hide the gap. 26 people holding ₦316.8m have no address of any
+		 -- kind, and dunningStatus reports them as their own figure — a number someone can
+		 -- act on, which a nightly repeat of the same dead rows is not.
+		 WHERE COALESCE(x.email,'') <> '' OR COALESCE(x.phone,'') <> ''
 		 ORDER BY (x.dpd <= $5) DESC, x.outstanding_kobo DESC, x.dpd DESC
 		 LIMIT $2`,
 		dunningThrottleDays, dunningMaxPerRun(ctx, db),

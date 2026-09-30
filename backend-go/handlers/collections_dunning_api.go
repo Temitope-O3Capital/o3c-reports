@@ -81,6 +81,28 @@ func dunningStatus(db *core.DB) http.HandlerFunc {
 			dunningMinKobo(ctx, db)); len(rows) > 0 {
 			out["below_floor"] = rows[0]
 		}
+		// Borrowers above the floor with no email and no phone. The run cannot reach
+		// them and no longer spends its nightly cap trying, so this is the only place
+		// their debt appears — and it is a work item, not a statistic: somebody has to
+		// go and find a contact detail before any reminder can ever be written.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS people, COALESCE(SUM(outstanding_kobo),0) AS outstanding_kobo
+			  FROM (
+				SELECT DISTINCT ON (COALESCE('p'||d.party_id::text, 'c'||d.key_cif))
+				       d.outstanding_kobo,
+				       COALESCE(NULLIF(v.email,''), NULLIF(c.email,'')) AS email,
+				       COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,'')) AS phone
+				  FROM app.collections_delinquent_unified d
+				  LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
+				  LEFT JOIN app.customers c ON d.arm = 'cards' AND c.cif = d.raw_cif
+				 WHERE d.dpd > 0 AND d.outstanding_kobo >= $1
+				   AND ($2 = 0 OR d.dpd <= $2)
+				 ORDER BY COALESCE('p'||d.party_id::text, 'c'||d.key_cif), d.outstanding_kobo DESC
+			  ) x
+			 WHERE COALESCE(x.email,'') = '' AND COALESCE(x.phone,'') = ''`,
+			dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db)); len(rows) > 0 {
+			out["unreachable"] = rows[0]
+		}
 		respond(w, out, "pg")
 	}
 }
