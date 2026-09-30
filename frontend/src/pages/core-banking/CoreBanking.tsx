@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Page, KpiCard, SectionCard, Tabs, DataTable, Badge, ErrBanner, EmptyState, Modal, Spinner,
   type TableCol,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
-import { fmtKobo, fmtPct, fmtDate, fmtDatetime, fmtNum, n } from '../../lib/fmt'
+import { fmtKobo, fmtKoboExact, fmtPct, fmtDate, fmtDatetime, fmtNum, n } from '../../lib/fmt'
+import { downloadCsv } from '../../lib/csv'
 import { NAVY, RED, GREEN, AMBER, BLUE, FW, SP } from '../../lib/design'
 
 // ── Types (mirror /api/cbs/reports/* and /api/cbs/sync/status) ────────────────
@@ -400,26 +401,103 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
 // a posting days after its value date, and without saying so a quiet recent week reads as "no
 // payments" rather than "not published yet".
 
+// Value-date windows. "What came in this week" was the question the register exists to answer,
+// and scrolling a 52-row table is not an answer. Filtering on VALUE date, not capture date,
+// because that is the date the money moved — but see the callout: a short window is always
+// incomplete, since Udara publishes days late.
+const REPAY_PERIODS: { key: string; label: string; days: number | null }[] = [
+  { key: '7',   label: 'Last 7 Days',   days: 7 },
+  { key: '30',  label: 'Last 30 Days',  days: 30 },
+  { key: '90',  label: 'Last 90 Days',  days: 90 },
+  { key: 'all', label: 'All Time',      days: null },
+]
+
 function RepaymentsTab({ data, loading, onOpen }: { data: RepaymentRegister | null; loading: boolean; onOpen: (cif: string) => void }) {
+  const [period, setPeriod] = useState('all')
+  const [component, setComponent] = useState('all')
+
+  const postings = useMemo(() => {
+    const all = data?.postings ?? []
+    const days = REPAY_PERIODS.find(p => p.key === period)?.days ?? null
+    const cutoff = days == null ? null : new Date(Date.now() - days * 86400000)
+    return all.filter(r => {
+      if (component !== 'all' && (r.component || 'principal') !== component) return false
+      if (!cutoff) return true
+      const d = r.financial_date ? new Date(r.financial_date) : null
+      return d != null && !isNaN(d.getTime()) && d >= cutoff
+    })
+  }, [data?.postings, period, component])
+
+  // Totals for the rows actually on screen, not the whole table. A filtered view whose total
+  // still reports everything is worse than no total — it invites reconciling against a figure
+  // that does not describe what you are looking at.
+  const shown = useMemo(() => postings.reduce((a, r) => ({
+    total: a.total + n(r.amount_kobo),
+    principal: a.principal + n(r.principal_kobo),
+    interest: a.interest + n(r.interest_kobo),
+  }), { total: 0, principal: 0, interest: 0 }), [postings])
+
+  // Amounts are fmtKoboExact throughout, never fmtKobo: fmtKobo abbreviates to "₦5.60M", which
+  // is fine for a headline tile and useless on a register somebody reconciles against a bank
+  // statement. Kobo precision is the whole point of these rows.
   const cols: TableCol[] = [
     { key: 'financial_date', label: 'Value Date', sortable: true,
       render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtDate(r.financial_date)}</span> },
-    { key: 'customer_name', label: 'Borrower (per Udara)', render: r => r.customer_name || '—' },
+    { key: 'customer_name', label: 'Borrower (per Udara)',
+      render: r => (
+        <div>
+          <div>{r.customer_name || '—'}</div>
+          <div style={{ fontSize: 11, color: TXT3, fontVariantNumeric: 'tabular-nums' }}>
+            Udara ID {r.cbs_customer_id || '—'}
+          </div>
+        </div>
+      ) },
     { key: 'cbs_loan_account', label: 'Facility',
-      render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.cbs_loan_account || '—'}</span> },
-    { key: 'product_name', label: 'Product', render: r => r.product_name || '—' },
-    { key: 'component', label: 'Component',
+      render: r => (
+        <div>
+          <div style={{ fontVariantNumeric: 'tabular-nums' }}>{r.cbs_loan_account || '—'}</div>
+          <div style={{ fontSize: 11, color: TXT3 }}>{r.product_name || 'Loan'}</div>
+        </div>
+      ) },
+    { key: 'component', label: 'Applied To',
       render: r => <StatusTag s={r.component === 'interest' ? 'Interest' : 'Principal'} /> },
     { key: 'amount_kobo', label: 'Amount', align: 'right', sortable: true,
-      render: r => <span style={{ fontWeight: FW.semibold, color: GREEN }}>{fmtKobo(r.amount_kobo)}</span> },
+      render: r => <span style={{ fontWeight: FW.semibold, color: GREEN, fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(r.amount_kobo)}</span> },
     { key: 'capture_lag_days', label: 'Published After', align: 'right', sortable: true,
-      render: r => <span style={{ color: n(r.capture_lag_days) > 21 ? AMBER : TXT3, fontVariantNumeric: 'tabular-nums' }}>
+      render: r => <span title="Days between the value date and Udara publishing it in the call-over report"
+        style={{ color: n(r.capture_lag_days) > 21 ? AMBER : TXT3, fontVariantNumeric: 'tabular-nums' }}>
         {n(r.capture_lag_days)}d</span> },
     { key: 'posting_reference', label: 'Posting Ref',
-      render: r => <span style={{ fontSize: 12, color: TXT3 }}>{r.posting_reference || '—'}</span> },
+      render: r => (
+        <div>
+          <div style={{ fontSize: 12, color: TXT2, fontVariantNumeric: 'tabular-nums' }}>{r.posting_reference || '—'}</div>
+          <div style={{ fontSize: 11, color: TXT3, fontVariantNumeric: 'tabular-nums' }}>{r.entry_code || ''}</div>
+        </div>
+      ) },
   ]
+
+  function exportCsv() {
+    downloadCsv('udara-repayments-received.csv', [
+      { header: 'Value Date',        value: r => r.financial_date ?? '' },
+      { header: 'Borrower',          value: r => r.customer_name ?? '' },
+      { header: 'Udara ID',          value: r => r.cbs_customer_id ?? '' },
+      { header: 'Facility',          value: r => r.cbs_loan_account ?? '' },
+      { header: 'Product',           value: r => r.product_name ?? '' },
+      { header: 'Applied To',        value: r => r.component ?? '' },
+      { header: 'Amount (NGN)',      value: r => (n(r.amount_kobo) / 100).toFixed(2) },
+      { header: 'Principal (NGN)',   value: r => (n(r.principal_kobo) / 100).toFixed(2) },
+      { header: 'Interest (NGN)',    value: r => (n(r.interest_kobo) / 100).toFixed(2) },
+      { header: 'Entry Code',        value: r => r.entry_code ?? '' },
+      { header: 'Posting Ref',       value: r => r.posting_reference ?? '' },
+      { header: 'Instrument No',     value: r => r.instrument_number ?? '' },
+      { header: 'Captured At',       value: r => r.posted_at ?? '' },
+      { header: 'Published After (days)', value: r => n(r.capture_lag_days) },
+    ], postings)
+  }
+
   const s = data?.summary
   const worst = n(s?.worst_capture_lag_days)
+  const filtered = period !== 'all' || component !== 'all'
   return (
     <>
       <div style={{ background: BLUE + '12', border: `1px solid ${BLUE}40`, borderRadius: 10, padding: SP[4], marginBottom: SP[6], color: TXT2, fontSize: 13 }}>
@@ -445,24 +523,59 @@ function RepaymentsTab({ data, loading, onOpen }: { data: RepaymentRegister | nu
               cols={[
                 { key: 'month', label: 'Month' },
                 { key: 'legs', label: 'Postings', align: 'right', render: r => fmtNum(r.legs) },
-                { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
-                { key: 'interest_kobo', label: 'Interest', align: 'right', render: r => fmtKobo(r.interest_kobo) },
-                { key: 'total_kobo', label: 'Total', align: 'right', render: r => <span style={{ fontWeight: FW.semibold }}>{fmtKobo(r.total_kobo)}</span> },
+                { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(r.principal_kobo)}</span> },
+                { key: 'interest_kobo', label: 'Interest', align: 'right', render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(r.interest_kobo)}</span> },
+                { key: 'total_kobo', label: 'Total', align: 'right', render: r => <span style={{ fontWeight: FW.semibold, fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(r.total_kobo)}</span> },
               ]}
               rows={data?.by_month || []} loading={loading} keyFn={(r, i) => r.month || i} pageSize={12} />
           </SectionCard>
         </div>
       )}
       <div style={{ marginTop: SP[6] }}>
-        <SectionCard title="Every Posting" padding={false}>
+        <SectionCard title="Every Posting" padding={false}
+          actions={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <select value={period} onChange={e => setPeriod(e.target.value)} aria-label="Value date period"
+                style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 12 }}>
+                {REPAY_PERIODS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              <select value={component} onChange={e => setComponent(e.target.value)} aria-label="Applied to"
+                style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 12 }}>
+                <option value="all">Principal &amp; Interest</option>
+                <option value="principal">Principal Only</option>
+                <option value="interest">Interest Only</option>
+              </select>
+              <button onClick={exportCsv} disabled={postings.length === 0}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6,
+                  border: '1px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt2)',
+                  fontSize: 12, fontWeight: FW.semibold, cursor: postings.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: postings.length === 0 ? 0.5 : 1 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+                Export
+              </button>
+            </div>
+          }>
           {(!loading && data && (data.postings?.length ?? 0) === 0)
             ? <EmptyState icon="receipt_long" title="No Postings Captured Yet"
                 description="The hourly capture has not seen a repayment on the Udara ledger. Nothing is missing until a posting is published and still absent." />
-            : <DataTable cols={cols} rows={data?.postings || []} loading={loading}
-                keyFn={(r, i) => `${r.posting_reference ?? ''}-${r.cbs_loan_account ?? ''}-${r.component ?? ''}-${i}`}
-                onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
-                searchKeys={['customer_name', 'cbs_loan_account', 'posting_reference', 'product_name', 'cbs_customer_id']}
-                pageSize={25} />}
+            : (!loading && postings.length === 0)
+              ? <EmptyState icon="filter_alt_off" title="Nothing In This Window"
+                  description="No posting carries a value date in the selected period. Udara publishes days late, so a short window is often empty even when money has been received." />
+              : <>
+                  <DataTable cols={cols} rows={postings} loading={loading}
+                    keyFn={(r, i) => `${r.posting_reference ?? ''}-${r.cbs_loan_account ?? ''}-${r.component ?? ''}-${i}`}
+                    onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
+                    searchKeys={['customer_name', 'cbs_loan_account', 'posting_reference', 'product_name', 'cbs_customer_id', 'entry_code']}
+                    pageSize={25} />
+                  {/* Totals describe the rows above, filters included — see the comment on `shown`. */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: SP[6], flexWrap: 'wrap',
+                    padding: `${SP[3]}px ${SP[4]}px`, borderTop: '1px solid var(--bdr)', fontSize: 12, color: TXT2 }}>
+                    <span>{filtered ? 'Shown' : 'All'}: <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtNum(postings.length)}</strong> postings</span>
+                    <span>Principal <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(shown.principal)}</strong></span>
+                    <span>Interest <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(shown.interest)}</strong></span>
+                    <span style={{ color: GREEN }}>Total <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKoboExact(shown.total)}</strong></span>
+                  </div>
+                </>}
         </SectionCard>
       </div>
     </>

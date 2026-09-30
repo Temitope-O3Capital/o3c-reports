@@ -1103,6 +1103,28 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 // handoff and watchlist escalation) so they all reach the recovery system with a
 // consistent, valid row. total_outstanding_kobo is NOT NULL with no default, so
 // it must be set alongside outstanding_kobo.
+// requireRecoveryCaseKey is the one copy of "a recovery case must have an account key".
+//
+// This is not hypothetical. 78 live recovery cases carry account_cif NULL and party_id NULL,
+// worth NGN 946,994,206, loaded by hand-run SQL on 2026-08-24 from a spreadsheet whose
+// cif_number column held dashed account numbers, slash-joined pairs ("2114-9465-7407/
+// 1914-9541-5883") and the literal strings 'NO MANDATE' and 'IAGREE'. Nothing joins to them:
+// they are unreachable from the delinquency book, from the party layer, from Customer 360 and
+// from every namespace-correct query. Migration 323 reunited 52 of them with their party and
+// added the CHECK the table never had; this refuses to make a 79th.
+//
+// Note what the guard can and cannot do. These 78 came from ad-hoc SQL, which no Go guard can
+// intercept — which is exactly why 323 puts the same rule in a CHECK constraint. This function
+// stops the application route; the constraint stops everyone.
+func requireRecoveryCaseKey(cif string) (string, error) {
+	key := strings.TrimSpace(cif)
+	if key == "" {
+		return "", fmt.Errorf("refusing to open a recovery case with no account key: " +
+			"nothing would ever join to it")
+	}
+	return key, nil
+}
+
 func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstanding int64, sourceAssignmentID *int64) (string, int64, error) {
 	// ── Two guards, here rather than at the call sites ─────────────────────────
 	//
@@ -1110,19 +1132,17 @@ func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstan
 	// collectionsOpsBulkSendToRecovery and the watchlist escalation in collections.go (whose
 	// only test reads collections_watchlist.status, not recovery_cases). Their guarded
 	// siblings — recoveryOpsOpenCase, collectionsOpsBulkEscalateByCIF and the nightly
-	// escalateSevereToRecovery — each carry their own copy. All six funnel through THIS
-	// helper, so the guard belongs here: one place, and any future caller inherits it.
-
-	// 1. A case with no account key. This is not hypothetical: 55 live recovery cases carry
-	//    account_cif NULL and party_id NULL, worth N638,599,606.56, loaded from a
-	//    spreadsheet whose cif_number column holds account numbers slash-concatenated
-	//    ("2114-9465-7407/1914-9541-5883") and two customer names in one field. Nothing
-	//    joins to them: they are unreachable from the delinquency book, from the party
-	//    layer, and from every namespace-correct query. Refuse to make a 56th.
-	key := strings.TrimSpace(cif)
-	if key == "" {
-		return "", 0, fmt.Errorf("refusing to open a recovery case with no account key: " +
-			"nothing would ever join to it")
+	// escalateSevereToRecovery — each carry their own copy.
+	//
+	// "All six funnel through THIS helper" is what this comment used to claim, and it was FALSE:
+	// collectionsOpsSendToRecovery has its own inline INSERT (it needs the case creation and the
+	// assignment close in one transaction, and this helper is not transaction-aware), so it
+	// inherited neither guard. It now calls requireRecoveryCaseKey below, which is the single
+	// copy of guard 1. A comment asserting a rule holds everywhere is not the same as the rule
+	// holding everywhere — that is the whole subject of the handover doc's section 1.
+	key, err := requireRecoveryCaseKey(cif)
+	if err != nil {
+		return "", 0, err
 	}
 
 	// 2. Already in recovery. Keyed on the trimmed non-blank value deliberately — keyed on
@@ -1210,9 +1230,39 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 			return
 		}
 		a := rows[0]
-		accountCIF := str(a["account_cif"])
 		outstanding := toInt64(a["outstanding_kobo"])
 		dpd := str(a["dpd_bucket"])
+
+		// The same key guard openRecoveryCase carries. This handler cannot simply CALL that
+		// helper — the INSERT below and the assignment close have to commit together, and the
+		// helper is not transaction-aware — so it shares the rule instead of restating it.
+		// collection_assignments.account_cif is nullable and str() turns NULL into "", so without
+		// this the route wrote a case nothing could ever join to.
+		accountCIF, keyErr := requireRecoveryCaseKey(str(a["account_cif"]))
+		if keyErr != nil {
+			respondErr(w, 422, "This assignment has no account key, so a recovery case opened "+
+				"from it could never be linked to the customer. Fix the assignment first.")
+			return
+		}
+
+		// Already in recovery? The other guard from openRecoveryCase. Returning the existing case
+		// rather than erroring matches recoveryOpsOpenCase's documented idempotency: a second
+		// press should land on the case that exists, not open a second case file — and a second
+		// solicitor — on one borrower, double-counting outstanding_kobo in every recovery KPI.
+		if dup, _ := db.PGQuery(ctx, `
+			SELECT id, case_ref FROM recovery_cases
+			 WHERE account_cif = $1
+			   AND status NOT IN ('closed','recovered','written_off')
+			 ORDER BY created_at LIMIT 1`, accountCIF); len(dup) > 0 {
+			slog.Info("recovery case already open for this account — returning it",
+				"account", accountCIF, "case", str(dup[0]["case_ref"]))
+			respond(w, map[string]any{
+				"case_ref": str(dup[0]["case_ref"]),
+				"case_id":  toInt64(dup[0]["id"]),
+				"existing": true,
+			}, "pg")
+			return
+		}
 
 		// Generate case ref (NEXTVAL is non-transactional by design)
 		refRows, refErr := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)

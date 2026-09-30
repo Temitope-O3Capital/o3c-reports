@@ -25,11 +25,35 @@ interface LoanApplication {
   product_type?: string; amount_requested_kobo?: number; stage?: string
 }
 
+// One card's CURRENT balance, from app.card_balances via /api/customer360/{cif}.
+//
+// owed and held are separate fields rather than one signed number, deliberately. Both derive
+// from current_dr_balance, a DEBIT balance: receivable_kobo (owed) is max(dr,0), float_kobo
+// (held) is max(-dr,0) — the customer's own money. Showing the raw signed value as "balance"
+// renders a prepaid customer's savings as a debt, so `family` decides which one is displayed.
+interface CardBalance {
+  account_no?: string; cif?: string; product_name?: string
+  family?: string            // 'prepaid' | 'credit' | 'blink' | 'unmatched'
+  status?: string; card_state?: string; currency?: string
+  is_open?: boolean; days_overdue?: number | null
+  receivable_kobo?: number; float_kobo?: number; net_dr_kobo?: number
+  limit_kobo?: number; cycle_balance_kobo?: number; min_payment_due_kobo?: number
+  utilization_pct?: number | null
+  last_seen?: string | null
+}
+
 interface Profile {
   cif?: string; name?: string; phone?: string; email?: string
   account?: Account
   products?: Product[]
   loan_apps?: LoanApplication[]
+  card_balances?: CardBalance[]
+  card_balance_summary?: {
+    cards?: number; open_cards?: number
+    owed_kobo?: number; held_kobo?: number; limit_kobo?: number
+    min_payment_due_kobo?: number; worst_days_overdue?: number
+    as_of?: string | null
+  } | null
   financial_summary?: { dpd_bucket?: string | null }
 }
 
@@ -209,6 +233,13 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
     })),
   ]
 
+  // Card balances. Open cards first (the query already orders that way); a closed card with a
+  // residual balance still matters, so they are shown rather than filtered out.
+  const cards   = profile?.card_balances ?? []
+  const cardSum = profile?.card_balance_summary ?? null
+  const owed    = cardSum?.owed_kobo ?? 0
+  const held    = cardSum?.held_kobo ?? 0
+
   const acct = profile?.account
   const location = [acct?.['City'], acct?.['State']].filter(Boolean).join(', ')
   const profileKVs: [string, string | undefined][] = [
@@ -306,6 +337,93 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Card balances — what is actually on the cards right now */}
+              {cards.length > 0 && (
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
+                  <div style={SEC_TITLE}>
+                    Card Balances
+                    {cardSum?.as_of && (
+                      <span style={{ fontWeight: 400, color: 'var(--txt3)', fontSize: 10.5, marginLeft: 6 }}>
+                        as at {fmtDate(cardSum.as_of)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Owed and held are never netted into one figure. See the CardBalance type. */}
+                  {(owed > 0 || held > 0) && (
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+                      {owed > 0 && (
+                        <div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)', fontWeight: 600 }}>OWED</div>
+                          <div style={{ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 15, fontWeight: 700, color: RED }}>{fmtKobo(owed)}</div>
+                        </div>
+                      )}
+                      {held > 0 && (
+                        <div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)', fontWeight: 600 }}>AVAILABLE</div>
+                          <div style={{ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 15, fontWeight: 700, color: GREEN }}>{fmtKobo(held)}</div>
+                        </div>
+                      )}
+                      {(cardSum?.min_payment_due_kobo ?? 0) > 0 && (
+                        <div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)', fontWeight: 600 }}>MIN DUE</div>
+                          <div style={{ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 15, fontWeight: 700, color: AMBER }}>{fmtKobo(cardSum?.min_payment_due_kobo)}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {cards.map((cb, i) => {
+                    // A prepaid or blink card's number is the customer's own money; a credit
+                    // card's is a debt. Same column underneath, opposite meaning on screen.
+                    const isRevolving = cb.family === 'credit'
+                    const amount = isRevolving ? (cb.receivable_kobo ?? 0) : (cb.float_kobo ?? 0)
+                    const util = cb.utilization_pct
+                    return (
+                      <div key={cb.account_no ?? i} style={{
+                        padding: '9px 0',
+                        borderBottom: i < cards.length - 1 ? '1px solid var(--bdr)' : 'none',
+                        fontSize: 12.5, opacity: cb.is_open === false ? 0.55 : 1,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          <span style={{ fontWeight: 600, color: 'var(--txt)' }}>
+                            {cb.product_name || humanLabel(cb.family ?? '') || 'Card'}
+                          </span>
+                          {cb.is_open === false && (
+                            <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: 'var(--th-bg)', color: 'var(--txt3)' }}>Closed</span>
+                          )}
+                          {(cb.days_overdue ?? 0) > 0 && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: `${RED}18`, color: RED }}>
+                              {cb.days_overdue}d overdue
+                            </span>
+                          )}
+                          <span style={{ marginLeft: 'auto', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                            color: isRevolving ? (amount > 0 ? RED : 'var(--txt2)') : GREEN }}>
+                            {fmtKobo(amount)}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2, fontSize: 10.5, color: 'var(--txt3)' }}>
+                          <span style={{ fontFamily: MONO }}>{cb.account_no || '—'}</span>
+                          <span>{isRevolving ? 'Owed' : 'Available'}</span>
+                          {cb.currency && cb.currency !== 'NGN' && <span style={{ fontWeight: 700, color: AMBER }}>{cb.currency}</span>}
+                          {isRevolving && (cb.limit_kobo ?? 0) > 0 && (
+                            <span>Limit <span style={{ fontFamily: MONO }}>{fmtKobo(cb.limit_kobo)}</span></span>
+                          )}
+                          {/* Utilisation is uncapped on purpose: one live card sits at 4,709%
+                              (₦61.2m owed on a ₦1.3m limit). Clamping it to 100% would hide
+                              exactly the cards worth looking at. */}
+                          {isRevolving && util != null && (
+                            <span style={{ fontWeight: 700, color: util > 100 ? RED : util > 80 ? AMBER : 'var(--txt3)' }}>
+                              {util}% used
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -505,7 +623,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                 )}
               </div>
 
-              {products.length === 0 && events.length === 0 && profileKVs.length === 0 && (
+              {products.length === 0 && events.length === 0 && profileKVs.length === 0 && cards.length === 0 && (
                 <div style={{ padding: '48px 24px', color: 'var(--txt3)', fontSize: 13, textAlign: 'center' }}>
                   No Additional Data Available
                 </div>

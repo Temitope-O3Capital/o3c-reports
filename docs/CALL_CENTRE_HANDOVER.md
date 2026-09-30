@@ -442,3 +442,100 @@ facility showed NGN 44,443,556 "paid" against NGN 888 actually posted. And the j
 `cbs_loan_account` — these rows carry no `application_id` and no `loan_id`, so a reader joining on
 either returns zero for them **without erroring**. Eight handlers do join that way and are right
 to: they are scoped to workspace-originated applications, and a Udara facility is not one.
+
+---
+
+## 10. "In legal" now has one definition, and it is a function
+
+`app.is_in_legal(legal_stage, status)` — migration 322. Call it; never inline the rule.
+
+`recovery_cases.legal_stage` runs recovery → legal → court → judgment, and **`recovery` is the
+PRE-legal stage**: ordinary chasing, no lawyer. Three readers tested `legal_stage IS NOT NULL`
+instead, which answers a different question and is true for cases explicitly not in legal:
+
+| Reader | Test | Reported |
+|---|---|---|
+| `recovery.go` `accounts_in_legal` | `legal_stage IS NOT NULL` | 526 cases, ₦1,466,169,599 |
+| `recovery.go` `legal-kpis` CTE | same | 526 |
+| `recovery.go` legal tracker list | same, no status filter | 526 rows **listed as live legal matters** |
+| `executive.go` legal funnel | `+ status IN ('active','legal')` | 420, ₦1,213,527,192 |
+| **`app.is_in_legal`** | past `recovery`, not closed | **275, ₦873,666,833** |
+
+Overstated by **251 cases and ₦592,502,766** — 145 sitting at the pre-legal milestone and 106
+closed. The clinching evidence is that **no Go code has ever written `'recovery'`**: the only
+writer sets `legal_stage` together with `status='legal'`, so the application's own write path
+already treats a stage as meaning "a proceeding was filed". The 251 came from an import.
+
+The Executive funnel is deliberately left alone: it groups BY stage and prints the stage on each
+row, so a `recovery` bucket there states a fact. **A breakdown that names each stage may show all
+stages; a single number labelled "in legal" may not.**
+
+And the Legal Tracker's own filter was decoration. `MILESTONE_COLORS`/`MILESTONE_ORDER` in
+`Legal.tsx` held a **seventh** vocabulary for this column — `Demand Letter`, `Pre-Litigation`,
+`Hearing`… — matching nothing the database has ever stored. Every pill fell through to the grey
+default and every filter option showed count 0 and returned nothing when clicked. Now keyed on the
+four stored values with display labels, so `FilterOption.value` is the stored stage and `.label` is
+what the user reads.
+
+---
+
+## 11. Card balances on Customer 360, and the sign that flips meaning
+
+`c360Profile` publishes `card_balances` (per card) and `card_balance_summary`, from
+`app.card_balances`.
+
+It already published `card_position`/`card_accounts` and **nothing rendered either** — same shape
+as the Udara repayments. But do not just surface those: they read `card_cycle_data`, a monthly
+**billing cycle** import restricted to `category='credit'` — 4,841 customers, cycle up to a
+fortnight old. `app.card_balances` is the canonical source (never `SUM(current_dr_balance)` by
+hand), covers **21,126** customers across prepaid, credit and blink, and is current to today.
+
+**The sign is the trap.** Everything derives from `current_dr_balance`, a **debit** balance:
+
+- `receivable_kobo` = `max(dr, 0)` — what the customer **owes**
+- `float_kobo` = `max(-dr, 0)` — the customer's **own money** we hold
+
+Prepaid runs net **−₦178m** across 13,516 open cards precisely because that is customer funds.
+Render `net_dr` as "balance" and a prepaid customer's savings appear as a debt, so owed and held
+are published separately and the UI picks by `family`. Utilisation is shown **uncapped**: one live
+card sits at **4,709%** (₦61.2m owed on a ₦1.3m limit), and clamping to 100% would hide exactly
+the cards worth looking at.
+
+`app.card_balances` carries **no test-card filter** of its own — verified against the view
+definition — so the C360 queries apply `core.SQLIsNotTestCardName` themselves.
+
+---
+
+## 12. The 78 unreachable recovery cases — and a correction about them
+
+78 rows had `account_cif` NULL **and** `party_id` NULL, worth ₦946,994,206: unreachable from
+Customer 360, the delinquency book, the party layer, everything.
+
+**First, the correction, because it is this codebase's signature mistake and I made it.** These
+were reported as "55 cases, ₦638,599,606.56 — now 78, so it is still growing". **They are not
+growing.** The newest is from 2026-08-24 16:40:48 and nothing has inserted into `recovery_cases`
+since 2026-09-12. `status <> 'closed'` over these same rows returns 55 and ₦638,599,606.56 **to the
+kobo** — the 55 figure is the hardcoded comment at `collections_ops.go:1116` counting the non-closed
+subset. A filtered count was compared against a total and the difference read as growth. Check the
+predicate before believing a trend.
+
+**Where they came from:** two ad-hoc SQL runs on 2026-08-24, one transaction, `data_source='manual'`
+— 24 Country Hill legal rows whose `cif_number` holds spreadsheet ROW NUMBERS (`CH#1`…`CH#32`), and
+54 loan rows holding raw sheet text including `NO MANDATE` and `IAGREE`. **No Go code can produce
+them**: all three INSERT sites leave `data_source` at its `'core'` default.
+
+**migration 324 reunited 52** (₦835,805,723.80) with their party. The same loan book was re-loaded
+*correctly* on 2026-09-07 into `collection_assignments` with `party_id` resolved, so matching on the
+normalised customer name gives exactly one party and one key for 52, zero ambiguous. The other
+**26 are deliberately left unidentified** — 24 Country Hill defendants whose only identifying text
+is a court note, where trigram similarity offers candidates. Name similarity is a guess, and the
+rule from migration 318 holds: do not invent an identity.
+
+**Two guards, because a Go guard could not have stopped this.** `requireRecoveryCaseKey` is now the
+single copy of the rule and `collectionsOpsSendToRecovery` calls it — that handler had its own
+inline INSERT and inherited neither guard, while `openRecoveryCase`'s comment claimed *"All six
+funnel through THIS helper"*. It did not. The comment is corrected and the duplicate check added
+there too. But these 78 came from hand-run SQL, which no Go guard intercepts, so 324 also adds
+`recovery_cases_has_identity_chk` — **`NOT VALID`** on purpose, since 26 rows cannot satisfy it
+without guessing. `VALIDATE CONSTRAINT` once they are resolved; until then its failure *is* the
+outstanding work.

@@ -500,6 +500,55 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 			WHERE d.cif IN `+personCIFs+`
 			  AND d.cycle_date = (SELECT MAX(cycle_date) FROM card_cycle_data WHERE cif = d.cif)`, cif)
 
+		// Current card balances, per card, from app.card_balances.
+		//
+		// WHY THIS IS SEPARATE FROM card_accounts ABOVE. That reads card_cycle_data — a monthly
+		// BILLING CYCLE import restricted to category='credit': 4,841 customers, and the latest
+		// cycle can be a fortnight old (2026-09-14 when this was written). app.card_balances is
+		// the canonical balance source — never SUM current_dr_balance by hand — covers 21,126
+		// customers across prepaid, credit and blink, and is current to today. A customer holding
+		// only a prepaid card had no balance on this screen at all before this query.
+		//
+		// THE SIGN IS THE WHOLE TRICK. Everything derives from current_dr_balance, a DEBIT
+		// balance: receivable_kobo = max(dr,0) is what the customer OWES us; float_kobo =
+		// max(-dr,0) is the customer's OWN money we hold. Prepaid runs net negative across the
+		// book (-NGN 178m over 13,516 open cards) precisely because that is customer funds.
+		// Publishing net_dr as "balance" would render a prepaid customer's savings as a debt, so
+		// owed and held are kept apart here and the frontend picks by family.
+		//
+		// The test-card filter is applied even though the directory already excludes test
+		// customers: app.card_balances carries no filter of its own (checked against the view
+		// definition), and this is a second door onto the same numbers.
+		cardBalances, _ := db.PGQuery(ctx, `
+			SELECT cb.account_no, cb.cif, cb.product_name, cb.family, cb.status, cb.card_state,
+			       cb.currency, cb.is_open, cb.days_overdue,
+			       cb.receivable_kobo, cb.float_kobo, cb.net_dr_kobo,
+			       cb.limit_kobo, cb.cycle_balance_kobo, cb.min_payment_due_kobo, cb.last_seen,
+			       CASE WHEN cb.limit_kobo > 0
+			            THEN ROUND(cb.receivable_kobo::numeric / cb.limit_kobo * 100, 1)
+			            ELSE NULL END AS utilization_pct
+			FROM app.card_balances cb
+			LEFT JOIN app.customers c ON c.cif = cb.cif
+			WHERE cb.cif IN `+personCIFs+`
+			  AND (c.cif IS NULL OR `+core.SQLIsNotTestCardName(
+		`(COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,''))`)+`)
+			ORDER BY cb.is_open DESC, cb.receivable_kobo DESC, cb.float_kobo DESC`, cif)
+
+		cardBalanceSummary, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*)                                          AS cards,
+			       COUNT(*) FILTER (WHERE cb.is_open)                AS open_cards,
+			       COALESCE(SUM(cb.receivable_kobo), 0)::bigint      AS owed_kobo,
+			       COALESCE(SUM(cb.float_kobo), 0)::bigint           AS held_kobo,
+			       COALESCE(SUM(cb.limit_kobo), 0)::bigint           AS limit_kobo,
+			       COALESCE(SUM(cb.min_payment_due_kobo), 0)::bigint AS min_payment_due_kobo,
+			       COALESCE(MAX(cb.days_overdue), 0)                 AS worst_days_overdue,
+			       MAX(cb.last_seen)                                 AS as_of
+			FROM app.card_balances cb
+			LEFT JOIN app.customers c ON c.cif = cb.cif
+			WHERE cb.cif IN `+personCIFs+`
+			  AND (c.cif IS NULL OR `+core.SQLIsNotTestCardName(
+		`(COALESCE(c.full_name,'')||' '||COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,''))`)+`)`, cif)
+
 		// Financial summary (PG only — best-effort, nullable)
 		summaryRows, _ := db.PGQuery(ctx, `
 			SELECT
@@ -526,16 +575,21 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 		if cardCards == nil {
 			cardCards = []core.Row{}
 		}
+		if cardBalances == nil {
+			cardBalances = []core.Row{}
+		}
 
 		profile := map[string]any{
-			"account":           firstOrNil(accounts),
-			"products":          products,
-			"transactions":      transactions,
-			"loan_apps":         loanApps,
-			"recovery_cases":    recoveryCases,
-			"card_position":     firstOrNil(cardSummaryRows), // rolled-up revolving summary (nil if none)
-			"card_accounts":     cardCards,                   // per-card latest-cycle rows
-			"financial_summary": firstOrNil(summaryRows),
+			"account":              firstOrNil(accounts),
+			"products":             products,
+			"transactions":         transactions,
+			"loan_apps":            loanApps,
+			"recovery_cases":       recoveryCases,
+			"card_position":        firstOrNil(cardSummaryRows), // rolled-up revolving summary (nil if none)
+			"card_accounts":        cardCards,                   // per-card latest BILLING CYCLE rows (credit only)
+			"card_balances":        cardBalances,                // per-card CURRENT balance, all families
+			"card_balance_summary": firstOrNil(cardBalanceSummary),
+			"financial_summary":    firstOrNil(summaryRows),
 		}
 
 		// Prefer mssql_live if any source is live

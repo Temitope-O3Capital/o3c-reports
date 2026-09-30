@@ -89,7 +89,10 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 			COALESCE(SUM(recovered_kobo),0)                                                                       AS total_recovered_kobo,
 			COALESCE(SUM(outstanding_kobo),0)                                                                     AS total_handoff_kobo,
 			COUNT(*) FILTER (WHERE status NOT IN ('closed','recovered','written_off'))                            AS open_cases,
-			COUNT(*) FILTER (WHERE legal_stage IS NOT NULL AND legal_stage <> '')                                 AS accounts_in_legal,
+			-- app.is_in_legal (migration 322), NOT legal_stage IS NOT NULL. 'recovery' is the
+			-- PRE-legal stage, so the old test counted 251 cases and NGN 592.5m that are not in
+			-- legal at all. Never inline this rule.
+			COUNT(*) FILTER (WHERE app.is_in_legal(legal_stage, status))                                          AS accounts_in_legal,
 			COUNT(*) FILTER (WHERE recovered_kobo > outstanding_kobo)                                             AS over_recovered_cases,
 			COUNT(*)                                                                                              AS total_cases,
 			COALESCE(ROUND(AVG(EXTRACT(DAY FROM NOW() - opened_at)) FILTER (WHERE status NOT IN ('closed','recovered','written_off')))::int, 0) AS avg_days_in_recovery
@@ -443,7 +446,7 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 			    ORDER BY filing_date DESC
 			    LIMIT 1
 			) lp ON true
-			WHERE rc.legal_stage IS NOT NULL%s
+			WHERE app.is_in_legal(rc.legal_stage, rc.status)%s
 			ORDER BY rc.updated_at DESC
 			LIMIT $%d`, extraWhere, n), args...)
 		if err != nil {
@@ -537,7 +540,7 @@ func recoveryLegalKPIs(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			WITH cases AS (
 			    SELECT id, status, opened_at, closed_at, recovered_kobo
-			    FROM recovery_cases WHERE legal_stage IS NOT NULL%s
+			    FROM recovery_cases WHERE app.is_in_legal(legal_stage, status)%s
 			),
 			proceedings AS (
 			    -- "Won" = the legal action fully recovered the debt. The real terminal
@@ -646,12 +649,11 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert returned no result")
 			return
 		}
-		// Filing a proceeding must move the CASE, not just record the paperwork.
-		// recoveryLegal lists cases WHERE legal_stage IS NOT NULL, and both recovery
-		// dashboards filter status IN ('active','legal') — neither of which this handler
-		// ever set. So a case could have proceedings filed against it and still never
-		// appear in the Legal tracker. Only ever escalates: a closed, recovered or
-		// written-off case is left alone.
+		// Filing a proceeding must move the CASE, not just record the paperwork. The readers
+		// now agree on app.is_in_legal (migration 322), and this write is what satisfies it:
+		// setting legal_stage without status='legal' would leave a case with proceedings filed
+		// against it absent from the Legal tracker. Only ever escalates — a closed, recovered
+		// or written-off case is left alone, which is also why is_in_legal excludes them.
 		db.PGExec(r.Context(), `
 			UPDATE recovery_cases
 			   SET legal_stage = $1, status = 'legal', updated_at = NOW()
