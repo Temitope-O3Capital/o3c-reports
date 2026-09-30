@@ -68,13 +68,30 @@ func cohortHeatmap(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// ?basis=person builds cohorts by PERSON (party) — a person's cohort is the
 		// month of their FIRST card, activity is any card. Default is card-level (cif).
+		// Card stock and test cards are held out of BOTH bases, the way
+		// app.customer_acquisition already holds them out. Without it the current month is
+		// mostly stock: measured 2026-09-30, the Sep 2026 cohort was 591 card-stock records
+		// against 59 real people — 90.9% — so the retention curve read ~650 new customers for
+		// a month that acquired 59. app.is_card_stock_name (migration 306, "card stock is not
+		// a customer") was called by that one view and nowhere else in the codebase; this is
+		// its second caller.
+		//
+		// NOT EXISTS rather than a join, so an account whose CIF has no customer row is KEPT.
+		// Joining would quietly shrink every cohort by whatever the customer feed has not
+		// caught up on — a different and less visible distortion than the one being fixed.
 		q := `WITH cohorts AS (
-			    SELECT cif,
-			           DATE_TRUNC('month',opened_date) AS cohort_date,
-			           TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS cohort_label
-			    FROM app.accounts
-			    WHERE opened_date IS NOT NULL
-			      AND opened_date >= CURRENT_DATE - INTERVAL '2 years'
+			    SELECT a.cif,
+			           DATE_TRUNC('month',a.opened_date) AS cohort_date,
+			           TO_CHAR(DATE_TRUNC('month',a.opened_date),'Mon YYYY') AS cohort_label
+			    FROM app.accounts a
+			    WHERE a.opened_date IS NOT NULL
+			      AND a.opened_date >= CURRENT_DATE - INTERVAL '2 years'
+			      AND NOT EXISTS (
+			          SELECT 1 FROM app.customers c
+			           WHERE c.cif = a.cif
+			             AND (app.is_card_stock_name(c.full_name)
+			               OR app.is_test_card_name(c.full_name))
+			      )
 			),
 			monthly_act AS (
 			    SELECT cif,
@@ -98,7 +115,10 @@ func cohortHeatmap(db *core.DB) http.HandlerFunc {
 		if qstr(r, "basis") == "person" {
 			q = `WITH cust AS (
 			        SELECT cif, COALESCE('p'||party_id,'c'||contact_id) AS pk
-			        FROM app.customers WHERE cif IS NOT NULL AND cif <> ''
+			        FROM app.customers
+			         WHERE cif IS NOT NULL AND cif <> ''
+			           AND NOT app.is_card_stock_name(full_name)
+			           AND NOT app.is_test_card_name(full_name)
 			    ),
 			    cohorts AS (
 			        SELECT cu.pk,
