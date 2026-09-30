@@ -8,6 +8,7 @@ import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtKobo, fmtExact, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../../lib/design'
 import { RECOVERY_PAYMENT_CHANNELS, RECOVERY_LEGAL_STAGES } from '../../lib/paymentChannels'
+import { RECOVERY_VISIT_TYPES, RECOVERY_VISIT_OUTCOMES } from '../../lib/contactVocab'
 import { toast } from 'sonner'
 import { humanLabel } from '../../lib/labels'
 
@@ -182,8 +183,10 @@ const STEP_TYPES: { value: string; label: string }[] = [
   { value: 'note',        label: 'Note' },
 ]
 
-const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
-const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
+// Shared, and ENFORCED: these are stored codes with display labels. This file used to send the
+// Title Case label to the same endpoint recovery-ops/Agent.tsx sent a code to. See lib/contactVocab.ts.
+const VISIT_TYPES    = RECOVERY_VISIT_TYPES
+const VISIT_OUTCOMES = RECOVERY_VISIT_OUTCOMES
 // Writes recovery_cases.legal_stage as well as legal_proceedings.proceeding_type, so it is
 // limited to the four values both columns accept — see RECOVERY_LEGAL_STAGES and migration 321.
 const LEGAL_TYPES    = RECOVERY_LEGAL_STAGES
@@ -235,7 +238,7 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
   caseId: number; open: boolean; onClose: () => void; onDone: () => void
 }) {
   const [visitDate, setVisitDate] = useState('')
-  const [visitType, setVisitType] = useState('Physical Visit')
+  const [visitType, setVisitType] = useState('field_visit')
   const [outcome,   setOutcome]   = useState('')
   const [notes,     setNotes]     = useState('')
   const [saving,    setSaving]    = useState(false)
@@ -263,7 +266,7 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
           <div>
             <label style={labelStyle}>Type</label>
             <select value={visitType} onChange={e => setVisitType(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-              {VISIT_TYPES.map(t => <option key={t}>{t}</option>)}
+              {VISIT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
         </div>
@@ -271,7 +274,7 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
           <label style={labelStyle}>Outcome *</label>
           <select value={outcome} onChange={e => setOutcome(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
             <option value="">Select Outcome…</option>
-            {VISIT_OUTCOMES.map(o => <option key={o}>{o}</option>)}
+            {VISIT_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>

@@ -1376,6 +1376,16 @@ func recoveryOpsVisit(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "visit_date and visit_type are required")
 			return
 		}
+		// Three screens wrote three vocabularies into these two columns — see contact_vocab.go.
+		// Enforced while recovery_field_visits is still empty, so there is nothing to migrate.
+		if !isRecoveryVisitType(b.VisitType) {
+			respondErr(w, 422, "visit_type must be one of: "+vocabList(recoveryVisitTypes))
+			return
+		}
+		if b.Outcome != "" && !isRecoveryVisitOutcome(b.Outcome) {
+			respondErr(w, 422, "outcome must be one of: "+vocabList(recoveryVisitOutcomes))
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 

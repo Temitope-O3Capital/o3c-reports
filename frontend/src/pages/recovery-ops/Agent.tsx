@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, NAVY, GREEN, BLUE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, StatusPill, HeroButton, myUserId } from '../../components/MyWorkspace'
+import { RECOVERY_VISIT_TYPES, RECOVERY_VISIT_OUTCOMES } from '../../lib/contactVocab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -83,19 +84,10 @@ function Chip({ active, color, onClick, children }: { active: boolean; color: st
   )
 }
 
-const VISIT_TYPES: { value: string; label: string }[] = [
-  { value: 'field', label: 'Field Visit' },
-  { value: 'phone', label: 'Phone Call' },
-  { value: 'letter', label: 'Letter' },
-  { value: 'legal', label: 'Legal Notice' },
-]
-const VISIT_OUTCOMES: { value: string; label: string }[] = [
-  { value: 'paid', label: 'Paid' },
-  { value: 'promised', label: 'Promised to Pay' },
-  { value: 'refused', label: 'Refused' },
-  { value: 'absent', label: 'Not Available' },
-  { value: 'no_contact', label: 'No Contact' },
-]
+// Shared with recovery/Cases.tsx and recovery/CaseDetail.tsx, which used to send Title Case
+// labels to the same endpoint while this file sent codes. See lib/contactVocab.ts.
+const VISIT_TYPES = RECOVERY_VISIT_TYPES
+const VISIT_OUTCOMES = RECOVERY_VISIT_OUTCOMES
 
 function LogVisitModal({ caseItem, onClose, onSuccess }: { caseItem: Case | null; onClose: () => void; onSuccess: () => void }) {
   const [visitDate, setVisitDate] = useState('')

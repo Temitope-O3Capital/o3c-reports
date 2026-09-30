@@ -13,6 +13,7 @@ import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, HeroButton, Li
 import { TierBadge, PctBar, tierFromPct } from '../../components/TierBadge'
 import { NameCell } from '../../components/UI'
 import { humanLabel } from '../../lib/labels'
+import { COLLECTION_CONTACT_TYPES, COLLECTION_CONTACT_OUTCOMES } from '../../lib/contactVocab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,20 +62,16 @@ interface PromiseRow {
   created_at: string
 }
 
-const CONTACT_TYPES = [
-  { value: 'call',     label: 'Call',   icon: 'call' },
-  { value: 'sms',      label: 'SMS',    icon: 'sms' },
-  { value: 'email',    label: 'Email',  icon: 'mail' },
-  { value: 'visit',    label: 'Visit',  icon: 'directions_walk' },
-]
+// Stored codes come from lib/contactVocab.ts, which the Go whitelist and migration 326's CHECK
+// both enforce. This screen used to send 'call' and 'visit' where collections/AccountDetail.tsx
+// sent 'phone' and 'field_visit' — the same two acts under two names, which would have split
+// every category in two on any GROUP BY. The icon stays local: it is presentation, not vocabulary.
+const CONTACT_ICONS: Record<string, string> = {
+  phone: 'call', sms: 'sms', whatsapp: 'chat', email: 'mail', field_visit: 'directions_walk',
+}
+const CONTACT_TYPES = COLLECTION_CONTACT_TYPES.map(t => ({ ...t, icon: CONTACT_ICONS[t.value] ?? 'contact_page' }))
 
-const OUTCOMES = [
-  { value: 'reached',      label: 'Reached' },
-  { value: 'not_reached',  label: 'Not Reached' },
-  { value: 'ptp',          label: 'Promise to Pay' },
-  { value: 'broken_ptp',   label: 'Promise Broken' },
-  { value: 'wrong_number', label: 'Wrong Number' },
-]
+const OUTCOMES = COLLECTION_CONTACT_OUTCOMES
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,8 +97,8 @@ export default function AgentDashboard() {
 
   // Log-contact modal
   const [logRow,       setLogRow]       = useState<QueueRow | null>(null)
-  const [contactType,  setContactType]  = useState('call')
-  const [outcome,      setOutcome]      = useState('reached')
+  const [contactType,  setContactType]  = useState('phone')
+  const [outcome,      setOutcome]      = useState('answered')
   const [notes,        setNotes]        = useState('')
   const [logging,      setLogging]      = useState(false)
 
@@ -248,7 +245,7 @@ export default function AgentDashboard() {
       render: r => (
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
           <button
-            onClick={e => { e.stopPropagation(); setLogRow(r); setContactType('call'); setOutcome('reached'); setNotes('') }}
+            onClick={e => { e.stopPropagation(); setLogRow(r); setContactType('phone'); setOutcome('answered'); setNotes('') }}
             title="Log a call, SMS, email or visit"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}
           >

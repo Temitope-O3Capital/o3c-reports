@@ -730,6 +730,14 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "contact_type and outcome are required")
 			return
 		}
+		// Three screens sent three vocabularies for contact_type ('phone' vs 'call', 'field_visit'
+		// vs 'visit'). Enforced while collection_contacts is still empty. `outcome` is
+		// deliberately NOT constrained — two screens put two different KINDS of fact in it, and
+		// which one collections wants to measure is an open question. See contact_vocab.go.
+		if !isCollectionContactType(b.ContactType) {
+			respondErr(w, 422, "contact_type must be one of: "+vocabList(collectionContactTypes))
+			return
+		}
 		// The collections queue offers the same disposition vocabulary as the call log,
 		// including "Other" — so the note requirement has to hold on this path too. A rule
 		// enforced on one of two routes to the same vocabulary is not enforced.

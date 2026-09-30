@@ -24,6 +24,7 @@ import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
+import { COLLECTION_CONTACT_TYPES, COLLECTION_CONTACT_OUTCOMES } from '../../lib/contactVocab'
 
 function getStoredRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
@@ -113,21 +114,11 @@ const SCENARIOS = [
   { value: 'other',               label: 'Other' },
 ]
 
-const CONTACT_TYPES = [
-  { value: 'phone',        label: 'Phone Call' },
-  { value: 'sms',          label: 'SMS' },
-  { value: 'whatsapp',     label: 'WhatsApp' },
-  { value: 'email',        label: 'Email' },
-  { value: 'field_visit',  label: 'Field Visit' },
-]
-
-const OUTCOMES = [
-  { value: 'answered',         label: 'Answered' },
-  { value: 'no_answer',        label: 'No Answer' },
-  { value: 'not_reachable',    label: 'Not Reachable' },
-  { value: 'promised_to_pay',  label: 'Promised to Pay' },
-  { value: 'refused_to_pay',   label: 'Refused to Pay' },
-]
+// This screen's codes were the ones kept when the three conflicting copies were unified — they
+// were already the most complete and already snake_case. Now shared, and enforced by the Go
+// whitelist plus migration 326's CHECK. See lib/contactVocab.ts.
+const CONTACT_TYPES = COLLECTION_CONTACT_TYPES
+const OUTCOMES = COLLECTION_CONTACT_OUTCOMES
 
 const ACTION_META: Record<string, { label: string; color: string }> = {
   contact_logged:           { label: 'Contact',     color: NAVY  },

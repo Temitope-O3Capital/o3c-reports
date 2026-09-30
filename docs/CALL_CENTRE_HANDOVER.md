@@ -539,3 +539,41 @@ there too. But these 78 came from hand-run SQL, which no Go guard intercepts, so
 `recovery_cases_has_identity_chk` — **`NOT VALID`** on purpose, since 26 rows cannot satisfy it
 without guessing. `VALIDATE CONSTRAINT` once they are resolved; until then its failure *is* the
 outstanding work.
+
+---
+
+## 13. One word for one thing, fixed while it was still free
+
+Migration 326 + `handlers/contact_vocab.go` + `lib/contactVocab.ts`.
+
+`recovery_field_visits` and `collection_contacts` held **0 rows** while their screens were built
+and mounted, so three vocabularies were queued up to start writing to two columns:
+
+| Endpoint / column | Screen | Sent |
+|---|---|---|
+| visit `visit_type` | recovery/Cases, recovery/CaseDetail | `Physical Visit` `Phone Call` `Legal Notice` … |
+| visit `visit_type` | recovery-ops/Agent | `field` `phone` `letter` `legal` |
+| contact `contact_type` | collections/AccountDetail | `phone` `sms` `whatsapp` `email` `field_visit` |
+| contact `contact_type` | collections-ops/AgentDashboard | `call` `sms` `email` `visit` |
+| contact `contact_type` | collections/Queue | hardcoded `call` |
+
+None of those values is *wrong*, which is why nothing flagged it. But two screens calling one
+physical act `Physical Visit` and `field` would have put two rows per real category into every
+`GROUP BY`, permanently and invisibly. **Empty tables are the cheapest possible moment to settle a
+vocabulary** — no migration, no restatement, and the CHECK constraints validate for free.
+
+Stored codes, displayed labels, as for `legal_stage` and `customerSteps`. `paid` and
+`promised_to_pay` stay distinct because money received and money promised are different events,
+and only one of the three screens could previously tell them apart. Watch for stale defaults when
+doing this: `useState('call')`, `useState('reached')` and `useState('Physical Visit')` were all
+initial values that the new CHECK would have rejected on first submit.
+
+**`collection_contacts.outcome` is deliberately left unconstrained**, and this is the open
+question, not an oversight. Two screens put two different *kinds* of fact in it:
+collections/AccountDetail sends a reachability outcome (`answered`, `no_answer`, …), while
+collections/Queue sends a **call disposition** — one of ~45 strings from the shared list
+(`Promise to Pay`, `Issue Resolved`, `Other — Describe What Happened`) enforced elsewhere as
+`ccDispositions`. Constrain to reachability and the disposition is lost; constrain to dispositions
+and an SMS has no outcome to give. The honest model is probably a second `disposition` column —
+still free, while the table is empty — but **which fact collections wants to measure is a business
+decision**, so it is written down rather than settled by whoever edits last.

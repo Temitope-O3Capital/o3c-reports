@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
 import { TierBadge, tierFromPct } from '../../components/TierBadge'
 import { RECOVERY_PAYMENT_CHANNELS, RECOVERY_LEGAL_STAGES } from '../../lib/paymentChannels'
+import { RECOVERY_VISIT_TYPES, RECOVERY_VISIT_OUTCOMES } from '../../lib/contactVocab'
 import { humanLabel } from '../../lib/labels'
 
 // Marks a case bulk-loaded from an uploaded spreadsheet (data_source='manual'),
@@ -218,12 +219,14 @@ function AssignAgentTab({ caseId, agents, onDone }: {
 
 // ── Log Visit tab ─────────────────────────────────────────────────────────────
 
-const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
-const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
+// Shared, and ENFORCED: these are stored codes with display labels. This file used to send the
+// Title Case label to the same endpoint recovery-ops/Agent.tsx sent a code to. See lib/contactVocab.ts.
+const VISIT_TYPES    = RECOVERY_VISIT_TYPES
+const VISIT_OUTCOMES = RECOVERY_VISIT_OUTCOMES
 
 function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void }) {
   const [visitDate, setVisitDate] = useState('')
-  const [visitType, setVisitType] = useState('Physical Visit')
+  const [visitType, setVisitType] = useState('field_visit')
   const [outcome, setOutcome]     = useState('')
   const [notes, setNotes]         = useState('')
   const [saving, setSaving]       = useState(false)
@@ -255,7 +258,7 @@ function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void 
         <label style={labelStyle}>Type</label>
         <select value={visitType} onChange={e => setVisitType(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-          {VISIT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {VISIT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </div>
       <div>
@@ -263,7 +266,7 @@ function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void 
         <select value={outcome} onChange={e => setOutcome(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}>
           <option value="">Select Outcome…</option>
-          {VISIT_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
+          {VISIT_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
       <div>

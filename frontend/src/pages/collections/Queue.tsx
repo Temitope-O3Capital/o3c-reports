@@ -247,7 +247,9 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
     setErr(null)
     try {
       await apiPost(`/api/collections-ops/${assignmentId}/contact`, {
-        contact_type: 'call',
+        // 'phone', not 'call': the stored vocabulary is COLLECTION_CONTACT_TYPES, which the Go
+        // whitelist and migration 326's CHECK both enforce. See lib/contactVocab.ts.
+        contact_type: 'phone',
         outcome: disposition,
         notes,
       })
