@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/o3c/workspace/core"
@@ -87,9 +88,26 @@ func TestDunningAmountGroupsThousands(t *testing.T) {
 		-100_000:       "-1,000.00",
 	}
 	for kobo, want := range cases {
-		if got := dunningAmount(kobo); got != want {
-			t.Errorf("dunningAmount(%d) = %q, want %q", kobo, got, want)
+		if got := dunningGroup(kobo); got != want {
+			t.Errorf("dunningGroup(%d) = %q, want %q", kobo, got, want)
 		}
+	}
+}
+
+// The naira sign is outside the GSM 7-bit alphabet, so a single one turns the whole
+// SMS into UCS-2 and costs a segment on every message. Email and WhatsApp pay nothing
+// for it, so the sign is channel-specific and that is worth pinning.
+func TestDunningAmountCurrencyIsChannelSpecific(t *testing.T) {
+	if got := dunningAmount(10_000_000_000, "sms"); got != "NGN100,000,000.00" {
+		t.Errorf("sms amount = %q, want NGN100,000,000.00", got)
+	}
+	for _, ch := range []string{"email", "whatsapp"} {
+		if got := dunningAmount(10_000_000_000, ch); got != "₦100,000,000.00" {
+			t.Errorf("%s amount = %q, want ₦100,000,000.00", ch, got)
+		}
+	}
+	if strings.ContainsRune(dunningAmount(500, "sms"), '₦') {
+		t.Error("an SMS must never carry the naira sign")
 	}
 }
 
@@ -136,6 +154,29 @@ func TestDunningTemplateMatchesRespectsDigitBoundaries(t *testing.T) {
 	}
 	if dunningTemplateMatches("Arrears Reminder", "") || dunningTemplateMatches("", "1-30") {
 		t.Error("empty name or bucket must not match")
+	}
+}
+
+// Every DPD bucket the live book actually produces, against the six template names
+// migration 320 installs. Mis-routing here is invisible in code review and obvious to
+// the borrower: a three-year-old debt receiving the gentle 1-30 wording, or an
+// eleven-day oversight receiving a non-performing notice.
+func TestDunningTemplateForCoversEveryLiveBucket(t *testing.T) {
+	rows := []core.Row{
+		{"id": int64(7), "name": "Arrears Reminder · 1-30 Days"},
+		{"id": int64(13), "name": "Arrears Reminder · 31-60 Days"},
+		{"id": int64(14), "name": "Arrears Reminder · 61-90 Days"},
+		{"id": int64(15), "name": "Arrears Reminder · 91-180 Days"},
+		{"id": int64(16), "name": "Arrears Reminder · 181-360 Days"},
+		{"id": int64(17), "name": "Arrears Reminder · 360+ Days"},
+	}
+	want := map[string]int64{
+		"1-30": 7, "31-60": 13, "61-90": 14, "91-180": 15, "181-360": 16, "360+": 17,
+	}
+	for bucket, id := range want {
+		if got := toInt64(dunningTemplateFor(rows, bucket)["id"]); got != id {
+			t.Errorf("bucket %q routed to template %d, want %d", bucket, got, id)
+		}
 	}
 }
 

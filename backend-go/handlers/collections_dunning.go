@@ -245,16 +245,18 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		}
 		tpl := dunningTemplateFor(tplRows, cand.DPDBucket)
 		tplID := toInt64(tpl["id"])
-		merge := map[string]any{
-			"first_name": dunningFirstName(cand.Name),
-			"full_name":  cand.Name,
-			"facility":   cand.Facility,
-			"dpd":        cand.DPD,
-			"amount":     dunningAmount(cand.AmountKobo),
-			"cif":        cand.CIF,
-		}
 
 		for _, ch := range []string{"email", "whatsapp", "sms"} {
+			// Built per channel, because the amount is not spelt the same way on all
+			// three. See dunningAmount.
+			merge := map[string]any{
+				"first_name": dunningFirstName(cand.Name),
+				"full_name":  cand.Name,
+				"facility":   cand.Facility,
+				"dpd":        cand.DPD,
+				"amount":     dunningAmount(cand.AmountKobo, ch),
+				"cif":        cand.CIF,
+			}
 			recipient := cand.Phone
 			if ch == "email" {
 				recipient = cand.Email
@@ -448,10 +450,26 @@ func dunningFirstName(full string) string {
 }
 
 // dunningAmount renders kobo the way a demand for money has to read — grouped in
-// thousands. fmtKoboStr is right for a log line and wrong here: it wrote
-// "N100000000.00" into the 2026-09-30 previews, a figure no reader can check at a
-// glance, on the kind of notice people already suspect of being a scam.
-func dunningAmount(kobo int64) string {
+// thousands, and carrying its currency. fmtKoboStr is right for a log line and wrong
+// here: it wrote "N100000000.00" into the 2026-09-30 previews, a figure no reader can
+// check at a glance, on the kind of notice people already suspect of being a scam.
+//
+// The sign differs by channel, and this is the reason. ₦ is U+20A6, which is not in
+// the GSM 7-bit alphabet, so a single naira sign converts the entire SMS to UCS-2 and
+// cuts the segment from 160 characters to 70. The rendered reminder already runs to
+// about 157 characters for a long company name, so that one character turns a
+// two-segment message into three, on every SMS, for as long as the system runs. Email
+// and WhatsApp are UTF-8 and pay nothing for it, so they carry the real sign and SMS
+// carries the ISO code, which is at least unambiguous in a way a bare "N" is not.
+func dunningAmount(kobo int64, channel string) string {
+	if channel == "sms" {
+		return "NGN" + dunningGroup(kobo)
+	}
+	return "₦" + dunningGroup(kobo)
+}
+
+// dunningGroup is the figure alone, grouped in thousands, with no currency.
+func dunningGroup(kobo int64) string {
 	whole, frac := fmtKoboStr(kobo), ""
 	if i := strings.LastIndexByte(whole, '.'); i >= 0 {
 		whole, frac = whole[:i], whole[i:]
