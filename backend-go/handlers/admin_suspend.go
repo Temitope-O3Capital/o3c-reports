@@ -145,10 +145,15 @@ func suspendUser(db *core.DB) http.HandlerFunc {
 			"email":  str(target["email"]),
 			"reason": reason,
 		})
-		db.PGExec(r.Context(), //nolint:errcheck
+		// id is the URL parameter, so already a string for the text column. The error is
+		// logged rather than discarded: a suspension nobody can trace is a worse outcome than
+		// a failed suspension, because it looks deliberate and unattributable.
+		if _, auditErr := db.PGExec(r.Context(),
 			`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
 			 VALUES ($1,$2,$3,'account_suspended','user',$4,$5,'',NOW())`,
-			callerID, callerRole, callerName, id, string(changesJSON))
+			callerID, callerRole, callerName, id, string(changesJSON)); auditErr != nil {
+			slog.Error("account suspended but NOT audited", "user", id, "by", callerID, "err", auditErr)
+		}
 		slog.Warn("account-suspended", "user", id, "email", str(target["email"]), "by", callerID, "reason", reason)
 
 		writeJSON(w, map[string]any{
@@ -227,10 +232,12 @@ func issueReinstateCode(db *core.DB) http.HandlerFunc {
 			"email":  str(rows[0]["email"]),
 			"digits": body.Digits,
 		})
-		db.PGExec(r.Context(), //nolint:errcheck
+		if _, auditErr := db.PGExec(r.Context(),
 			`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
 			 VALUES ($1,$2,$3,'reinstate_code_issued','user',$4,$5,'',NOW())`,
-			callerID, callerRole, callerName, id, string(changesJSON))
+			callerID, callerRole, callerName, id, string(changesJSON)); auditErr != nil {
+			slog.Error("reinstatement code issued but NOT audited", "user", id, "by", callerID, "err", auditErr)
+		}
 		slog.Info("reinstate-code-issued", "user", id, "by", callerID, "digits", body.Digits)
 
 		writeJSON(w, map[string]any{
@@ -331,10 +338,17 @@ func ReinstateWithCode(db *core.DB) http.HandlerFunc {
 		db.PGExec(r.Context(), `DELETE FROM login_failures WHERE user_id=$1`, userID) //nolint:errcheck
 
 		changesJSON, _ := json.Marshal(map[string]any{"email": email, "via": "reinstatement_code"})
-		db.PGExec(r.Context(), //nolint:errcheck
+		// entity_id is text. Handing it the int64 silently lost this row — the whole INSERT
+		// failed and the discarded error said nothing, so the account came back with no record
+		// of how. Every other audit caller passes a string here; so does this one now, and the
+		// error is logged rather than dropped, because an unaudited reinstatement is exactly
+		// the event you would later need to explain.
+		if _, auditErr := db.PGExec(r.Context(),
 			`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
 			 VALUES ($1,'','','account_reinstated','user',$2,$3,'',NOW())`,
-			userID, userID, string(changesJSON))
+			userID, strconv.FormatInt(userID, 10), string(changesJSON)); auditErr != nil {
+			slog.Error("account reinstated but NOT audited", "user", userID, "err", auditErr)
+		}
 		slog.Info("account-reinstated", "user", userID, "via", "code")
 
 		writeJSON(w, map[string]any{
