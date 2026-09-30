@@ -37,7 +37,13 @@ export const LEAD_STAGES: LeadStage[] = [
   { key: 'new',                   label: 'New',                   color: '#6B7280' },
   { key: 'contacted',             label: 'Contacted',             color: BLUE },
   { key: 'qualified',             label: 'Interested',            color: '#7C3AED' }, // stored key stays 'qualified'
-  { key: 'handed_to_sales',       label: 'Handed to Sales',       color: '#0891B2' },
+  // 'In Progress', not 'Handed to Sales'. The stored key is shared with BD and the call centre,
+  // where "handed to sales" is literally what happened — but this is now also the stage a SALES
+  // officer's own call or visit moves a lead into, and "Jennifer moved this lead to Handed to
+  // Sales" reads as nonsense to the person who IS sales. 'In Progress' is true from every side:
+  // BD sees a lead in progress with Sales, Sales sees one in progress with them. Same
+  // key-versus-label split as 'qualified'/'Interested' above, and for the same reason.
+  { key: 'handed_to_sales',       label: 'In Progress',           color: '#0891B2' },
   { key: 'documents_requested',   label: 'Documents Requested',   color: AMBER },
   { key: 'application_submitted', label: 'Application Submitted', color: '#4F46E5' },
   { key: 'approved',              label: 'Approved',              color: '#059669' },

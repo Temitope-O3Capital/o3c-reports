@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -66,19 +68,45 @@ type salesDisposition struct {
 	Qualifies bool `json:"qualifies,omitempty"`
 	// Closes marks outcomes that end the pursuit, so the form can warn before saving.
 	Closes bool `json:"closes,omitempty"`
+	// Advances is the lead stage this outcome puts the lead in. Empty means the outcome
+	// decides nothing about the stage — "No Answer" is not progress, and leaving it blank
+	// says so rather than inventing a movement.
+	//
+	// This is what makes the pipeline reachable at all. Before it, the only transition any
+	// activity performed was new|contacted -> qualified; every lead arrives from the call
+	// centre ALREADY qualified, so logging a call moved nothing. 172 leads sat at 'qualified'
+	// and 13 at 'disqualified' with all four stages between them permanently empty, because
+	// neither a code path nor a button could reach them.
+	//
+	// Movement is FORWARD ONLY, checked against leadStageOrder at the write: a "No Answer" on
+	// a lead whose application is already submitted must not drag it back into conversation,
+	// and a converted or disqualified lead is never moved by an activity at all.
+	//
+	// A closing outcome deliberately advances NOTHING. "Not interested" does not disqualify
+	// the lead here — disqualification is irreversible from the officer's side, so it stays an
+	// explicit act with a stated reason rather than a side effect of a dropdown.
+	Advances string `json:"advances,omitempty"`
 }
 
 var salesDispositions = map[string][]salesDisposition{
 	// Same codes as ccDispositions. See the note above before editing.
 	"call": {
 		{Code: "answered_interested", Label: "Answered — Interested", Qualifies: true,
-			Hint: "They said yes in principle. This is what qualifies the lead."},
+			Advances: "handed_to_sales",
+			Hint:     "They said yes in principle. This is what qualifies the lead."},
 		{Code: "callback", Label: "Callback Requested", NeedsFollowUp: true,
-			Hint: "They asked you to come back at a specific time."},
+			Advances: "handed_to_sales",
+			Hint:     "They asked you to come back at a specific time."},
 		{Code: "not_ready", Label: "Interested, Not Now", NeedsFollowUp: true,
-			Hint: "Interested but not this cycle — stays in your queue for later."},
+			Advances: "handed_to_sales",
+			Hint:     "Interested but not this cycle — stays in your queue for later."},
 		{Code: "price_objection", Label: "Price Objection", NeedsNote: true,
-			Hint: "Say what they objected to; it is the most useful thing you can record."},
+			Advances: "handed_to_sales",
+			Hint:     "Say what they objected to; it is the most useful thing you can record."},
+		{Code: "documents_requested", Label: "Asked For Documents", NeedsFollowUp: true,
+			Advances: "documents_requested",
+			Hint:     "You asked them to send paperwork. Set the date you expect it."},
+		// No stage: the phone rang out. Nothing was decided, so nothing moves.
 		{Code: "no_answer", Label: "No Answer", Hint: "Rang out. Nothing decided."},
 		{Code: "wrong_number", Label: "Wrong Number", Closes: true,
 			Hint: "Not the person. The lead cannot be worked on this number."},
@@ -91,13 +119,18 @@ var salesDispositions = map[string][]salesDisposition{
 	},
 	"visit": {
 		{Code: "visit_interested", Label: "Met Them — Interested", Qualifies: true,
-			Hint: "You saw the decision maker and they said yes in principle."},
+			Advances: "handed_to_sales",
+			Hint:     "You saw the decision maker and they said yes in principle."},
 		{Code: "visit_met_no_decision", Label: "Met Them — No Decision", NeedsFollowUp: true,
-			Hint: "You got in front of them but nothing was settled."},
+			Advances: "handed_to_sales",
+			Hint:     "You got in front of them but nothing was settled."},
+		// No stage: never reached the decision maker, so the lead has not moved even though
+		// the officer's day has. The visit is still recorded as work done.
 		{Code: "visit_gatekeeper", Label: "Did Not Get Past Reception", NeedsFollowUp: true,
 			Hint: "Never reached the decision maker. Worth another attempt."},
 		{Code: "visit_documents", Label: "Collected Documents",
-			Hint: "You came away with paperwork the application needs."},
+			Advances: "documents_requested",
+			Hint:     "You came away with paperwork the application needs."},
 		{Code: "visit_closed", Label: "Premises Closed",
 			Hint: "Nobody there. Not a refusal."},
 		{Code: "visit_not_interested", Label: "Met Them — Not Interested", Closes: true, NeedsNote: true,
@@ -105,11 +138,17 @@ var salesDispositions = map[string][]salesDisposition{
 	},
 	"meeting": {
 		{Code: "meeting_interested", Label: "Interested", Qualifies: true,
-			Hint: "They committed in principle."},
+			Advances: "handed_to_sales",
+			Hint:     "They committed in principle."},
 		{Code: "meeting_proposal", Label: "Wants A Proposal", NeedsFollowUp: true,
-			Hint: "Asked for something in writing. Set the date you will send it."},
+			Advances: "handed_to_sales",
+			Hint:     "Asked for something in writing. Set the date you will send it."},
+		{Code: "meeting_documents", Label: "Asked For Documents", NeedsFollowUp: true,
+			Advances: "documents_requested",
+			Hint:     "You asked them for paperwork. Set the date you expect it."},
 		{Code: "meeting_deferred", Label: "Deferred", NeedsFollowUp: true,
-			Hint: "Parked for now, with a date to return to it."},
+			Advances: "handed_to_sales",
+			Hint:     "Parked for now, with a date to return to it."},
 		{Code: "meeting_not_interested", Label: "Not Interested", Closes: true, NeedsNote: true,
 			Hint: "They declined. Say why."},
 	},
@@ -297,22 +336,20 @@ func logSalesActivity(db *core.DB) http.HandlerFunc {
 				}
 			}
 
-			// A stated interest qualifies the lead, and ONLY a stated interest — the same
-			// rule the call centre applies, deliberately. Guarded on the current stage so
-			// logging a visit against an already-approved lead cannot walk it backwards to
-			// 'qualified'; the journey only ever moves forward from here.
-			if hasDisp && disp.Qualifies {
-				res, err := db.PGExec(r.Context(), `
-					UPDATE app.crm_contacts
-					   SET lead_stage  = 'qualified',
-					       qualified_at = COALESCE(qualified_at, NOW()),
-					       updated_at   = NOW()
-					 WHERE id = $1
-					   AND lead_stage IN ('new','contacted')`, *b.ContactID)
-				if err == nil {
-					if aff, _ := res.RowsAffected(); aff > 0 {
-						moved = "qualified"
-					}
+			// The outcome moves the lead. See salesDisposition.Advances for why this exists
+			// and why a closing outcome moves nothing.
+			//
+			// Forward only, and the comparison is what enforces it: the target must outrank
+			// the current stage in leadStageOrder, which is the same ladder the rest of the
+			// module uses. isOpenLeadStage keeps converted and disqualified leads untouched,
+			// so a stray call logged against a booked customer cannot reopen them.
+			//
+			// The move is written to crm_lead_events in the same breath, because a stage that
+			// changes with no record of what changed it is exactly the thing the timeline
+			// exists to answer.
+			if hasDisp && disp.Advances != "" {
+				if to, ok := advanceLeadStage(r.Context(), db, *b.ContactID, disp.Advances, user.ID, disp.Label); ok {
+					moved = to
 				}
 			}
 		}
@@ -642,4 +679,67 @@ func officerDay(db *core.DB) http.HandlerFunc {
 			"report": report, "activities": acts,
 		}, "pg")
 	}
+}
+
+// advanceLeadStage moves a lead forward to `to` and records why, returning the stage it
+// landed on. It is a no-op — reporting false — when the lead is already at or past that
+// stage, when it is converted or disqualified, or when the lead simply does not exist.
+//
+// Forward-only is the whole contract. The officer picks an outcome describing what just
+// happened; they are not choosing a stage, and they must not be able to walk a lead backwards
+// by logging a late call against it. leadStageOrder is the single ladder both this and
+// advanceLeadOnApplication measure against, so the two cannot disagree about what "forward"
+// means.
+//
+// Best-effort by design: the activity has already been written and committed by the time this
+// runs, and an activity that saved is worth more than a stage that did not. A failure here is
+// logged and swallowed rather than failing the officer's save and losing their write-up.
+func advanceLeadStage(ctx context.Context, db *core.DB, contactID int64, to string, actorID int64, why string) (string, bool) {
+	rank, known := leadStageOrder[to]
+	if !known {
+		slog.Error("advanceLeadStage: unknown target stage", "stage", to, "contact", contactID)
+		return "", false
+	}
+
+	rows, err := db.PGQuery(ctx,
+		`SELECT lead_stage FROM app.crm_contacts WHERE id = $1 AND sales_entered_at IS NOT NULL`, contactID)
+	if err != nil || len(rows) == 0 {
+		return "", false
+	}
+	current := str(rows[0]["lead_stage"])
+	if !isOpenLeadStage(current) || leadStageOrder[current] >= rank {
+		return "", false
+	}
+
+	// qualified_at is stamped when the lead passes 'qualified', not only when it lands on it:
+	// an outcome that takes a lead straight from 'contacted' to 'handed_to_sales' has still
+	// established that the customer is interested, and the reports keyed on qualified_at would
+	// otherwise never see it.
+	res, err := db.PGExec(ctx, `
+		UPDATE app.crm_contacts
+		   SET lead_stage       = $2,
+		       stage_changed_at = NOW(),
+		       qualified_at     = COALESCE(qualified_at, NOW()),
+		       last_activity_at = NOW(),
+		       updated_at       = NOW()
+		 WHERE id = $1 AND lead_stage = $3`, contactID, to, current)
+	if err != nil {
+		slog.Error("advanceLeadStage: stage not moved", "contact", contactID, "to", to, "err", err)
+		return "", false
+	}
+	// Re-read the current stage in the WHERE above rather than trusting the earlier SELECT:
+	// two officers logging against the same lead at once would otherwise both write, and the
+	// later one could land a lower stage. Zero rows here means somebody else moved first.
+	if aff, _ := res.RowsAffected(); aff == 0 {
+		return "", false
+	}
+
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO app.crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
+		VALUES ($1, 'stage_change', $2, $3, $4, $5)`,
+		contactID, current, to, nullIfEmpty(why), actorID); err != nil {
+		slog.Error("advanceLeadStage: stage moved but NOT recorded", "contact", contactID,
+			"from", current, "to", to, "err", err)
+	}
+	return to, true
 }

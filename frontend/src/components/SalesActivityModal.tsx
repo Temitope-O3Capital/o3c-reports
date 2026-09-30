@@ -33,6 +33,7 @@ import { apiFetch, apiPost } from '../lib/api'
 import { useDebouncedValue } from '../hooks/useDebounce'
 import { NAVY, GREEN, AMBER, RED, BLUE, RADIUS, TEXT, FW, SP, INTER } from '../lib/design'
 import { fmtDate } from '../lib/fmt'
+import { leadStageLabel } from '../lib/leadStages'
 import { toast } from 'sonner'
 
 // ── Dispositions ─────────────────────────────────────────────────────────────
@@ -272,8 +273,14 @@ export default function SalesActivityModal({
           ...(when ? { occurred_at: new Date(when).toISOString() } : {}),
           ...(followUp && leadId ? { follow_up_at: new Date(followUp).toISOString() } : {}),
         })
-        if (res?.moved === 'qualified' && leadName) {
-          toast.success(`Logged. ${leadName} is now Interested.`)
+        // Name whatever stage it landed on, rather than testing for one. This read
+        // `res.moved === 'qualified'`, which was the only move the server could make; now that
+        // an outcome can carry a lead to In Progress or Documents Requested, a hard-coded
+        // comparison would let the officer watch the lead move and be told nothing.
+        if (res?.moved && leadName) {
+          toast.success(`Logged. ${leadName} is now ${leadStageLabel(res.moved)}.`)
+        } else if (res?.moved) {
+          toast.success(`Logged. The lead moved to ${leadStageLabel(res.moved)}.`)
         } else {
           toast.success('Logged to your day')
         }
