@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef, useId, isValidElemen
 import type { ReactNode, CSSProperties, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, SP, RADIUS, SHADOW, TRANSITION } from '../lib/design'
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
+import { humanLabel, STATUS_LABELS } from '../lib/labels'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { PageSkeleton } from './Skeleton'
 
@@ -318,6 +319,10 @@ const STATUS_MAP: Record<string, { bg: string; txt: string }> = {
 export function StatusBadge({ status, size = 'md' }: { status: string; size?: 'sm' | 'md' }) {
   const key = (status ?? '').toLowerCase().replace(/[\s-]+/g, '_')
   const s = STATUS_MAP[key] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
+  // The value was already being normalised to pick a colour, then rendered raw — so a status
+  // stored as in_progress got the right colour and the wrong text. Most callers pass the column
+  // straight from the API, so labelling belongs here rather than at 40-odd call sites.
+  const shown = humanLabel(status, STATUS_LABELS)
   return (
     <span style={{
       ...NUM,
@@ -327,7 +332,7 @@ export function StatusBadge({ status, size = 'md' }: { status: string; size?: 's
       borderRadius: 20, background: s.bg, color: s.txt,
       letterSpacing: '0.1px', whiteSpace: 'nowrap',
     }}>
-      {status}
+      {shown}
     </span>
   )
 }
@@ -404,10 +409,14 @@ export function Pill({ label, color, bg }: { label: string; color: string; bg: s
       fontSize: TEXT.xs, fontWeight: FW.semibold,
       padding: '2px 10px', borderRadius: 20,
       background: bg, color,
-      whiteSpace: 'nowrap', textTransform: 'capitalize',
+      whiteSpace: 'nowrap',
       letterSpacing: '0.1px',
     }}>
-      {String(label).replace(/_/g, ' ')}
+      {/* Was `replace(/_/g,' ')` plus CSS `text-transform: capitalize`, which gave "Kyc Review"
+          and "Sms Campaign" — CSS cannot know an acronym from a word. It also silently re-cased
+          any real data handed to a pill. humanLabel is now the single authority, and it leaves
+          already-written text and data values exactly as they are. */}
+      {humanLabel(label)}
     </span>
   )
 }

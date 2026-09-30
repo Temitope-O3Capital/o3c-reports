@@ -6,6 +6,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
+import { humanLabel } from '../../lib/labels'
 
 // The lead record, opened from the Leads queue.
 //
@@ -70,9 +71,9 @@ const TYPE_ICON: Record<string, string> = {
 }
 const typeIcon = (t: string) => TYPE_ICON[t] ?? 'circle'
 
-/** Underscored database vocabulary, rendered as words. */
-const humanise = (s: string) =>
-  s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+/** Underscored database vocabulary, rendered as words. Was a local copy that title-cased every
+ *  word, so acronyms read as "Kyc" and "Sms"; humanLabel is the one implementation now. */
+const humanise = (s: string) => humanLabel(s)
 
 const PRODUCT_LINES = [
   { value: 'cards', label: 'Card', hint: 'Reference is the card CIF' },

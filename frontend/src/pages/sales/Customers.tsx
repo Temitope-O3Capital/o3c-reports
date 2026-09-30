@@ -11,6 +11,7 @@ import type { TableCol } from '../../components/UI'
 import { SelectMenu, SelectMenuField, toOptions } from '../../components/SelectMenu'
 import { apiFetch, apiPut } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { humanLabel } from '../../lib/labels'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { currentUser, isSalesHead, allRoles } from '../../hooks/useAuth'
 
@@ -290,7 +291,9 @@ export default function CRMContacts() {
         if (!r.sales_source) return <span style={{ color: 'var(--txt3)' }}>—</span>
         const meta = SALES_SOURCES.find(s => s.value === r.sales_source)
         const color = SOURCE_COLOR[r.sales_source] ?? NAVY
-        return <Pill label={meta?.label ?? r.sales_source} color={color} bg={`${color}14`} />
+        // A source with no catalogue entry still gets a label rather than the raw column:
+        // self_sourced was reaching the screen exactly as the database stores it.
+        return <Pill label={meta?.label ?? humanLabel(r.sales_source)} color={color} bg={`${color}14`} />
       },
     },
     {

@@ -176,3 +176,61 @@ export function label(map: Record<string, string>, key: string | null | undefine
   if (!key) return '—'
   return map[key] ?? snake(key)
 }
+
+// ── humanLabel — the one function that turns a stored value into a shown label ─
+//
+// Written because `snake()` existed and nothing imported it. Every screen either
+// hand-rolled `replace(/_/g, ' ')` (100 occurrences across 25 files) or printed the raw
+// column, so `call_centre`, `self_sourced` and `in_progress` reached the user exactly as the
+// database stores them. House style is Title Case for labels.
+
+// Tokens that must not be title-cased into "Kyc" or "Cif". Extend this rather than special
+// -casing a call site.
+const ACRONYMS = new Set([
+  'kyc', 'npl', 'cif', 'bvn', 'nin', 'fct', 'tpa', 'sms', 'dpd', 'ndd', 'pos', 'atm', 'otp',
+  'md', 'bd', 'id', 'fd', 'gl', 'tat', 'sla', 'nps', 'crm', 'vat', 'ussd', 'pin', 'mfa',
+  'totp', 'api', 'csv', 'pdf', 'usd', 'ngn', 'cbs', 'los', 'dsr', 'dpa', 'pnd', 'cc',
+])
+
+// Small words that stay lower-case inside a multi-word label, so a generated label reads the
+// way a person would write it: "Letter of Demand", not "Letter Of Demand".
+//
+// Deliberately short. The obvious additions — in, on, for, by, up — are all load-bearing halves
+// of compounds in this domain: walk_in, opt_in, sign_up, hand_off, follow_up. Including 'in'
+// produced "Walk in", which is why the list stops where it does. A word only belongs here if it
+// could never be part of a compound noun we label.
+const MINOR = new Set(['of', 'to', 'a', 'an', 'the', 'and', 'or'])
+
+function capitaliseWord(w: string, isFirst: boolean): string {
+  if (!w) return w
+  // Hyphenated parts are capitalised on both sides: pre-legal -> Pre-Legal, walk-in -> Walk-In.
+  if (w.includes('-')) {
+    return w.split('-').map((part, i) => capitaliseWord(part, isFirst && i === 0)).join('-')
+  }
+  const lower = w.toLowerCase()
+  if (ACRONYMS.has(lower)) return lower.toUpperCase()
+  if (!isFirst && MINOR.has(lower)) return lower
+  return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
+/**
+ * Turn a stored enum/slug into a label fit to show. Pass any known map as `map` and it wins.
+ *
+ * Deliberately leaves a value alone when it is already a written label — anything carrying an
+ * upper-case letter and no underscore is returned untouched. Without that guard this would
+ * "correct" hand-written copy already passed to these components ('Referred to Legal' would
+ * become 'Referred To Legal') and, worse, re-case real data: a customer name or a company
+ * reaching a pill must come out exactly as it went in. Enum values are labels; data is not.
+ */
+export function humanLabel(raw: string | null | undefined, map?: Record<string, string>): string {
+  if (raw === null || raw === undefined) return '—'
+  const v = String(raw).trim()
+  if (!v) return '—'
+  if (map && map[v]) return map[v]
+  if (/[A-Z]/.test(v) && !v.includes('_')) return v
+  return v
+    .replace(/_/g, ' ')
+    .split(/\s+/)
+    .map((w, i) => capitaliseWord(w, i === 0))
+    .join(' ')
+}

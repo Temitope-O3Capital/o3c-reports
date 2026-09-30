@@ -14,6 +14,7 @@ import { currentUser, isSalesHead, allRoles, hasPage } from '../../hooks/useAuth
 import { MGMT } from '../../lib/roles'
 import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, n } from '../../lib/fmt'
+import { humanLabel } from '../../lib/labels'
 import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { PRODUCT_LINES, PRODUCT_SUBS, productLabel, lineOfCode, lineColor } from '../../lib/products'
 import { LEAD_STAGES, OPEN_LEAD_STAGES } from '../../lib/leadStages'
@@ -360,7 +361,11 @@ export default function SalesLeads() {
                   fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px',
                   borderRadius: RADIUS.full, background: `${PURPLE}16`, color: PURPLE,
                   whiteSpace: 'nowrap',
-                }}>{t}</span>
+                  // Stored lower-case — the CHECK constraint on crm_lead_tags requires it, so
+                  // "corporate" and "Corporate" can never become two labels. Shown in Title
+                  // Case, because the storage rule is not a reason for the screen to shout in
+                  // lower case.
+                }}>{humanLabel(t)}</span>
               ))}
             </div>
           )}
@@ -393,7 +398,7 @@ export default function SalesLeads() {
             <span className="material-symbols-rounded" style={{ fontSize: 13 }}>headset_mic</span> Call Centre
           </span>
         : <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>
-            {sources.find(s => s.code === r.lead_source)?.label ?? r.lead_source ?? '—'}
+            {sources.find(s => s.code === r.lead_source)?.label ?? humanLabel(r.lead_source)}
           </span>,
     },
     {

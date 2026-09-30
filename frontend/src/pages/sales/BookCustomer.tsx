@@ -4,6 +4,7 @@ import { Page, KpiCard, SectionCard, DataTable, Sk, Button } from '../../compone
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, n } from '../../lib/fmt'
+import { humanLabel } from '../../lib/labels'
 import { RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // The account officer's view of one customer.
@@ -91,7 +92,10 @@ function Pill({ text, tone }: { text: string; tone: string }) {
       display: 'inline-block', padding: '2px 8px', borderRadius: RADIUS.sm,
       background: `${tone}1A`, color: tone, fontSize: TEXT.xs, fontWeight: FW.bold,
       whiteSpace: 'nowrap',
-    }}>{text}</span>
+      // Was rendered raw, so a status stored lower-case showed lower-case. humanLabel leaves
+      // already-upper-case values alone — the CBS feeds send ACTIVE and Defaulting, and how
+      // they spell their own statuses is not ours to restyle.
+    }}>{humanLabel(text)}</span>
   )
 }
 
