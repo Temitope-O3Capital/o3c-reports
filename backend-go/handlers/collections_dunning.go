@@ -56,6 +56,14 @@ func dunningMode(ctx context.Context, db *core.DB) string {
 	return "staff_preview"
 }
 
+// dunningSkipRecovery reports whether accounts a recovery officer is actively working
+// should be left alone. Default on. Accounts at 'legal' are excluded regardless and
+// this setting cannot reach them: see the query.
+func dunningSkipRecovery(ctx context.Context, db *core.DB) bool {
+	return !strings.EqualFold(strings.TrimSpace(
+		resolveCredKey(ctx, db, "COLLECTIONS_DUNNING_SKIP_RECOVERY")), "off")
+}
+
 func dunningMaxPerRun(ctx context.Context, db *core.DB) int {
 	return dunningIntSetting(ctx, db, "COLLECTIONS_DUNNING_MAX_PER_RUN", dunningDefaultMaxPerRun, false)
 }
@@ -179,6 +187,27 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		 WHERE d.dpd > 0
 		   AND d.outstanding_kobo >= $3
 		   AND ($4 = 0 OR d.dpd <= $4)
+		   -- NOBODY WHOSE CASE IS ALREADY WITH SOLICITORS, AND BY DEFAULT NOBODY A
+		   -- RECOVERY OFFICER IS ALREADY WORKING.
+		   --
+		   -- 186 facilities holding ₦613.7m sat in this pool at recovery status 'legal'.
+		   -- An automated letter inviting them to "call us and discuss a repayment
+		   -- arrangement" would have gone to borrowers O3 has engaged solicitors against
+		   -- — 95 legal proceedings are on file. That is correspondence outside counsel,
+		   -- it contradicts what the company is telling them through its lawyers, and it
+		   -- is the sort of document that gets read back in court. 'legal' is therefore
+		   -- excluded unconditionally: no setting turns it on.
+		   --
+		   -- 'active' (382 facilities, the officer-worked cases) is excluded by default
+		   -- but is Collections' call, because the argument is finer: a nudge alongside
+		   -- an officer can help, and a full-balance demand sent to someone who is
+		   -- current on an agreed instalment plan is worse than silence. Default off,
+		   -- COLLECTIONS_DUNNING_SKIP_RECOVERY=off to include them.
+		   AND NOT EXISTS (
+		       SELECT 1 FROM app.recovery_cases rc
+		        WHERE rc.party_id = d.party_id
+		          AND (rc.status = 'legal' OR ($6 AND rc.status = 'active'))
+		   )
 		   AND NOT EXISTS (
 		       SELECT 1 FROM app.dunning_sends ds
 		        -- Throttle on the namespaced key, not the raw id: keyed bare, a card customer's
@@ -220,7 +249,8 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		 ORDER BY (x.dpd <= $5) DESC, x.outstanding_kobo DESC, x.dpd DESC
 		 LIMIT $2`,
 		dunningThrottleDays, dunningMaxPerRun(ctx, db),
-		dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db), dunningFreshDays(ctx, db))
+		dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db), dunningFreshDays(ctx, db),
+		dunningSkipRecovery(ctx, db))
 	if err != nil {
 		WorkerBeat(ctx, db, "collections_dunning", "error", "", err.Error())
 		return 0, fmt.Errorf("select dunning candidates: %w", err)

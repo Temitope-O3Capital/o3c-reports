@@ -49,6 +49,8 @@ interface Status {
   eligible_book?: BookCount
   below_floor?: BookCount
   unreachable?: { people: number; outstanding_kobo: number }
+  with_recovery?: { status: string; facilities: number; outstanding_kobo: number }[]
+  skip_recovery?: boolean
 }
 interface Send {
   id: number
@@ -131,6 +133,10 @@ export default function ArrearsReminders() {
   const live = status.mode === 'live'
   const tally = (o: string) => Number(totals.find(t => t.outcome === o)?.n ?? 0)
   const previewed = tally('staff_preview')
+  const legalHeld = status.with_recovery?.find(r => r.status === 'legal')?.facilities ?? 0
+  const recoveryHeld = (status.with_recovery ?? [])
+    .filter(r => r.status === 'legal' || (status.skip_recovery !== false && r.status === 'active'))
+    .reduce((n, r) => n + r.facilities, 0)
   const p = status.policy
 
   const cols: TableCol<Send>[] = [
@@ -255,6 +261,15 @@ export default function ArrearsReminders() {
           sub={status.unreachable
             ? `holding ${fmtKobo(status.unreachable.outstanding_kobo)} — no email, no phone`
             : undefined} />
+        {/* Held back because somebody is already on the case. 'legal' is excluded no
+            matter what the setting says: an automated "call us to arrange repayment"
+            to a borrower whose case is with solicitors contradicts what the company is
+            saying through its lawyers. */}
+        <KpiCard label="Already With Recovery" icon="gavel"
+          accent={recoveryHeld > 0 ? AMBER : 'var(--txt3)'} value={fmtNum(recoveryHeld)}
+          sub={legalHeld > 0
+            ? `${fmtNum(legalHeld)} with solicitors, never written to`
+            : 'not chased automatically'} />
         <KpiCard label="Previewed" icon="visibility" accent={NAVY} value={fmtNum(previewed)}
           sub="rendered to the staff inbox" />
         <KpiCard label="Sent To Customers" icon="campaign" accent={tally('sent') > 0 ? GREEN : 'var(--txt3)'}

@@ -103,6 +103,24 @@ func dunningStatus(db *core.DB) http.HandlerFunc {
 			dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db)); len(rows) > 0 {
 			out["unreachable"] = rows[0]
 		}
+		// Held back because somebody is already on the case. Split by status, because
+		// the two are not the same decision: 'legal' is excluded because writing to a
+		// borrower whose case is with solicitors is a risk nobody should be able to
+		// switch on, and 'active' is excluded by a setting Collections owns.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT rc.status,
+			       COUNT(DISTINCT d.key_cif) AS facilities,
+			       COALESCE(SUM(DISTINCT d.outstanding_kobo),0) AS outstanding_kobo
+			  FROM app.collections_delinquent_unified d
+			  JOIN app.recovery_cases rc ON rc.party_id = d.party_id
+			 WHERE d.dpd > 0 AND d.outstanding_kobo >= $1
+			   AND ($2 = 0 OR d.dpd <= $2)
+			   AND rc.status IN ('active','legal')
+			 GROUP BY rc.status ORDER BY rc.status`,
+			dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db)); len(rows) > 0 {
+			out["with_recovery"] = rows
+		}
+		out["skip_recovery"] = dunningSkipRecovery(ctx, db)
 		respond(w, out, "pg")
 	}
 }
