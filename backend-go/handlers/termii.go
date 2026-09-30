@@ -116,15 +116,24 @@ type termiiResponse struct {
 }
 
 // SendSMS sends a plain-text SMS via Termii. phone must be in international
-// format without the leading +  (e.g. "2348012345678"). Returns nil on success.
-// No-ops silently when TERMII_API_KEY is not set (staging without a key).
+// format without the leading +  (e.g. "2348012345678"). Returns nil on success,
+// and an error — never nil — when it could not send.
 func SendSMS(ctx context.Context, phone, message string) error {
 	apiKey := strings.TrimSpace(os.Getenv("TERMII_API_KEY"))
 	if apiKey == "" {
-		slog.Debug("Termii: TERMII_API_KEY not set — skipping SMS", "phone", phone)
-		return nil
+		// This RETURNED NIL until 2026-09-30, reasoning that staging has no key and
+		// should not error. But nil means success to every caller, so a missing key made
+		// an unsent SMS indistinguishable from a delivered one — and callers write that
+		// result into a customer's contact history. Recording that we texted someone
+		// about money they owe, having not texted them, is worse than any staging
+		// inconvenience. Staging now gets a clear error instead of a false receipt.
+		slog.Warn("Termii: TERMII_API_KEY not set — SMS NOT sent", "phone", phone)
+		return fmt.Errorf("termii: TERMII_API_KEY not configured, SMS not sent")
 	}
 
+	// api_credentials first via the env, same precedence as resolveCredKey, so the
+	// sender name is changeable without a redeploy. The hard-coded fallback is the
+	// cards brand and this is O3 Capital's lending book, so it is a last resort only.
 	senderID := strings.TrimSpace(os.Getenv("TERMII_SENDER_ID"))
 	if senderID == "" {
 		senderID = "O3 CARDS"

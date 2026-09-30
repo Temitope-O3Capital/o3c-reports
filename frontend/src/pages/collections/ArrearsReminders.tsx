@@ -51,6 +51,7 @@ interface Status {
   unreachable?: { people: number; outstanding_kobo: number }
   with_recovery?: { status: string; facilities: number; outstanding_kobo: number }[]
   skip_recovery?: boolean
+  channels?: { channel: string; ready: boolean; sender: string; reason: string }[]
 }
 interface Send {
   id: number
@@ -275,6 +276,44 @@ export default function ArrearsReminders() {
         <KpiCard label="Sent To Customers" icon="campaign" accent={tally('sent') > 0 ? GREEN : 'var(--txt3)'}
           value={fmtNum(tally('sent'))} sub={tally('suppressed') > 0 ? `${fmtNum(tally('suppressed'))} suppressed` : 'none yet'} />
       </div>
+
+      {/* Whether a channel could actually deliver tonight. This was not knowable from
+          the app: the credentials table showed both SendGrid and Termii blank, which
+          looked like nothing worked, while the environment held both and email had been
+          delivering for months. WhatsApp genuinely had nothing. Three different states,
+          all presenting as an empty row. */}
+      {status.channels && status.channels.length > 0 && (
+        <SectionCard title="Channels Ready To Send"
+          subtitle="Whether a live run could actually deliver, and what is missing where it could not"
+          style={{ marginBottom: SP[4] }}>
+          <div style={{ display: 'grid', gap: SP[2] }}>
+            {status.channels.map(c => (
+              <div key={c.channel} style={{
+                display: 'flex', alignItems: 'flex-start', gap: SP[3],
+                padding: SP[2], borderRadius: RADIUS.md,
+                background: c.ready ? `${GREEN}0a` : `${AMBER}0a`,
+                border: `1px solid ${c.ready ? GREEN : AMBER}22`,
+              }}>
+                <span className="material-symbols-rounded"
+                  style={{ fontSize: 20, color: c.ready ? GREEN : AMBER, lineHeight: 1.2 }}>
+                  {c.ready ? 'check_circle' : 'error'}
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: INTER, fontWeight: FW.semibold, fontSize: TEXT.sm, color: 'var(--txt1)' }}>
+                    {c.channel === 'sms' ? 'SMS' : c.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
+                    {c.sender && (
+                      <span style={{ fontWeight: FW.normal, color: 'var(--txt2)' }}>
+                        {' '}· shows as {c.sender}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{c.reason}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
 
       <SectionCard title="Policy In Force" subtitle="Set in configuration, applied every run"
         style={{ marginBottom: SP[4] }}>

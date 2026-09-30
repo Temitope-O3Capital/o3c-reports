@@ -19,6 +19,7 @@ package handlers
 // requiring the elevated collections permission and writing an activity log entry.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -121,8 +122,77 @@ func dunningStatus(db *core.DB) http.HandlerFunc {
 			out["with_recovery"] = rows
 		}
 		out["skip_recovery"] = dunningSkipRecovery(ctx, db)
+		out["channels"] = dunningChannelReadiness(ctx, db)
 		respond(w, out, "pg")
 	}
+}
+
+// dunningChannelReadiness answers "if this went live tonight, would it actually leave
+// the building" for each channel, and names the missing piece when it would not.
+//
+// This exists because the answer was not knowable from the app. On 2026-09-30 the
+// credentials table showed TERMII_API_KEY and SENDGRID_API_KEY both EMPTY, which looked
+// like neither channel worked — but resolveCredKey reads the environment first and
+// backend-go/.env holds both, so email had in fact been delivering for months and SMS
+// was one setting away. Meanwhile WhatsApp genuinely had nothing, on any channel,
+// anywhere. Three different states, all presenting identically as a blank row.
+//
+// Configuration only: no call leaves the process here, so opening this page cannot cost
+// money or hang on a provider. A funded balance and an approved sender ID are separate
+// facts, and the Termii status endpoint is where those live.
+func dunningChannelReadiness(ctx context.Context, db *core.DB) []map[string]any {
+	type chk struct {
+		channel string
+		ready   bool
+		sender  string
+		reason  string
+	}
+	var out []chk
+
+	sgKey := resolveCredKey(ctx, db, "SENDGRID_API_KEY")
+	from := coalesce(resolveCredKey(ctx, db, "EMAIL_FROM_ADDRESS"), resolveCredKey(ctx, db, "SENDGRID_FROM_EMAIL"))
+	switch {
+	case sgKey == "":
+		out = append(out, chk{"email", false, "", "No SendGrid API key. Set SENDGRID_API_KEY."})
+	case from == "":
+		out = append(out, chk{"email", false, "", "No sender address. Set EMAIL_FROM_ADDRESS."})
+	default:
+		out = append(out, chk{"email", true, from, "SendGrid is configured and has delivered."})
+	}
+
+	termii := resolveCredKey(ctx, db, "TERMII_API_KEY")
+	sender := coalesce(resolveCredKey(ctx, db, "TERMII_SENDER_ID"), termiiSenderID)
+	switch {
+	case termii == "":
+		out = append(out, chk{"sms", false, "", "No Termii API key. Set TERMII_API_KEY."})
+	case sender == "":
+		out = append(out, chk{"sms", false, "", "No sender name. Set TERMII_SENDER_ID."})
+	default:
+		out = append(out, chk{"sms", true, sender,
+			"Termii is configured. Check the balance and that this sender name is approved."})
+	}
+
+	waToken := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
+	waPhone := resolveCredKey(ctx, db, "WHATSAPP_PHONE_NUMBER_ID")
+	switch {
+	case waToken == "" && waPhone == "":
+		out = append(out, chk{"whatsapp", false, "",
+			"No WhatsApp credentials at all. Needs a Meta Business number before anything can be sent."})
+	case waToken == "":
+		out = append(out, chk{"whatsapp", false, waPhone, "No access token. Set WHATSAPP_ACCESS_TOKEN."})
+	case waPhone == "":
+		out = append(out, chk{"whatsapp", false, "", "No phone number id. Set WHATSAPP_PHONE_NUMBER_ID."})
+	default:
+		out = append(out, chk{"whatsapp", true, waPhone, "WhatsApp is configured."})
+	}
+
+	rows := make([]map[string]any, 0, len(out))
+	for _, c := range out {
+		rows = append(rows, map[string]any{
+			"channel": c.channel, "ready": c.ready, "sender": c.sender, "reason": c.reason,
+		})
+	}
+	return rows
 }
 
 // dunningSends lists attempts, newest first. Every outcome is included — a suppressed
