@@ -12,6 +12,7 @@ import { apiFetch, apiPut } from '../../lib/api'
 import { useFocusParam } from '../../hooks/useFocusParam'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ function ageDays(iso: string): number {
   return ms > 0 ? Math.floor(ms / 86_400_000) : 0
 }
 
-const prettyChannel = (c: string) => c.replace(/_/g, ' ')
+const prettyChannel = (c: string) => humanLabel(c)
 
 // ── Review Modal ──────────────────────────────────────────────────────────────
 

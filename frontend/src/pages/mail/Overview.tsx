@@ -6,6 +6,7 @@ import { apiFetch, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
 import { NAVY, BLUE, GREEN, AMBER, RED, PURPLE, MONO, TEXT, FW, SP } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -132,13 +133,13 @@ export default function MailOverview() {
                 inner={44}
                 outer={68}
                 valueFmt={fmtNum}
-                nameFmt={s => String(s).replace(/_/g, ' ')}
+                nameFmt={s => humanLabel(String(s))}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                 {donut.map((d, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm }}>
                     <span style={{ width: 9, height: 9, borderRadius: 3, background: colorFor(d.status), flexShrink: 0 }} />
-                    <span style={{ color: 'var(--txt2)', textTransform: 'capitalize' }}>{d.status.replace(/_/g, ' ')}</span>
+                    <span style={{ color: 'var(--txt2)' }}>{humanLabel(d.status)}</span>
                     <span style={{ marginLeft: 'auto', fontFamily: MONO, color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtNum(d.count)}</span>
                   </div>
                 ))}

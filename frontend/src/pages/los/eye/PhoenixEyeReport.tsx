@@ -18,6 +18,7 @@ import { CreditReportBody, type ReportResp } from '../CreditReport'
 import type { EyeDecisionDetail } from './eyeTypes'
 import './phoenix-tokens.css'
 import './phoenix-content.css'
+import { humanLabel } from '../../../lib/labels'
 
 type Resp = {
   decision: EyeDecisionDetail | null
@@ -134,7 +135,7 @@ export function PrequalSection({ appId }: { appId: number | string }) {
     else if (r.recommended_amount_minor != null) facts.push(`Amount ${fmtKobo(Number(r.recommended_amount_minor))}`)
     if (r.disposable_income_minor != null) facts.push(`Disposable ${fmtKobo(Number(r.disposable_income_minor))}/mo`)
   }
-  const gateRaw = r?.hard_gate_triggered ? String(r.hard_gate_reason ?? '').replace(/^hard_gate_/, '').replace(/_/g, ' ') : ''
+  const gateRaw = r?.hard_gate_triggered ? humanLabel(String(r.hard_gate_reason ?? '').replace(/^hard_gate_/, '')) : ''
   const gate = gateRaw.length > 0 && gateRaw.length <= 4 ? gateRaw.toUpperCase() : gateRaw
   const flags = Array.isArray(r?.risk_flags) ? r!.risk_flags.length : 0
 
@@ -155,7 +156,7 @@ export function PrequalSection({ appId }: { appId: number | string }) {
         {route && (
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', padding: '2px 9px', borderRadius: 20,
             color: routeTone, background: `color-mix(in srgb, ${routeTone} 12%, transparent)` }}>
-            {route.replace(/_/g, ' ')}
+            {humanLabel(route)}
           </span>
         )}
         <span style={{ fontSize: 12.5, color: 'var(--txt2)', flex: '1 1 240px', minWidth: 0, lineHeight: 1.5 }}>

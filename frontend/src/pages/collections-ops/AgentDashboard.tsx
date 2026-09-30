@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, HeroButton, LiveBadge, myUserId, relTime } from '../../components/MyWorkspace'
 import { TierBadge, PctBar, tierFromPct } from '../../components/TierBadge'
 import { NameCell } from '../../components/UI'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -240,7 +241,7 @@ export default function AgentDashboard() {
     },
     {
       key: 'current_stage', label: 'Stage',
-      render: r => <span style={{ fontSize: TEXT.sm, color: r.current_stage && r.current_stage !== 'unassigned' ? 'var(--txt2)' : 'var(--txt3)', textTransform: 'capitalize' }}>{r.current_stage ? r.current_stage.replace(/_/g, ' ') : '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: r.current_stage && r.current_stage !== 'unassigned' ? 'var(--txt2)' : 'var(--txt3)' }}>{r.current_stage ? humanLabel(r.current_stage) : '—'}</span>,
     },
     {
       key: 'id', label: 'Actions', align: 'right',

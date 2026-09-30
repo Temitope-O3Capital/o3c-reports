@@ -1221,7 +1221,7 @@ export function DataTable<T extends Record<string, any>>({
                     : opts.map(val => {
                       const display = f.getLabel
                         ? f.getLabel(val)
-                        : val.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                        : humanLabel(val)
                       const chip  = f.chipStyle?.(val)
                       const count = rows.filter(r => String(r[f.key] ?? '') === val).length
                       return (
@@ -1284,7 +1284,7 @@ export function DataTable<T extends Record<string, any>>({
             [...(activeFilters[f.key] ?? new Set<string>())].map(val => {
               const display = f.getLabel
                 ? f.getLabel(val)
-                : val.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                : humanLabel(val)
               const chip = f.chipStyle?.(val)
               return (
                 <span key={`${f.key}:${val}`} style={{

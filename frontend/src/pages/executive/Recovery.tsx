@@ -7,6 +7,7 @@ import { fmtKobo, fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, DARKRED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
 import { Stat, Note, ytick, share } from './shared'
 import { SEVERITY } from '../../components/charts'
+import { humanLabel } from '../../lib/labels'
 
 interface ExecRecovery {
   period: { type: string; start: string; end: string }
@@ -277,7 +278,7 @@ export default function ExecRecovery() {
                       <div style={{ width: 26, height: 26, borderRadius: 8, background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, fontFamily: INTER, flexShrink: 0 }}>{i + 1}</div>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium }}>{a.name}</div>
-                        {a.role && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER, textTransform: 'capitalize' }}>{a.role.replace(/_/g, ' ')}</div>}
+                        {a.role && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER }}>{humanLabel(a.role)}</div>}
                       </div>
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(a.open_cases)}</td>

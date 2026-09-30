@@ -13,6 +13,7 @@ import { apiFetch, apiPut } from '../../lib/api'
 import { useFocusParam } from '../../hooks/useFocusParam'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // Manual HOP → COO approval for collections payments (CFO removed from payments). Payments log as pending and
 // the GL posts only at the final (COO) approval — mirrors the recovery-payment chain.
@@ -38,7 +39,7 @@ const FINAL_ROLE = 'coo'
 function getUser(): { role?: string } {
   try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') } catch { return {} }
 }
-const prettyChannel = (c: string) => (c ?? '').replace(/_/g, ' ')
+const prettyChannel = (c: string) => humanLabel((c ?? ''))
 function ageDays(iso: string): number {
   const ms = Date.now() - new Date(iso).getTime()
   return ms > 0 ? Math.floor(ms / 86_400_000) : 0

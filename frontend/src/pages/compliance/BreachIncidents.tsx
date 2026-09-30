@@ -6,6 +6,7 @@ import { apiFetch, apiPost, apiPatch } from '../../lib/api'
 import { fmtDate, today } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, TEXT, FW, SP, RADIUS, NUM } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 interface BreachIncident {
   id: number
@@ -258,7 +259,7 @@ export default function BreachIncidents() {
               <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Breach Type</label>
               <select value={form.breach_type} onChange={e => setForm(f => ({ ...f, breach_type: e.target.value }))} style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
                 {['unauthorized_access','data_loss','ransomware','insider_threat','phishing','other'].map(t => (
-                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                  <option key={t} value={t}>{humanLabel(t)}</option>
                 ))}
               </select>
             </div>
@@ -292,7 +293,7 @@ export default function BreachIncidents() {
             {detail.description && <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', lineHeight: 1.55 }}>{detail.description}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
               {[
-                ['Breach Type', detail.breach_type.replace(/_/g, ' ')],
+                ['Breach Type', humanLabel(detail.breach_type)],
                 ['Affected Records', detail.affected_records ?? '—'],
                 ['Discovered', fmtDate(detail.discovered_at)],
                 ['NDPC Deadline', fmtDate(detail.notify_deadline_at)],

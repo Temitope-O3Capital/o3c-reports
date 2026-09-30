@@ -5,6 +5,7 @@ import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ export default function AdminAuditLog() {
     { key: 'ts', label: 'Time', sortable: true, width: 155,
       render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDatetime(r.ts)}</span> },
     { key: 'full_name', label: 'User',
-      render: r => <NameCell name={r.full_name ?? r.email ?? 'Unknown'} sub={r.role ? r.role.replace(/_/g, ' ') : undefined} /> },
+      render: r => <NameCell name={r.full_name ?? r.email ?? 'Unknown'} sub={r.role ? humanLabel(r.role) : undefined} /> },
     { key: 'page', label: 'Module',
       render: r => <span style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.sm, padding: '2px 9px', fontWeight: FW.semibold }}>{r.page}</span> },
     { key: 'action', label: 'Action',

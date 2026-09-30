@@ -4,6 +4,7 @@ import { Page, ErrBanner, StatusBadge, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -727,7 +728,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       <td style={{ ...TD_STYLE, ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{String(d.transaction_reference || '—')}</td>
                       <td style={{ ...TD_STYLE, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{String(cust.email || '—')}</td>
                       <td style={{ ...TD_STYLE, ...NUM, fontWeight: FW.semibold, color: RED }}>{fmtKoboExact(n(d.refund_amount))}</td>
-                      <td style={{ ...TD_STYLE, fontSize: TEXT.sm, textTransform: 'capitalize', color: 'var(--txt2)' }}>{String(d.category || '—').replace(/_/g, ' ')}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{humanLabel(String(d.category || '—'))}</td>
                       <td style={TD_STYLE}><StatusBadge status={String(d.status || 'pending')} /></td>
                       <td style={{ ...TD_STYLE, fontSize: TEXT.sm, textTransform: 'capitalize', color: 'var(--txt2)' }}>{String(d.resolution || '—').replace(/-/g, ' ')}</td>
                       <td style={{ ...TD_STYLE, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(String(d.dueAt || ''))}</td>

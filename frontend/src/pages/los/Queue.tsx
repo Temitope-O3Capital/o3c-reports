@@ -8,6 +8,7 @@ import { hasPage } from '../../hooks/useAuth'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { decisionMeta, syncStateMeta } from '../../lib/losFlow'
+import { humanLabel } from '../../lib/labels'
 
 interface LoanApp {
   id: number
@@ -61,7 +62,7 @@ const STAGES = [
 
 function StagePill({ stage }: { stage: string }) {
   const s = STAGE_COLORS[stage] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
-  const label = stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const label = humanLabel(stage)
   return (
     <span style={{
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
@@ -71,7 +72,7 @@ function StagePill({ stage }: { stage: string }) {
 }
 
 function ProductPill({ product }: { product: string }) {
-  const label = product.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const label = humanLabel(product)
   return (
     <span style={{
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
@@ -235,7 +236,7 @@ export default function LOSQueue() {
       key: 'product', label: 'Product',
       options: products.map(p => ({
         value: p,
-        label: p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        label: humanLabel(p),
         count: dateFiltered.filter(r => r.product_type === p).length,
       })),
       selected: fProducts, onChange: setFProducts,
@@ -244,7 +245,7 @@ export default function LOSQueue() {
       key: 'stage', label: 'Stage',
       options: STAGES.map(s => ({
         value: s,
-        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        label: humanLabel(s),
         count: dateFiltered.filter(r => r.stage === s).length,
         color: STAGE_COLORS[s]?.txt,
       })),
@@ -255,7 +256,7 @@ export default function LOSQueue() {
       key: 'status', label: 'Status',
       options: statuses.map(s => ({
         value: s,
-        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        label: humanLabel(s),
         count: dateFiltered.filter(r => r.status === s).length,
       })),
       selected: fStatuses, onChange: setFStatuses,
@@ -510,7 +511,7 @@ export default function LOSQueue() {
             <option value={0}>Select a reviewer…</option>
             {team.map(u => (
               <option key={u.id} value={u.id}>
-                {u.full_name}{u.role ? ` · ${u.role.replace(/_/g, ' ')}` : ''}
+                {u.full_name}{u.role ? ` · ${humanLabel(u.role)}` : ''}
               </option>
             ))}
           </select>

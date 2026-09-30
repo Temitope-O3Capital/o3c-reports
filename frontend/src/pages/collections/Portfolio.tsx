@@ -13,6 +13,7 @@ import { fmtKoboExact, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { TierBadge, PctBar } from '../../components/TierBadge'
 import { isInternalId, idCaption } from '../../components/CreditFile'
+import { humanLabel } from '../../lib/labels'
 
 function getStoredRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
@@ -265,7 +266,7 @@ export default function CollectionsPortfolio() {
   const stageOptions = useMemo(() => {
     const set = new Set<string>()
     for (const r of rows) if (r.current_stage) set.add(r.current_stage)
-    return [...set].sort().map(value => ({ value, label: value.replace(/_/g, ' ') }))
+    return [...set].sort().map(value => ({ value, label: humanLabel(value) }))
   }, [rows])
 
   const portfolioCols: TableCol<PortfolioRow>[] = [
@@ -295,7 +296,7 @@ export default function CollectionsPortfolio() {
     { key: 'source', label: 'Territory', sortable: true, render: r => <TerritoryBadge dpd={r.dpd_lower} /> },
     {
       key: 'current_stage', label: 'Stage', sortable: true,
-      render: r => <span style={{ fontSize: TEXT.sm, color: r.current_stage && r.current_stage !== 'unassigned' ? 'var(--txt2)' : 'var(--txt3)', textTransform: 'capitalize' }}>{r.current_stage ? r.current_stage.replace(/_/g, ' ') : '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: r.current_stage && r.current_stage !== 'unassigned' ? 'var(--txt2)' : 'var(--txt3)' }}>{r.current_stage ? humanLabel(r.current_stage) : '—'}</span>,
     },
     { key: 'loc_kobo', label: 'LOC / Principal', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtKoboExact(r.loc_kobo)}</span> },
     {

@@ -3,6 +3,7 @@ import { apiFetch } from '../lib/api'
 import { fmtDatetime } from '../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, RED, AMBER } from '../lib/design'
 import { Spinner } from './UI'
+import { humanLabel } from '../lib/labels'
 
 // One call-centre call for a customer, from GET /api/collections/calls/cif/{cif}.
 interface CallRow {
@@ -85,7 +86,7 @@ export default function CallsPanel({ cif }: { cif: string }) {
 function Pill({ text, color }: { text: string; color: string }) {
   return (
     <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: `${color}14`, color }}>
-      {text.replace(/_/g, ' ')}
+      {humanLabel(text)}
     </span>
   )
 }

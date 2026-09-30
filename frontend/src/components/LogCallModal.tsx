@@ -5,6 +5,7 @@ import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, SORA, FW, RADIUS, SP, TEXT } fro
 import { TICKET_TYPES } from '../lib/ticketTypes'
 import { toast } from 'sonner'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from './CustomerSearch'
+import { humanLabel } from '../lib/labels'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // One Log-a-Call modal, shared by the Call Log and the agent My-Dashboard so the
@@ -1079,7 +1080,7 @@ export function callOutcomeLabel(
       return outbound ? 'Outbound' : 'Inbound'
   }
   // Anything else: title-case whatever was stored rather than hiding it.
-  return o.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+  return humanLabel(o)
 }
 
 // ── Grouping a dialling episode into one conversation ─────────────────────────

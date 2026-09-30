@@ -16,6 +16,7 @@ import NewApplicationModal, { type DraftApp } from '../../components/NewApplicat
 // from this page was refused with a 403, so the follow-up date went nowhere.
 import SalesActivityModal, { type SalesActivityLead } from '../../components/SalesActivityModal'
 import { productLabel } from '../../lib/products'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -246,7 +247,7 @@ export default function SalesMyDashboard() {
                   <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)' }}>
                     <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/sales/customers/${f.id}`)}>
                       <div style={{ fontWeight: FW.semibold, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name ?? 'Unknown lead'}</div>
-                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{f.lead_stage === 'qualified' ? 'interested' : f.lead_stage?.replace(/_/g, ' ')}{f.phone ? ` · ${f.phone}` : ''}</div>
+                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{f.lead_stage === 'qualified' ? 'Interested' : humanLabel(f.lead_stage)}{f.phone ? ` · ${f.phone}` : ''}</div>
                     </div>
                     <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
                     <button onClick={() => setLogLead({ id: f.id, name: f.name, stage: f.lead_stage })}

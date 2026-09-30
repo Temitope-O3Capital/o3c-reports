@@ -4,6 +4,7 @@ import { Page, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { GREEN, NAVY, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 // Backend GET /api/admin/notification-settings returns rows from
@@ -45,7 +46,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 }
 
 function labelOf(key: string): string {
-  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  return humanLabel(key)
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────

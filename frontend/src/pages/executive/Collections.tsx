@@ -7,6 +7,7 @@ import { fmtKobo, fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, DARKRED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
 import { Stat, Note, ytick, share } from './shared'
 import { SEVERITY } from '../../components/charts'
+import { humanLabel } from '../../lib/labels'
 
 interface ExecCollections {
   period: { type: string; start: string; end: string }
@@ -213,7 +214,7 @@ export default function ExecCollections() {
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium }}>{a.name}</div>
-                      {a.role && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER, textTransform: 'capitalize' }}>{a.role.replace(/_/g, ' ')}</div>}
+                      {a.role && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER }}>{humanLabel(a.role)}</div>}
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(a.accounts)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(a.assigned_kobo)}</td>

@@ -7,6 +7,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtCount, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // Dial a number through the WebRTC softphone (CallWidget listens for 'o3c:dial').
 // This is what makes "Call back" work from the inbound list — the widget expands and
@@ -192,7 +193,7 @@ function CallFlow({ call, legs, loading }: { call: InboundCall; legs: RingLeg[] 
                     <span style={{ ...NUM, color: 'var(--txt3)', width: 16, textAlign: 'right' }}>{leg.position}.</span>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: col, flexShrink: 0 }} />
                     <span style={{ fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 150 }}>{leg.agent_full_name || leg.agent_name || 'Agent'}</span>
-                    <span style={{ color: col, fontWeight: FW.semibold, textTransform: 'capitalize' }}>{(leg.outcome || '—').replace(/_/g, ' ')}</span>
+                    <span style={{ color: col, fontWeight: FW.semibold }}>{humanLabel((leg.outcome || '—'))}</span>
                     {leg.ring_sec != null && <span style={{ ...NUM, color: 'var(--txt3)' }}>rang {fmtWait(leg.ring_sec)}</span>}
                   </div>
                 )

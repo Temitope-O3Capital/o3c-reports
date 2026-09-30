@@ -7,6 +7,7 @@ import {
   Wallet, CornerDownRight, Building2, FlaskConical,
 } from "lucide-react";
 import { toast } from "sonner";
+import { humanLabel } from "../../../lib/labels";
 import { Modal, FieldLabel } from "./vendor/Modal";
 import { EmptyState } from "./vendor/EmptyState";
 import { SkeletonText } from "./vendor/Loading";
@@ -440,7 +441,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
   if (pCashFlow.numberOfTransactingMonths != null) periculumOnlyRows.push({ label: "Transacting Months", value: String(pCashFlow.numberOfTransactingMonths) });
   if (pBehavioral.gamblingStatus) periculumOnlyRows.push({ label: "Gambling Status", value: String(pBehavioral.gamblingStatus) });
   if (pBehavioral.accountActivity != null) periculumOnlyRows.push({ label: "Account Activity", value: pct(num(pBehavioral.accountActivity)) });
-  if (pSpend.mostFrequentSpendCategory) periculumOnlyRows.push({ label: "Most Frequent Spend Category", value: String(pSpend.mostFrequentSpendCategory).replace(/_/g, " ") });
+  if (pSpend.mostFrequentSpendCategory) periculumOnlyRows.push({ label: "Most Frequent Spend Category", value: humanLabel(String(pSpend.mostFrequentSpendCategory)) });
   const pHighestSpend = periculumMinor(pSpend.highestSpend);
   if (pHighestSpend != null && pSpend.monthWithHighestSpend) periculumOnlyRows.push({ label: `Highest-Spend Month (${pSpend.monthWithHighestSpend})`, value: formatMoney(pHighestSpend, currency) });
   if (periculum?.confidenceOnParsing != null) periculumOnlyRows.push({ label: "Periculum Parsing Confidence", value: pct(num(periculum.confidenceOnParsing)) });
@@ -458,7 +459,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
           {signals.map((s) => (
             <span key={s} style={{ padding: "4px 10px", borderRadius: "var(--r-pill)", background: "var(--paper)", border: "1px solid var(--rule)", font: "600 11px/1 var(--font)", color: "var(--ink-soft)", textTransform: "capitalize" }}>
-              {s.replace(/_/g, " ")}
+              {humanLabel(s)}
             </span>
           ))}
         </div>
@@ -583,7 +584,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
               {mostRecurringExpenseDescription}
             </div>
             {pMostRecurringExpenseDesc && (
-              <PericulumAside>{formatMoney(pTotalRecurringExpense ?? 0, currency)} · {pMostRecurringExpenseDesc.replace(/_/g, " ")}</PericulumAside>
+              <PericulumAside>{formatMoney(pTotalRecurringExpense ?? 0, currency)} · {humanLabel(pMostRecurringExpenseDesc)}</PericulumAside>
             )}
           </div>
         )}
@@ -672,7 +673,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {Object.entries(incomeByChannel).map(([ch, v]) => (
               <div key={ch} style={{ padding: "8px 12px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
-                <div style={{ font: "600 11px/1 var(--font)", color: "var(--ink-soft)", textTransform: "capitalize" }}>{ch.replace(/_/g, " ")}</div>
+                <div style={{ font: "600 11px/1 var(--font)", color: "var(--ink-soft)" }}>{humanLabel(ch)}</div>
                 <div style={{ font: "700 13px/1.4 var(--font-mono)", color: "var(--ink)", marginTop: 2 }}>
                   {formatMoney(v?.total_minor ?? 0, currency)} <span style={{ font: "500 11px/1 var(--font)", color: "var(--ink-faint)" }}>· {v?.count ?? 0}x</span>
                 </div>

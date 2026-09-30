@@ -11,6 +11,7 @@ import { rate, per, na, isOk, fmtM, cmpM } from '../../lib/measure'
 import type { Measure } from '../../lib/measure'
 import { rankFindings, findingFrom, checkSequence } from '../../lib/insights'
 import type { Finding, SeqStep } from '../../lib/insights'
+import { humanLabel } from '../../lib/labels'
 
 // Mobile Analytics — action-driving install / source / funnel / campaign analytics
 // for O3's mobile apps, mirrored from AppsFlyer. One page, parameterised by product
@@ -92,9 +93,9 @@ const SOURCE_LABEL: Record<string, string> = {
   Organic: 'Organic', None: 'Direct / None',
   googleadwords_int: 'Google Ads', restricted: 'Restricted (SKAN)',
 }
-const prettySource   = (s: string) => SOURCE_LABEL[s] ?? s.replace(/_int$/, '').replace(/_/g, ' ')
+const prettySource   = (s: string) => SOURCE_LABEL[s] ?? humanLabel(s.replace(/_int$/, ''))
 const prettyCampaign = (c: string) => (!c || c === 'None') ? 'Direct / No Campaign' : c
-const prettyEvent    = (e: string) => e.replace(/^af_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+const prettyEvent    = (e: string) => humanLabel(e.replace(/^af_/, ''))
 const usd  = (n: number | null) => (n === null || !isFinite(n)) ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const isPaid = (s: string) => s !== 'Organic' && s !== 'None' && s !== ''
 const pctChange = (cur: number, prev: number): number | undefined => prev > 0 ? (cur - prev) / prev * 100 : undefined

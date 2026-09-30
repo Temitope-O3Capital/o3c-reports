@@ -9,6 +9,7 @@ import { GREEN, AMBER, BLUE, NAVY, NUM, TEXT, FW, SP } from '../../lib/design'
 import { useLiveData } from '../../hooks/useRealtime'
 import { currentUser, hasPage } from '../../hooks/useAuth'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 /*
   Card Sales Credit.
@@ -79,7 +80,7 @@ const ROW_CAP = 2000
 const BULK_CAP = 1000
 
 const productLabel = (r: CardRow) => (r.product_line === 'card' ? 'Credit Card' : 'Prepaid')
-const roleText = (role: string) => role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+const roleText = (role: string) => humanLabel(role)
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 

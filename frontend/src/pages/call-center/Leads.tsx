@@ -16,6 +16,7 @@ import CallLogEditModal, { type EditableCall } from '../../components/CallLogEdi
 import { RecordingModal } from '../../components/RecordingPlayer'
 import { PRODUCT_LINES, PRODUCT_SUBS } from '../../lib/products'
 import { isCallCentreSupervisor } from '../../lib/roles'
+import { humanLabel } from '../../lib/labels'
 
 // Heads/supervisors distribute and (re)assign leads; agents only work their own book.
 // Answered once for the whole module in lib/roles — the regex this replaced matched on
@@ -108,7 +109,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLOR[status] ?? '#6B7280'
-  const label = status.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+  const label = humanLabel(status)
   return (
     <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>
       {label}
@@ -349,7 +350,7 @@ type TimelineTab = 'all' | 'calls' | 'activity'
 
 // Activity types and team names arrive as snake_case codes ('stage_change',
 // 'customer_care'). They are labels, not data values, so they read as Title Case.
-const titleWords = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+const titleWords = (s: string) => humanLabel(s)
 
 // Acronyms the word-by-word capitaliser gets wrong: it turns 'sla_breach' into
 // "Sla Breach", and one row in app.activities is already stored with that spelling.
@@ -804,7 +805,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                             ) : a.status ? (
                               <span style={{ ...stateChip, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{titleWords(a.status)}</span>
                             ) : null}
-                          {a.outcome && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'capitalize' }}>{a.outcome.replace(/_/g, ' ')}</span>}
+                          {a.outcome && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{humanLabel(a.outcome)}</span>}
                           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>{fmtDatetime(a.occurred_at)}</span>
                         </div>
                         {a.body && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{a.body}</div>}

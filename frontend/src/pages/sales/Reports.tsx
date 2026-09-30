@@ -6,6 +6,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 import { EArea, EBar, EDonut } from '../../components/echarts'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -151,7 +152,7 @@ export default function SalesReports() {
         <SectionCard title="Contacts by Source">
           {sources.length > 0 ? (
             <EDonut
-              data={sources.map(s => ({ source: String(s.source).replace(/_/g, ' '), total: Number(s.total) }))}
+              data={sources.map(s => ({ source: humanLabel(String(s.source)), total: Number(s.total) }))}
               valueKey="total"
               nameKey="source"
               colorFn={(_, i) => SOURCE_COLORS[i % SOURCE_COLORS.length]}

@@ -6,6 +6,7 @@ import { fmtNum } from '../../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, NAVY, PURPLE, INTER, TEXT, FW, SP, RADIUS } from '../../../lib/design'
 import { currentUser, hasPage } from '../../../hooks/useAuth'
 import { MGMT } from '../../../lib/roles'
+import { humanLabel } from '../../../lib/labels'
 
 /*
   Shared pieces for the Email Reports list and the report editor: the API shapes,
@@ -170,7 +171,7 @@ export const COVERS: Record<Cadence, string> = {
 }
 
 export function ruleLabel(catalogue: Catalogue | null, id: string): string {
-  return catalogue?.due_rules.find(r => r.id === id)?.label ?? id.replace(/_/g, ' ')
+  return catalogue?.due_rules.find(r => r.id === id)?.label ?? humanLabel(id)
 }
 
 export function audienceLabel(catalogue: Catalogue | null, id: string): string {

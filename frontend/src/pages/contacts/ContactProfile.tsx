@@ -11,6 +11,7 @@ import { currencyName } from '../../lib/currency'
 import { toast } from 'sonner'
 import HandoffActions, { HandoffStatusChip, handoffOpen, type HandoffViewer } from '../../components/HandoffActions'
 import LogActivityModal from '../../components/LogActivityModal'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -297,7 +298,7 @@ function InfoGrid({ children }: { children: React.ReactNode }) {
 }
 
 function StagePill({ stage }: { stage: string }) {
-  const label = stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const label = humanLabel(stage)
   const colour = statusColour(stage)
   return <Badge label={label} colour={colour} />
 }
@@ -1761,7 +1762,7 @@ function OverviewTab({ profile, identity, customerKey, onOpenTab, onPepRevealed 
       {profile.crm && (
         <SectionCard title="Sales Record">
           <InfoGrid>
-            <InfoPair label="Status"       icon="flag"          value={profile.crm.status.replace(/_/g,' ')} />
+            <InfoPair label="Status"       icon="flag"          value={humanLabel(profile.crm.status)} />
             <InfoPair label="Assigned To"  icon="support_agent" value={profile.crm.assigned_to} />
             <InfoPair label="Since"        icon="event"         value={fmtDate(profile.crm.created_at)} />
           </InfoGrid>
@@ -2150,7 +2151,7 @@ const MODULE_LABEL: Record<string, { label: string; colour: string }> = {
 }
 
 function fmtStage(s: string) {
-  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  return humanLabel(s)
 }
 
 // ── Live interaction timeline (calls / tickets / collections) ─────────────────
@@ -2247,7 +2248,7 @@ function InteractionTimeline({ cif, refreshSignal }: { cif: string; refreshSigna
           // row humanises its raw action ("promise_created" → "Promise Created");
           // other kinds keep their server-supplied title.
           const heading = it.kind === 'call' ? `Call${dirLabel ? ': ' + dirLabel : ''}`
-                        : it.kind === 'credit' ? (it.title || 'Credit activity').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                        : it.kind === 'credit' ? humanLabel(it.title || 'Credit activity')
                         : (it.title || it.kind)
           const result  = it.outcome || it.status || ''
           const dur     = fmtDur(it.duration_sec)
@@ -2300,7 +2301,7 @@ function SystemActivityList({ profile }: { profile: ContactProfileData }) {
       {profile.activity_log.map((a, i) => {
         const icon    = ACTIVITY_ICON[a.type] ?? 'history'
         const isLast  = i === profile.activity_log.length - 1
-        const title   = a.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        const title   = humanLabel(a.type)
         const mod     = MODULE_LABEL[a.module]
         // meta may be "from_stage → to_stage" for LOS or "Call · Promised to pay" for collections
         const metaParts = a.meta ? a.meta.split(' → ') : []
@@ -2407,7 +2408,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   bank_statement: 'Bank Statement', payslip: 'Payslip', employment_letter: 'Employment Letter',
   signature: 'Signature', photo: 'Passport Photo', other: 'Other Document',
 }
-function docLabel(t: string) { return DOC_TYPE_LABEL[t] ?? t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+function docLabel(t: string) { return DOC_TYPE_LABEL[t] ?? humanLabel(t) }
 function isImageDoc(name: string) { return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name) }
 function isPdfDoc(name: string) { return /\.pdf$/i.test(name) }
 function fmtBytes(n: number | null) {
@@ -2523,7 +2524,7 @@ function isCreditHead(): boolean {
 
 const accStatusColor: Record<string, string> = { pending: AMBER, approved: GREEN, rejected: RED }
 
-function titleCase(s: string) { return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+function titleCase(s: string) { return humanLabel(s) }
 
 function RequestAccommodationModal({ cif, open, onClose, onDone }: {
   cif: string; open: boolean; onClose: () => void; onDone: () => void

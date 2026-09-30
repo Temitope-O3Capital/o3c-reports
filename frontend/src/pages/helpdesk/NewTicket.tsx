@@ -3,6 +3,7 @@ import { Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { RED, NAVY, GREEN, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from '../../components/CustomerSearch'
+import { humanLabel } from '../../lib/labels'
 
 export interface InitialCustomer { cif?: string; name?: string; phone?: string }
 
@@ -374,7 +375,7 @@ export default function NewTicketForm({
         customer_phone: customerPhone || undefined,
         customer_cif: customerCif || undefined,
         message_text: description.trim() || Object.entries(customFields)
-          .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+          .map(([k, v]) => `${humanLabel(k)}: ${v}`)
           .join('\n'),
         custom_fields: customFields,
         ...(agentId != null ? { assigned_to: agentId } : {}),

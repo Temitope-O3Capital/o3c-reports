@@ -5,6 +5,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, fmtPct } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, RED, BLUE, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ const COLS: TableCol<DetailRow>[] = [
           fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
           borderRadius: RADIUS.full, background: cfg.bg, color: cfg.txt,
         }}>
-          {r.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+          {humanLabel(r.status)}
         </span>
       )
     },
@@ -171,7 +172,7 @@ export default function CohortDetail() {
                       <div key={stage}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                           <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', textTransform: 'capitalize' }}>
-                            {stage.replace(/_/g, ' ')}
+                            {humanLabel(stage)}
                           </span>
                           <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: cfg.color }}>
                             {fmtNum(count)} ({fmtPct(pct, 1)})

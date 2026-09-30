@@ -7,6 +7,7 @@ import { currentUser, isSalesHead, allRoles } from '../../hooks/useAuth'
 import { MGMT } from '../../lib/roles'
 import { NAVY, GREEN, RED, AMBER, PURPLE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtKobo } from '../../lib/fmt'
+import { humanLabel } from '../../lib/labels'
 
 // Sales teams: the head→officers structure that scopes the Leads book.
 //
@@ -43,7 +44,7 @@ const ROLE_LABEL: Record<string, string> = {
   sales_head: 'Sales Head',
   account_officer: 'Account Officer',
 }
-const roleLabel = (r: string) => ROLE_LABEL[r] ?? r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+const roleLabel = (r: string) => ROLE_LABEL[r] ?? humanLabel(r)
 
 export default function SalesTeams() {
   const [teams, setTeams]       = useState<Team[]>([])

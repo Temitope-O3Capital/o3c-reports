@@ -11,6 +11,7 @@ import { roleLabel } from '../lib/roles'
 import { getSoundPref, setSoundPref, getVoiceMode, setVoiceMode, playChime, primeAudio, preview, type VoiceMode } from '../lib/notifyEffects'
 import { allRoles, currentUser } from '../hooks/useAuth'
 import { scriptsButtonHidden, setScriptsButtonHidden } from '../components/ScriptsDrawer'
+import { humanLabel } from '../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -736,7 +737,7 @@ function NotificationsTab() {
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                 >
                   <td style={{ padding: '11px 18px' }}>
-                    <div style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{first.label || eventType.replace(/_/g, ' ')}</div>
+                    <div style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{first.label || humanLabel(eventType)}</div>
                     {first.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{first.description}</div>}
                   </td>
                   {PREF_CHANNELS.map(ch => {

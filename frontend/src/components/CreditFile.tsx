@@ -14,6 +14,7 @@ import { Spinner, EmptyState } from './UI'
 import { apiFetch } from '../lib/api'
 import { fmtKoboExact, fmtDate } from '../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../lib/design'
+import { humanLabel } from '../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -424,7 +425,7 @@ export function CaseContext({
           <div style={{ lineHeight: 1.35, minWidth: 0 }}>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
               In Recovery: case {recovery.case_ref || recovery.id}
-              {recovery.legal_stage ? ` · ${recovery.legal_stage.replace(/_/g, ' ')}` : ''}
+              {recovery.legal_stage ? ` · ${humanLabel(recovery.legal_stage)}` : ''}
             </div>
             <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               {fmtKoboExact(recovery.outstanding_kobo ?? 0)} outstanding
@@ -454,7 +455,7 @@ export function CaseContext({
           <span className="material-symbols-rounded" style={{ fontSize: 20, color: AMBER }}>handshake</span>
           <div style={{ lineHeight: 1.35, minWidth: 0 }}>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize' }}>
-              {a.kind.replace(/_/g, ' ')} {a.concession_type ? `· ${a.concession_type.replace(/_/g, ' ')}` : ''} approved
+              {humanLabel(a.kind)} {a.concession_type ? `· ${humanLabel(a.concession_type)}` : ''} approved
               {a.account_ref ? ` on ${a.account_ref}` : ''}
             </div>
             <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
@@ -884,7 +885,7 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
                   {fmtKoboExact(p.amount_kobo)}
                 </span>
                 <Chip label={p.source === 'card' ? 'Card Ledger' : 'Collections'} color={p.source === 'card' ? PURPLE : NAVY} />
-                {p.status && p.status !== 'posted' && <Chip label={p.status.replace(/_/g, ' ')} color={p.status === 'approved' ? GREEN : AMBER} />}
+                {p.status && p.status !== 'posted' && <Chip label={humanLabel(p.status)} color={p.status === 'approved' ? GREEN : AMBER} />}
               </div>
               <div style={{
                 fontSize: TEXT.xs, color: 'var(--txt3)',

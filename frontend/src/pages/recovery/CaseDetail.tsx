@@ -9,6 +9,7 @@ import { fmtKoboExact, fmtKobo, fmtExact, fmtDate, fmtDatetime, fmtNum } from '.
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../../lib/design'
 import { RECOVERY_PAYMENT_CHANNELS, RECOVERY_LEGAL_STAGES } from '../../lib/paymentChannels'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 const POLL_INTERVAL = 10_000
 
@@ -118,7 +119,7 @@ function StatusPill({ status }: { status: string }) {
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 10px',
       borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
-      {status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+      {humanLabel(status)}
     </span>
   )
 }
@@ -748,7 +749,7 @@ export default function RecoveryCaseDetail() {
   const timeline: TL[] = [
     ...activity_log.map(a => ({
       date:   a.created_at,
-      label:  ACTION_LABELS[a.action] ?? a.action.replace(/_/g, ' '),
+      label:  ACTION_LABELS[a.action] ?? humanLabel(a.action),
       actor:  a.actor_name ?? undefined,
       detail: a.detail ?? undefined,
       color:  MODULE_COLORS[a.module] ?? '#6B7280',

@@ -10,6 +10,7 @@ import { fmtDate } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { blocksToHtml, parseBlocks, type Block } from '../../components/EmailBlockEditor'
 import { STARTER_TEMPLATES, type StarterTemplate } from './starterTemplates'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ const CATEGORY_COLOR: Record<string, string> = {
   marketing: GREEN, collections: NAVY, general: '#6B7280',
   onboarding: BLUE, repayment_reminder: '#D97706',
 }
-const catLabel = (c: string) => (c || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+const catLabel = (c: string) => humanLabel((c || ''))
 
 function ChannelPill({ channel }: { channel: string }) {
   const m = CHANNEL_META[channel] ?? { color: '#6B7280', icon: 'campaign', label: channel }

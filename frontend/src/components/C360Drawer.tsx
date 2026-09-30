@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/api'
 import { fmtKobo, fmtDate } from '../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, SORA, MONO, TEXT, FW, RADIUS } from '../lib/design'
 import { IcoClose } from '../lib/icons'
+import { humanLabel } from '../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -393,7 +394,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                             <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12, color: 'var(--txt)' }}>
-                                {f.channel?.replace(/_/g, ' ') || 'payment'}
+                                {f.channel ? humanLabel(f.channel) : 'payment'}
                                 <span style={{ color: 'var(--txt3)', marginLeft: 6, fontFamily: MONO, fontSize: 10.5 }}>
                                   {fmtDate(f.created_at_ps)}
                                 </span>
@@ -481,7 +482,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                               {evt.description}
                             </div>
                             <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>
-                              {evt.actor_name} · <span style={{ textTransform: 'capitalize' }}>{evt.actor_role.replace(/_/g, ' ')}</span>
+                              {evt.actor_name} · <span style={{  }}>{humanLabel(evt.actor_role)}</span>
                             </div>
                           </div>
                         </div>

@@ -7,6 +7,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, StatusPill, HeroButton } from '../../components/MyWorkspace'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ export default function SettlementMyDashboard() {
         <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: 'var(--font-mono)' }}>{r.source_ref || ''}</div>
       </div>
     )},
-    { key: 'reason', label: 'Reason', render: r => <StatusPill label={(r.reason || '').replace(/_/g, ' ')} color={AMBER} /> },
+    { key: 'reason', label: 'Reason', render: r => <StatusPill label={humanLabel((r.reason || ''))} color={AMBER} /> },
     { key: 'amount_kobo', label: 'Amount', align: 'right', render: r => <span style={NUM}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'created_at', label: 'Age', render: r => {
       const days = r.created_at ? Math.floor((Date.now() - new Date(r.created_at).getTime()) / 864e5) : 0

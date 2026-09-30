@@ -6,6 +6,7 @@ import { fmtKobo, fmtPct, fmtNum, fmtCount } from '../lib/fmt'
 import { RED, DARKRED, AMBER, BLUE, GREEN, PURPLE, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { CHART_SERIES } from '../components/charts'
 import { EChart, EArea, EDonut, EBar, baseTooltip, tipCard, type ChartTokens } from '../components/echarts'
+import { humanLabel } from '../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1118,7 +1119,7 @@ export default function Overview() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parts || (p.role ?? '').replace(/_/g, ' ')}</div>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parts || humanLabel((p.role ?? ''))}</div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(p.total_kobo)}</div>

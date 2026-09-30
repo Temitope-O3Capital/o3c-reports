@@ -8,6 +8,7 @@ import { fmtKobo, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { EChart, baseTooltip, tipCard, axisVal, CHART_FONT } from '../../components/echarts'
 import type { ChartTokens } from '../../components/echarts'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -144,7 +145,7 @@ export default function SettlementsOverview() {
   const ccsBars = (ccs?.routes ?? [])
     .filter(r => r.route !== 'OTHER')
     .map(r => ({ ...r, label: ROUTE_LABEL[r.route] ?? r.route }))
-  const iswBars = (isw?.channels ?? []).map(c => ({ ...c, label: c.channel.replace(/_/g, ' ') }))
+  const iswBars = (isw?.channels ?? []).map(c => ({ ...c, label: humanLabel(c.channel) }))
 
   const stanRate = link && link.isw_txns > 0
     ? (Number(link.matched_to_ccs) / Number(link.isw_txns)) * 100
@@ -286,7 +287,7 @@ export default function SettlementsOverview() {
                 return (
                   <div key={c.channel} style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.sm, marginBottom: 3 }}>
-                      <span style={{ color: 'var(--txt)' }}>{c.channel.replace(/_/g, ' ')}</span>
+                      <span style={{ color: 'var(--txt)' }}>{humanLabel(c.channel)}</span>
                       <span style={{ ...NUM, color: col, fontWeight: FW.semibold }}>
                         {pct.toFixed(1)}% <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}>({fmtNum(c.success)}/{fmtNum(c.attempts)})</span>
                       </span>

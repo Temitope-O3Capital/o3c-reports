@@ -13,6 +13,7 @@ import { apiFetch } from '../lib/api'
 import { fmtDatetime } from '../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, RADIUS, TEXT, FW, SP, INTER, NUM } from '../lib/design'
 import HandoffActions, { HandoffStatusChip, handoffOpen, type HandoffViewer } from '../components/HandoffActions'
+import { humanLabel } from '../lib/labels'
 
 interface Handoff {
   id: number
@@ -37,7 +38,7 @@ interface Handoff {
 
 type Scope = 'inbox' | 'raised'
 
-const titleWords = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+const titleWords = (s: string) => humanLabel(s)
 
 // How long this has been waiting. A hand-off's age is the whole point of the page —
 // "raised 6 days ago" is the thing that makes someone pick it up.

@@ -8,6 +8,7 @@ import { GREEN, AMBER, RED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../
 import { EChart, baseTooltip, tipCard, axisCat, axisVal, CHART_FONT } from '../../components/echarts'
 import type { ChartTokens } from '../../components/echarts'
 import { rate, isOk, fmtM } from '../../lib/measure'
+import { humanLabel } from '../../lib/labels'
 
 // Rates on this page are Measures (lib/measure.ts): a ratio that cannot be computed
 // renders "—" with its reason on hover, never a 0 or a confident percentage off a
@@ -153,7 +154,7 @@ export default function Attribution() {
   ]
 
   const LS_COLS: TableCol<LeadSourceRow>[] = [
-    { key: 'lead_source', label: 'Source', render: r => <span style={{ fontWeight: FW.semibold, textTransform: 'capitalize' }}>{r.lead_source.replace(/_/g,' ')}</span> },
+    { key: 'lead_source', label: 'Source', render: r => <span style={{ fontWeight: FW.semibold }}>{humanLabel(r.lead_source)}</span> },
     { key: 'total_applications', label: 'Applications', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.total_applications)}</span> },
     // Approved now means approved. This column briefly read "Not Declined" because the
     // backend counted `status NOT IN ('declined')` — which swept up pending applications

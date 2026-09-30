@@ -7,6 +7,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, RED, PURPLE, NUM, TEXT, FW } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, StatusPill, HeroButton } from '../../components/MyWorkspace'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -172,7 +173,7 @@ export default function CardsMyQueue() {
             {
               key: 'status',
               label: 'Status',
-              options: ['pending', 'doc_review', 'credit_check', 'risk_review'].map(v => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) })),
+              options: ['pending', 'doc_review', 'credit_check', 'risk_review'].map(v => ({ value: v, label: humanLabel(v) })),
               selected: iStatuses,
               onChange: setIStatuses,
             },
@@ -200,7 +201,7 @@ export default function CardsMyQueue() {
             {
               key: 'status',
               label: 'Status',
-              options: ['filed', 'investigating', 'provisional_credit', 'resolved', 'declined'].map(v => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) })),
+              options: ['filed', 'investigating', 'provisional_credit', 'resolved', 'declined'].map(v => ({ value: v, label: humanLabel(v) })),
               selected: dStatuses,
               onChange: setDStatuses,
             },

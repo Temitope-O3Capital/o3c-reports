@@ -40,24 +40,39 @@ interface Milestone {
 
 // ── Milestone pill colours ────────────────────────────────────────────────────
 
-const MILESTONE_COLORS: Record<string, { bg: string; txt: string; hex: string }> = {
-  'Demand Letter':        { bg: `rgba(37,99,235,.12)`,  txt: BLUE,   hex: BLUE },
-  'Pre-Litigation':       { bg: `rgba(217,119,6,.12)`,  txt: AMBER,  hex: AMBER },
-  'Court Filing':         { bg: `rgba(124,58,237,.12)`, txt: PURPLE, hex: PURPLE },
-  'Hearing':              { bg: `rgba(217,119,6,.12)`,  txt: AMBER,  hex: AMBER },
-  'Judgment':             { bg: `rgba(22,163,74,.12)`,  txt: GREEN,  hex: GREEN },
-  'Enforcement':          { bg: `rgba(192,0,0,.1)`,     txt: RED,    hex: RED },
+// Keyed by the value recovery_cases.legal_stage actually stores — the same four as
+// RECOVERY_LEGAL_STAGES and the CHECK constraint from migration 321.
+//
+// This map used to read 'Demand Letter' / 'Pre-Litigation' / 'Court Filing' / 'Hearing' /
+// 'Judgment' / 'Enforcement': a SEVENTH vocabulary for one column, matching nothing the database
+// has ever held. The damage was on screen and easy to walk past — no row's value was a key here,
+// so every pill fell through to the grey default, and every MILESTONE filter option showed a
+// count of 0 and returned nothing when clicked. The filter was decoration.
+//
+// 'recovery' is kept for labelling only. app.is_in_legal (migration 322) excludes it, so the
+// tracker no longer lists those cases; it stays here so a row that somehow carries it renders as
+// itself rather than as an unstyled pill.
+const MILESTONE_COLORS: Record<string, { bg: string; txt: string; hex: string; label: string }> = {
+  recovery: { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280', hex: '#6B7280', label: 'Recovery (Pre-Legal)' },
+  legal:    { bg: `rgba(37,99,235,.12)`,  txt: BLUE,      hex: BLUE,      label: 'Legal' },
+  court:    { bg: `rgba(124,58,237,.12)`, txt: PURPLE,    hex: PURPLE,    label: 'In Court' },
+  judgment: { bg: `rgba(22,163,74,.12)`,  txt: GREEN,     hex: GREEN,     label: 'Judgment' },
+}
+
+export function milestoneLabel(stage: string | null | undefined): string {
+  if (!stage) return '—'
+  return MILESTONE_COLORS[stage]?.label ?? stage
 }
 
 function MilestonePill({ milestone }: { milestone: string }) {
-  const s = MILESTONE_COLORS[milestone] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280', hex: '#6B7280' }
+  const s = MILESTONE_COLORS[milestone] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280', hex: '#6B7280', label: milestone }
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
       borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
-      {milestone}
+      {s.label}
     </span>
   )
 }
@@ -73,14 +88,10 @@ const fieldStyle: React.CSSProperties = {
 
 // ── Ordered milestone list ────────────────────────────────────────────────────
 
-const MILESTONE_ORDER = [
-  'Demand Letter',
-  'Pre-Litigation',
-  'Court Filing',
-  'Hearing',
-  'Judgment',
-  'Enforcement',
-]
+// Ordered as a case progresses. 'recovery' is absent on purpose: the tracker lists only cases
+// app.is_in_legal accepts, so offering it as a filter would be an option that always returns
+// nothing — which is exactly the bug this list used to have for all six of its old values.
+const MILESTONE_ORDER = ['legal', 'court', 'judgment']
 
 // ── Inline milestone timeline ─────────────────────────────────────────────────
 
@@ -152,7 +163,7 @@ function MilestoneTimeline({
               <div style={{ flex: 1, paddingBottom: idx < MILESTONE_ORDER.length - 1 ? 8 : 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                   <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: completed ? 'var(--txt)' : 'var(--txt2)' }}>
-                    {ms}
+                    {milestoneLabel(ms)}
                   </span>
                   {completed?.milestone_date && (
                     <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
@@ -192,7 +203,7 @@ function MilestoneTimeline({
           <div>
             <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Milestone</label>
             <select value={formMilestone} onChange={e => setFormMilestone(e.target.value)} style={{ ...filterInputStyle, height: 34, width: '100%' }}>
-              {MILESTONE_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
+              {MILESTONE_ORDER.map(m => <option key={m} value={m}>{milestoneLabel(m)}</option>)}
             </select>
           </div>
           <div>
@@ -393,8 +404,12 @@ export default function RecoveryLegal() {
     {
       key: 'milestone',
       label: 'MILESTONE',
+      // value is the STORED stage (it goes to the API as ?milestone=); label is what the user
+      // reads. Sending the label is what broke this filter before — six display strings the
+      // column had never held, so every option counted 0 and filtered to nothing.
       options: MILESTONE_ORDER.map(m => ({
         value: m,
+        label: milestoneLabel(m),
         color: MILESTONE_COLORS[m]?.hex,
         count: rows.filter(r => r.current_milestone === m).length,
       })),

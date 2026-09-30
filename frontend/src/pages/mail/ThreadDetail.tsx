@@ -6,6 +6,7 @@ import { Page, SectionCard, ErrBanner, btnPrimary, btnSecondary } from '../../co
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, BLUE, GREEN, AMBER, RED, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLOR[status] ?? '#6B7280'
-  const label = status.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+  const label = humanLabel(status)
   return (
     <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: 20, background: `${c}14`, color: c }}>
       {label}

@@ -6,6 +6,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
       render: r => (
         <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
           background: 'rgba(192,0,0,0.08)', color: RED }}>
-          {r.exception_type.replace(/_/g, ' ')}
+          {humanLabel(r.exception_type)}
         </span>
       )},
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
@@ -123,7 +124,7 @@ function ResolveModal({ ex, onClose, onDone }: { ex: Exception; onClose: () => v
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Type</span>
-            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED }}>{ex.exception_type.replace(/_/g, ' ')}</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED }}>{humanLabel(ex.exception_type)}</span>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], marginBottom: SP[5] }}>

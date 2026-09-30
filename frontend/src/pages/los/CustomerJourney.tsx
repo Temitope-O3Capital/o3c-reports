@@ -278,7 +278,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         <h2>Customer Journey</h2>
         <span className="sd-panel-hint">
           {phoenixStage
-            ? <>Phoenix stage: <b style={{ color: "var(--txt)" }}>{phoenixStage.replace(/_/g, " ").toLowerCase()}</b></>
+            ? <>Phoenix stage: <b style={{ color: "var(--txt)" }}>{phoenixStage.replace(/_/g, ' ').toLowerCase()}</b></>
             : "Phoenix owns these steps: taken here, recorded there"}
         </span>
       </div>

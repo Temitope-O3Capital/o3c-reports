@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtCount } from '../../lib/fmt'
 import { isCallCentreSupervisor } from '../../lib/roles'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, INTER, NUM, FW, RADIUS, TEXT, SP } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // Track leads the call centre forwarded to Sales, all the way to their outcome.
 // An agent sees their own forwards; a supervisor/head sees the whole floor and can
@@ -41,7 +42,7 @@ const STATUS: Record<string, { label: string; color: string }> = {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const s = STATUS[status] ?? { label: status.replace(/_/g, ' '), color: '#6B7280' }
+  const s = STATUS[status] ?? { label: humanLabel(status), color: '#6B7280' }
   return (
     <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: s.color, background: `${s.color}16`,
       padding: '3px 10px', borderRadius: RADIUS['2xl'], whiteSpace: 'nowrap', textTransform: 'capitalize' }}>

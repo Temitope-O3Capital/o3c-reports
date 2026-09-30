@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
 import { TierBadge, tierFromPct } from '../../components/TierBadge'
 import { RECOVERY_PAYMENT_CHANNELS, RECOVERY_LEGAL_STAGES } from '../../lib/paymentChannels'
+import { humanLabel } from '../../lib/labels'
 
 // Marks a case bulk-loaded from an uploaded spreadsheet (data_source='manual'),
 // so it reads as distinct from the Udara core-banking feed.
@@ -109,7 +110,7 @@ function StatusPill({ status }: { status: string }) {
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
       borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
-      {status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+      {humanLabel(status)}
     </span>
   )
 }

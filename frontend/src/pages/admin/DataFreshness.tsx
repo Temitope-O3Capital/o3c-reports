@@ -3,6 +3,7 @@ import { Page, SectionCard, KpiCard, ErrBanner, Spinner } from '../../components
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // Data Freshness — "is each source actually still sending us anything?"
 //
@@ -236,7 +237,7 @@ export default function DataFreshness() {
                       <td style={{ padding: '11px 12px', fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{s.owner ?? '—'}</td>
                       <td style={{ padding: '11px 12px', fontSize: TEXT.xs, fontFamily: INTER, color: 'var(--txt2)' }}
                         title="Roles notified when this source breaks. Admins are always copied, so this can never be nobody.">
-                        <div>{s.notify_roles ? s.notify_roles.split(',').map(r => r.replace(/_/g, ' ')).join(', ') : 'admins only'}</div>
+                        <div>{s.notify_roles ? s.notify_roles.split(',').map(r => humanLabel(r)).join(', ') : 'admins only'}</div>
                         <div style={{ marginTop: 2, color: (s.recipient_count ?? 0) > 0 ? 'var(--txt3)' : RED, fontWeight: (s.recipient_count ?? 0) > 0 ? FW.normal : FW.bold }}>
                           {(s.recipient_count ?? 0) > 0
                             ? `${s.recipient_count} ${s.recipient_count === 1 ? 'person' : 'people'}`

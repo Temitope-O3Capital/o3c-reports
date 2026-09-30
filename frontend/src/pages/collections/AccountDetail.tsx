@@ -23,6 +23,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 function getStoredRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
@@ -295,7 +296,7 @@ export function TimelineTab({ cif, version }: { cif: string; version: number }) 
               </div>
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
                 {ev.actor_name}
-                {ev.actor_role && <> · <span style={{ textTransform: 'capitalize' }}>{ev.actor_role.replace(/_/g, ' ')}</span></>}
+                {ev.actor_role && <> · <span style={{  }}>{humanLabel(ev.actor_role)}</span></>}
               </div>
             </div>
           </div>
@@ -336,10 +337,10 @@ export function ContactsTab({ assignmentId, version }: { assignmentId: number | 
         }}>
           <div>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>
-              {(c.contact_type ?? '').replace(/_/g, ' ')}
+              {humanLabel((c.contact_type ?? ''))}
               {' · '}
               <span style={{ fontWeight: FW.normal, color: 'var(--txt2)' }}>
-                {(c.outcome ?? '').replace(/_/g, ' ')}
+                {humanLabel((c.outcome ?? ''))}
               </span>
             </div>
             {c.notes && (
@@ -445,7 +446,7 @@ export function PaymentsTab({ cif, assignmentId, version }: { cif?: string; assi
               {fmtKoboExact(p.amount_kobo)}
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-              {(p.payment_method ?? p.channel ?? '').replace(/_/g, ' ')}
+              {humanLabel((p.payment_method ?? p.channel ?? ''))}
               {p.reference ? ` · ${p.reference}` : ''}
               {p.received_by_name ? ` · by ${p.received_by_name}` : ''}
             </div>
@@ -765,7 +766,7 @@ export default function CollectionsAccountDetail() {
             </span>
             {d.current_stage && (
               <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontStyle: 'italic' }}>
-                {d.current_stage.replace(/_/g, ' ')}
+                {humanLabel(d.current_stage)}
               </span>
             )}
             {d.watchlist_scenario && (
@@ -809,7 +810,7 @@ export default function CollectionsAccountDetail() {
             {cust?.employer && <IdLine icon="apartment" label="Employer" value={cust.employer} />}
             {d.last_contact_at && (
               <IdLine icon="history" label="Last Contact" value={fmtDate(d.last_contact_at)}
-                      sub={d.last_contact_outcome ? d.last_contact_outcome.replace(/_/g, ' ') : ''} />
+                      sub={d.last_contact_outcome ? humanLabel(d.last_contact_outcome) : ''} />
             )}
             {(cust?.city || cust?.state) && (
               <IdLine icon="location_on" label="Location" value={[cust?.city, cust?.state].filter(Boolean).join(', ')} />
@@ -1153,7 +1154,7 @@ export default function CollectionsAccountDetail() {
               <option value="">Select Agent</option>
               {collectionAgents.map(a => (
                 <option key={a.id} value={String(a.id)}>
-                  {a.full_name} ({a.role.replace(/_/g, ' ')})
+                  {a.full_name} ({humanLabel(a.role)})
                 </option>
               ))}
             </select>

@@ -8,6 +8,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS, INTER } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
 
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_COLORS[status] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
-  const label = status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const label = humanLabel(status)
   return (
     <span style={{
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
@@ -386,7 +387,7 @@ export default function CreditPortfolio() {
             >
               <option value="">All Statuses</option>
               {STATUSES.map(s => (
-                <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                <option key={s} value={s}>{humanLabel(s)}</option>
               ))}
             </select>
             {(search || fStatus) && (

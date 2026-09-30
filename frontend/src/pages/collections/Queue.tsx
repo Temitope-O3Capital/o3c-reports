@@ -17,6 +17,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKoboExact, fmtExact, fmtNum, fmtDate } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -547,7 +548,7 @@ function PaymentHistory({ payments, loading }: { payments: PaymentEntry[]; loadi
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{fmtDate(p.payment_date)}</span>
           </div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', gap: 8 }}>
-            <span style={{ textTransform: 'capitalize' }}>{(p.payment_method ?? 'unknown').replace(/_/g, ' ')}</span>
+            <span style={{  }}>{humanLabel((p.payment_method ?? 'unknown'))}</span>
             {p.reference && <span>· Ref: {p.reference}</span>}
             {p.received_by_name && <span>· {p.received_by_name}</span>}
           </div>

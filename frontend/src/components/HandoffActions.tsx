@@ -12,6 +12,7 @@ import { Modal } from './UI'
 import { apiPatch } from '../lib/api'
 import { GREEN, AMBER, NAVY, RED, RADIUS, TEXT, FW, SP, INTER } from '../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../lib/labels'
 
 export interface HandoffLike {
   id: number
@@ -40,7 +41,7 @@ export const handoffOpen = (status: string | null | undefined) =>
 
 export function HandoffStatusChip({ status }: { status: string | null | undefined }) {
   const s = (status || 'open').toLowerCase()
-  const meta = HANDOFF_STATUS[s] ?? { label: s.replace(/_/g, ' '), color: '#6B7280' }
+  const meta = HANDOFF_STATUS[s] ?? { label: humanLabel(s), color: '#6B7280' }
   return (
     <span style={{
       fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 8px', borderRadius: RADIUS.full,

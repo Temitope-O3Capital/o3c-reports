@@ -19,6 +19,7 @@ import PhoenixEyeReport, { PrequalSection } from './eye/PhoenixEyeReport'
 import PhoenixOfferPanel from './PhoenixOffer'
 import NewApplicationModal, { type DraftApp } from '../../components/NewApplicationModal'
 import { useEyeDecision, deriveMemo, pct, DecisionSummary, FlagList, AffordabilityPanel, BureauPanel, StatementPanel, DriversPanel, EyeUnavailable } from './RiskMemo'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -224,7 +225,7 @@ const ROLE_COLORS: Record<string, string> = {
 
 function StagePill({ stage, size = 'md' }: { stage: string; size?: 'sm' | 'md' }) {
   const s = STAGE_COLORS[stage] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
-  const label = stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const label = humanLabel(stage)
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
@@ -244,7 +245,7 @@ function ProductPill({ product }: { product: string }) {
       padding: '3px 10px', borderRadius: 20,
       background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
     }}>
-      {product.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+      {humanLabel(product)}
     </span>
   )
 }
@@ -910,7 +911,7 @@ function InternalThread({ appId, readOnly = false }: { appId: number; readOnly?:
   )
 
   const roleColor = (role: string | null) => ROLE_COLORS[role ?? ''] ?? 'var(--txt2)'
-  const roleLabel = (role: string | null) => role ? role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : ''
+  const roleLabel = (role: string | null) => role ? humanLabel(role) : ''
 
   return (
     <SectionCard title="Team Thread">
@@ -2449,7 +2450,7 @@ function TimelineTab({ events, notes }: { events: AppEvent[]; notes: AppNote[] }
                       </span>
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', textTransform: 'capitalize' }}>
-                        {ev.event_type.replace(/_/g, ' ')}
+                        {humanLabel(ev.event_type)}
                       </span>
                     )}
                   </div>
@@ -3625,7 +3626,7 @@ export default function ApplicationDetail() {
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Move to Stage</div>
             <select value={toStage} onChange={e => setToStage(e.target.value)} style={inputStyle}>
               <option value="">Select Next Stage</option>
-              {nextStages.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+              {nextStages.map(s => <option key={s} value={s}>{humanLabel(s)}</option>)}
             </select>
           </div>
           {toStage === 'pending_conditions' && (

@@ -9,6 +9,7 @@
 // and the pipeline stepper so every screen agrees on stage order, ownership, colours
 // and who may advance from where.
 import { hasPage } from '../hooks/useAuth'
+import { humanLabel } from '../lib/labels'
 
 export type LosStage =
   | 'draft' | 'submitted' | 'document_collection' | 'risk_review'
@@ -76,7 +77,7 @@ export function stageMeta(stage?: string | null): StageMeta {
 }
 
 export function prettyStage(s?: string | null): string {
-  return s ? s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—'
+  return s ? humanLabel(s) : '—'
 }
 
 const TERMINAL = new Set(['active', 'declined', 'closed'])

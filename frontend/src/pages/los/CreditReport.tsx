@@ -2,6 +2,7 @@ import { type ReactNode, type CSSProperties } from 'react'
 import { SectionCard } from '../../components/UI'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, RADIUS, NAVY, GREEN, AMBER, RED, NUM } from '../../lib/design'
+import { humanLabel } from '../../lib/labels'
 
 // Renders Phoenix's PrequalificationReport verbatim — the same field set Phoenix's report
 // endpoint serves. Kept faithful to Phoenix's units: *_minor / *_kobo are kobo,
@@ -26,7 +27,7 @@ const num     = (v: any) => (v === null || v === undefined || v === '') ? '—' 
 const dt      = (v: any) => v ? fmtDate(v) : '—'
 const yn      = (v: any) => v === true ? 'Yes' : v === false ? 'No' : '—'
 const txt     = (v: any) => (v === null || v === undefined || v === '') ? '—' : String(v)
-const pretty  = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+const pretty  = (k: string) => humanLabel(k)
 const anyVal  = (v: any) => typeof v === 'boolean' ? yn(v) : typeof v === 'number' ? num(v)
   : v !== null && typeof v === 'object' ? JSON.stringify(v) : txt(v)
 

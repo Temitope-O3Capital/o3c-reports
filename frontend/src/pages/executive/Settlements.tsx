@@ -6,6 +6,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { Stat, Note, ytick, share } from './shared'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ export default function ExecSettlements() {
               <tbody>
                 {data.channel_volumes.map(c => (
                   <tr key={c.channel} style={{ borderBottom: '1px solid var(--bdr)' }}>
-                    <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium, textTransform: 'capitalize' }}>{c.channel.replace(/_/g, ' ')}</td>
+                    <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium }}>{humanLabel(c.channel)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(c.volume_kobo)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(c.count)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(c.fees_kobo)}</td>

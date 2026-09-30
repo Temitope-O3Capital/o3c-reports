@@ -6,6 +6,7 @@ import { useLiveData } from '../../hooks/useRealtime'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, RED, BLUE, MONO, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Criteria model (maps to backend segmentCriteria) ───────────────────────────
 
@@ -277,7 +278,7 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
             </select></div>
           <div><label style={lbl}>Status</label>
             <select value={criteria.status} onChange={e => update('status', e.target.value)} style={selectStyle}>
-              <option value="">Any Status</option>{STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+              <option value="">Any Status</option>{STATUSES.map(s => <option key={s} value={s}>{humanLabel(s)}</option>)}
             </select></div>
           <div><label style={lbl}>Employer (Contains)</label><input value={criteria.employer} onChange={e => update('employer', e.target.value)} placeholder="e.g. NNPC, Dangote…" style={inputStyle} /></div>
           <div><label style={lbl}>DPD Min</label><input type="number" min="0" value={criteria.dpd_min} onChange={e => update('dpd_min', e.target.value)} placeholder="e.g. 30" style={inputStyle} /></div>

@@ -8,6 +8,7 @@ import { fmtKoboExact, fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } fro
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 import { canAdvance, canDecline, stageMeta, decisionMeta, syncStateMeta } from '../../lib/losFlow'
 import { downloadCsv, stamp } from '../../lib/csv'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function BandPill({ band }: { band: string | null }) {
 }
 
 function ProductPill({ product }: { product: string }) {
-  const label = product.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const label = humanLabel(product)
   return (
     <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>
       {label}
@@ -97,7 +98,7 @@ const NEXT_STAGE: Record<string, string> = {
 }
 
 const prettyStage = (s?: string | null) =>
-  s ? s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—'
+  s ? humanLabel(s) : '—'
 
 function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; open: boolean; onClose: () => void; onDone: () => void }) {
   const [notes,   setNotes]   = useState('')

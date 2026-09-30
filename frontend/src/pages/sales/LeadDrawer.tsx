@@ -58,7 +58,7 @@ const TEAM_LABEL: Record<string, string> = {
   sales: 'Sales', call_center: 'Call Centre', bd: 'Business Development',
   care: 'Care', risk: 'Risk', admin: 'Admin', unknown: '—',
 }
-const teamLabel = (t: string) => TEAM_LABEL[t] ?? t.replace(/_/g, ' ')
+const teamLabel = (t: string) => TEAM_LABEL[t] ?? humanLabel(t)
 
 /** Timeline icons by what happened, not by which table it came from. */
 const TYPE_ICON: Record<string, string> = {

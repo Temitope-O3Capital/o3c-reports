@@ -4,6 +4,7 @@ import { Page, Spinner } from '../../components/UI'
 import { apiPost } from '../../lib/api'
 import { NAVY, RED, GREEN, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -483,7 +484,7 @@ function Step5({ form, docs, goTo }: { form: FormData; docs: Record<string, File
         step={2}
         onEdit={() => goTo(2)}
         data={{
-          'Product': l.product_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          'Product': humanLabel(l.product_type),
           'Amount': l.amount ? `₦${Number(l.amount).toLocaleString('en-NG')}` : '',
           'Tenor': l.tenor_months ? `${l.tenor_months} months` : '',
           'Purpose': l.purpose,

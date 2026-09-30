@@ -8,6 +8,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtDate, fmtKobo } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, RED, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, HeroButton } from '../../components/MyWorkspace'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ function Pill({ label, color }: { label: string; color: string }) {
       borderRadius: RADIUS['2xl'], background: `${color}18`, color,
       whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>
-      {label.replace(/_/g, ' ')}
+      {humanLabel(label)}
     </span>
   )
 }

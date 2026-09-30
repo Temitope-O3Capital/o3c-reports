@@ -10,6 +10,7 @@ import { hasPage } from '../../hooks/useAuth'
 import { fmtNum, fmtPct, today } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ function fmtDur(sec: number | null | undefined): string {
 const pct = (n: number, d: number) => (d > 0 ? n / d : 0)
 const OUTCOME_LABEL: Record<string, string> = { completed: 'Completed', missed: 'Missed', resolved: 'Resolved', no_answer: 'No Answer', voicemail: 'Voicemail' }
 const OUTCOME_COLOR: Record<string, string> = { completed: GREEN, resolved: GREEN, missed: RED, no_answer: AMBER, voicemail: PURPLE }
-const outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? (o ? o.replace(/_/g, ' ') : 'Unknown')
+const outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? (o ? humanLabel(o) : 'Unknown')
 
 function Ago({ since }: { since: Date | null }) {
   const [, tick] = useState(0)

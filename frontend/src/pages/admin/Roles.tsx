@@ -7,6 +7,7 @@ import { apiFetch } from '../../lib/api'
 import { monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
+import { humanLabel } from '../../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
 ]
 
 function pageLabel(p: string): string {
-  return p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  return humanLabel(p)
 }
 
 // ── Role modal ────────────────────────────────────────────────────────────────
