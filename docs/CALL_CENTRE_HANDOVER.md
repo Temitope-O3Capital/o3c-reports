@@ -577,3 +577,108 @@ collections/Queue sends a **call disposition** — one of ~45 strings from the s
 and an SMS has no outcome to give. The honest model is probably a second `disposition` column —
 still free, while the table is empty — but **which fact collections wants to measure is a business
 decision**, so it is written down rather than settled by whoever edits last.
+
+## 14. The three open decisions, settled (2026-10-05)
+
+§12 and §13 each ended with a question for the business. All three are now answered and shipped
+in commit `2401811` (migrations 329–331).
+
+### 14.1 A court case is known by the defendant, not a CIF it never had
+
+§12 left 26 recovery cases with no `account_cif` and no `party_id`, and called them
+unresolvable. **Half of that was wrong.** The names were never missing — they were in
+`legal_proceedings.notes` the whole time, as `03 CAPITAL .V. DANLADI JIYA AND CRUSH CAFÉ LTD` —
+while `customer_name` sat blank, so the Legal Tracker showed an **empty name against
+₦23,996,690.04**. Migration 329 backfills all 24 from the court record.
+
+What stays true is that **no `party_id` can be assigned.** Four attempts, every one a guess:
+
+| Match | Result |
+|---|---|
+| Exact token-set vs `app.parties` | 1 of 24 |
+| vs `app.customers` (the CIF namespace, where card customers live) | 1 of 24 |
+| vs `accounts.name_on_card` | 1 of 24 |
+| Loose two-token overlap vs `app.customers` | 14 matched **nothing**; the other 10 matched 1–5 candidates |
+
+`OKE STEPHEN` (cases 2170, 2185) settles it: `app.parties` holds **two distinct parties with
+exactly that name** plus a `STEPHEN OKE`, and the account number `0928650/1674/0020347869`
+appears in no other table — not `cbs_links`, not `collection_assignments`, not
+`loan_repayments`. Picking one attaches a debt to someone who may not owe it.
+
+**So the definition of identity widened rather than being invented.** A named defendant plus the
+solicitor holding the court file *is* reachable; `CH#6` is not, and the predicate still rejects
+exactly that:
+
+```sql
+   COALESCE(btrim(account_cif),'') <> ''        -- by CIF
+OR party_id IS NOT NULL                          -- by party
+OR (COALESCE(btrim(customer_name),'') <> ''      -- by name, held by a solicitor
+    AND (COALESCE(btrim(solicitor),'') <> ''     --   or tied to an account
+      OR COALESCE(btrim(account_number),'') <> ''))
+```
+
+`recovery_cases_has_identity_chk` is now **VALIDATED** (`convalidated = t`), so it is enforced
+against history for the first time rather than only guarding new rows. 0 rows fail it.
+
+> **A trap worth knowing before your next backfill.** The first run of migration 329 failed, and
+> it taught me something the `NOT VALID` convention in §5 does not spell out: a `NOT VALID`
+> constraint still guards every row that is **UPDATEd**, not only inserted — it merely skips rows
+> already sitting in the table. Setting `customer_name` on a case with no CIF and no `party_id`
+> re-presents that row to the old predicate, which rejects it. **The `DROP CONSTRAINT` has to come
+> before the backfill.** The migration is one transaction, so the failed attempt changed nothing.
+
+### 14.2 "loan repayment" was never a channel — these were bank transfers
+
+§13 left 90 rows / **₦878,726,235.37** (95% of the recovery payment book) under `Unspecified`,
+because migration 321 would not guess. The answer: it is not a channel, it is what the money was
+*for*; the channel was bank transfer, and no channel was captured because the rows were
+**uploaded** rather than keyed by an officer.
+
+The single `recovery` row goes the same way — same day, same poster, `payment_method` NULL on all
+90, so it is one upload and the same kind of mislabel. `channel_raw` keeps every original
+verbatim, so the fact that this is a **business decision taken on 2026-10-05** stays auditable.
+
+Recovery payments now read: Bank Transfer 198 / ₦911,237,941.46 · Remita 41 / ₦2,418,277.06 ·
+Direct Debit 25 / ₦1,623,952.40 · Legal Settlement 5 / ₦5,943,111.00. Table total
+`92122328192` kobo, **unchanged** — measured, not typed, because migration 321 caught two
+hand-added totals.
+
+`Unspecified` stays in the vocabulary. It is right for a future payment whose channel genuinely
+is not known; it was only wrong as a resting place for these 90.
+
+### 14.3 Reachability and result are two facts, so two columns
+
+`collection_contacts.outcome` was taking both, from two screens, in two vocabularies — the open
+question at the end of §13. **Two separate defects, not one:**
+
+- `not_reachable` and `Unreachable / No Answer` are **one fact in two spellings**, which would
+  have split every `GROUP BY` on the column in half, for ever and invisibly.
+- `answered` and `Promise to Pay` are **two different facts**. A customer who answered *and*
+  promised to pay could only ever be recorded as one of them.
+
+I checked the cheaper option first — drop the disposition, since the call log surely has it. **It
+does not:** `Queue.tsx` posts to `/api/collections-ops/{id}/contact`, not the call-log endpoint,
+and says so in its own comment. That disposition exists nowhere else.
+
+Migration 331 adds `disposition`, relaxes `outcome` to nullable, and adds **4 validated CHECKs**,
+one of them requiring at least one of the two — a contact recording neither fact is not a
+contact. Done while the table still held **0 rows**, the same reason migration 326 was worth
+doing when it was.
+
+`collectionContactDispositions()` **derives** from `ccDispositionsForPurpose("collections")`
+rather than being a sixteenth hand-typed copy: 15 codes, a clean superset of the screen's 12.
+`collection_contact_vocabulary_test.go` asserts Go, TypeScript and the CHECK constraints all
+agree, so none of the three can move alone again.
+
+Two labels changed wording to match what the call-centre screen shows for the same outcome
+(`Callback Requested`, `No Answer`). **Now that the database stores a code, reverting that wording
+costs nothing** — which was never true while the label itself was the stored value.
+
+### 14.4 Still open, and bigger than what was fixed
+
+`app.helpdesk_calls.disposition` holds **201,000+ rows of the LABEL form**
+(`Unreachable / No Answer`), while `app.call_center_contacts.disposition_code` holds the **code**
+form. Two live representations of one vocabulary — and the Go labels for two of them
+(`Callback Requested`, `No Answer`) do not match the labels the screens show
+(`Callback Scheduled`, `Unreachable / No Answer`). Same defect as 14.3 at real scale, and unlike
+an empty table it is **not free**. It needs its own decision.
