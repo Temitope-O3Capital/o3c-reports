@@ -1686,7 +1686,9 @@ func parseLeadFollowUp(s string) (any, string) {
 
 // logLeadActivity records what happened on a lead. A forward kind moves the lead to its
 // stage (forward only, owner rules as for moving a stage); a record-only kind — call,
-// meeting, email, note — goes on the timeline and leaves the stage alone.
+// meeting, email, note — goes on the timeline, and moves the lead only if the outcome the
+// officer picked says it should. A record-only kind with no disposition, or one whose
+// disposition decides nothing ("No Answer"), leaves the stage exactly where it was.
 //
 // FollowUpAt sets crm_contacts.next_action_at, which is what the follow-up worklist,
 // the "due today" tile and the stalled-lead counters all read. It arrived here when the
@@ -1701,6 +1703,19 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 			Note string `json:"note"`
 			// Optional: "2026-10-03" or a full RFC3339 timestamp.
 			FollowUpAt string `json:"follow_up_at"`
+			// What came of it, from the SAME vocabulary My Day uses — salesDispositions in
+			// sales_activity.go. Only the record-only kinds carry one: a forward kind is
+			// already its own outcome, since "Documents Requested" names the result rather
+			// than the attempt.
+			//
+			// This endpoint accepted no outcome at all until now, so a call logged from the
+			// lead drawer stored a kind and free prose while the identical call logged from
+			// My Day stored a counted code. "Interested calls this month" therefore depended
+			// on which dialog the officer happened to open.
+			Disposition string `json:"disposition"`
+			// When it happened, RFC3339, for the officer writing up the day's calls that
+			// evening. Bounded exactly as logSalesActivity bounds it.
+			OccurredAt string `json:"occurred_at"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -1717,6 +1732,67 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Keep the note to 2,000 characters or fewer.")
 			return
 		}
+
+		// The outcome, scoped to the kind it was offered for. findSalesDisposition is My
+		// Day's own lookup and reusing it is the point: a second list here would silently
+		// split every count that spans the two dialogs. Scoping also keeps "Did Not Get Past
+		// Reception" off a phone call, and a form that offers it will eventually record it.
+		//
+		// Both rules the code carries are enforced here as well as in the browser, because a
+		// rule enforced only in the browser is not enforced.
+		var disp salesDisposition
+		hasDisp := false
+		if code := strings.TrimSpace(req.Disposition); code != "" {
+			if _, forward := leadActivityStage[kind]; forward {
+				respondErr(w, 422, "\""+label+"\" is itself the outcome, so it takes no separate one.")
+				return
+			}
+			d, ok := findSalesDisposition(kind, code)
+			if !ok {
+				respondErr(w, 422, "That outcome does not belong to "+strings.ToLower(label)+
+					". Pick one from the list.")
+				return
+			}
+			disp, hasDisp = d, true
+			if disp.NeedsNote && note == "" {
+				respondErr(w, 422, "\""+disp.Label+"\" needs a note saying why — that is the "+
+					"part anyone reading this later actually needs.")
+				return
+			}
+			// Unconditional here, unlike My Day: there is always a lead on this endpoint, so
+			// next_action_at always has somewhere to go. "They asked me to call back" with no
+			// callback date is how a lead is lost politely.
+			if disp.NeedsFollowUp && strings.TrimSpace(req.FollowUpAt) == "" {
+				respondErr(w, 422, "\""+disp.Label+"\" needs a date to come back on.")
+				return
+			}
+		}
+
+		// Backdating, for the officer who writes up Friday's calls on Monday. Same two bounds
+		// logSalesActivity applies: never the future, and never more than a week back, so a
+		// mistyped year cannot park the entry in a month nobody opens again.
+		//
+		// Only the record-only kinds take one. A forward kind is a change of state, and the
+		// stage move it performs happens now whatever date is typed — accepting a date there
+		// would say the stage changed on Friday when crm_contacts says it changed today.
+		var occurred *time.Time
+		if s := strings.TrimSpace(req.OccurredAt); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				respondErr(w, 400, "occurred_at must be an RFC3339 timestamp.")
+				return
+			}
+			if t.After(time.Now().Add(2 * time.Minute)) {
+				respondErr(w, 400, "That is in the future — log what happened, not what is planned.")
+				return
+			}
+			if t.Before(time.Now().AddDate(0, 0, -7)) {
+				respondErr(w, 400, "That is more than a week ago. Ask your head to record it if it still needs to go on the record.")
+				return
+			}
+			occurred = &t
+		}
+
 		followUp, ferr := parseLeadFollowUp(req.FollowUpAt)
 		if ferr != "" {
 			respondErr(w, 422, ferr)
@@ -1746,9 +1822,17 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 		if !moves {
 			aid, aname, ateam := actorOf(u)
 			cid := contactID
+			var outcome string
+			if hasDisp {
+				// The disposition IS the outcome. It lands in the same app.activities.outcome
+				// column the call centre writes, which is what makes the two teams' numbers
+				// addable instead of merely adjacent.
+				outcome = disp.Code
+			}
 			id, err := LogActivity(r.Context(), db, Activity{
 				ContactID: &cid, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-				Type: kind, Subject: label, Body: note, Source: "manual",
+				Type: kind, Subject: label, Body: note, Outcome: outcome, Source: "manual",
+				OccurredAt: occurred,
 				EntityType: "crm_contact", EntityID: fmt.Sprintf("%d", contactID),
 			})
 			if err != nil {
@@ -1764,7 +1848,24 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 				       next_action_at   = COALESCE($2, next_action_at),
 				       updated_at       = NOW()
 				 WHERE id = $1`, contactID, followUp) //nolint:errcheck
-			respond(w, map[string]any{"ok": true, "moved": false, "activity_id": id, "follow_up_at": followUp}, "pg")
+
+			// The outcome moves the lead, exactly as it does from My Day — see
+			// salesDisposition.Advances for why a closing outcome moves nothing, and why this
+			// is the only way the four middle stages are reachable at all.
+			//
+			// advanceLeadStage is forward-only, leaves converted and disqualified leads
+			// untouched, and re-reads the stage in its own WHERE, so two officers logging on
+			// the same lead at once cannot land the lower stage. A failure to move is not a
+			// failure to log: the activity is already written and the officer is told what
+			// actually happened rather than being handed a 500 for a stage that would not
+			// have moved anyway.
+			out := map[string]any{"ok": true, "moved": false, "activity_id": id, "follow_up_at": followUp}
+			if hasDisp && disp.Advances != "" && actor.Valid {
+				if to, ok := advanceLeadStage(r.Context(), db, contactID, disp.Advances, actor.Int64, disp.Label); ok {
+					out["moved"], out["to"] = true, to
+				}
+			}
+			respond(w, out, "pg")
 			return
 		}
 

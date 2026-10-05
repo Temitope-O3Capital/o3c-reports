@@ -51,6 +51,10 @@ interface Disposition {
   needs_follow_up?: boolean
   qualifies?: boolean
   closes?: boolean
+  /** The stage this outcome puts a linked lead in. Empty ⇒ it decides nothing about the
+   *  stage, which is what "No Answer" should do. Read here so the consequence sentence can
+   *  name the move before the officer commits, rather than reporting it afterwards. */
+  advances?: string
 }
 
 /** Local date-time for an <input type="datetime-local">, which has no timezone. */
@@ -164,6 +168,10 @@ export default function SalesActivityModal({
   // seven days, never future) and this form never sent one, so an officer who logged
   // Friday's visits on Monday had them all recorded as Monday's — which is what made the
   // supervisor's calendar disagree with the week people actually worked.
+  //
+  // That fix first landed on My Day only. The lead drawer kept the bug: logLeadActivity did
+  // not accept an occurred_at at all, so every call written up after the fact against a lead
+  // was still stamped with the moment it was typed. Both paths now carry it.
   const [when, setWhen] = useState('')
 
   // What came of it, from the shared vocabulary rather than a free-text box.
@@ -211,6 +219,20 @@ export default function SalesActivityModal({
   const chosenStep = useMemo(() => JOURNEY.find(s => s.kind && s.kind === kind) ?? null, [kind])
   const isForward  = !!chosenStep
 
+  // A forward step is a change of state, and it happens now: the stage move it performs is
+  // stamped NOW() whatever date were typed, so offering a date there would promise
+  // something crm_contacts does not record. Record-only kinds are the ones officers catch
+  // up on at the end of a week, and they are the ones that take a date.
+  const canBackdate = isDay || (!!kind && !isForward)
+
+  // Where the chosen outcome would put the lead, if anywhere. Forward only and never on a
+  // closed lead, mirroring advanceLeadStage so the sentence below cannot promise a move the
+  // server will decline.
+  const advanceIdx = chosenDisp?.advances && chosenDisp.advances in STAGE_ORDER
+    ? STAGE_ORDER[chosenDisp.advances] : -1
+  const willAdvance = !isDay && !closedAs && advanceIdx > currentIdx
+  const advanceLabel = willAdvance ? leadStageLabel(chosenDisp!.advances!) : ''
+
   // The sentence under the picker. It is the whole point of merging the two lists: the
   // officer sees what the save will DO before they commit to it.
   const consequence = (() => {
@@ -222,26 +244,39 @@ export default function SalesActivityModal({
         ? `Moves ${who} from ${currentLabel} to ${chosenStep!.label}.${tail}`
         : `Moves ${who} to ${chosenStep!.label}.${tail}`
     }
+    // An outcome can carry the lead forward even though the kind itself only records — that
+    // is what makes the four middle stages reachable at all. Telling the officer the lead
+    // "stays at Contacted" while the save is about to move it is the one thing this
+    // sentence must never do.
+    if (willAdvance) {
+      return `Goes on the timeline and moves ${who} to ${advanceLabel}.${tail}`
+    }
     const stays = currentLabel ? ` ${who} stays at ${currentLabel}.` : ''
     return `Goes on the timeline.${stays}${tail}`
   })()
+
+  // Same two bounds the server applies to a backdated occurred_at, checked here so the
+  // officer is told before they lose what they have typed rather than after. Shared by both
+  // modes, because the rule is the server's and there is only one of it.
+  function whenProblem(): string | null {
+    if (!when) return null
+    const t = new Date(when)
+    if (Number.isNaN(t.getTime())) return 'That date is not a real date.'
+    if (t.getTime() > Date.now() + 2 * 60_000) {
+      return 'That is in the future — log what happened, not what is planned.'
+    }
+    if (t.getTime() < Date.now() - 7 * 86_400_000) {
+      return 'That is more than a week ago. Ask your head to record it if it still needs to go on the record.'
+    }
+    return null
+  }
 
   function validate(): string | null {
     if (isDay) {
       if (!kind) return 'Pick what kind of activity this was.'
       if (!subject.trim()) return 'Say briefly what this was — it is what the entry reads as on your day.'
-      // Same two bounds the server applies, checked here so the officer is told before
-      // they lose what they have typed rather than after.
-      if (when) {
-        const t = new Date(when)
-        if (Number.isNaN(t.getTime())) return 'That date is not a real date.'
-        if (t.getTime() > Date.now() + 2 * 60_000) {
-          return 'That is in the future — log what happened, not what is planned.'
-        }
-        if (t.getTime() < Date.now() - 7 * 86_400_000) {
-          return 'That is more than a week ago. Ask your head to record it if it still needs to go on the record.'
-        }
-      }
+      const w = whenProblem()
+      if (w) return w
       if (chosenDisp?.needs_note && !note.trim()) {
         return `"${chosenDisp.label}" needs a note saying why — that is the part anyone reading this later actually needs.`
       }
@@ -251,6 +286,20 @@ export default function SalesActivityModal({
       return null
     }
     if (!kind) return 'Pick what happened.'
+    // The lead branch enforced none of this: it was one line, so an officer could log a
+    // "Callback Requested" against a lead with no callback date and the server had no
+    // disposition to refuse it with.
+    if (canBackdate) {
+      const w = whenProblem()
+      if (w) return w
+    }
+    if (chosenDisp?.needs_note && !note.trim()) {
+      return `"${chosenDisp.label}" needs a note saying why — that is the part anyone reading this later actually needs.`
+    }
+    // Unconditional here, unlike My Day: there is always a lead to hang the date on.
+    if (chosenDisp?.needs_follow_up && !followUp) {
+      return `"${chosenDisp.label}" needs a date to come back on.`
+    }
     return null
   }
 
@@ -295,10 +344,22 @@ export default function SalesActivityModal({
           // Omitted rather than sent empty: the server treats an absent follow-up as
           // "leave the existing one alone", which is what logging a call should do.
           ...(followUp ? { follow_up_at: followUp } : {}),
+          ...(disposition ? { disposition } : {}),
+          // An absolute instant, for the same reason My Day sends one: datetime-local
+          // carries no zone, so the bare string would be read as UTC and land an hour out
+          // for Lagos. Sent only for the kinds that can be backdated — the server refuses
+          // a date on a forward step rather than quietly ignoring it.
+          ...(canBackdate && when ? { occurred_at: new Date(when).toISOString() } : {}),
         },
       )
-      if (res?.moved) toast.success(`${who} moved to ${chosenStep?.label ?? 'the next step'}`)
-      else toast.success(followUp ? `Logged. Follow-up set for ${fmtDate(followUp)}` : 'Logged')
+      // Name the stage the server says it landed on. chosenStep is null for a record-only
+      // kind, so an outcome-driven move reported itself as "the next step" — the officer
+      // watched the lead move and was told nothing about where to.
+      if (res?.moved) {
+        toast.success(`${who} moved to ${res.to ? leadStageLabel(res.to) : (chosenStep?.label ?? 'the next step')}`)
+      } else {
+        toast.success(followUp ? `Logged. Follow-up set for ${fmtDate(followUp)}` : 'Logged')
+      }
       onSaved({ moved: res?.moved, to: res?.to })
     } catch (e: any) {
       const msg = e?.message || 'Could not log that'
@@ -556,6 +617,51 @@ export default function SalesActivityModal({
                 ))}
               </div>
             </div>
+
+            {/* When it happened, and what came of it. Both of these were My Day's alone.
+                The lead drawer could do neither, so an officer writing up Friday's calls on
+                Monday had them stamped Monday — the bug the comment at the top of this file
+                describes, fixed on one of the two paths — and the result of every one of
+                those calls was free prose where My Day stored a counted code.
+
+                Shown only for the record-only kinds: a forward step is its own outcome, and
+                it happens now. */}
+            {canBackdate && (
+              <div style={{
+                display: 'grid', gap: SP[3],
+                gridTemplateColumns: dispsForKind.length > 0 ? '1fr 1fr' : '1fr',
+              }}>
+                <Input label="When Did This Happen?" type="datetime-local" value={when}
+                  onChange={e => setWhen(e.target.value)}
+                  hint="Defaults to now. Back-date up to a week if you are catching up." />
+                {dispsForKind.length > 0 && (
+                  <SelectMenuField
+                    label="What Came Of It?"
+                    value={disposition}
+                    onChange={setDisposition}
+                    clearLabel="Not recorded"
+                    searchable={false}
+                    options={dispsForKind.map(d => ({ value: d.code, label: d.label, hint: d.hint }))}
+                    hint={chosenDisp?.hint}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* The consequence strip below already names an advancing outcome, so there is
+                no green panel here to say it twice. This one earns its space because nothing
+                else says it: a closing outcome is the end of the pursuit. */}
+            {chosenDisp?.closes && (
+              <div style={{
+                display: 'flex', gap: 8, alignItems: 'flex-start', padding: `${SP[2]} ${SP[3]}`,
+                borderRadius: RADIUS.md, background: `${AMBER}12`, border: `1px solid ${AMBER}3A`,
+                fontSize: TEXT.xs, color: 'var(--txt)',
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: AMBER }}>info</span>
+                <span>This outcome ends the pursuit. Say why in the note — it is what stops the
+                  next campaign calling them again for the same reason.</span>
+              </div>
+            )}
           </>
         )}
 
@@ -594,7 +700,9 @@ export default function SalesActivityModal({
             follow-up worklist and the overdue counters actually read. */}
         {!isDay && (
           <div>
-            <label style={label} htmlFor="sa-follow">Next Follow-Up (Optional)</label>
+            <label style={label} htmlFor="sa-follow">
+              {chosenDisp?.needs_follow_up ? 'Come Back On (Required)' : 'Next Follow-Up (Optional)'}
+            </label>
             <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
               <input id="sa-follow" type="date" value={followUp} min={isoDate(new Date())}
                 onChange={e => { setFollow(e.target.value); setErr(null) }}
@@ -612,7 +720,9 @@ export default function SalesActivityModal({
               )}
             </div>
             <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 5 }}>
-              Leave it empty and any follow-up already booked stays as it is.
+              {chosenDisp?.needs_follow_up
+                ? `"${chosenDisp.label}" needs a date to come back on — the queue is what brings it back to you.`
+                : 'Leave it empty and any follow-up already booked stays as it is.'}
             </div>
           </div>
         )}
