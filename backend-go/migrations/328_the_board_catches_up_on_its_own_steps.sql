@@ -21,7 +21,15 @@
 -- a lead worked twice (e.g. dropped off, then later re-engaged and converted) must land
 -- on what most recently happened, not an earlier one a naive one-step-wins-arbitrarily
 -- join would pick.
-\set ON_ERROR_STOP on
+-- No \set or \echo anywhere below this line. Migrations are //go:embed-ed and executed by
+-- the Go runner, which speaks SQL to the server and not psql's meta-command language: a
+-- leading backslash is a syntax error (SQLSTATE 42601) at the SERVER, not a lint warning.
+-- A failed migration exits the process, and the keep-alive wrapper restarts it a minute
+-- later into the same failure, so one backslash takes the workspace down in a loop until
+-- somebody reads the log. This file did exactly that on 2026-10-05 between 11:46 and 11:53.
+-- Testing a migration by piping it through psql will never catch it, because psql is the
+-- one thing that understands those commands. ON_ERROR_STOP is redundant here regardless:
+-- the explicit BEGIN/COMMIT below already makes this all-or-nothing.
 BEGIN;
 
 DROP TABLE IF EXISTS scrap.bk_328_lead_status;
@@ -70,7 +78,9 @@ UPDATE call_center_leads l
   FROM latest_terminal_step t
  WHERE l.id = t.lead_id;
 
-\echo '=== leads moved ==='
+-- Kept as plain SQL: the Go runner discards the rows, and under psql it still prints the
+-- before/after that makes the change reviewable. The \echo header it used to carry is gone
+-- for the reason given at the top.
 SELECT l.id, b.status AS was, l.status AS now_status, l.last_disposition
   FROM call_center_leads l
   JOIN scrap.bk_328_lead_status b ON b.id = l.id
