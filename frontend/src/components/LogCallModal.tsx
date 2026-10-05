@@ -114,7 +114,7 @@ export function purposeCopy(purpose: string) { return PURPOSE_COPY[purpose] ?? P
 export const OTHER_DISPOSITION = 'Other — Describe What Happened'
 // Short enough that a real one-line account passes, long enough that "n/a", "-" and "ok"
 // do not. Mirrors ccOtherNoteMinRunes in the Go handler.
-const OTHER_NOTE_MIN = 15
+export const OTHER_NOTE_MIN = 15
 export function dispositionNoteMissing(disposition: string, ...texts: string[]): boolean {
   if (disposition !== OTHER_DISPOSITION) return false
   return !texts.some(t => (t ?? '').trim().length >= OTHER_NOTE_MIN)

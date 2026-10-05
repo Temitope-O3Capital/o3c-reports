@@ -77,3 +77,41 @@ export function vocabLabel(vocab: VocabOption[], value: string | null | undefine
   if (!value) return '—'
   return vocab.find(v => v.value === value)?.label ?? value
 }
+
+// COLLECTION_CONTACT_DISPOSITIONS — what came of a collections contact, as opposed to whether we
+// reached anyone (that is COLLECTION_CONTACT_OUTCOMES above). Migration 331 split those into two
+// columns because they are two facts and one column could only ever hold one of them.
+//
+// THESE CODES ARE NOT A NEW VOCABULARY. They are ccDispositionsForPurpose('collections') from
+// backend-go/handlers/call_center_dispositions.go — the list this system already owns — and the
+// labels are that list's labels too. collection_contacts.disposition CHECKs the same 15 codes.
+//
+// Two labels here read differently from what this screen used to show, and the change is
+// deliberate: the queue showed 'Callback Scheduled' and 'Unreachable / No Answer' where the
+// call-centre screen shows 'Callback Requested' and 'No Answer', for the same outcome. One
+// wording per outcome is the whole point. Now that the DATABASE stores a code, the wording can
+// be changed again whenever the business prefers the longer one — without a migration, which was
+// never true while the label itself was the stored value.
+export const COLLECTION_CONTACT_DISPOSITIONS: VocabOption[] = [
+  { value: 'callback',          label: 'Callback Requested' },
+  { value: 'ptp',               label: 'Promise to Pay' },
+  { value: 'paid',              label: 'Paid' },
+  { value: 'payment_to_verify', label: 'Says They Have Paid — To Verify' },
+  { value: 'not_yet_due',       label: 'Nothing Due This Cycle' },
+  { value: 'dispute',           label: 'Dispute' },
+  { value: 'escalated',         label: 'Escalated' },
+  { value: 'pending_followup',  label: 'Pending / Follow-up' },
+  { value: 'no_answer',         label: 'No Answer' },
+  { value: 'call_dropped',      label: 'Call Dropped' },
+  { value: 'call_rejected',     label: 'Customer Rejected the Call' },
+  { value: 'wrong_number',      label: 'Wrong Number' },
+  { value: 'do_not_call',       label: 'Do Not Call' },
+  { value: 'closed',            label: 'Closed' },
+  // Last on purpose, and worthless without a note — enforced on the server by
+  // ccDispositionNoteMissing, not only in the browser.
+  { value: 'other',             label: 'Other — Describe What Happened' },
+]
+
+// The one disposition that demands prose. Kept here so the queue does not have to import the
+// call-log modal just to know it.
+export const OTHER_DISPOSITION_CODE = 'other'

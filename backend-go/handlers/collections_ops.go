@@ -277,7 +277,7 @@ func collectionsOpsGetContacts(db *core.DB) http.HandlerFunc {
 		cif := str(assRows[0]["account_cif"])
 
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT cc.id, cc.contact_type, cc.outcome, cc.notes, cc.created_at,
+			SELECT cc.id, cc.contact_type, cc.outcome, cc.disposition, cc.notes, cc.created_at,
 			       u.full_name AS agent_name
 			FROM collection_contacts cc
 			LEFT JOIN o3c_users u ON u.id = cc.agent_user_id
@@ -713,6 +713,7 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 	type body struct {
 		ContactType string `json:"contact_type"`
 		Outcome     string `json:"outcome"`
+		Disposition string `json:"disposition"`
 		Notes       string `json:"notes"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -726,22 +727,37 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.ContactType == "" || b.Outcome == "" {
-			respondErr(w, 422, "contact_type and outcome are required")
+		if b.ContactType == "" {
+			respondErr(w, 422, "contact_type is required")
 			return
 		}
 		// Three screens sent three vocabularies for contact_type ('phone' vs 'call', 'field_visit'
-		// vs 'visit'). Enforced while collection_contacts is still empty. `outcome` is
-		// deliberately NOT constrained — two screens put two different KINDS of fact in it, and
-		// which one collections wants to measure is an open question. See contact_vocab.go.
+		// vs 'visit'). Enforced while collection_contacts is still empty.
 		if !isCollectionContactType(b.ContactType) {
 			respondErr(w, 422, "contact_type must be one of: "+vocabList(collectionContactTypes))
+			return
+		}
+		// outcome and disposition are two different facts — did we get through, and what came of
+		// it — so either may be absent, but a contact recording NEITHER is not a contact. This
+		// mirrors migration 331's collection_contacts_says_something_chk; the database would
+		// reject it anyway, and a 422 explains why where a 500 would not.
+		if b.Outcome == "" && b.Disposition == "" {
+			respondErr(w, 422, "give at least one of outcome (did we reach them) "+
+				"or disposition (what came of it)")
+			return
+		}
+		if b.Outcome != "" && !isCollectionContactOutcome(b.Outcome) {
+			respondErr(w, 422, "outcome must be one of: "+vocabList(collectionContactOutcomes))
+			return
+		}
+		if b.Disposition != "" && !isCollectionContactDisposition(b.Disposition) {
+			respondErr(w, 422, "disposition must be one of: "+vocabList(collectionContactDispositions()))
 			return
 		}
 		// The collections queue offers the same disposition vocabulary as the call log,
 		// including "Other" — so the note requirement has to hold on this path too. A rule
 		// enforced on one of two routes to the same vocabulary is not enforced.
-		if ccDispositionNoteMissing(b.Outcome, b.Notes) {
+		if ccDispositionNoteMissing(b.Disposition, b.Notes) {
 			respondErr(w, 422, "Choosing Other means telling us what happened — "+
 				"write it in the notes, in a sentence the next person can act on")
 			return
@@ -757,16 +773,23 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 		}
 		cif := str(assRows[0]["account_cif"])
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO collection_contacts (cif_number, agent_user_id, contact_type, outcome, notes, created_at)
-			VALUES ($1, $2, $3, $4, $5, NOW())
-			RETURNING id, contact_type, outcome, notes, created_at`,
-			cif, user.ID, b.ContactType, b.Outcome, b.Notes)
+			INSERT INTO collection_contacts (cif_number, agent_user_id, contact_type, outcome, disposition, notes, created_at)
+			VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, NOW())
+			RETURNING id, contact_type, outcome, disposition, notes, created_at`,
+			cif, user.ID, b.ContactType, b.Outcome, b.Disposition, b.Notes)
 		if err != nil {
 			respondErr(w, 500, "Log contact failed")
 			return
 		}
+		// The summary line names whichever fact the screen actually recorded, so the activity
+		// feed never reads "outcome: " with nothing after it.
+		result := b.Disposition
+		if result == "" {
+			result = b.Outcome
+		}
 		logCreditEvent(r.Context(), db, r, "collections", "contact", fmt.Sprint(rows[0]["id"]), cif, "contact_logged",
-			fmt.Sprintf("Contact logged via %s — outcome: %s", b.ContactType, b.Outcome), nil, map[string]any{"contact_type": b.ContactType, "outcome": b.Outcome, "notes": b.Notes})
+			fmt.Sprintf("Contact logged via %s — %s", b.ContactType, result), nil,
+			map[string]any{"contact_type": b.ContactType, "outcome": b.Outcome, "disposition": b.Disposition, "notes": b.Notes})
 		respond(w, rows[0], "pg")
 	}
 }

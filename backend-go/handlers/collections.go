@@ -717,7 +717,9 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 			    (SELECT COALESCE(SUM(amount_kobo), 0) FROM collection_payments
 			      WHERE account_cif = base.cif AND status NOT IN ('approved','rejected')) AS pending_paid_kobo,
 			    (SELECT MAX(cc.created_at) FROM collection_contacts cc WHERE cc.cif_number = base.cif)  AS last_contact_at,
-			    (SELECT cc.outcome FROM collection_contacts cc WHERE cc.cif_number = base.cif ORDER BY cc.created_at DESC LIMIT 1) AS last_contact_outcome
+			    -- Prefer the disposition (what came of it) over bare reachability; migration 331
+			    -- split them and a queue-logged contact has only the former.
+			    (SELECT COALESCE(cc.disposition, cc.outcome) FROM collection_contacts cc WHERE cc.cif_number = base.cif ORDER BY cc.created_at DESC LIMIT 1) AS last_contact_outcome
 			FROM (SELECT $1::text AS cif) base
 			CROSS JOIN d
 			CROSS JOIN ident

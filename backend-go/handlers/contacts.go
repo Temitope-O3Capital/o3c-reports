@@ -331,12 +331,13 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 
 				SELECT cc.id::text,
 				       'collection_contact' AS type,
-				       COALESCE(cc.notes, cc.outcome, '') AS description,
+				       COALESCE(cc.notes, cc.disposition, cc.outcome, '') AS description,
 				       COALESCE(u.full_name,'') AS created_by,
 				       cc.created_at,
 				       'collections' AS module,
 				       '' AS ref,
-				       CONCAT_WS(' · ', NULLIF(cc.contact_type,''), NULLIF(cc.outcome,'')) AS meta
+				       CONCAT_WS(' · ', NULLIF(cc.contact_type,''),
+				                        NULLIF(COALESCE(cc.disposition, cc.outcome),'')) AS meta
 				FROM collection_contacts cc
 				LEFT JOIN o3c_users u ON u.id = cc.agent_user_id
 				WHERE cc.cif_number IN `+personCIFs+`

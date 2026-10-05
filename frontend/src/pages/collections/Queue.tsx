@@ -8,7 +8,10 @@ import {
 } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
-import { dispositionsFor, dispositionNoteMissing } from '../../components/LogCallModal'
+import { OTHER_NOTE_MIN } from '../../components/LogCallModal'
+import {
+  COLLECTION_CONTACT_DISPOSITIONS, COLLECTION_CONTACT_OUTCOMES, OTHER_DISPOSITION_CODE, vocabLabel,
+} from '../../lib/contactVocab'
 import { idCaption } from '../../components/CreditFile'
 import CallsPanel from '../../components/CallsPanel'
 import { COLLECTIONS_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
@@ -83,7 +86,10 @@ interface Assignment {
 interface ContactEntry {
   id: number
   contact_type: string
-  outcome: string
+  // Two facts, two columns, since migration 331: outcome says whether we reached them,
+  // disposition says what came of it. Either can be null; never both.
+  outcome: string | null
+  disposition: string | null
   notes: string | null
   created_at: string
   agent_name: string | null
@@ -224,13 +230,23 @@ const fieldStyle: React.CSSProperties = {
 
 // ── Log Call tab ──────────────────────────────────────────────────────────────
 
-// Use the CENTRAL collections disposition set (shared with the call-centre log-call
-// form) so the queue speaks the same workflow vocabulary — PTP / Paid / Dispute /
-// Callback Scheduled / Escalated / Wrong Number / Unreachable / Call Dropped.
-const DISPOSITIONS = dispositionsFor('collections')
+// The collections disposition set, by CODE. This used to be dispositionsFor('collections'),
+// which returns human-readable LABELS, and the label was what got stored in
+// collection_contacts.outcome — the same column collections/AccountDetail.tsx was filling with
+// snake_case reachability codes. Migration 331 split the column; this screen now writes the
+// disposition, as a code, from the one list the server owns.
+const DISPOSITIONS = COLLECTION_CONTACT_DISPOSITIONS
+
+// A contact row carries a disposition, or a reachability outcome, or (from the account page)
+// both. Show the richer fact first and fall back, so a row never renders blank.
+function contactResult(c: { outcome: string | null; disposition: string | null }): string {
+  if (c.disposition) return vocabLabel(COLLECTION_CONTACT_DISPOSITIONS, c.disposition)
+  if (c.outcome) return vocabLabel(COLLECTION_CONTACT_OUTCOMES, c.outcome)
+  return '—'
+}
 
 function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: () => void }) {
-  const [disposition, setDisposition] = useState(DISPOSITIONS[0])
+  const [disposition, setDisposition] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -239,7 +255,7 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
     // "Other" carries no meaning of its own, so the note IS the record. This queue posts
     // to collections-ops rather than the call-log endpoint, so it needs the check in its
     // own right; the server enforces it on both paths regardless.
-    if (dispositionNoteMissing(disposition, notes)) {
+    if (disposition === OTHER_DISPOSITION_CODE && notes.trim().length < OTHER_NOTE_MIN) {
       setErr('Choosing Other means telling us what happened — describe it in the notes, in a sentence the next person can act on.')
       return
     }
@@ -250,11 +266,13 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
         // 'phone', not 'call': the stored vocabulary is COLLECTION_CONTACT_TYPES, which the Go
         // whitelist and migration 326's CHECK both enforce. See lib/contactVocab.ts.
         contact_type: 'phone',
-        outcome: disposition,
+        // 'disposition', not 'outcome': the queue knows what came of the call, not whether
+        // the phone was answered. The server rejects an unknown code with a 422.
+        disposition,
         notes,
       })
       setNotes('')
-      setDisposition(DISPOSITIONS[0])
+      setDisposition('')
       onDone()
     } catch (e: any) {
       setErr(e.message ?? 'Failed to log call')
@@ -275,7 +293,8 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
           onChange={e => setDisposition(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}
         >
-          {DISPOSITIONS.map(d => <option key={d} value={d}>{d}</option>)}
+          <option value="">Choose what came of the call…</option>
+          {DISPOSITIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
       </div>
       <div>
@@ -581,7 +600,7 @@ function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loadi
           border: '1px solid var(--bdr)', background: 'var(--th-bg)',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.outcome}</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{contactResult(c)}</span>
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDate(c.created_at)}</span>
           </div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', textTransform: 'capitalize', display: 'flex', gap: 6 }}>

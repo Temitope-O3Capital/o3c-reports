@@ -24,7 +24,10 @@ import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
-import { COLLECTION_CONTACT_TYPES, COLLECTION_CONTACT_OUTCOMES } from '../../lib/contactVocab'
+import {
+  COLLECTION_CONTACT_TYPES, COLLECTION_CONTACT_OUTCOMES,
+  COLLECTION_CONTACT_DISPOSITIONS, vocabLabel,
+} from '../../lib/contactVocab'
 
 function getStoredRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
@@ -75,7 +78,10 @@ interface ActivityEvent {
 interface ContactEntry {
   id: number
   contact_type: string
-  outcome: string
+  // Migration 331 split these: outcome is reachability (this screen writes it), disposition is
+  // the call result (collections/Queue.tsx writes it). Either may be null, never both.
+  outcome: string | null
+  disposition: string | null
   notes: string | null
   created_at: string
   agent_name: string | null
@@ -331,7 +337,9 @@ export function ContactsTab({ assignmentId, version }: { assignmentId: number | 
               {humanLabel((c.contact_type ?? ''))}
               {' · '}
               <span style={{ fontWeight: FW.normal, color: 'var(--txt2)' }}>
-                {humanLabel((c.outcome ?? ''))}
+                {c.disposition
+                  ? vocabLabel(COLLECTION_CONTACT_DISPOSITIONS, c.disposition)
+                  : vocabLabel(COLLECTION_CONTACT_OUTCOMES, c.outcome)}
               </span>
             </div>
             {c.notes && (

@@ -73,24 +73,54 @@ func isCollectionContactType(s string) bool {
 	return inVocab(collectionContactTypes, s)
 }
 
-// NOTE ON collection_contacts.outcome — DELIBERATELY NOT CONSTRAINED HERE, and this is a real
-// open question rather than an oversight.
+// collection_contacts.outcome AND .disposition — SETTLED 2026-10-05 by migration 331.
 //
-// Two screens write two different KINDS of thing into that one column:
+// This column used to take BOTH facts from two screens, and the note here recorded it as an open
+// question. The business has now answered it: keep both, in two columns.
 //
-//   collections/AccountDetail.tsx sends a reachability outcome — 'answered', 'no_answer',
-//   'not_reachable', 'promised_to_pay', 'refused_to_pay'.
+//   outcome     — REACHABILITY. Did we get through? collections/AccountDetail.tsx writes this.
+//   disposition — THE RESULT. What came of it? collections/Queue.tsx writes this.
 //
-//   collections/Queue.tsx sends a CALL DISPOSITION — one of roughly 45 human-readable strings
-//   from the shared disposition list ('Promise to Pay', 'Issue Resolved', 'Says They Have Paid
-//   — To Verify', 'Other — Describe What Happened'), which is a richer, already-canonical
-//   vocabulary enforced elsewhere as ccDispositions.
+// Either may be NULL (an SMS send has no call result; the queue may know only the result), but
+// migration 331's collection_contacts_says_something_chk requires at least one, because a
+// contact recording neither fact is not a contact.
 //
-// Those are not two spellings of one idea; they are two different facts about a contact. Picking
-// either one silently discards the other: constrain to reachability and the disposition is lost,
-// constrain to dispositions and an SMS or a field visit has no outcome to give. The honest model
-// is probably a separate `disposition` column alongside `outcome` — the table is empty, so that
-// costs nothing but a migration — but which fact each screen is supposed to record is a business
-// decision about what collections wants to measure, not a naming one. So contact_type is
-// enforced and outcome is left open, with the conflict written down rather than resolved by
-// whoever edited last. See the handover doc.
+// Why two columns and not one: 'answered' says the phone was picked up, 'ptp' says what was
+// agreed. A customer who did both could previously be recorded only as one. And 'not_reachable'
+// against 'Unreachable / No Answer' was the same fact in two spellings, which would have split
+// every GROUP BY on this column in half for ever.
+//
+// I checked the obvious cheaper option first — drop the disposition, since the call log surely
+// has it. It does NOT: Queue.tsx posts to /api/collections-ops/{id}/contact, not the call-log
+// endpoint, and says so in its own comment. That disposition exists nowhere else.
+
+// collectionContactOutcomes — the reachability vocabulary. Mirrors COLLECTION_CONTACT_OUTCOMES
+// in frontend/src/lib/contactVocab.ts and migration 331's collection_contacts_outcome_chk.
+var collectionContactOutcomes = []string{
+	"answered",
+	"no_answer",
+	"not_reachable",
+	"promised_to_pay",
+	"broken_promise",
+	"refused_to_pay",
+	"wrong_number",
+}
+
+func isCollectionContactOutcome(s string) bool { return inVocab(collectionContactOutcomes, s) }
+
+// collectionContactDispositions is DERIVED, not copied. ccDispositions in
+// call_center_dispositions.go is the one list this system owns, and a sixteenth hand-typed copy
+// of it is exactly the defect this file exists to remove. Scoped to the collections purpose, it
+// yields 15 codes — a clean superset of the 12 the queue screen offers.
+func collectionContactDispositions() []string {
+	ds := ccDispositionsForPurpose("collections")
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.Code)
+	}
+	return out
+}
+
+func isCollectionContactDisposition(s string) bool {
+	return inVocab(collectionContactDispositions(), s)
+}
