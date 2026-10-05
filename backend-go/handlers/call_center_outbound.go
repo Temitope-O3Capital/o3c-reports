@@ -3239,6 +3239,19 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 		return "no_answer"
 	// Collections & support outcomes. Without these they all collapsed to the generic
 	// "called", so a paid or promised account looked identical to an unworked one.
+	//
+	// BEFORE the generic "paid" case, and for the same reason ccDispositionCode tests it
+	// first: "Says They Have Paid — To Verify" CONTAINS "paid", and it is deliberately not
+	// Paid. It is an unverified claim, and "converted" is a terminal, positive lead status
+	// (rank 5) that nothing later can move. Reading it as Paid would permanently mark a lead
+	// converted on a customer's word, while ccApplyDisposition — correctly — leaves the
+	// contact open for someone to check. Unverified at 2026-10-05: 0 calls carry this
+	// disposition, so the bug had not fired yet; the option is live on the collections list,
+	// so it was one click away. It needs a follow-up call, which is what "callback" means
+	// here, the same as a promise or a dispute below.
+	case strings.Contains(d, "to verify"), strings.Contains(d, "says they have paid"),
+		strings.Contains(d, "claims payment"):
+		return "callback"
 	case strings.Contains(d, "paid"):
 		// Paid off — a positive close (mirrors "converted" for a marketing lead).
 		return "converted"

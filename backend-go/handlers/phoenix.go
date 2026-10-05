@@ -749,7 +749,10 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 		Phone:           str(a["phone"]),
 		Email:           str(a["email"]),
 		Employer:        str(a["employer"]),
-		EmploymentType:  str(a["employment_type"]),
+		// Translated, not forwarded raw: Phoenix accepts only employed / self_employed /
+		// business_owner / unemployed, so our "salaried" arrived as not_specified and the
+		// salaried scoring model was never selected. See phoenixEmploymentType.
+		EmploymentType:  phoenixEmploymentType(str(a["employment_type"])),
 		ProductType:     phoenixProductName(str(a["product_type"])),
 		AmountKobo:      amountKobo,
 		RequestedLimit:  limitKobo,

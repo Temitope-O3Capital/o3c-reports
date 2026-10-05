@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { EMPLOYMENT_TYPES } from '../lib/employmentTypes'
 import { Modal, Button, Input, Select } from './UI'
 import { SelectMenuField } from './SelectMenu'
 import { apiFetch } from '../lib/api'
@@ -30,13 +31,6 @@ export interface DraftApp {
 }
 
 /** Employment types Phoenix recognises for affordability. */
-const EMPLOYMENT_TYPES = [
-  { value: 'salaried', label: 'Salaried', hint: 'On a payroll' },
-  { value: 'self_employed', label: 'Self-Employed', hint: 'Business owner or trader' },
-  { value: 'contract', label: 'Contract', hint: 'Fixed-term engagement' },
-  { value: 'retired', label: 'Retired' },
-  { value: 'unemployed', label: 'Unemployed' },
-]
 
 interface Props {
   open: boolean

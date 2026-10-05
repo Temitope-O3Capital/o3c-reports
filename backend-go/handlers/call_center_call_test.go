@@ -59,6 +59,17 @@ func TestLeadStatusFromCall(t *testing.T) {
 		// coming from a select, and a stray capital should not silently reroute a
 		// lead.
 		{"case insensitive", "completed", s("  do not call  "), "dnc"},
+
+		// "Says They Have Paid — To Verify" CONTAINS "paid" and must NOT read as Paid.
+		// "converted" is terminal and positive (rank 5), so reading an unverified claim
+		// that way would permanently mark the lead on the customer's word alone, while
+		// ccApplyDisposition correctly leaves the contact open. ccDispositionCode has
+		// guarded this since it was written; this function did not, and the option is
+		// live on the collections list. It needs a follow-up call.
+		{"unverified payment is not converted", "completed", s("Says They Have Paid — To Verify"), "callback"},
+		{"to verify, any wording", "completed", s("customer claims payment"), "callback"},
+		// The real thing still converts.
+		{"actually paid converts", "completed", s("Paid"), "converted"},
 	}
 	for _, c := range cases {
 		if got := leadStatusFromCall(c.outcome, c.disposition); got != c.want {

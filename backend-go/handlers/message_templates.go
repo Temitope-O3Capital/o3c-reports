@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,17 @@ var templateChannels = map[string]bool{"sms": true, "email": true, "whatsapp": t
 var templateCategories = map[string]bool{
 	"general": true, "collections": true, "marketing": true,
 	"onboarding": true, "repayment_reminder": true,
+}
+
+// templateCategoryList returns templateCategories as a sorted slice, so an error message
+// cannot list a different set from the one actually enforced.
+func templateCategoryList() []string {
+	out := make([]string, 0, len(templateCategories))
+	for k := range templateCategories {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 var templateUpdateCols = []string{
@@ -188,6 +200,24 @@ func updateTemplate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		body = normalizeTemplatePayload(body)
+		// createTemplate checks both of these and this path checked NEITHER, while
+		// templateUpdateCols lets a PATCH set category directly. The cost is silent: the
+		// dunning worker reads WHERE category = 'collections' (collections_dunning.go), so a
+		// template re-filed under a category nothing reads simply stops being sent, with no
+		// error anywhere. A 422 here rather than createTemplate's quiet coercion to
+		// "general", because an edit names a category deliberately.
+		if v, ok := body["category"]; ok {
+			if c, _ := v.(string); !templateCategories[c] {
+				respondErr(w, 422, "category must be one of: "+vocabList(templateCategoryList()))
+				return
+			}
+		}
+		if v, ok := body["channel"]; ok {
+			if c, _ := v.(string); !templateChannels[c] {
+				respondErr(w, 422, "channel must be sms, email or whatsapp")
+				return
+			}
+		}
 		parts, args := buildSet(body, templateUpdateCols, 1)
 		// jsonb fields need explicit casts.
 		for i, p := range parts {

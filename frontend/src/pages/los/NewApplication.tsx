@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { EMPLOYMENT_TYPES } from '../../lib/employmentTypes'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { Page, Spinner } from '../../components/UI'
 import { apiPost } from '../../lib/api'
@@ -228,9 +229,10 @@ function Step2({ data, onChange }: { data: Employment; onChange: (d: Employment)
       <Field label="Employment Type" required>
         <select style={inputStyle} value={data.employment_type} onChange={set('employment_type')}>
           <option value="">Select Type</option>
-          <option value="permanent">Permanent</option>
-          <option value="contract">Contract</option>
-          <option value="self_employed">Self-Employed</option>
+          {/* One shared list. This form offered 'permanent' for what the other form called
+              'salaried', and neither could say 'business_owner' — which Phoenix scores on a
+              different model. See lib/employmentTypes.ts. */}
+          {EMPLOYMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </Field>
       <Field label="Employment Start Date" required>

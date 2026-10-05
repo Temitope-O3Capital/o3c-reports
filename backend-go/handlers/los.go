@@ -934,6 +934,13 @@ func losCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "amount_requested_kobo must be greater than zero")
 			return
 		}
+		// Two forms offered two lists for this column and neither was validated, so the word
+		// reaching Phoenix decided which scoring model ran. Blank stays allowed: it is not
+		// always known at intake. See employment_vocab.go.
+		if b.EmploymentType != "" && !isEmploymentType(b.EmploymentType) {
+			respondErr(w, 422, "employment_type must be one of: "+vocabList(employmentTypes))
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()

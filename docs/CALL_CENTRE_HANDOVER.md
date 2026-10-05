@@ -674,11 +674,128 @@ Two labels changed wording to match what the call-centre screen shows for the sa
 (`Callback Requested`, `No Answer`). **Now that the database stores a code, reverting that wording
 costs nothing** — which was never true while the label itself was the stored value.
 
-### 14.4 Still open, and bigger than what was fixed
+### 14.4 A correction: there was no 201,000-row problem
 
-`app.helpdesk_calls.disposition` holds **201,000+ rows of the LABEL form**
-(`Unreachable / No Answer`), while `app.call_center_contacts.disposition_code` holds the **code**
-form. Two live representations of one vocabulary — and the Go labels for two of them
-(`Callback Requested`, `No Answer`) do not match the labels the screens show
-(`Callback Scheduled`, `Unreachable / No Answer`). Same defect as 14.3 at real scale, and unlike
-an empty table it is **not free**. It needs its own decision.
+**What this section said before was wrong, and the wrong version is worth keeping visible.** It
+claimed `app.helpdesk_calls.disposition` held "201,000+ rows of the LABEL form" against
+`call_center_contacts.disposition_code`'s codes, and called it "the same defect at real scale."
+Migration 331's own header says the same thing. Both were written from reading two column names
+and inferring a conflict, without checking how the column is actually fed.
+
+What is actually true:
+
+- **That table stores labels by design, and consistently** — 40,896 label-form rows against 2 in
+  code form, with label-form rows still arriving (5,570 in the last seven days). Migration 145's
+  own column comment says it outright: `disposition_code` holds the code, `last_disposition`
+  holds the label.
+- **`ccDispositionCode` is the normaliser for exactly this**, and it already resolves every one
+  of the five screen labels that has no matching Go label — `Unreachable / No Answer`,
+  `Not Interested`, `Callback Scheduled`, `Interested`, `Issue Resolved` — with
+  `TestSimilarLabelsDoNotCaptureEachOther` pinning the substring order.
+- **`hdLogCall` routes through it** before `ccDispositionByCode`, so the historical silent
+  failure (a disposition resolving to nothing, so no close, no DNC, no callback, HTTP 201) is
+  already fixed. The comment at `call_center_dispositions.go:146` describes that bug and its fix.
+
+So the real finding was **four rows**, not 201,000: the same outcome stored under two spellings,
+which splits a `GROUP BY` on the raw column. Migration 334 normalised them —
+`Resolved` to `Issue Resolved` (2), `interested` to `Interested` (1), `wrong_number` to
+`Wrong Number` (1). The bare `Resolved` pair mattered slightly more than its count:
+`isRawCallOutcome` treats "resolved" as a raw telephony outcome, so today's code **blanks or
+422-rejects** that value. Those two rows held something the current code would refuse to write.
+
+### 14.5 What the audit found instead — an unverified payment marking a lead converted
+
+Mapping the disposition consumers properly turned up a real defect, and not where I was looking.
+
+`leadStatusFromCall` (`call_center_outbound.go`) is a **second, independent** substring matcher
+alongside `ccDispositionCode`, and it was missing a guard the other one has:
+
+```go
+case strings.Contains(d, "paid"):
+    return "converted"        // "Says They Have Paid — To Verify" CONTAINS "paid"
+```
+
+`ccDispositionCode` tests `"to verify"` **before** its generic `paid` case, with the reason
+written beside it: *"treating it as Paid would close a contact on an unverified claim."*
+`leadStatusFromCall` had no such test, so `Says They Have Paid — To Verify` set the lead to
+**`converted`** — a terminal, positive status (rank 5) that nothing later can move — on the
+customer's word alone, while `ccApplyDisposition` correctly left the contact open for someone
+to check.
+
+**It had not fired yet.** Zero calls carry that disposition and zero converted leads carry a
+paid-ish one, measured 2026-10-05. But the option is live on the collections disposition list,
+so it was one click from happening, and the effect is unrecoverable. It now returns `callback`
+— it needs a follow-up call, the same as a promise or a dispute — pinned by three cases in
+`TestLeadStatusFromCall`.
+
+### 14.6 Employment type was deciding which scoring model ran
+
+Two forms held two lists for `app.loan_applications.employment_type`, neither validated. The
+name clash (`permanent` vs `salaried`) was the cosmetic half. The expensive half was that
+`phoenixSubmitOne` forwarded the value **raw** to Phoenix, whose `resolveEmploymentType` accepts
+exactly four words — `employed`, `self_employed`, `business_owner`, `unemployed` — and we send no
+`borrower_category` for it to fall back on. Everything else arrived as `not_specified`, and the
+scorer picks an income-variance threshold by that word:
+
+| word sent | variance threshold |
+|---|---|
+| `employed` | **0.15** — "salaried, very predictable" |
+| `self_employed` | 0.25 |
+| `business_owner` | 0.30 |
+| `contract` | 0.25 |
+| unknown | 0.20 |
+
+So every salaried borrower submitted as `salaried` or `permanent` was scored at the 0.20 unknown
+default instead of 0.15 — their income judged less predictable than the model intends, on the
+commonest borrower type in the book. `phoenixProductName` already existed for precisely this kind
+of boundary translation; `employment_type` simply never got one.
+
+`phoenixEmploymentType` now translates at the wire while the database keeps our own word, so
+`contract` and `retired` stay available for our reporting even though Phoenix cannot score them
+separately. `contract` is deliberately **not** mapped to `employed`: the scorer rates a contractor
+at 0.25, looser than employed's 0.15, so claiming `employed` would score them as more predictable
+than the model believes — wrong in the risky direction. Passed through it lands on 0.20, nearer
+the intended 0.25. The honest fix is for Phoenix to accept `contract`, which its own scorer
+already has a threshold for; that is a Phoenix-side change.
+
+`business_owner` is newly expressible — Phoenix scores it differently from a self-employed trader,
+and until now every one of them went across as `self_employed`.
+
+### 14.7 A template filed where nothing reads it
+
+`createTemplate` validated `category`; `updateTemplate` built its `SET` clause straight from
+`templateUpdateCols` — which includes `category` — and validated **nothing**. The same rule on one
+of two write paths, again.
+
+It is not cosmetic: `collections_dunning.go` selects `WHERE category = 'collections'` and reports
+"no collections template configured" when it finds none. A template re-categorised by an edit
+stops being sent to delinquent customers, and the only symptom is a worker heartbeat saying idle.
+`updateTemplate` now returns 422, and migration 333's CHECK means neither path can drift again.
+
+My earlier note called this "three conflicting category lists". That was wrong — the Go whitelist
+and both screens already agreed on the same five values. Checking it was the fix for the claim,
+not for the code.
+
+### 14.8 Still genuinely open
+
+Real, untouched, and each needs a decision rather than a patch:
+
+1. **A `Do Not Call` logged outside the Outbound Queue never reaches `dnc_list`.**
+   `applyQueueContact` returns immediately when the call carries no `contact_id`, and
+   `LogCallModal` only sends one when opened from the queue detail panel. Logged from Leads,
+   Helpdesk Calls or a ticket, the DNC suppression and the contact close both silently do not
+   happen.
+2. **`leadStatusFromCall` and `ccDispositionCode` still disagree on about eight other
+   dispositions** (`Escalated`, `Complaint Logged`, `Rate or Charges Too High`,
+   `Wants a Product We Do Not Offer`, `Information Sent`, `Nothing Due This Cycle`,
+   `Registration Not Completed`, `Customer Rejected the Call`) which all fall through to
+   `called`, so the contact closes while the lead reads "called", or the reverse. None is
+   positive-and-terminal, so none is urgent — but this is one function that should be two calls
+   to one normaliser.
+3. **`dispositionExpectsConversation`, `sqlNoContactDispositions` and `sqlAmbiguousDispositions`
+   are deny-lists.** Anything unlisted falls through to "a conversation happened". Migration 308
+   converted the SQL twins of these to allow-lists for exactly that reason; the Go versions were
+   not converted.
+4. **`repayment_reminder` is a valid template category the dunning worker never reads** — it
+   selects `category = 'collections'` only, so a reminder filed under the obvious category would
+   never be sent.

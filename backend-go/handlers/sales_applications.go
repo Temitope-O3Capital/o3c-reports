@@ -124,6 +124,10 @@ func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "amount_requested_kobo must be greater than zero")
 			return
 		}
+		if req.EmploymentType != "" && !isEmploymentType(req.EmploymentType) {
+			respondErr(w, 422, "employment_type must be one of: "+vocabList(employmentTypes))
+			return
+		}
 		user := core.UserFromCtx(r.Context())
 		if user == nil {
 			respondErr(w, 401, "Unauthorized")
