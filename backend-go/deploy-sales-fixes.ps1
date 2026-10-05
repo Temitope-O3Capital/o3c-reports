@@ -15,30 +15,44 @@ $be   = 'C:\Users\tbabatunde\o3c-reports\backend-go'
 $fe   = 'C:\Users\tbabatunde\o3c-reports\frontend'
 $new  = Join-Path $be 'o3c-backend-new.exe'
 $live = Join-Path $be 'o3c-backend.exe'
+$dist = Join-Path $fe 'dist'
+$served = Join-Path $be 'frontend-dist'
 
 if (-not (Test-Path $new)) { throw "Not staged: $new. Run 'go build -o o3c-backend-new.exe .' in $be first." }
 
-Write-Host '1/4  Building the frontend...' -ForegroundColor Cyan
+Write-Host '1/5  Building the frontend...' -ForegroundColor Cyan
 Push-Location $fe
 try {
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "frontend build failed (exit $LASTEXITCODE) — nothing has been changed yet" }
 } finally { Pop-Location }
 
-Write-Host '2/4  Stopping the backend...' -ForegroundColor Cyan
+# `npm run build` (vite) writes to frontend\dist — a DIFFERENT directory from the one
+# the Go binary actually serves (FRONTEND_DIR = backend-go\frontend-dist). Found
+# 2026-09-30: this step was missing, so a "successful" deploy swapped the backend
+# binary but silently left the OLD UI running — the new binary's endpoints existed but
+# nothing in the browser could reach them. Content-hashed filenames mean old and new
+# builds share almost no filenames, so this replaces the served directory wholesale
+# rather than merging (a merge would leave every previous build's chunks piling up
+# forever).
+Write-Host '2/5  Syncing the build into frontend-dist...' -ForegroundColor Cyan
+Get-ChildItem $served -Force | Remove-Item -Recurse -Force
+Copy-Item (Join-Path $dist '*') $served -Recurse -Force
+
+Write-Host '3/5  Stopping the backend...' -ForegroundColor Cyan
 # The flag makes the next wrapper instance kill any survivor and skip its health
 # self-guard. Harmless if the process is already gone.
 New-Item -ItemType File -Path (Join-Path $be 'RESTART.flag') -Force | Out-Null
 taskkill /IM o3c-backend.exe /F 2>$null | Out-Null
 Start-Sleep -Seconds 3
 
-Write-Host '3/4  Swapping in the new binary...' -ForegroundColor Cyan
+Write-Host '4/5  Swapping in the new binary...' -ForegroundColor Cyan
 $backup = Join-Path $be ("o3c-backend.exe.bak-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 if (Test-Path $live) { Copy-Item $live $backup -Force }
 Move-Item $new $live -Force
 Write-Host "     previous binary kept at $backup"
 
-Write-Host '4/4  Waiting for the keep-alive task to restart it...' -ForegroundColor Cyan
+Write-Host '5/5  Waiting for the keep-alive task to restart it...' -ForegroundColor Cyan
 $up = $false
 foreach ($i in 1..24) {
     Start-Sleep -Seconds 5

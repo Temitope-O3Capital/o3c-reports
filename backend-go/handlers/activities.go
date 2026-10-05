@@ -475,6 +475,12 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 					actorID = &u.ID
 				}
 				applyTerminalStep(context.WithoutCancel(r.Context()), db, st, a.ContactID, a.Phone, actorID)
+				// Keep the Leads board in harmony with the step just recorded — see
+				// applyStepToLead for why this stops at call_center_leads and does not
+				// reach into crm_contacts.
+				if a.LeadID != nil && *a.LeadID > 0 {
+					applyStepToLead(context.WithoutCancel(r.Context()), db, *a.LeadID, a.Outcome, a.Body)
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")

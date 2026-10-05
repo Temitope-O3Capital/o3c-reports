@@ -220,3 +220,62 @@ func TestConvertedIsBothADispositionAndAStepWithoutCollision(t *testing.T) {
 		t.Errorf("the converted step's hint does not mention the date: %q", s.Hint)
 	}
 }
+
+// A step's effect on the Leads board must use the SAME status vocabulary a call
+// disposition does — see leadStatusFromCall. Two vocabularies for the same board is
+// exactly how the call-log and disposition lists drifted apart before.
+func TestStepLeadStatusUsesTheCallVocabulary(t *testing.T) {
+	for code, want := range map[string]string{
+		"converted":             "converted",
+		"declined_not_eligible": "closed",
+		"dropped_off":           "closed",
+	} {
+		got, ok := leadStatusFromStep(code)
+		if !ok {
+			t.Errorf("terminal step %q has no lead status mapping", code)
+			continue
+		}
+		if got != want {
+			t.Errorf("step %q maps to lead status %q, want %q", code, got, want)
+		}
+		if _, ranked := ccLeadStatusRank[got]; !ranked {
+			t.Errorf("step %q maps to lead status %q, which ccLeadStatusRank does not "+
+				"know — it would fall through to the SQL's bare ELSE and never be "+
+				"comparable to the rank a concurrent call might also be writing", code, got)
+		}
+	}
+	// A mid-journey step must not carry a lead-status mapping — only a terminal step
+	// closes the board's own record of where the lead stands.
+	for _, code := range []string{"information_sent", "customer_reviewing",
+		"documents_requested", "documents_received", "met_customer",
+		"application_started", "sent_to_risk", "customer_went_quiet"} {
+		if _, ok := leadStatusFromStep(code); ok {
+			t.Errorf("mid-journey step %q has a lead status mapping — only a terminal "+
+				"step should move the board", code)
+		}
+	}
+	if _, ok := leadStatusFromStep("not_a_step"); ok {
+		t.Error("an unrecognised step code mapped to a lead status")
+	}
+}
+
+// applyStepToLead has to carry the same forward-only protection syncLeadFromCall gives a
+// call disposition, or a step logged after a lead has already moved further (by a later
+// call) could knock it backward. And it must stay inside call_center_leads: the Sales
+// pipeline (crm_contacts) needs a product line + CIF this step doesn't carry, and is
+// gated to an owner the call-centre agent logging it may not be.
+func TestApplyStepToLeadStaysRankGuardedAndInItsOwnBoard(t *testing.T) {
+	q := applyStepToLeadSQL()
+
+	if !strings.Contains(q, "UPDATE call_center_leads") {
+		t.Fatal("applyStepToLeadSQL does not update call_center_leads")
+	}
+	if !strings.Contains(q, ccLeadStatusRankSQL) {
+		t.Error("applyStepToLeadSQL does not use the shared rank guard — a step could " +
+			"knock a lead backward that a later call had already carried forward")
+	}
+	if strings.Contains(q, "crm_contacts") {
+		t.Error("applyStepToLeadSQL reaches into crm_contacts — that pipeline needs a " +
+			"product line and CIF this step does not carry, and belongs to Sales")
+	}
+}

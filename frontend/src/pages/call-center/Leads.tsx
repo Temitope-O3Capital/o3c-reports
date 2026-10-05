@@ -6,7 +6,7 @@ import {
   Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, Modal, NameCell,
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPatch, apiBlob } from '../../lib/api'
-import { fmtDatetime, fmtCount } from '../../lib/fmt'
+import { fmtDatetime, fmtCount, fmtPct } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 import { CallLogForm, callOutcomeLabel, groupCallConversations, type CallConversation } from '../../components/LogCallModal'
@@ -1202,6 +1202,78 @@ function AssignLeadsModal({ open, onClose, onDone, agents, campaigns, defaultCam
   )
 }
 
+// ── Campaign multi-select ───────────────────────────────────────────────────────
+// A single dropdown couldn't scope the floor to "this week's two pushes" at once —
+// a supervisor had to flip between them one at a time to compare. Checkboxes let
+// her pick any combination; the trigger button summarises what's picked.
+function CampaignFilter({ campaigns, selected, onChange }: {
+  campaigns: CCCampaign[]; selected: string[]; onChange: (ids: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id])
+  }
+
+  const label = selected.length === 0 ? 'All Campaigns'
+    : selected.length === 1 ? (campaigns.find(c => String(c.id) === selected[0])?.name ?? 'All Campaigns')
+    : `${selected.length} campaigns`
+
+  return (
+    <div ref={ref} style={{ position: 'relative', marginBottom: 6 }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+        borderRadius: RADIUS.md, border: `1px solid ${open ? NAVY : 'var(--input-bdr)'}`,
+        background: 'var(--input-bg)', fontSize: TEXT.sm, color: selected.length ? 'var(--txt)' : 'var(--txt3)',
+        cursor: 'pointer', textAlign: 'left',
+      }}>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: 'var(--txt3)' }}>
+          {open ? 'expand_less' : 'expand_more'}
+        </span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+          background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md,
+          boxShadow: '0 8px 24px rgba(0,0,0,.14)', maxHeight: 260, overflowY: 'auto', padding: 4,
+        }}>
+          <button onClick={() => { onChange([]); setOpen(false) }} style={{
+            width: '100%', textAlign: 'left', padding: '6px 8px', border: 'none', background: 'none',
+            cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, borderRadius: RADIUS.sm,
+          }}>All Campaigns</button>
+          <div style={{ height: 1, background: 'var(--bdr)', margin: '2px 0' }} />
+          {campaigns.map(c => {
+            const id = String(c.id)
+            const on = selected.includes(id)
+            return (
+              <label key={id} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: RADIUS.sm,
+                cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt)',
+              }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(id)} style={{ cursor: 'pointer', accentColor: NAVY }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Supervisor team panel ──────────────────────────────────────────────────────
 // What a supervisor sees that an agent doesn't: the whole floor at a glance — who
 // holds how many leads, what's become of them, and who's actually at their desk —
@@ -1211,10 +1283,22 @@ function AssignLeadsModal({ open, onClose, onDone, agents, campaigns, defaultCam
 interface TeamAgent {
   id: number; full_name: string; status: string; online: boolean
   assigned: number; pending: number; callbacks: number; converted: number
+  interested: number     // reached and warm — the pool "% converted" is measured against
+  worked: number; closed: number
   called_today: number  // distinct LEADS in her book called today (lead-book progress)
   dials_today: number   // raw calls today (activity — repeats, support, inbound included)
 }
-interface TeamTotals { total: number; unassigned: number; pending: number; interested: number; callbacks: number; converted: number }
+interface TeamTotals {
+  total: number; unassigned: number; pending: number; interested: number
+  callbacks: number; converted: number; worked: number; closed: number
+}
+
+// Of the leads that ever got warm (interested), how many closed as a sale. The
+// floor's real win rate — "Converted" alone reads as big or small with nothing to
+// compare it to; this is what it's a share OF.
+function convPct(converted: number, interested: number): number | null {
+  return interested > 0 ? (converted / interested) * 100 : null
+}
 
 function presence(a: TeamAgent): { dot: string; label: string } {
   if (a.online && a.status === 'available') return { dot: GREEN, label: 'Online' }
@@ -1222,7 +1306,9 @@ function presence(a: TeamAgent): { dot: string; label: string } {
   return { dot: 'var(--txt3)', label: 'Offline' }
 }
 
-function TeamPanel({ campaignId }: { campaignId: string }) {
+function TeamPanel({ campaignIds, agentId, onSelectAgent }: {
+  campaignIds: string[]; agentId: string; onSelectAgent: (id: number, name: string) => void
+}) {
   const [agents, setAgents] = useState<TeamAgent[]>([])
   const [totals, setTotals] = useState<TeamTotals | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1230,13 +1316,14 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
   // the floor, not about the request.
   const [teamErr, setTeamErr] = useState<string | null>(null)
 
+  const campKey = campaignIds.join(',')
   const load = useCallback(() => {
-    const p = campaignId ? `?campaign_id=${campaignId}` : ''
+    const p = campKey ? `?campaign_id=${campKey}` : ''
     apiFetch<{ agents: TeamAgent[]; totals: TeamTotals }>(`/api/call-center/leads/team${p}`)
       .then(r => { setAgents(Array.isArray(r?.agents) ? r.agents : []); setTotals(r?.totals ?? null); setTeamErr(null) })
       .catch(e => setTeamErr(e.message ?? 'Failed to load the team'))
       .finally(() => setLoading(false))
-  }, [campaignId])
+  }, [campKey])
 
   useEffect(() => { setLoading(true); load() }, [load])
   // A wallboard is only useful if it's live — poll on a timer and on call/CRM events.
@@ -1246,13 +1333,21 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
   const col: CSSProperties = { padding: '8px 10px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt)' }
   const head: CSSProperties = { padding: '8px 10px', textAlign: 'right', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.03em', position: 'sticky', top: 0, background: 'var(--card)' }
 
-  const totalCards: { label: string; value: number; color: string }[] = totals ? [
+  const floorConv = totals ? convPct(totals.converted, totals.interested) : null
+  const totalCards: { label: string; value: number; color: string; pct?: boolean }[] = totals ? [
     { label: 'Total Leads', value: totals.total,      color: 'var(--txt)' },
     { label: 'Unassigned',  value: totals.unassigned, color: RED },
     { label: 'Pending',     value: totals.pending,    color: '#6B7280' },
     { label: 'Interested',  value: totals.interested, color: '#0D9488' },
     { label: 'Callbacks',   value: totals.callbacks,  color: AMBER },
+    { label: 'Working',     value: totals.worked,     color: BLUE },
     { label: 'Converted',   value: totals.converted,  color: GREEN },
+    { label: 'Closed',      value: totals.closed,     color: '#6B7280' },
+    {
+      label: 'Conv. of Interested', pct: true,
+      value: floorConv ?? 0,
+      color: floorConv == null ? 'var(--txt3)' : floorConv >= 40 ? GREEN : floorConv >= 20 ? AMBER : RED,
+    },
   ] : []
 
   return (
@@ -1270,7 +1365,9 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           {totalCards.map(c => (
             <div key={c.label} style={{ flex: '1 1 90px', textAlign: 'center', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '8px 4px' }}>
-              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: c.color }}>{fmtCount(c.value)}</div>
+              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: c.color }}>
+                {c.pct ? (totals && totals.interested > 0 ? fmtPct(c.value) : '—') : fmtCount(c.value)}
+              </div>
               <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{c.label}</div>
             </div>
           ))}
@@ -1293,31 +1390,43 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
                 <th style={{ ...head, textAlign: 'left' }}>Agent</th>
                 <th style={head}>Assigned</th>
                 <th style={head}>Pending</th>
+                <th style={head}>Interested</th>
                 <th style={head}>Called Today</th>
                 <th style={head}>Converted</th>
+                <th style={head} title="Converted ÷ Interested, this agent's own book">Conv %</th>
               </tr>
             </thead>
             <tbody>
               {agents.map(a => {
                 const p = presence(a)
+                const on = agentId === String(a.id)
+                const ac = convPct(a.converted, a.interested)
                 return (
-                  <tr key={a.id} style={{ borderTop: '1px solid var(--bdr)' }}>
+                  <tr key={a.id} onClick={() => onSelectAgent(a.id, a.full_name)}
+                    title={on ? 'Click to clear this filter' : `Filter the leads list to ${a.full_name}`}
+                    style={{ borderTop: '1px solid var(--bdr)', cursor: 'pointer', background: on ? `${NAVY}0C` : undefined }}
+                    onMouseEnter={e => { if (!on) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+                    onMouseLeave={e => { if (!on) (e.currentTarget as HTMLElement).style.background = '' }}>
                     <td style={{ padding: '8px 10px', textAlign: 'left' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                         <span title={p.label} style={{ width: 8, height: 8, borderRadius: '50%', background: p.dot, flexShrink: 0 }} />
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.full_name}</div>
+                          <div style={{ fontSize: TEXT.sm, fontWeight: on ? FW.bold : FW.semibold, color: on ? NAVY : 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.full_name}</div>
                           <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{p.label}{a.callbacks ? ` · ${a.callbacks} callback${a.callbacks === 1 ? '' : 's'}` : ''}</div>
                         </div>
                       </div>
                     </td>
                     <td style={col}>{fmtCount(a.assigned)}</td>
                     <td style={{ ...col, color: a.pending ? 'var(--txt)' : 'var(--txt3)' }}>{fmtCount(a.pending)}</td>
+                    <td style={{ ...col, color: a.interested ? '#0D9488' : 'var(--txt3)' }}>{fmtCount(a.interested)}</td>
                     <td style={col}>
                       <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: a.called_today ? FW.bold : FW.medium, color: a.called_today ? NAVY : 'var(--txt3)' }}>{fmtCount(a.called_today)}</div>
                       {a.dials_today > 0 && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtCount(a.dials_today)} dial{a.dials_today === 1 ? '' : 's'}</div>}
                     </td>
                     <td style={{ ...col, color: a.converted ? GREEN : 'var(--txt3)' }}>{fmtCount(a.converted)}</td>
+                    <td style={{ ...col, fontWeight: FW.semibold, color: ac == null ? 'var(--txt3)' : ac >= 40 ? GREEN : ac >= 20 ? AMBER : RED }}>
+                      {ac == null ? '—' : fmtPct(ac)}
+                    </td>
                   </tr>
                 )
               })}
@@ -1339,7 +1448,10 @@ const PAGE_SIZE = 100
 // resetting to the top of an unfiltered list. Per-tab (sessionStorage) so two tabs don't
 // fight, and it clears when the browser session ends.
 const LEADS_VIEW_KEY = 'o3c_cc_leads_view'
-interface LeadsView { campaignId: string; status: string; search: string; offset: number; selectedId: number | null }
+interface LeadsView {
+  campaignIds: string[]; status: string; search: string; offset: number
+  selectedId: number | null; agentId?: string
+}
 function readLeadsView(): Partial<LeadsView> {
   try { return JSON.parse(sessionStorage.getItem(LEADS_VIEW_KEY) || '{}') } catch { return {} }
 }
@@ -1359,9 +1471,12 @@ export default function CallCenterLeads() {
   const [selected, setSelected]   = useState<Lead | null>(null)
 
   // Filters — seeded from the saved view so a return lands on the same slice.
-  const [campaignId, setCampaignId] = useState(savedView.campaignId ?? '')
+  const [campaignIds, setCampaignIds] = useState<string[]>(savedView.campaignIds ?? [])
   const [status, setStatus]         = useState(savedView.status ?? '')
   const [search, setSearch]         = useState(savedView.search ?? '')
+  // Set by clicking an agent row on the Team panel (heads only) — narrows the list
+  // beside it to that agent's book without leaving the floor view to do it.
+  const [agentId, setAgentId]       = useState(savedView.agentId ?? '')
 
   // Pagination — real server-side paging, so a campaign of any size loads fully.
   const [offset, setOffset] = useState(savedView.offset ?? 0)
@@ -1400,9 +1515,10 @@ export default function CallCenterLeads() {
     if (!silent) setLoading(true)
     setErr(null)
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) })
-    if (campaignId) p.set('campaign_id', campaignId)
+    if (campaignIds.length) p.set('campaign_id', campaignIds.join(','))
     if (status)     p.set('status', status)
     if (dq)         p.set('search', dq)
+    if (agentId)    p.set('agent_id', agentId)
     try {
       // The endpoint returns a paginated envelope {data,total}; tolerate a bare array
       // for safety in case of a stale build.
@@ -1432,7 +1548,7 @@ export default function CallCenterLeads() {
       setErr(ex.message); return []
     }
     finally { if (seq === loadSeq.current) setLoading(false) }
-  }, [campaignId, status, dq, offset])
+  }, [campaignIds.join(','), status, dq, offset, agentId])
 
   // Auto-advance: after logging a call on a lead, move straight to the next lead so an
   // agent works top-to-bottom without hunting. Past the end of a page it steps onto the
@@ -1512,8 +1628,8 @@ export default function CallCenterLeads() {
 
   // Persist the working position on every change, so it's current when they leave.
   useEffect(() => {
-    writeLeadsView({ campaignId, status, search, offset, selectedId: selected?.id ?? null })
-  }, [campaignId, status, search, offset, selected])
+    writeLeadsView({ campaignIds, status, search, offset, selectedId: selected?.id ?? null, agentId })
+  }, [campaignIds, status, search, offset, selected, agentId])
 
   // Filters change → back to the first page. Skips the initial mount so it doesn't
   // wipe a restored offset before the agent has touched anything.
@@ -1521,7 +1637,12 @@ export default function CallCenterLeads() {
   useEffect(() => {
     if (filterFirstRun.current) { filterFirstRun.current = false; return }
     setOffset(0)
-  }, [campaignId, status, dq])
+  }, [campaignIds.join(','), status, dq, agentId])
+
+  // An agent row on the Team panel toggles the filter — click it again to clear it.
+  function handleSelectAgent(id: number, _name: string) {
+    setAgentId(prev => prev === String(id) ? '' : String(id))
+  }
 
   // These feed the campaign and agent pickers. A failure used to be swallowed, so the
   // picker came up empty and a supervisor read that as "no campaigns yet" rather than
@@ -1599,7 +1720,7 @@ export default function CallCenterLeads() {
     setDistributeConfirm(false)
     try {
       const body: Record<string, any> = {}
-      if (campaignId) body.campaign_id = Number(campaignId)
+      if (campaignIds.length) body.campaign_ids = campaignIds.map(Number)
       if (includeSelf) body.include_me = true
       const res = await apiPost<{ distributed: number; online_only?: boolean; breakdown: { agent_name: string; count: number }[] }>(
         '/api/call-center/leads/distribute', body
@@ -1627,7 +1748,7 @@ export default function CallCenterLeads() {
     setRecallConfirm(false)
     try {
       const body: Record<string, any> = {}
-      if (campaignId) body.campaign_id = Number(campaignId)
+      if (campaignIds.length) body.campaign_ids = campaignIds.map(Number)
       const res = await apiPost<any>('/api/call-center/leads/recall', body)
       const d: any = (res as any)?.data ?? res
       if (!d.recalled) toast.info('No handed-out pending leads to recall')
@@ -1643,7 +1764,9 @@ export default function CallCenterLeads() {
   // KPI cards read the server summary (whole scope), not the current page.
   const { pending, interested, callbacks, converted, unassigned, distributable, recallable } = summary
 
-  const selectedCampaignName = campaigns.find(c => String(c.id) === campaignId)?.name ?? 'All Campaigns'
+  const selectedCampaignName = campaignIds.length === 0 ? 'All Campaigns'
+    : campaignIds.length === 1 ? (campaigns.find(c => String(c.id) === campaignIds[0])?.name ?? 'All Campaigns')
+    : `${campaignIds.length} selected campaigns`
 
   return (
     <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns, or uploaded here" noPad
@@ -1739,13 +1862,23 @@ export default function CallCenterLeads() {
             <TblSearch value={search} onChange={setSearch}
               placeholder="Search name, phone…" width={0} style={{ marginBottom: SP[2] }} />
 
-            {/* Campaign dropdown */}
+            {/* Campaign multi-select */}
             {campaigns.length > 0 && (
-              <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
-                style={{ width: '100%', marginBottom: 6, padding: '6px 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
-                <option value="">All Campaigns</option>
-                {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-              </select>
+              <CampaignFilter campaigns={campaigns} selected={campaignIds} onChange={setCampaignIds} />
+            )}
+
+            {/* Agent filter — set by clicking a row on the Team panel */}
+            {agentId && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, padding: '5px 10px', background: `${NAVY}0C`, borderRadius: RADIUS.md }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: NAVY }}>person</span>
+                <span style={{ flex: 1, fontSize: TEXT.sm, color: NAVY, fontWeight: FW.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {agents.find(a => String(a.id) === agentId)?.full_name ?? 'Agent'}
+                </span>
+                <button onClick={() => setAgentId('')} title="Clear agent filter"
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
+                </button>
+              </div>
             )}
 
             {/* Status chips */}
@@ -1774,8 +1907,8 @@ export default function CallCenterLeads() {
                   }}>{label}</button>
                 )
               })}
-              {(status || search || campaignId) && (
-                <button onClick={() => { setStatus(''); setSearch(''); setCampaignId('') }} style={{
+              {(status || search || campaignIds.length > 0 || agentId) && (
+                <button onClick={() => { setStatus(''); setSearch(''); setCampaignIds([]); setAgentId('') }} style={{
                   fontSize: TEXT['2xs'], fontWeight: FW.medium, padding: '2px 8px', borderRadius: RADIUS.full,
                   border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer',
                 }}>Clear</button>
@@ -1941,7 +2074,7 @@ export default function CallCenterLeads() {
             </>
           ) : isHead ? (
             // A supervisor's home on this page is the team, not a blank prompt.
-            <TeamPanel campaignId={campaignId} />
+            <TeamPanel campaignIds={campaignIds} agentId={agentId} onSelectAgent={handleSelectAgent} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: SP[3], color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)' }}>contacts</span>
@@ -1956,7 +2089,7 @@ export default function CallCenterLeads() {
 
       {/* Assign a batch of leads to one agent (heads) */}
       <AssignLeadsModal open={assignOpen} onClose={() => setAssignOpen(false)} onDone={load}
-        agents={agents} campaigns={campaigns} defaultCampaignId={campaignId} />
+        agents={agents} campaigns={campaigns} defaultCampaignId={campaignIds.length === 1 ? campaignIds[0] : ''} />
 
       {/* Distribute confirm modal */}
       <ConfirmModal

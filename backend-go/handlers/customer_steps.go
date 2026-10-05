@@ -197,6 +197,69 @@ func applyTerminalStep(ctx context.Context, db *core.DB, st customerStep, contac
 	}
 }
 
+// leadStatusFromStep maps a terminal step to the SAME status vocabulary
+// leadStatusFromCall uses for a call disposition (see call_center_outbound.go)
+// — so a step and a call move the Leads board the same way, rather than
+// inventing a second vocabulary that drifts from the first the way the call-log
+// and disposition lists once did.
+func leadStatusFromStep(code string) (status string, ok bool) {
+	switch code {
+	case "converted":
+		return "converted", true
+	case "declined_not_eligible":
+		// Our decline, not theirs — same bucket leadStatusFromCall gives "Not
+		// Eligible" on a call.
+		return "closed", true
+	case "dropped_off":
+		// They withdrew — same bucket a customer-initiated churn gets on a call
+		// ("Left Over...", "No Longer Needs...").
+		return "closed", true
+	}
+	return "", false
+}
+
+// applyStepToLead keeps the Leads board in harmony with a terminal step, the way
+// syncLeadFromCall already keeps it in harmony with a call disposition — same
+// forward-only rank guard (ccLeadStatusRankSQL), so a step can log against a
+// lead that a later call has already carried past it without knocking it
+// backward, exactly as one call can't undo a further-along call.
+//
+// Deliberately does not touch crm_contacts.lead_stage: that pipeline is owned by
+// Sales and its own conversion path (convertLead) requires a product line and a
+// CIF/account reference neither this free-text step nor the call-centre agent
+// logging it carries, and is gated to that lead's own Sales owner. Reaching that
+// far would risk marking a lead "customer" with no CIF — corrupting every join
+// that assumes a converted card customer has one — or silently failing an
+// ownership check the agent has no way to satisfy. This stays inside the
+// call-centre's own board, which is the system the agent actually works and
+// where the gap was reported.
+func applyStepToLead(ctx context.Context, db *core.DB, leadID int64, code, body string) {
+	status, ok := leadStatusFromStep(code)
+	if !ok {
+		return
+	}
+	st, _ := customerStepByCode(code)
+	label := st.Label
+	if strings.TrimSpace(body) != "" {
+		label = st.Label + " — " + strings.TrimSpace(body)
+	}
+	if _, err := db.PGExec(ctx, applyStepToLeadSQL(), status, label, ccLeadStatusRank[status], leadID); err != nil {
+		slog.Error("customer step: could not update the lead", "lead", leadID, "step", code, "err", err)
+	}
+}
+
+// applyStepToLeadSQL is the UPDATE applyStepToLead runs, pulled into its own function —
+// same reason as stepCloseByPhoneSQL — so a test can assert its properties without a
+// live database: the rank guard is present, and crm_contacts is not touched.
+func applyStepToLeadSQL() string {
+	return `
+		UPDATE call_center_leads
+		   SET status           = CASE WHEN $3::int >= ` + ccLeadStatusRankSQL + ` THEN $1 ELSE status END,
+		       last_disposition = $2,
+		       updated_at       = NOW()
+		 WHERE id = $4`
+}
+
 // stepCloseByPhoneSQL is the fallback close, in a function rather than inline so a test
 // can assert its two restrictions. Both exist because of specific harm:
 //

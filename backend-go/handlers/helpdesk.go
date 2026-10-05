@@ -467,6 +467,9 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Get("/calls/{id}/recording/status", hdCallRecordingStatus(db)) // ready|downloading|missing — player pre-check
 		r.Post("/calls/{id}/fetch-recording", hdCallFetchRecording(db))  // manual "pull live from Zoho" for THIS call
 		r.Post("/recordings/prefetch", hdRecordingsPrefetchTrigger(db))  // back-fill the retention window on demand
+		r.Post("/calls/{id}/qa-run", hdCallQARun(db))                    // on-demand transcribe + score against the QA rubric
+		r.Get("/qa/flags", hdCallQAList(db))                             // QA review queue
+		r.Post("/qa/flags/{id}/review", hdCallQAReview(db))              // mark a QA flag reviewed/dismissed/actioned
 
 		// Correcting a log. Agents may fix their own; supervisors may fix any and
 		// see every change. Removal is a void, never a delete — see

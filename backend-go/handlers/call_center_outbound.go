@@ -462,9 +462,16 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if campaignID != "" {
-			scopeCond += fmt.Sprintf(" AND l.campaign_id=$%d", n)
-			scopeArgs = append(scopeArgs, campaignID)
-			n++
+			// Checkbox multi-select on the Leads page sends a comma-separated list;
+			// a single id still goes through the same IN(...) path unchanged.
+			vals := strings.Split(campaignID, ",")
+			placeholders := make([]string, len(vals))
+			for i, v := range vals {
+				placeholders[i] = fmt.Sprintf("$%d", n)
+				scopeArgs = append(scopeArgs, strings.TrimSpace(v))
+				n++
+			}
+			scopeCond += " AND l.campaign_id IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		if agentID != "" {
 			scopeCond += fmt.Sprintf(" AND l.assigned_to=$%d", n)
@@ -1546,9 +1553,10 @@ func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
 // Leads are ordered by lead_score DESC so high-value leads are spread first.
 func ccDistribute(db *core.DB) http.HandlerFunc {
 	type body struct {
-		CampaignID *int64  `json:"campaign_id"` // nil = all campaigns
-		AgentIDs   []int64 `json:"agent_ids"`   // nil = all call-center agents
-		IncludeMe  bool    `json:"include_me"`  // supervisor opts in to take a share too
+		CampaignID  *int64  `json:"campaign_id"`  // nil = all campaigns
+		CampaignIDs []int64 `json:"campaign_ids"` // the Leads page's checkbox multi-select; takes precedence over CampaignID
+		AgentIDs    []int64 `json:"agent_ids"`    // nil = all call-center agents
+		IncludeMe   bool    `json:"include_me"`   // supervisor opts in to take a share too
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -1602,7 +1610,14 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		// pool failed outright. The cap matches ccDistributeQueue's.
 		q := `SELECT id FROM call_center_leads WHERE assigned_to IS NULL AND ` + ccLeadWorkableExpr("")
 		var args []any
-		if b.CampaignID != nil {
+		if len(b.CampaignIDs) > 0 {
+			placeholders := make([]string, len(b.CampaignIDs))
+			for i, id := range b.CampaignIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				args = append(args, id)
+			}
+			q += " AND campaign_id IN (" + strings.Join(placeholders, ",") + ")"
+		} else if b.CampaignID != nil {
 			q += " AND campaign_id=$1"
 			args = append(args, *b.CampaignID)
 		}
@@ -1729,8 +1744,9 @@ func ccRecallLeads(db *core.DB) http.HandlerFunc {
 			return
 		}
 		var b struct {
-			CampaignID *int64 `json:"campaign_id"` // nil = all campaigns
-			AgentID    *int64 `json:"agent_id"`    // nil = all agents
+			CampaignID  *int64  `json:"campaign_id"`  // nil = all campaigns
+			CampaignIDs []int64 `json:"campaign_ids"` // the Leads page's checkbox multi-select; takes precedence over CampaignID
+			AgentID     *int64  `json:"agent_id"`      // nil = all agents
 		}
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 
@@ -1742,7 +1758,15 @@ func ccRecallLeads(db *core.DB) http.HandlerFunc {
 		where := "assigned_to IS NOT NULL AND " + ccLeadWorkableExpr("")
 		var args []any
 		n := 1
-		if b.CampaignID != nil {
+		if len(b.CampaignIDs) > 0 {
+			placeholders := make([]string, len(b.CampaignIDs))
+			for i, id := range b.CampaignIDs {
+				placeholders[i] = fmt.Sprintf("$%d", n)
+				args = append(args, id)
+				n++
+			}
+			where += " AND campaign_id IN (" + strings.Join(placeholders, ",") + ")"
+		} else if b.CampaignID != nil {
 			where += fmt.Sprintf(" AND campaign_id=$%d", n)
 			args = append(args, *b.CampaignID)
 			n++
@@ -1777,12 +1801,18 @@ func ccLeadsTeam(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Supervisors only")
 			return
 		}
-		// Optional campaign scope, matching the Leads page's campaign filter.
+		// Optional campaign scope, matching the Leads page's campaign filter —
+		// one id or a comma-separated checkbox selection, both via IN(...).
 		campFilter := ""
 		var args []any
 		if c := qstr(r, "campaign_id"); c != "" {
-			campFilter = " AND l.campaign_id = $1"
-			args = append(args, c)
+			vals := strings.Split(c, ",")
+			placeholders := make([]string, len(vals))
+			for i, v := range vals {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				args = append(args, strings.TrimSpace(v))
+			}
+			campFilter = " AND l.campaign_id IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		agents, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT u.id, u.full_name,

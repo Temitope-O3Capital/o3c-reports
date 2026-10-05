@@ -286,6 +286,20 @@ function OutcomeDonut({ series }: { series: NonNullable<CallStats['by_result']> 
 
 export default function Calls() {
   const navigate = useNavigate()
+
+  // whisper.cpp is CPU-bound and single-threaded server-side, so this genuinely takes
+  // 1-3 minutes — toast.promise keeps the row usable in the meantime instead of
+  // blocking it, and lands the caller straight on the tab that shows the result.
+  async function runAIQA(callId: number) {
+    toast.promise(
+      apiFetch(`/api/helpdesk/calls/${callId}/qa-run`, { method: 'POST', timeoutMs: 9 * 60_000 }),
+      {
+        loading: 'Running AI QA — transcribing and scoring, this takes 1-3 minutes…',
+        success: () => { navigate('/helpdesk/supervisor?view=qaflags'); return 'AI QA complete — see the result in AI Flags' },
+        error: (e: any) => e?.message || 'AI QA failed',
+      },
+    )
+  }
   const [rows, setRows]     = useState<CallLog[]>([])
   const [stats, setStats]   = useState<CallStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -592,6 +606,14 @@ export default function Calls() {
           ...(CAN_EVALUATE ? [{
             icon: 'grade', label: r.qa_evaluation_id ? 'Re-Evaluate Call (QA)' : 'Evaluate Call (QA)',
             onClick: () => setEvalCall(r),
+          }] : []),
+          // On-demand AI transcribe + score, then land on the AI Flags tab to see the
+          // result — no manually copying the call id over. Needs a recording (whisper.cpp
+          // transcribes it locally) and takes 1-3 minutes, so this runs in the background
+          // rather than blocking the row.
+          ...((CAN_EVALUATE && r.has_recording) ? [{
+            icon: 'smart_toy', label: 'Run AI QA',
+            onClick: () => runAIQA(r.id),
           }] : []),
           // Correct or withdraw the log. Offered on your own calls, and on any call
           // to a supervisor; the API enforces the same rule, and every change is

@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { EBar, EDonut } from '../../components/echarts'
 import { Page, KpiCard, SectionCard, Spinner, ErrBanner, Modal } from '../../components/UI'
 import QAHub from './QAHub'
+import CallQAFlags from './CallQAFlags'
 import PerformancePanel from './PerformancePanel'
 import { AgentMatchingPanel } from '../call-center/AgentMatching'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
@@ -80,7 +82,12 @@ export default function Supervisor() {
   const [target, setTarget] = useState(60)
   const [editingTarget, setEditingTarget] = useState(false)
   const [targetInput, setTargetInput] = useState('60')
-  const [view, setView] = useState<'live' | 'perf' | 'qa'>('live')
+  // Deep-linkable so "Run AI QA" on the Calls page can land the caller straight on the
+  // right tab instead of leaving them to find it themselves.
+  const [searchParams] = useSearchParams()
+  const initialView = searchParams.get('view')
+  const [view, setView] = useState<'live' | 'perf' | 'qa' | 'qaflags'>(
+    initialView === 'qa' || initialView === 'perf' || initialView === 'qaflags' ? initialView : 'live')
   const [distributing, setDistributing] = useState(false)
   const [agentMatchOpen, setAgentMatchOpen] = useState(false)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -147,9 +154,9 @@ export default function Supervisor() {
 
   // QA is gated to `call_center` on the server; hide the tab from helpdesk-only heads
   // (care/finance/…) so it can't 403. Everyone keeps Team Live + Performance.
-  const tabDefs: Array<['live' | 'perf' | 'qa', string]> =
+  const tabDefs: Array<['live' | 'perf' | 'qa' | 'qaflags', string]> =
     [['live', 'Team Live'], ['perf', 'Performance']]
-  if (hasPage('call_center')) tabDefs.push(['qa', 'Quality (QA)'])
+  if (hasPage('call_center')) tabDefs.push(['qa', 'Quality (QA)'], ['qaflags', 'AI Flags'])
   const viewTabs = (
     <div style={{ display: 'inline-flex', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 3 }}>
       {tabDefs.map(([v, l]) => {
@@ -170,6 +177,12 @@ export default function Supervisor() {
   if (view === 'qa') return (
     <Page title="Supervisor" subtitle="Call-Centre quality assurance" actions={viewTabs}>
       <QAHub />
+    </Page>
+  )
+
+  if (view === 'qaflags') return (
+    <Page title="Supervisor" subtitle="AI-assisted call flagging — a triage signal, not a scorecard" actions={viewTabs}>
+      <CallQAFlags />
     </Page>
   )
 
