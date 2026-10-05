@@ -213,7 +213,7 @@ function CallHistoryList({ calls, contact, onEdit, onPlay }: {
             <span className="material-symbols-rounded" style={{ fontSize: 18, color: col, flexShrink: 0, marginTop: 1 }}>{inbound ? 'call_received' : 'call_made'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.disposition || (connected ? 'Connected' : 'No Answer')}</span>
+                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.disposition || (connected ? 'Connected' : 'Unreachable / No Answer')}</span>
                 {dur && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM }}>{dur}</span>}
                 {c.purpose && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'capitalize' }}>{c.purpose}</span>}
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>

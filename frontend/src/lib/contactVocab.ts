@@ -86,14 +86,16 @@ export function vocabLabel(vocab: VocabOption[], value: string | null | undefine
 // backend-go/handlers/call_center_dispositions.go — the list this system already owns — and the
 // labels are that list's labels too. collection_contacts.disposition CHECKs the same 15 codes.
 //
-// Two labels here read differently from what this screen used to show, and the change is
-// deliberate: the queue showed 'Callback Scheduled' and 'Unreachable / No Answer' where the
-// call-centre screen shows 'Callback Requested' and 'No Answer', for the same outcome. One
-// wording per outcome is the whole point. Now that the DATABASE stores a code, the wording can
-// be changed again whenever the business prefers the longer one — without a migration, which was
-// never true while the label itself was the stored value.
+// Two labels here used to read differently from what this screen showed before migration
+// 331: the queue said 'Callback Scheduled' / 'Unreachable / No Answer' where the call-centre
+// screen (and ccDispositions, the source these labels are pulled from) said 'Callback
+// Requested' / 'No Answer' for the same outcome. One wording per outcome is the whole point,
+// so ccDispositions now carries the queue's longer wording instead — it was already the
+// majority spelling across 41,000+ helpdesk_calls rows, this table's 10 just hadn't caught up.
+// Both labels below are that corrected wording. Changing wording again costs nothing now that
+// the DATABASE stores a code — it was never true while the label itself was the stored value.
 export const COLLECTION_CONTACT_DISPOSITIONS: VocabOption[] = [
-  { value: 'callback',          label: 'Callback Requested' },
+  { value: 'callback',          label: 'Callback Scheduled' },
   { value: 'ptp',               label: 'Promise to Pay' },
   { value: 'paid',              label: 'Paid' },
   { value: 'payment_to_verify', label: 'Says They Have Paid — To Verify' },
@@ -101,7 +103,7 @@ export const COLLECTION_CONTACT_DISPOSITIONS: VocabOption[] = [
   { value: 'dispute',           label: 'Dispute' },
   { value: 'escalated',         label: 'Escalated' },
   { value: 'pending_followup',  label: 'Pending / Follow-up' },
-  { value: 'no_answer',         label: 'No Answer' },
+  { value: 'no_answer',         label: 'Unreachable / No Answer' },
   { value: 'call_dropped',      label: 'Call Dropped' },
   { value: 'call_rejected',     label: 'Customer Rejected the Call' },
   { value: 'wrong_number',      label: 'Wrong Number' },

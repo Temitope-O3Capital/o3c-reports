@@ -55,7 +55,7 @@ var ccDispositions = []ccDisposition{
 		Purposes: []string{"marketing"}, Hint: "Stays in the queue for follow-up"},
 	{Code: "answered_not_interested", Label: "Answered — Not Interested", Status: "closed", Connected: true,
 		Purposes: []string{"marketing"}, Hint: "Closes the contact — no further calls"},
-	{Code: "callback", Label: "Callback Requested", Status: "", NeedsCallback: true, Connected: true,
+	{Code: "callback", Label: "Callback Scheduled", Status: "", NeedsCallback: true, Connected: true,
 		Hint: "Served again at the time you set, ahead of everything else"},
 	// 'support' added 29 Sept: a SUPPORT call recorded "SAID HE IS PAYING IN 2WEEKS TIME,
 	// THAT HE CANT PAY NOW" and had to file it under Other, because the support vocabulary
@@ -81,7 +81,7 @@ var ccDispositions = []ccDisposition{
 	// contact stays workable and returns to the queue.
 	{Code: "call_dropped", Label: "Call Dropped", Status: "", Connected: true,
 		Hint: "Picked up then dropped within seconds — returns to the queue to retry"},
-	{Code: "no_answer", Label: "No Answer", Status: "", Connected: false,
+	{Code: "no_answer", Label: "Unreachable / No Answer", Status: "", Connected: false,
 		Hint: "Rests for the cooldown, then returns to the queue"},
 	{Code: "wrong_number", Label: "Wrong Number", Status: "invalid", Connected: false,
 		Hint: "Removes the contact — the number is not the customer"},
@@ -269,10 +269,15 @@ func ccDispositionByCode(s string) (ccDisposition, bool) {
 			return d, true
 		}
 	}
+	// "Callback Requested" and the bare "No Answer" are this code's OWN retired labels
+	// (see ccDispositions above, which now reads "Callback Scheduled" / "Unreachable /
+	// No Answer" to match every other call screen) -- kept here so a row already carrying
+	// the old text still resolves.
 	legacy := map[string]string{
 		"Answered-Interested":     "answered_interested",
 		"Answered-Not Interested": "answered_not_interested",
 		"No Answer":               "no_answer",
+		"Callback Requested":      "callback",
 		"Wrong Number":            "wrong_number",
 		"PTP":                     "ptp",
 		"Callback":                "callback",
@@ -738,7 +743,7 @@ func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disp
 	rows, err := db.PGQuery(ctx, `
 		WITH chosen AS (
 		    SELECT id, agent_id, started_at,
-		           `+sqlCallConnectedExpr("duration_sec","recording_filename")+` AS connected,
+		           `+sqlCallConnectedExpr("duration_sec", "recording_filename")+` AS connected,
 		           `+normalizedPhoneExpr("customer_phone")+` AS ph
 		      FROM helpdesk_calls WHERE id = $1
 		)
@@ -754,7 +759,7 @@ func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disp
 		                        AND chosen.started_at + interval '15 min'
 		   -- Only act when the chosen call is the WRONG kind and this one is right.
 		   AND chosen.connected <> $2
-		   AND `+sqlCallConnectedExpr("c.duration_sec","c.recording_filename")+` = $2
+		   AND `+sqlCallConnectedExpr("c.duration_sec", "c.recording_filename")+` = $2
 		 ORDER BY c.started_at DESC
 		 LIMIT 1`, chosenID, expects)
 	if err != nil || len(rows) == 0 {
@@ -793,6 +798,7 @@ const (
 //     question whose own comment says being wrong costs one redundant sweep.
 //   - migration 172 uses > 20 for a one-shot historical repair, already applied.
 //   - AVG(duration_sec) FILTER (duration_sec > 0) is talk-time, not connection.
+//
 // The threshold comes from callConnectMinSec in helpdesk.go, which already existed and is
 // already documented there — declaring a second constant here would have been the very
 // duplication this function exists to remove.
