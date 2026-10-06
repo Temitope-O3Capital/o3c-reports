@@ -119,6 +119,12 @@ func main() {
 	// is how 48 of them got there before migration 298.
 	go handlers.StartLeadRegradeWorker(db)
 
+	// A conversion that could not name its customer is retried hourly. The customer book
+	// arrives in batches — nothing between 2026-09-08 and 09-13, then 605 CIFs over two
+	// days — so matching only at the moment the call is logged leaves a conversion
+	// permanently unverified when the card is issued days later.
+	go handlers.StartConversionCIFSweep(db)
+
 	// AI assistant warm-up — load the model and prime its prefix cache now, so the
 	// first person to ask a question after a restart does not pay a 17s model load
 	// plus a 28s preamble prefill on top of their answer.
