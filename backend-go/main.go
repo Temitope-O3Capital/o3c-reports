@@ -142,6 +142,14 @@ func main() {
 	// scored. An open recovery case is what keeps someone out of a win-back queue.
 	go handlers.StartRetentionWorker(db)
 
+	// Contact segments that keep themselves current. Ticks every 15 minutes but only
+	// acts on segments whose own interval has elapsed, so the cadence belongs to the
+	// segment rather than the worker. Opt-in per segment, because a refresh refills the
+	// linked list IN PLACE and any campaign pointed at that list would see its audience
+	// change. Deliberately after the lifecycle recompute above: the buckets a segment
+	// filters on are only as fresh as that run.
+	go handlers.StartContactSegmentWorker(db)
+
 	// Retention journeys — the customer-facing half. Daily at 09:00, inside business
 	// hours so anyone who replies reaches a staffed floor. SENDS NOTHING unless
 	// CUSTOMER_MESSAGING_MODE is set: default is off, staff_preview computes and logs
@@ -178,6 +186,22 @@ func main() {
 	// balance — with nothing recording what was actually paid. Insert-only and
 	// keyed on the GL entry, so the overlapping hourly windows never double-count.
 	go cbssync.StartRepaymentWorker(cbsClient, db)
+	// Branch-tagged capture of the WHOLE call-over ledger (loans, FDs, fees, journals —
+	// not just the repayment legs above), for the branch-split finance model. See
+	// cbssync/gl_postings.go.
+	go cbssync.StartGLPostingsWorker(cbsClient, db)
+	// Blink FX event parsing reads cbs_gl_postings (the sync above), so it runs after a
+	// longer settle delay and on the same cadence — cheap and idempotent, no separate
+	// heartbeat/backfill story needed (see cbssync/blink_fx_parse.go).
+	go func() {
+		time.Sleep(4 * time.Minute)
+		for {
+			if _, err := cbssync.ParseBlinkFXEvents(context.Background(), db); err != nil {
+				slog.Error("blink fx parse failed", "err", err)
+			}
+			time.Sleep(time.Hour)
+		}
+	}()
 
 	// Collections queue — recompute outstanding/DPD on rows already being worked, and seed
 	// a row for any delinquent customer who has none. This was a head-gated button, and the
@@ -652,6 +676,9 @@ func main() {
 		})
 		r.Route("/api/finance", func(r chi.Router) {
 			handlers.RegisterFinance(r, db)
+			handlers.RegisterFeeIncomeOps(r, db)
+			handlers.RegisterRevenueBreakdown(r, db)
+			handlers.RegisterBlinkFinance(r, db)
 		})
 		r.Route("/api/settlements", func(r chi.Router) {
 			handlers.RegisterSettlementOps(r, db)

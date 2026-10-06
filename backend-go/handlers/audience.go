@@ -110,6 +110,34 @@ func contactConsentWithdrawn(ctx context.Context, db *core.DB, partyID int64, ch
 	return rows[0]["withdrawn"] == true, nil
 }
 
+// prospectMarketingVerdict decides whether a recipient who is NOT a customer may be
+// marketed to, from the basis recorded against their contact list.
+//
+// Pure, and separate from campaignSendVerdict, because it is policy rather than lookup:
+// the whole decision is the five values below, and it should be readable and testable
+// without a database in the way.
+//
+// The default REFUSES. That is the change: a prospect list with nothing recorded used to
+// pass with a note, which settled a compliance question by omission. Now one deliberate
+// act is needed before 28,529 bought-in contacts can be mailed.
+func prospectMarketingVerdict(listBasis string) (ok bool, reason string) {
+	switch strings.TrimSpace(listBasis) {
+	case "opt_in_collected":
+		return true, "prospect: list records a collected opt-in"
+	case "legitimate_interest":
+		return true, "prospect: list records legitimate interest"
+	case "third_party_asserted":
+		// Allowed, and labelled honestly. If this is ever questioned, the record should
+		// say the consent was the supplier's assertion and not collected by us.
+		return true, "prospect: consent asserted by the list's source, not collected by us"
+	case "not_for_marketing":
+		return false, "list is marked not for marketing"
+	default:
+		return false, "prospect list has no recorded basis for marketing — set one on the " +
+			"contact list before sending"
+	}
+}
+
 // campaignSendVerdict decides whether ONE campaign recipient may be sent to.
 //
 // WHY THIS EXISTS. Until now the campaign sender checked nothing of the sort. The email
@@ -132,12 +160,20 @@ func contactConsentWithdrawn(ctx context.Context, db *core.DB, partyID int64, ch
 //   - SERVICING is opt-out. Only an actual withdrawal refuses.
 //
 // A recipient with NO party_id is a prospect — one of the 28,529 bought-in CRC contacts —
-// and no consent row can exist for them, because consent is keyed on party_id and they
-// are not parties. Refusing them would make the Campaigns module unable to do the only
-// thing it is currently used for, and granting them a basis they never gave is not this
-// function's call either. So they pass with the reason recorded, which puts the question
-// in front of a person instead of settling it silently in code.
-func campaignSendVerdict(ctx context.Context, db *core.DB, purpose, channel string,
+// and no consent row can exist for them, because consent is keyed on party_id and they are
+// not parties. That question used to be settled here by default, which is to say by
+// nobody: they passed with a note. It is now answered by whoever owns the list, in
+// contact_lists.consent_basis, and listBasis carries their answer in:
+//
+//	opt_in_collected      they asked us to contact them — send
+//	legitimate_interest   existing relationship, related subject — send
+//	third_party_asserted  a supplier says they consented — send, named as the weaker thing it is
+//	not_for_marketing     explicitly decided against — refuse
+//	"" (nothing recorded)  refuse, and say what is missing
+//
+// Refusing the blank case is the change. A prospect campaign now needs one deliberate act
+// before it can send, rather than inheriting permission from a code comment.
+func campaignSendVerdict(ctx context.Context, db *core.DB, purpose, channel, listBasis string,
 	partyID int64, email, phone string) (ok bool, reason string) {
 
 	if !audienceChannels[channel] {
@@ -164,7 +200,7 @@ func campaignSendVerdict(ctx context.Context, db *core.DB, purpose, channel stri
 
 	// Marketing, and this is the half that was missing entirely.
 	if partyID == 0 {
-		return true, "prospect: no party record, so no marketing consent exists either way"
+		return prospectMarketingVerdict(listBasis)
 	}
 	rows, err := db.PGQuery(ctx, `
 		SELECT EXISTS (

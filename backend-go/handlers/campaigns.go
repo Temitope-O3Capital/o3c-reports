@@ -395,6 +395,16 @@ func startDispatch(db *core.DB, campaignID int64) {
 		if strings.EqualFold(strings.TrimSpace(str(camp["purpose"])), purposeServicing) {
 			campaignPurpose = purposeServicing
 		}
+		// How the people on this campaign's list may be contacted, for the ones who are
+		// not customers and so cannot carry a consent row of their own. Read once, here,
+		// rather than per recipient: it is a property of the list.
+		var campaignListBasis string
+		if lid := toInt64(camp["list_id"]); lid > 0 {
+			if lr, _ := db.PGQuery(ctx,
+				"SELECT consent_basis FROM contact_lists WHERE id=$1", lid); len(lr) > 0 {
+				campaignListBasis = str(lr[0]["consent_basis"])
+			}
+		}
 		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 250)) * time.Millisecond
 		dailyLimit := effectiveCampaignDailyLimit(ctx, db)
 		perCampaignDailyLimit := intSetting(ctx, db, "campaign_per_campaign_daily_email_limit", 5000)
@@ -448,7 +458,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 					// basis, which it does not: ccNotSuppressedExpr passes NULL for the
 					// party, so a customer-level opt-out and the consent table were both
 					// invisible to it.
-					if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "sms",
+					if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "sms", campaignListBasis,
 						toInt64(c["party_id"]), str(c["email"]), str(c["phone"])); !allowed {
 						db.PGExec(ctx, //nolint:errcheck
 							`UPDATE campaign_contacts SET sms_status='skipped', updated_at=NOW() WHERE id=$1`, cid)
@@ -484,7 +494,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 					RETURNING whatsapp_status`, cid)
 				if len(claimed) > 0 && str(claimed[0]["whatsapp_status"]) == "sending" {
 					// Same addition as SMS: the claim covers the number, not the person.
-					if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "whatsapp",
+					if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "whatsapp", campaignListBasis,
 						toInt64(c["party_id"]), str(c["email"]), str(c["phone"])); !allowed {
 						db.PGExec(ctx, //nolint:errcheck
 							`UPDATE campaign_contacts SET whatsapp_status='skipped', updated_at=NOW() WHERE id=$1`, cid)
@@ -532,7 +542,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 				// checked before. SendMail still filters mail_suppressions underneath, so
 				// bounces and unsubscribes were always honoured; what was missing is
 				// whether this person ever agreed to hear from us at all.
-				if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "email",
+				if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "email", campaignListBasis,
 					toInt64(c["party_id"]), str(c["email"]), str(c["phone"])); !allowed {
 					db.PGExec(ctx, //nolint:errcheck
 						`UPDATE campaign_contacts SET email_status='skipped', updated_at=NOW() WHERE id=$1`, cid)

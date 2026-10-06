@@ -17,16 +17,43 @@ import { humanLabel } from '../../lib/labels'
 // CIF, so it was structurally incapable of returning anybody.
 type Audience = 'customers' | 'applications'
 
+// How to treat customers whose last transaction date is unknown — 11,483 of the 17,890
+// active ones. A NULL there means no transaction data reached us, NOT a customer proven
+// to be quiet, so there is no default that is both convenient and honest: "not transacted
+// in 90 days" is 5,268 people with the unknowns left out and 16,866 with them folded in.
+type NeverTransacted = '' | 'include' | 'exclude' | 'only'
+
 interface Criteria {
   audience: Audience
   require_email: boolean; require_phone: boolean
+  // Customer-base filters
+  buckets: string[]; value_tiers: string[]
+  days_since_txn_min: string; days_since_txn_max: string
+  never_transacted: NeverTransacted
+  exclude_recovery: boolean
+  // Loan-book filters
   product_type: string; stage: string; status: string; employer: string
   dpd_min: string; dpd_max: string; outstanding_min: string; outstanding_max: string
 }
 const EMPTY_CRITERIA: Criteria = {
   audience: 'customers', require_email: false, require_phone: false,
+  buckets: [], value_tiers: [], days_since_txn_min: '', days_since_txn_max: '',
+  never_transacted: '', exclude_recovery: false,
   product_type: '', stage: '', status: '', employer: '', dpd_min: '', dpd_max: '', outstanding_min: '', outstanding_max: '',
 }
+
+// Straight from app.customer_lifecycle, with the counts of ACTIVE customers in each as at
+// 2026-10-06 so the picker says how big a choice is before it is made.
+const LIFECYCLE_BUCKETS: { v: string; label: string }[] = [
+  { v: 'active',   label: 'Active — transacted in the last 30 days (858)' },
+  { v: 'cooling',  label: 'Cooling — 31-58 days (58)' },
+  { v: 'at_risk',  label: 'At risk — 61-90 days (118)' },
+  { v: 'dormant',  label: 'Dormant — 91-180 days (107)' },
+  { v: 'lapsed',   label: 'Lapsed — 183-365 days (170)' },
+  { v: 'churned',  label: 'Churned — over a year (5,096)' },
+  { v: 'unknown',  label: 'Unknown — no transaction data (11,483)' },
+]
+const VALUE_TIERS = ['vip', 'gold', 'silver', 'mass', 'unclassified']
 
 const PRODUCT_TYPES = ['Salary Loan', 'Individual Loan', 'Business Loan', 'Credit Card', 'Payday Loan']
 const STAGES = ['submitted', 'pre-screening', 'underwriting', 'approval', 'disbursed', 'active', 'closed']
@@ -34,6 +61,9 @@ const STATUSES = ['pending', 'active', 'disbursed', 'rejected', 'cancelled', 'wr
 
 interface SegmentCriteria {
   audience?: Audience; require_email?: boolean; require_phone?: boolean
+  buckets?: string[]; value_tiers?: string[]
+  min_days_since_txn?: number; max_days_since_txn?: number
+  never_transacted?: NeverTransacted; exclude_recovery?: boolean
   products?: string[]; stages?: string[]; statuses?: string[]; employers?: string[]
   min_dpd?: number; max_dpd?: number; min_outstanding_kobo?: number; max_outstanding_kobo?: number
 }
@@ -47,15 +77,30 @@ interface SavedSegment {
   id: number; name: string; description?: string; criteria: any
   last_count?: number; last_list_id?: number; last_refreshed_at?: string
   list_name?: string; list_member_count?: number; created_by_name?: string; updated_at?: string
+  auto_refresh?: boolean; refresh_interval_hours?: number
+  last_auto_refresh_at?: string | null
+  // Why the last automatic rebuild failed. Kept on the row because a segment that has
+  // quietly stopped updating looks exactly like one that is up to date.
+  last_refresh_error?: string | null
+  list_consent_basis?: string | null
 }
 
 function toCriteriaObj(c: Criteria): SegmentCriteria {
   const o: SegmentCriteria = { audience: c.audience }
   if (c.require_email) o.require_email = true
   if (c.require_phone) o.require_phone = true
-  // Never send a loan filter on a customer segment: the backend refuses the combination
-  // outright rather than silently widening the audience to everybody.
-  if (c.audience === 'customers') return o
+  // Never send a loan filter on a customer segment, or a customer filter on a loan one:
+  // the backend refuses either combination outright rather than silently widening the
+  // audience to everybody.
+  if (c.audience === 'customers') {
+    if (c.buckets.length) o.buckets = c.buckets
+    if (c.value_tiers.length) o.value_tiers = c.value_tiers
+    if (c.days_since_txn_min) o.min_days_since_txn = parseInt(c.days_since_txn_min, 10)
+    if (c.days_since_txn_max) o.max_days_since_txn = parseInt(c.days_since_txn_max, 10)
+    if (c.never_transacted) o.never_transacted = c.never_transacted
+    if (c.exclude_recovery) o.exclude_recovery = true
+    return o
+  }
   if (c.product_type) o.products = [c.product_type]
   if (c.stage) o.stages = [c.stage]
   if (c.status) o.statuses = [c.status]
@@ -74,6 +119,12 @@ function fromCriteriaObj(raw: any): Criteria {
     audience: o.audience === 'customers' ? 'customers' : 'applications',
     require_email: !!o.require_email,
     require_phone: !!o.require_phone,
+    buckets: o.buckets ?? [],
+    value_tiers: o.value_tiers ?? [],
+    days_since_txn_min: o.min_days_since_txn ? String(o.min_days_since_txn) : '',
+    days_since_txn_max: o.max_days_since_txn ? String(o.max_days_since_txn) : '',
+    never_transacted: o.never_transacted ?? '',
+    exclude_recovery: !!o.exclude_recovery,
     product_type: o.products?.[0] ?? '',
     stage: o.stages?.[0] ?? '',
     status: o.statuses?.[0] ?? '',
@@ -90,7 +141,18 @@ function criteriaChips(raw: any): string[] {
   chips.push(c.audience === 'customers' ? 'Active customers' : 'Loan book')
   if (c.require_email) chips.push('has email')
   if (c.require_phone) chips.push('has phone')
-  if (c.audience === 'customers') return chips
+  if (c.audience === 'customers') {
+    if (c.buckets.length) chips.push(c.buckets.join(' / '))
+    if (c.value_tiers.length) chips.push(c.value_tiers.join(' / '))
+    if (c.days_since_txn_min || c.days_since_txn_max) {
+      chips.push(`quiet ${c.days_since_txn_min || '0'}–${c.days_since_txn_max || '∞'} days`)
+    }
+    if (c.never_transacted === 'only') chips.push('no transaction data only')
+    if (c.never_transacted === 'include') chips.push('incl. no transaction data')
+    if (c.never_transacted === 'exclude') chips.push('excl. no transaction data')
+    if (c.exclude_recovery) chips.push('not with recovery')
+    return chips
+  }
   if (c.product_type) chips.push(c.product_type)
   if (c.stage) chips.push(`stage: ${c.stage}`)
   if (c.status) chips.push(`status: ${c.status}`)
@@ -168,6 +230,8 @@ export default function Segments() {
     >
       <ErrBanner error={err} onRetry={() => load()} />
 
+      <ContactQualityCard />
+
       <SectionCard
         title="Saved Segments" badge={segments.length}
         subtitle="A segment stores its filters so you can refresh its contact list any time"
@@ -203,7 +267,30 @@ export default function Segments() {
                   <span style={{ color: 'var(--txt3)' }}>
                     {s.last_refreshed_at ? `Refreshed ${fmtDatetime(s.last_refreshed_at)}` : 'Not yet built'}
                   </span>
+                  {/* Whether it keeps itself current, said on the card: a segment that
+                      stopped updating is otherwise indistinguishable from a fresh one. */}
+                  {s.auto_refresh ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: GREEN, fontWeight: FW.semibold }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 14 }}>autorenew</span>
+                      every {s.refresh_interval_hours === 1 ? 'hour'
+                        : s.refresh_interval_hours === 168 ? 'week'
+                        : `${s.refresh_interval_hours ?? 24}h`}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--txt3)' }}>manual only</span>
+                  )}
                 </div>
+
+                {/* A failed automatic rebuild, on the card rather than only in the log. */}
+                {s.last_refresh_error && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10,
+                                padding: '6px 9px', borderRadius: RADIUS.md,
+                                background: `${RED}0E`, border: `1px solid ${RED}33`,
+                                fontSize: TEXT.xs, color: 'var(--txt1)', lineHeight: 1.5 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15, color: RED }}>error</span>
+                    <span><strong>Last automatic rebuild failed.</strong> {s.last_refresh_error}</span>
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: 6, marginTop: 'auto', paddingTop: 10, borderTop: '1px solid var(--bdr)' }}>
                   <button onClick={() => refreshSegment(s)} disabled={refreshing === s.id}
@@ -242,12 +329,120 @@ export default function Segments() {
   )
 }
 
+// ── Contact data checker ──────────────────────────────────────────────────────
+
+interface QualityTotals {
+  people: number; emailable: number; dialable: number
+  email_unusable: number; phone_unusable: number
+  email_missing: number; phone_missing: number; unreachable: number
+}
+interface Offender { value: string; people: number }
+interface Quality {
+  totals?: QualityTotals
+  phone_offenders?: Offender[]
+  email_offenders?: Offender[]
+}
+
+// Why this is here and not a KPI somewhere: a reachability percentage is not actionable,
+// a list of the actual broken values is. 4,073 active customers share the phone number
+// 08012345678 — that is one bad default in whatever form or import produced them, not
+// 4,073 separate mistakes, and it is fixable in one go once somebody can see it.
+function ContactQualityCard() {
+  const [q, setQ] = useState<Quality | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    apiFetch<Quality>('/api/contact-lists/contact-quality')
+      .then(r => setQ(unwrap<Quality>(r) ?? null))
+      .catch(e => setErr(e.message))
+  }, [])
+
+  if (err) return null
+  if (!q?.totals) return null
+  const t = q.totals
+  const broken = t.phone_unusable + t.email_unusable
+
+  return (
+    <SectionCard title="Contact Data Check"
+      subtitle="Whether the email and phone we hold for active customers could actually be used"
+      style={{ marginBottom: SP[4] }}
+      actions={broken > 0 ? (
+        <button onClick={() => setOpen(o => !o)} style={{ ...miniBtn, background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}>
+          {open ? 'Hide' : 'Show'} the worst values
+        </button>
+      ) : undefined}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: SP[3] }}>
+        <QFact label="Active Customers" value={fmtNum(t.people)} />
+        <QFact label="Can Be Emailed" value={fmtNum(t.emailable)} tone={GREEN} />
+        <QFact label="Can Be Called" value={fmtNum(t.dialable)} tone={GREEN} />
+        <QFact label="Phone Unusable" value={fmtNum(t.phone_unusable)}
+          tone={t.phone_unusable > 0 ? RED : undefined}
+          note="a number is stored but cannot be dialled" />
+        <QFact label="Email Unusable" value={fmtNum(t.email_unusable)}
+          tone={t.email_unusable > 0 ? AMBER : undefined}
+          note="an address is stored but is not an address" />
+        <QFact label="No Contact At All" value={fmtNum(t.unreachable)}
+          tone={t.unreachable > 0 ? AMBER : undefined}
+          note={`${fmtNum(t.phone_missing)} no phone, ${fmtNum(t.email_missing)} no email`} />
+      </div>
+
+      {broken > 0 && (
+        <div style={{ marginTop: SP[3], fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
+          These are counted as unreachable everywhere a segment or a campaign asks who can
+          be contacted, so fixing them widens every audience at once. A stored number is
+          judged on whether it is a real Nigerian mobile, not merely on being present.
+        </div>
+      )}
+
+      {open && (
+        <div style={{ marginTop: SP[3], display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: SP[3] }}>
+          <OffenderList title="Phone numbers that cannot be dialled" rows={q.phone_offenders ?? []} />
+          <OffenderList title="Email addresses that are not addresses" rows={q.email_offenders ?? []} />
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
+function QFact({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ fontFamily: MONO, fontSize: TEXT.lg, fontWeight: FW.bold, marginTop: 2, color: tone ?? 'var(--txt)' }}>{value}</div>
+      {note && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2, lineHeight: 1.4 }}>{note}</div>}
+    </div>
+  )
+}
+
+function OffenderList({ title, rows }: { title: string; rows: Offender[] }) {
+  return (
+    <div>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{title}</div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Nothing to fix.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {rows.map(r => (
+            <div key={r.value} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: TEXT.sm }}>
+              <span style={{ fontFamily: MONO, wordBreak: 'break-all' }}>{r.value}</span>
+              <span style={{ fontFamily: MONO, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtNum(r.people)} customers</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Builder modal ─────────────────────────────────────────────────────────────
 
 function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
   const [criteria, setCriteria] = useState<Criteria>(editing ? fromCriteriaObj(editing.criteria) : EMPTY_CRITERIA)
+  const [autoRefresh, setAutoRefresh] = useState(!!editing?.auto_refresh)
+  const [intervalHours, setIntervalHours] = useState(editing?.refresh_interval_hours ?? 24)
   const [preview, setPreview] = useState<SegmentSizing | null>(
     editing?.last_count != null ? { count: editing.last_count } : null)
   const [previewing, setPreviewing] = useState(false)
@@ -276,7 +471,10 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
     if (!name.trim()) { toast.error('Enter a segment name'); return }
     setSaving(true); setErr(null)
     try {
-      const body = { name: name.trim(), description, criteria: toCriteriaObj(criteria) }
+      const body = {
+        name: name.trim(), description, criteria: toCriteriaObj(criteria),
+        auto_refresh: autoRefresh, refresh_interval_hours: intervalHours,
+      }
       if (editing) await apiPut(`/api/contact-lists/segments/${editing.id}`, body)
       else await apiPost('/api/contact-lists/segments', body)
       toast.success(editing ? 'Segment updated' : 'Segment created')
@@ -331,6 +529,40 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
           <div><label style={lbl}>Description (Optional)</label><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this audience is for" style={inputStyle} /></div>
         </div>
 
+        {/* Keeping itself current. Opt-in per segment, and the reason is stated: a
+            refresh refills the linked list in place, which is what makes a live
+            campaign's audience change underneath it. */}
+        <div style={{ background: 'var(--bg)', padding: SP[3], borderRadius: RADIUS.md,
+                      border: '1px solid var(--bdr)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm,
+                          fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
+            Keep this segment up to date automatically
+          </label>
+          {autoRefresh ? (
+            <div style={{ marginTop: SP[2], display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Rebuild every</span>
+              <select value={String(intervalHours)} style={{ ...selectStyle, width: 'auto' }}
+                onChange={e => setIntervalHours(parseInt(e.target.value, 10))}>
+                <option value="1">hour</option>
+                <option value="6">6 hours</option>
+                <option value="24">day</option>
+                <option value="168">week</option>
+              </select>
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                The customer base itself is recomputed once a night at 03:30, so anything
+                faster than that cannot make the answer fresher.
+              </span>
+            </div>
+          ) : (
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4, lineHeight: 1.5 }}>
+              Off means the list only changes when somebody presses Refresh. A rebuild
+              replaces the list's members in place, so a campaign already pointed at it
+              would see its audience change — which is why this is a choice.
+            </div>
+          )}
+        </div>
+
         <div style={{ height: 1, background: 'var(--bdr)' }} />
 
         {/* Who this segment is drawn from. The two are different populations, not two
@@ -363,12 +595,62 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
         </div>
 
         {isCustomers ? (
-          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', background: 'var(--bg)', padding: SP[3],
-                        borderRadius: RADIUS.md, border: '1px solid var(--bdr)', lineHeight: 1.6 }}>
-            An active-customer segment takes no further filters. Arrears band, application
-            stage and employer describe a loan application rather than a person, so the
-            builder does not offer them here — asking for them would otherwise have
-            widened the audience to everybody instead of narrowing it.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+              <div>
+                <label style={lbl}>Lifecycle Bucket</label>
+                <MultiPick options={LIFECYCLE_BUCKETS} selected={criteria.buckets}
+                  onChange={v => update('buckets', v)} />
+              </div>
+              <div>
+                <label style={lbl}>Value Tier</label>
+                <MultiPick options={VALUE_TIERS.map(v => ({ v, label: humanLabel(v) }))}
+                  selected={criteria.value_tiers} onChange={v => update('value_tiers', v)} />
+              </div>
+            </div>
+
+            {/* "Customers not transacting" — the audience this page is most wanted for. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+              <div><label style={lbl}>Quiet For At Least (Days)</label>
+                <input type="number" min="0" value={criteria.days_since_txn_min}
+                  onChange={e => update('days_since_txn_min', e.target.value)}
+                  placeholder="e.g. 90" style={inputStyle} /></div>
+              <div><label style={lbl}>And At Most (Days)</label>
+                <input type="number" min="0" value={criteria.days_since_txn_max}
+                  onChange={e => update('days_since_txn_max', e.target.value)}
+                  placeholder="leave blank for no upper bound" style={inputStyle} /></div>
+            </div>
+
+            <div>
+              <label style={lbl}>Customers With No Transaction Date</label>
+              <select value={criteria.never_transacted} style={selectStyle}
+                onChange={e => update('never_transacted', e.target.value as NeverTransacted)}>
+                <option value="">Leave them out of a quiet-for filter (default)</option>
+                <option value="exclude">Exclude them entirely</option>
+                <option value="include">Count them as quiet too</option>
+                <option value="only">Only these customers</option>
+              </select>
+              {/* The honest part. This is not a tidy-up detail: it is the difference
+                  between a 5,268-person dormancy campaign and a 16,866-person one. */}
+              <div style={{ fontSize: TEXT.xs, color: AMBER, marginTop: 5, lineHeight: 1.5 }}>
+                11,483 of 17,890 active customers have no last-transaction date. That means
+                no transaction data reached us — not that they are quiet. "Quiet for 90+
+                days" is 5,268 people with them left out, and 16,866 with them counted as
+                quiet, so this choice decides most of your audience.
+              </div>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: TEXT.sm, cursor: 'pointer' }}>
+              <input type="checkbox" checked={criteria.exclude_recovery}
+                onChange={e => update('exclude_recovery', e.target.checked)} />
+              Leave out anyone a recovery officer is already working
+            </label>
+
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
+              Arrears band, application stage and employer are not offered here: they
+              describe a loan application rather than a person, and asking for one would
+              widen this audience to everybody instead of narrowing it.
+            </div>
           </div>
         ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
@@ -397,6 +679,33 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
 }
 
 // ── Small bits ────────────────────────────────────────────────────────────────
+
+// A tick-list rather than a <select multiple>: multi-select boxes are close to unusable
+// with a mouse, and these choices carry population counts worth reading before clicking.
+function MultiPick({ options, selected, onChange }: {
+  options: { v: string; label: string }[]
+  selected: string[]
+  onChange: (v: string[]) => void
+}) {
+  const toggle = (v: string) =>
+    onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v])
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 150,
+                  overflowY: 'auto', border: '1px solid var(--input-bdr)',
+                  borderRadius: RADIUS.md, padding: '6px 8px', background: 'var(--card)' }}>
+      {options.map(o => (
+        <label key={o.v} style={{ display: 'flex', alignItems: 'center', gap: 6,
+                                  fontSize: TEXT.sm, cursor: 'pointer' }}>
+          <input type="checkbox" checked={selected.includes(o.v)} onChange={() => toggle(o.v)} />
+          {o.label}
+        </label>
+      ))}
+      {selected.length === 0 && (
+        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>none ticked = any</div>
+      )}
+    </div>
+  )
+}
 
 const miniBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }
 function IconBtn({ icon, title, onClick, danger }: { icon: string; title: string; onClick: () => void; danger?: boolean }) {

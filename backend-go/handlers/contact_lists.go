@@ -21,6 +21,9 @@ func RegisterContactLists(r chi.Router, db *core.DB) {
 	r.With(access).Get("/{id}", getContactList(db))
 	r.With(access).Put("/{id}", updateContactList(db))
 	r.With(access).Delete("/{id}", deleteContactList(db))
+	// How this list's people may be contacted for marketing — the answer the sender now
+	// requires before it will send to a list of non-customers.
+	r.With(access).Put("/{id}/consent-basis", setListConsentBasis(db))
 	r.With(access).Get("/{id}/members", listListMembers(db))
 	r.With(access).Post("/{id}/members", addListMember(db))
 	r.With(access).Put("/{id}/members/{mid}", updateListMember(db))
@@ -39,6 +42,13 @@ func RegisterContactLists(r chi.Router, db *core.DB) {
 	r.With(access).Put("/segments/{sid}", updateSegment(db))
 	r.With(access).Delete("/segments/{sid}", deleteSegment(db))
 	r.With(access).Post("/segments/{sid}/materialize", materializeSegmentHandler(db))
+	// Whether this audience could lawfully be marketed to, and the one place to decide it
+	// for a whole population rather than one customer at a time.
+	r.With(access).Get("/segments/{sid}/consent", segmentConsentStatus(db))
+	r.With(access).Post("/segments/{sid}/consent", segmentRecordConsent(db))
+
+	// Which stored emails and phones cannot actually be used. Read-only.
+	r.With(access).Get("/contact-quality", contactDataQuality(db))
 }
 
 func syncListCount(db *core.DB, r *http.Request, listID string) {
@@ -202,6 +212,75 @@ func updateContactList(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+// setListConsentBasis records how the people on a list may be contacted for marketing.
+//
+// Its own endpoint rather than a field on updateContactList, for two reasons. It needs to
+// record WHO decided and when, which a name edit has no business touching; and a rename
+// must not be able to clear a compliance decision by omitting a field.
+//
+// This exists because the sender now refuses a prospect list with no recorded basis. The
+// 28,529 bought-in CRC contacts are not parties, so app.party_contact_consent cannot hold
+// anything for them — the basis is a property of the LIST, and somebody has to state it.
+func setListConsentBasis(db *core.DB) http.HandlerFunc {
+	// Mirrors the CHECK in migration 343. Kept here too so the refusal is a sentence
+	// rather than a constraint violation.
+	allowed := map[string]string{
+		"opt_in_collected":     "they asked us to contact them",
+		"third_party_asserted": "the source asserts consent, we did not collect it",
+		"legitimate_interest":  "existing relationship, related subject",
+		"not_for_marketing":    "explicitly not to be marketed to",
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Basis string `json:"basis"`
+			Note  string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		b.Basis, b.Note = strings.TrimSpace(b.Basis), strings.TrimSpace(b.Note)
+		if b.Basis != "" {
+			if _, ok := allowed[b.Basis]; !ok {
+				respondErr(w, 422, "\""+b.Basis+"\" is not a basis. Use one of "+
+					"opt_in_collected, third_party_asserted, legitimate_interest, not_for_marketing.")
+				return
+			}
+			// A weak basis has to be explained. "A supplier said so" is a defensible
+			// position only if the record says which supplier and when.
+			if b.Basis == "third_party_asserted" && b.Note == "" {
+				respondErr(w, 422, "Say where this list came from and what the supplier "+
+					"asserted. A third-party claim with no note cannot be defended later.")
+				return
+			}
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE contact_lists
+			   SET consent_basis = NULLIF($1,''), consent_note = NULLIF($2,''),
+			       consent_recorded_by = $3, consent_recorded_at = NOW(), updated_at = NOW()
+			 WHERE id = $4
+			RETURNING id, name, consent_basis, consent_note, consent_recorded_at`,
+			b.Basis, b.Note, nullableInt64(user.ID), id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "List not found")
+			return
+		}
+		aid, aname, ateam := actorOf(user)
+		//nolint:errcheck // the basis is recorded; a failed log must not undo it
+		LogActivity(r.Context(), db, Activity{
+			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "note", Source: "manual",
+			Subject: "Marketing basis set for list " + str(rows[0]["name"]),
+			Body: fmt.Sprintf("Contact list %q may be marketed to on the basis %q (%s). Note: %s",
+				str(rows[0]["name"]), orDash(b.Basis), allowed[b.Basis], orDash(b.Note)),
+			EntityType: "contact_list", EntityID: id,
+		})
+		respond(w, rows[0], "pg")
 	}
 }
 
@@ -576,6 +655,23 @@ type segmentCriteria struct {
 	RequireEmail bool `json:"require_email"`
 	RequirePhone bool `json:"require_phone"`
 
+	// ── Customer-base filters. Meaningful ONLY for the customers audience ────────
+	Buckets    []string `json:"buckets"`     // customer_lifecycle.bucket
+	ValueTiers []string `json:"value_tiers"` // customer_lifecycle.value_tier
+	// "Has not transacted in N days" — the audience this page is most often wanted for.
+	MinDaysSinceTxn int `json:"min_days_since_txn"`
+	MaxDaysSinceTxn int `json:"max_days_since_txn"`
+	// What to do about the customers whose last transaction date is UNKNOWN, which is
+	// 11,483 of the 17,890 active ones — the majority. "" and "exclude" leave them out,
+	// "include" adds them to a days-since filter, "only" selects just them. There is no
+	// sensible default that is also honest: a NULL here means no transaction data reached
+	// us, NOT a customer proven to be quiet, and silently folding the two together would
+	// put 11,483 people into a "dormant" campaign on the strength of a missing feed.
+	NeverTransacted string `json:"never_transacted"`
+	// Leave out anyone a recovery officer is already working. Off by default so it stays
+	// a choice, but it is almost always the right one for marketing.
+	ExcludeRecovery bool `json:"exclude_recovery"`
+
 	// ── Loan-book filters. Meaningful ONLY for the applications audience ──────────
 	DPDBuckets         []string `json:"dpd_buckets"` // e.g. ["0","1-30","31-60","61-90","91+"]
 	Products           []string `json:"products"`    // e.g. ["Salary Loan","Business Loan"]
@@ -605,7 +701,33 @@ func segmentAudience(c segmentCriteria) string {
 // a segment returning nobody gets noticed, one returning everybody looks like a success.
 func segmentCriteriaProblem(c segmentCriteria) string {
 	if segmentAudience(c) != segmentAudienceCustomers {
-		return ""
+		// The mirror image, and just as dangerous. A lifecycle bucket or a days-since
+		// filter has no counterpart on loan_applications, so ignoring it would turn
+		// "applicants who have not transacted in a year" into "every applicant".
+		var wrong []string
+		if len(c.Buckets) > 0 {
+			wrong = append(wrong, "lifecycle bucket")
+		}
+		if len(c.ValueTiers) > 0 {
+			wrong = append(wrong, "value tier")
+		}
+		if c.MinDaysSinceTxn > 0 || c.MaxDaysSinceTxn > 0 || strings.TrimSpace(c.NeverTransacted) != "" {
+			wrong = append(wrong, "time since last transaction")
+		}
+		if c.ExcludeRecovery {
+			wrong = append(wrong, "already with recovery")
+		}
+		if len(wrong) == 0 {
+			return ""
+		}
+		return "A loan-book segment cannot be filtered by " + strings.Join(wrong, ", ") +
+			" — those describe a customer, not an application. Either drop the filter or " +
+			"build this against the active customers instead."
+	}
+	if nt := strings.TrimSpace(c.NeverTransacted); nt != "" &&
+		nt != "include" && nt != "exclude" && nt != "only" {
+		return `"` + nt + `" is not a way to treat customers with no transaction date. ` +
+			`Use "include", "exclude" or "only".`
 	}
 	var named []string
 	if len(c.DPDBuckets) > 0 {
@@ -870,30 +992,94 @@ type segmentOutcome struct {
 	Collided int `json:"collided"`
 }
 
+// buildCustomerSegmentWhere renders the customer-base filters against
+// app.v_customer_contactability. Returns a fragment beginning " AND …" and its args
+// starting at $1, the same contract buildSegmentWhere has for the loan book.
+func buildCustomerSegmentWhere(c segmentCriteria) (string, []any) {
+	var sb strings.Builder
+	var args []any
+	ph := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	// Explicit placeholders rather than = ANY($n): buildSegmentWhere in this same file
+	// does it this way, and it avoids depending on the driver's array handling.
+	inList := func(col string, vals []string) {
+		parts := make([]string, len(vals))
+		for i, v := range vals {
+			parts[i] = ph(v)
+		}
+		sb.WriteString(" AND " + col + " IN (" + strings.Join(parts, ",") + ")")
+	}
+	if len(c.Buckets) > 0 {
+		inList("bucket", c.Buckets)
+	}
+	if len(c.ValueTiers) > 0 {
+		inList("value_tier", c.ValueTiers)
+	}
+	if c.ExcludeRecovery {
+		sb.WriteString(" AND NOT COALESCE(has_open_recovery, false)")
+	}
+	if c.RequireEmail {
+		sb.WriteString(" AND email IS NOT NULL")
+	}
+	if c.RequirePhone {
+		sb.WriteString(" AND phone IS NOT NULL")
+	}
+
+	// Time since the last transaction, and what to do about the ones we cannot date.
+	//
+	// days_since_txn IS NULL is NOT "has never transacted" — it is "no transaction date
+	// reached us", which on 2026-10-06 was true of 11,483 of the 17,890 active customers.
+	// A plain `days_since_txn >= 90` excludes them in SQL anyway; the point of saying so
+	// explicitly is that "include" is then a deliberate act, because folding the unknown
+	// in with the proven-quiet is how a dormancy campaign ends up addressing the majority
+	// of the book on the strength of a missing feed.
+	var dateBound string
+	if c.MinDaysSinceTxn > 0 {
+		dateBound += " AND days_since_txn >= " + ph(c.MinDaysSinceTxn)
+	}
+	if c.MaxDaysSinceTxn > 0 {
+		dateBound += " AND days_since_txn <= " + ph(c.MaxDaysSinceTxn)
+	}
+	switch strings.TrimSpace(c.NeverTransacted) {
+	case "only":
+		sb.WriteString(" AND days_since_txn IS NULL")
+	case "include":
+		if dateBound != "" {
+			// "matches the window, OR we have no date for them at all"
+			sb.WriteString(" AND ((TRUE" + dateBound + ") OR days_since_txn IS NULL)")
+		}
+		// With no window, "include" is simply no filter — everyone is already in.
+	default: // "" and "exclude"
+		if dateBound != "" {
+			sb.WriteString(dateBound)
+		}
+		if strings.TrimSpace(c.NeverTransacted) == "exclude" {
+			sb.WriteString(" AND days_since_txn IS NOT NULL")
+		}
+	}
+	return sb.String(), args
+}
+
 // segmentCandidates reads the people a segment selects, for either audience.
 //
 // Both branches return the same shape — party_id, cif, name, email, phone — because the
 // difference between the two audiences belongs in SQL and not in the loop below.
 func segmentCandidates(ctx context.Context, db *core.DB, c segmentCriteria) ([]core.Row, error) {
 	if segmentAudience(c) == segmentAudienceCustomers {
-		// LEFT JOIN, not inner: a party with no identity row is still an active customer
-		// and is counted as unreachable rather than silently vanishing from the total.
-		//
-		// A detail that does not pass the plausibility test comes back NULL, so the caller
-		// treats it as absent. Without this, 4,073 active customers "have" the phone
-		// 08012345678 and a live SMS run would text that one number 4,073 times.
-		return db.PGQuery(ctx, `
-			SELECT cl.party_id, v.cust_id AS cif, v.full_name AS name,
-			       CASE WHEN app.is_emailable(v.email) THEN btrim(v.email) END          AS email,
-			       CASE WHEN app.is_dialable_ng_phone(v.phone)
-			            THEN app.normalise_ng_phone(v.phone) END                        AS phone
-			  FROM app.customer_lifecycle cl
-			  LEFT JOIN app.v_contact_identity v ON v.party_id = cl.party_id
-			 WHERE cl.open_products > 0
-			   AND (NOT $1::boolean OR app.is_emailable(v.email))
-			   AND (NOT $2::boolean OR app.is_dialable_ng_phone(v.phone))
-			 ORDER BY cl.party_id
-			 LIMIT $3`, c.RequireEmail, c.RequirePhone, segmentMaxMembers+1)
+		// app.v_customer_contactability already holds the validated email/phone, so the
+		// plausibility rule lives in exactly one place. Without it, 4,073 active customers
+		// "have" the phone 08012345678 and a live SMS run texts that number 4,073 times.
+		where, args := buildCustomerSegmentWhere(c)
+		args = append(args, segmentMaxMembers+1)
+		return db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT party_id, cust_id AS cif, full_name AS name, email, phone
+			  FROM app.v_customer_contactability
+			 WHERE open_products > 0%s
+			 ORDER BY party_id
+			 LIMIT $%d`, where, len(args)), args...)
 	}
 	// The loan book.
 	//
