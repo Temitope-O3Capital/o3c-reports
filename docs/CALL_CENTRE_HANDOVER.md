@@ -899,6 +899,14 @@ arrears copy. So:
    no — but adding it changes when an earned `interested` is withdrawn, which moves the
    qualified count and Sales hand-offs. Worth doing deliberately, with the numbers in front
    of you, not as a tidy-up.
-3. **The dunning worker picks a template by NAME**, matching DPD bands ("1-30 Days", "91-180",
-   "360+"). Rename a template and it silently stops matching its band. Same class as item 4
-   above and not covered by the category guard.
+3. **The dunning worker picks a template by NAME, and a rename sends the gentlest letter.**
+   `dunningTemplateMatches` looks for the DPD-bucket token in the template name with digit
+   boundaries either side, and `dunningTemplateFor` falls back to `rows[0]` — the
+   lowest-numbered collections template — when no name matches. Verified 2026-10-06, that
+   row is id 7, *"Arrears Reminder · 1-30 Days"*, the softest wording of the six. So the
+   failure is not silence, which is how I first wrote it: rename the 360+ template and the
+   401 facilities over a year overdue receive the 1-30 Days copy instead. Nothing errors,
+   the heartbeat reads ok, and the letter is simply wrong in the lenient direction. This is
+   the same trap the comment above the template query already describes for the
+   `ORDER BY id LIMIT 1` it replaced — the fallback re-creates it for any renamed band.
+   Not covered by the category guard, which only protects the category from being emptied.
