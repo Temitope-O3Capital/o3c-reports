@@ -221,9 +221,19 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 	buckets := make([]map[string]any, 0, len(bucketRows))
 	for _, b := range bucketRows {
 		bucket := str(b["dpd_bucket"])
-		tpl := dunningTemplateFor(tplRows, bucket)
-		tplID := toInt64(tpl["id"])
-		used[tplID] = true
+		// dunningTemplateFor refuses rather than guesses: there is no fallback to the
+		// lowest-numbered template any more, because renaming a band's template would
+		// otherwise have sent the 1-30 courtesy wording to a debt of any age. So a false
+		// here does not mean "borrows a softer letter" — it means this band is SKIPPED,
+		// and everyone in it hears nothing at all. That is a quieter failure than the
+		// wrong letter and a worse one to leave invisible, which is why it is reported.
+		tpl, matched := dunningTemplateFor(tplRows, bucket)
+		var tplID int64
+		var tplName string
+		if matched {
+			tplID, tplName = toInt64(tpl["id"]), str(tpl["name"])
+			used[tplID] = true
+		}
 		buckets = append(buckets, map[string]any{
 			"bucket":        bucket,
 			"people":        toInt64(b["people"]),
@@ -235,11 +245,9 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 			"can_email":       toInt64(b["can_email"]),
 			"can_sms":         toInt64(b["can_sms"]),
 			"rendered":        rendered[bucket],
-			"template_id":     tplID,
-			"template_name":   str(tpl["name"]),
-			// False means this bucket has no template of its own and is borrowing the
-			// lowest-numbered one — the 1-30 wording on a debt of any age.
-			"template_matches": dunningTemplateMatches(str(tpl["name"]), bucket),
+			"template_id":      tplID,
+			"template_name":    tplName,
+			"template_matches": matched,
 		})
 	}
 

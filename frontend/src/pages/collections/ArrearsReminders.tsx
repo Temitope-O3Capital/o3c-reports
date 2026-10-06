@@ -173,6 +173,10 @@ export default function ArrearsReminders() {
   const dormant = covBuckets.filter(b => b.eligible === 0 && b.eligible_if_off > 0)
   const dormantPeople = dormant.reduce((n, b) => n + b.eligible_if_off, 0)
   const neverRendered = covBuckets.filter(b => b.rendered === 0)
+  // Bands the run has no wording for. It refuses them rather than sending the gentlest
+  // letter, so these people are simply never written to — a silent gap, not an error.
+  const noTemplate = covBuckets.filter(b => !b.template_matches)
+  const strandedByNoTemplate = noTemplate.reduce((n, b) => n + b.eligible, 0)
   const eligibleTotal = covBuckets.reduce((n, b) => n + b.eligible, 0)
   // The cap is not a detail at go-live: it decides whether "live" means a week or a
   // season. At 5 a night the queue below takes months, which is a choice someone should
@@ -191,14 +195,14 @@ export default function ArrearsReminders() {
         {r.bucket}
       </span>
     )},
-    { key: 'template_name', label: 'Wording', render: r => (
+    { key: 'template_name', label: 'Wording', render: r => r.template_matches ? (
+      <div style={{ fontSize: TEXT.sm }}>{shortTpl(r.template_name)}</div>
+    ) : (
+      // No fallback exists: the run refuses a band it has no wording for rather than
+      // sending the gentlest letter, so nobody in this band is written to at all.
       <div>
-        <div style={{ fontSize: TEXT.sm }}>{shortTpl(r.template_name)}</div>
-        {!r.template_matches && (
-          <div style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.semibold }}>
-            no template of its own — borrows this one
-          </div>
-        )}
+        <div style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>none</div>
+        <div style={{ fontSize: TEXT['2xs'], color: RED }}>skipped — nobody here is written to</div>
       </div>
     )},
     { key: 'people', label: 'In Arrears', align: 'right',
@@ -423,6 +427,20 @@ export default function ArrearsReminders() {
               alone reaches most of them, and whichever goes live first leaves{' '}
               {fmtNum(Math.max(eligibleTotal - Math.max(canEmail, canSms), 0))} to the other.
               WhatsApp uses the same number as SMS.
+            </Caution>
+          )}
+
+          {noTemplate.length > 0 && (
+            <Caution icon="report" tone={RED} style={{ marginTop: SP[2] }}>
+              <strong>No wording exists for {noTemplate.map(b => b.bucket).join(', ')}</strong>, so
+              the run skips {noTemplate.length === 1 ? 'that band' : 'those bands'} rather than
+              send a letter written for a different age
+              {strandedByNoTemplate > 0
+                ? <>. {fmtNum(strandedByNoTemplate)} {strandedByNoTemplate === 1 ? 'borrower is' : 'borrowers are'} eligible
+                   and hearing nothing as a result.</>
+                : <>. Nobody is eligible in {noTemplate.length === 1 ? 'it' : 'them'} today, so
+                   nothing is being missed yet.</>}
+              {' '}A band is matched by the template's NAME, so this is what a rename looks like.
             </Caution>
           )}
 
