@@ -163,21 +163,28 @@ func materializeSegmentHandler(db *core.DB) http.HandlerFunc {
 			listID = toInt64(lr[0]["id"])
 		}
 
-		imported, err := materializeSegmentToList(ctx, db, listID, c)
+		out, err := materializeSegmentToList(ctx, db, listID, c)
 		if err != nil {
-			respondErr(w, 500, "Failed to build segment members")
+			respondErrLog(w, 500, "Failed to build segment members", err)
 			return
 		}
 
 		db.PGExec(ctx, `
 			UPDATE contact_segments
 			SET last_count=$1, last_list_id=$2, last_refreshed_at=$3, updated_at=NOW()
-			WHERE id=$4`, imported, listID, time.Now(), sid) //nolint:errcheck
+			WHERE id=$4`, out.Imported, listID, time.Now(), sid) //nolint:errcheck
 
 		respond(w, map[string]any{
-			"segment_id": sid,
-			"list_id":    listID,
-			"imported":   imported,
+			"segment_id":   sid,
+			"list_id":      listID,
+			"audience":     segmentAudience(c),
+			"imported":     out.Imported,
+			"no_contact":   out.NoContact,
+			"mailable":     out.Mailable,
+			"textable":     out.Textable,
+			"known_people": out.KnownPeople,
+			"collided":     out.Collided,
+			"truncated":    out.Truncated,
 		}, "pg")
 	}
 }

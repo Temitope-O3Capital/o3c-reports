@@ -549,8 +549,34 @@ func cleanStringPtr(v *string) *string {
 // ── Contact Segments ──────────────────────────────────────────────────────────
 // Builds a dynamic contact list from CCS / loan_applications filter criteria.
 
+// Which population a segment is drawn from. These are not interchangeable: the loan book
+// is a table of APPLICATIONS and the customer base is a table of PEOPLE, so a filter that
+// means something against one is meaningless against the other.
+const (
+	// The loan book — what this always did, and still the default so a saved segment
+	// keeps its meaning.
+	segmentAudienceApplications = "applications"
+	// Everyone holding a live product: app.customer_lifecycle.open_products > 0. This is
+	// the platform's own definition of an active customer, the same one migration 290
+	// used to seed servicing consent, so a segment and that lawful basis cannot disagree.
+	segmentAudienceCustomers = "customers"
+
+	// An explicit ceiling, reported when hit. It replaces a bare `LIMIT 5000` buried in
+	// the materialiser: against 17,890 active customers that silently dropped 72% of the
+	// audience and called it a success, which is the failure mode nobody notices.
+	segmentMaxMembers = 100000
+)
+
 type segmentCriteria struct {
-	Name               string   `json:"name"`
+	Name string `json:"name"`
+	// "customers" or "applications" (default). See the constants above.
+	Audience string `json:"audience"`
+	// Only include people who can actually be reached that way. Off by default, because
+	// a segment is also used for SMS and the right answer differs per campaign.
+	RequireEmail bool `json:"require_email"`
+	RequirePhone bool `json:"require_phone"`
+
+	// ── Loan-book filters. Meaningful ONLY for the applications audience ──────────
 	DPDBuckets         []string `json:"dpd_buckets"` // e.g. ["0","1-30","31-60","61-90","91+"]
 	Products           []string `json:"products"`    // e.g. ["Salary Loan","Business Loan"]
 	Stages             []string `json:"stages"`      // loan_applications.stage
@@ -560,6 +586,55 @@ type segmentCriteria struct {
 	MaxDPD             int      `json:"max_dpd"`
 	MinOutstandingKobo int64    `json:"min_outstanding_kobo"`
 	MaxOutstandingKobo int64    `json:"max_outstanding_kobo"`
+}
+
+// segmentAudience normalises the audience, defaulting to the loan book.
+func segmentAudience(c segmentCriteria) string {
+	if strings.TrimSpace(c.Audience) == segmentAudienceCustomers {
+		return segmentAudienceCustomers
+	}
+	return segmentAudienceApplications
+}
+
+// segmentCriteriaProblem rejects a combination that cannot mean what it says.
+//
+// It REFUSES rather than ignores, and that direction is the whole point. A DPD band or an
+// employer filter has no counterpart in the customer base, so quietly dropping it would
+// turn "active customers in arrears 31-60" into "every active customer" and then message
+// all 17,890 of them. That is the same failure the DPD-bucket switch below was fixed for:
+// a segment returning nobody gets noticed, one returning everybody looks like a success.
+func segmentCriteriaProblem(c segmentCriteria) string {
+	if segmentAudience(c) != segmentAudienceCustomers {
+		return ""
+	}
+	var named []string
+	if len(c.DPDBuckets) > 0 {
+		named = append(named, "arrears band")
+	}
+	if len(c.Stages) > 0 {
+		named = append(named, "application stage")
+	}
+	if len(c.Statuses) > 0 {
+		named = append(named, "application status")
+	}
+	if len(c.Employers) > 0 {
+		named = append(named, "employer")
+	}
+	if len(c.Products) > 0 {
+		named = append(named, "loan product")
+	}
+	if c.MinDPD > 0 || c.MaxDPD > 0 {
+		named = append(named, "days past due")
+	}
+	if c.MinOutstandingKobo > 0 || c.MaxOutstandingKobo > 0 {
+		named = append(named, "outstanding balance")
+	}
+	if len(named) == 0 {
+		return ""
+	}
+	return "An active-customer segment cannot be filtered by " + strings.Join(named, ", ") +
+		" — those describe a loan application, not a customer. Either drop the filter or " +
+		"build this against the loan book instead."
 }
 
 func buildSegmentWhere(c segmentCriteria) (string, []any) {
@@ -680,18 +755,54 @@ func segmentPreview(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		where, args := buildSegmentWhere(c)
-		rows, err := db.PGQuery(r.Context(),
-			"SELECT COUNT(*) AS count FROM loan_applications WHERE 1=1"+where, args...)
+		if problem := segmentCriteriaProblem(c); problem != "" {
+			respondErr(w, 422, problem)
+			return
+		}
+		// Counted the way the build counts, so the preview cannot promise an audience the
+		// refresh then declines to produce. The old preview ran COUNT(*) over
+		// loan_applications while the build ran DISTINCT ON (applicant_cif) under a
+		// 5,000 cap, so a preview of 12,000 could materialise as 5,000 and look fine.
+		rows, err := segmentCandidates(r.Context(), db, c)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
-		count := int64(0)
-		if len(rows) > 0 {
-			count = toInt64(rows[0]["count"])
+		truncated := 0
+		if len(rows) > segmentMaxMembers {
+			truncated = len(rows) - segmentMaxMembers
+			rows = rows[:segmentMaxMembers]
 		}
-		respond(w, map[string]any{"count": count}, "pg")
+		var mailable, textable, noContact, known int
+		for _, m := range rows {
+			email, phone := strings.TrimSpace(str(m["email"])), strings.TrimSpace(str(m["phone"]))
+			switch {
+			case email == "" && phone == "":
+				noContact++
+			default:
+				if email != "" {
+					mailable++
+				}
+				if phone != "" {
+					textable++
+				}
+			}
+			if toInt64(m["party_id"]) > 0 {
+				known++
+			}
+		}
+		respond(w, map[string]any{
+			// "count" stays the headline for the existing UI, and is now the number that
+			// would actually be imported rather than the number merely matched.
+			"count":        len(rows) - noContact,
+			"matched":      len(rows),
+			"no_contact":   noContact,
+			"mailable":     mailable,
+			"textable":     textable,
+			"known_people": known,
+			"truncated":    truncated,
+			"audience":     segmentAudience(c),
+		}, "pg")
 	}
 }
 
@@ -704,6 +815,10 @@ func segmentCreate(db *core.DB) http.HandlerFunc {
 		}
 		if strings.TrimSpace(c.Name) == "" {
 			respondErr(w, 400, "name is required")
+			return
+		}
+		if problem := segmentCriteriaProblem(c); problem != "" {
+			respondErr(w, 422, problem)
 			return
 		}
 
@@ -721,54 +836,212 @@ func segmentCreate(db *core.DB) http.HandlerFunc {
 		}
 		listID := toInt64(listRows[0]["id"])
 
-		imported, err := materializeSegmentToList(ctx, db, listID, c)
+		out, err := materializeSegmentToList(ctx, db, listID, c)
 		if err != nil {
-			respondErr(w, 500, "Failed to query members")
+			respondErrLog(w, 500, "Failed to query members", err)
 			return
 		}
 
 		respond(w, map[string]any{
-			"list_id":  listID,
-			"name":     c.Name,
-			"imported": imported,
+			"list_id":      listID,
+			"name":         c.Name,
+			"audience":     segmentAudience(c),
+			"imported":     out.Imported,
+			"no_contact":   out.NoContact,
+			"mailable":     out.Mailable,
+			"textable":     out.Textable,
+			"known_people": out.KnownPeople,
+			"collided":     out.Collided,
+			"truncated":    out.Truncated,
 		}, "pg")
 	}
 }
 
-// materializeSegmentToList fills (or refills) a contact list with the loan-book
-// contacts matching the segment criteria. Reused by one-shot segment creation
-// and by saved-segment refresh. Returns the number of members written.
-func materializeSegmentToList(ctx context.Context, db *core.DB, listID int64, c segmentCriteria) (int, error) {
+// segmentOutcome is what a build actually did, so the caller can say so rather than
+// report a bare count that hides what was dropped.
+type segmentOutcome struct {
+	Imported    int `json:"imported"`
+	NoContact   int `json:"no_contact"`   // matched, but no email and no phone
+	Mailable    int `json:"mailable"`     // of those imported, how many can be emailed
+	Textable    int `json:"textable"`     // of those imported, how many have a phone
+	Truncated   int `json:"truncated"`    // matched beyond segmentMaxMembers
+	KnownPeople int `json:"known_people"` // imported rows carrying a party_id
+	// Dropped by the list's own unique indexes — most often two people on one phone.
+	Collided int `json:"collided"`
+}
+
+// segmentCandidates reads the people a segment selects, for either audience.
+//
+// Both branches return the same shape — party_id, cif, name, email, phone — because the
+// difference between the two audiences belongs in SQL and not in the loop below.
+func segmentCandidates(ctx context.Context, db *core.DB, c segmentCriteria) ([]core.Row, error) {
+	if segmentAudience(c) == segmentAudienceCustomers {
+		// LEFT JOIN, not inner: a party with no identity row is still an active customer
+		// and is counted as unreachable rather than silently vanishing from the total.
+		//
+		// A detail that does not pass the plausibility test comes back NULL, so the caller
+		// treats it as absent. Without this, 4,073 active customers "have" the phone
+		// 08012345678 and a live SMS run would text that one number 4,073 times.
+		return db.PGQuery(ctx, `
+			SELECT cl.party_id, v.cust_id AS cif, v.full_name AS name,
+			       CASE WHEN app.is_emailable(v.email) THEN btrim(v.email) END          AS email,
+			       CASE WHEN app.is_dialable_ng_phone(v.phone)
+			            THEN app.normalise_ng_phone(v.phone) END                        AS phone
+			  FROM app.customer_lifecycle cl
+			  LEFT JOIN app.v_contact_identity v ON v.party_id = cl.party_id
+			 WHERE cl.open_products > 0
+			   AND (NOT $1::boolean OR app.is_emailable(v.email))
+			   AND (NOT $2::boolean OR app.is_dialable_ng_phone(v.phone))
+			 ORDER BY cl.party_id
+			 LIMIT $3`, c.RequireEmail, c.RequirePhone, segmentMaxMembers+1)
+	}
+	// The loan book.
+	//
+	// Two defects fixed here. First, applicant_email/email and party_id were always on
+	// this table and simply never selected, so every segment-built list had a NULL email
+	// on every row and could not be mailed at all.
+	//
+	// Second, and worse: this required `applicant_cif <> ''` and deduped on that column.
+	// On 2026-10-06 app.loan_applications held 8 rows, NONE with an applicant_cif — so
+	// this branch could never return a single person, and never had. That is why
+	// contact_segments was empty: the one audience the builder offered was structurally
+	// incapable of producing anybody. Identity is now whatever actually identifies the
+	// row, and the filter asks for a way to CONTACT them, which is what a contact list is
+	// for.
 	where, args := buildSegmentWhere(c)
-	members, err := db.PGQuery(ctx,
-		`SELECT DISTINCT ON (applicant_cif) applicant_cif, applicant_name, phone
-		 FROM loan_applications WHERE applicant_cif IS NOT NULL AND applicant_cif != ''`+where+
-			` ORDER BY applicant_cif, created_at DESC LIMIT 5000`, args...)
+	args = append(args, c.RequireEmail, c.RequirePhone, segmentMaxMembers+1)
+	n := len(args)
+	return db.PGQuery(ctx, fmt.Sprintf(`
+		SELECT DISTINCT ON (COALESCE(NULLIF(applicant_cif,''), 'p'||party_id::text,
+		                             lower(NULLIF(applicant_email,'')), lower(NULLIF(email,'')),
+		                             NULLIF(phone,''), 'id'||id::text))
+		       party_id, applicant_cif AS cif, applicant_name AS name,
+		       CASE WHEN app.is_emailable(COALESCE(NULLIF(applicant_email,''), email))
+		            THEN btrim(COALESCE(NULLIF(applicant_email,''), email)) END AS email,
+		       CASE WHEN app.is_dialable_ng_phone(phone)
+		            THEN app.normalise_ng_phone(phone) END                      AS phone
+		  FROM loan_applications
+		 WHERE (app.is_emailable(COALESCE(NULLIF(applicant_email,''), email))
+		        OR app.is_dialable_ng_phone(phone))%s
+		   AND (NOT $%d::boolean OR app.is_emailable(COALESCE(NULLIF(applicant_email,''), email)))
+		   AND (NOT $%d::boolean OR app.is_dialable_ng_phone(phone))
+		 ORDER BY COALESCE(NULLIF(applicant_cif,''), 'p'||party_id::text,
+		                   lower(NULLIF(applicant_email,'')), lower(NULLIF(email,'')),
+		                   NULLIF(phone,''), 'id'||id::text), created_at DESC
+		 LIMIT $%d`, where, n-2, n-1, n), args...)
+}
+
+// materializeSegmentToList fills (or refills) a contact list with the people the segment
+// selects. Reused by one-shot creation and by saved-segment refresh.
+//
+// Writes email and the blind-index HMACs, neither of which it used to. The HMACs matter
+// because campaign_contacts snapshots them and the lookups keyed on them would otherwise
+// miss; party_id matters because without it nothing downstream can consult
+// app.party_contact_consent or app.is_suppressed for this person at all.
+func materializeSegmentToList(ctx context.Context, db *core.DB, listID int64, c segmentCriteria) (segmentOutcome, error) {
+	var out segmentOutcome
+	rows, err := segmentCandidates(ctx, db, c)
 	if err != nil {
-		return 0, err
+		return out, err
+	}
+	if len(rows) > segmentMaxMembers {
+		out.Truncated = len(rows) - segmentMaxMembers
+		rows = rows[:segmentMaxMembers]
 	}
 
-	imported := 0
-	for _, m := range members {
-		cif := str(m["applicant_cif"])
-		name := str(m["applicant_name"])
-		phone := str(m["phone"])
-		firstName, lastName := "", name
-		if parts := strings.SplitN(name, " ", 2); len(parts) == 2 {
-			firstName, lastName = parts[0], parts[1]
+	type member struct {
+		partyID            int64
+		cif, first, last   string
+		email, phone       string
+		phoneHMAC, mailMAC string
+	}
+	batch := make([]member, 0, len(rows))
+	for _, r := range rows {
+		email := strings.TrimSpace(str(r["email"]))
+		phone := strings.TrimSpace(str(r["phone"]))
+		if email == "" && phone == "" {
+			// Counted, not imported. A contact list exists to contact people, and a row
+			// with no address is noise in every campaign that ever uses it — but the
+			// number is a work item for whoever owns the data, so it is reported.
+			out.NoContact++
+			continue
 		}
-		_, e := db.PGExec(ctx,
-			`INSERT INTO contact_list_members
-			 (list_id, cif_number, first_name, last_name, phone, status, created_at, updated_at)
-			 VALUES ($1,$2,$3,$4,$5,'active',NOW(),NOW())
-			 ON CONFLICT DO NOTHING`,
-			listID, cif, firstName, lastName, phone)
-		if e == nil {
-			imported++
+		first, last := splitSegmentName(str(r["name"]))
+		m := member{
+			partyID: toInt64(r["party_id"]),
+			cif:     strings.TrimSpace(str(r["cif"])),
+			first:   first, last: last, email: email, phone: phone,
+			phoneHMAC: blindContactHMAC(phone), mailMAC: blindContactHMAC(email),
+		}
+		batch = append(batch, m)
+		if email != "" {
+			out.Mailable++
+		}
+		if phone != "" {
+			out.Textable++
+		}
+		if m.partyID > 0 {
+			out.KnownPeople++
+		}
+	}
+
+	// Batched, because one INSERT per person is 17,890 round trips for the active-customer
+	// segment and the old loop did exactly that under a 5,000 cap.
+	const chunk = 500
+	for start := 0; start < len(batch); start += chunk {
+		end := start + chunk
+		if end > len(batch) {
+			end = len(batch)
+		}
+		var sb strings.Builder
+		sb.WriteString(`INSERT INTO contact_list_members
+			(list_id, party_id, cif_number, first_name, last_name, phone, email,
+			 phone_hmac, email_hmac, status, created_at, updated_at) VALUES `)
+		args := []any{listID}
+		for i, m := range batch[start:end] {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			b := len(args)
+			fmt.Fprintf(&sb, "($1,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,'active',NOW(),NOW())",
+				b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
+			args = append(args,
+				nullableInt64(m.partyID), nullIfBlank(m.cif), m.first, nullIfBlank(m.last),
+				nullIfBlank(m.phone), nullIfBlank(m.email),
+				nullIfBlank(m.phoneHMAC), nullIfBlank(m.mailMAC))
+		}
+		// ON CONFLICT DO NOTHING is load-bearing, and so is counting what it actually
+		// wrote. contact_list_members carries UNIQUE (list_id, phone) and
+		// UNIQUE (list_id, cif_number), and real people do share a number — 6,485 active
+		// customers hold 6,237 distinct dialable phones, so ~248 rows collide legitimately
+		// (a shared household handset). Counting the chunk SIZE instead of the rows
+		// inserted would report an audience larger than the list, which is the same
+		// species of lie as the silent LIMIT this function used to carry.
+		sb.WriteString(" ON CONFLICT DO NOTHING")
+		res, e := db.PGExec(ctx, sb.String(), args...)
+		if e != nil {
+			return out, e
+		}
+		if n, err := res.RowsAffected(); err == nil {
+			out.Imported += int(n)
+			out.Collided += (end - start) - int(n)
+		} else {
+			// Driver would not say; the chunk size is the only number available.
+			out.Imported += end - start
 		}
 	}
 
 	db.PGExec(ctx, //nolint:errcheck
-		"UPDATE contact_lists SET member_count=$1, updated_at=NOW() WHERE id=$2", imported, listID)
-	return imported, nil
+		"UPDATE contact_lists SET member_count=$1, updated_at=NOW() WHERE id=$2", out.Imported, listID)
+	return out, nil
+}
+
+// splitSegmentName splits a stored full name into first and last. The whole name goes to
+// last_name when there is only one word, matching what the CSV loader does.
+func splitSegmentName(full string) (first, last string) {
+	full = strings.Join(strings.Fields(full), " ")
+	if i := strings.Index(full, " "); i > 0 {
+		return full[:i], strings.TrimSpace(full[i+1:])
+	}
+	return "", full
 }

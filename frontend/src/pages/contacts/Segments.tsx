@@ -10,19 +10,38 @@ import { humanLabel } from '../../lib/labels'
 
 // ── Criteria model (maps to backend segmentCriteria) ───────────────────────────
 
+// "customers" = everyone holding a live product, which is the platform's own definition
+// of an active customer (app.customer_lifecycle.open_products > 0) and the same one the
+// servicing consent basis was seeded from. "applications" = the loan book, which is what
+// this page could only ever offer before — and which currently holds 8 rows, none with a
+// CIF, so it was structurally incapable of returning anybody.
+type Audience = 'customers' | 'applications'
+
 interface Criteria {
+  audience: Audience
+  require_email: boolean; require_phone: boolean
   product_type: string; stage: string; status: string; employer: string
   dpd_min: string; dpd_max: string; outstanding_min: string; outstanding_max: string
 }
-const EMPTY_CRITERIA: Criteria = { product_type: '', stage: '', status: '', employer: '', dpd_min: '', dpd_max: '', outstanding_min: '', outstanding_max: '' }
+const EMPTY_CRITERIA: Criteria = {
+  audience: 'customers', require_email: false, require_phone: false,
+  product_type: '', stage: '', status: '', employer: '', dpd_min: '', dpd_max: '', outstanding_min: '', outstanding_max: '',
+}
 
 const PRODUCT_TYPES = ['Salary Loan', 'Individual Loan', 'Business Loan', 'Credit Card', 'Payday Loan']
 const STAGES = ['submitted', 'pre-screening', 'underwriting', 'approval', 'disbursed', 'active', 'closed']
 const STATUSES = ['pending', 'active', 'disbursed', 'rejected', 'cancelled', 'written_off']
 
 interface SegmentCriteria {
+  audience?: Audience; require_email?: boolean; require_phone?: boolean
   products?: string[]; stages?: string[]; statuses?: string[]; employers?: string[]
   min_dpd?: number; max_dpd?: number; min_outstanding_kobo?: number; max_outstanding_kobo?: number
+}
+// What a build or preview actually did, rather than a bare count that hides what it dropped.
+interface SegmentSizing {
+  count: number; imported?: number; matched?: number; no_contact?: number; mailable?: number
+  textable?: number; known_people?: number; truncated?: number; collided?: number
+  audience?: Audience
 }
 interface SavedSegment {
   id: number; name: string; description?: string; criteria: any
@@ -31,7 +50,12 @@ interface SavedSegment {
 }
 
 function toCriteriaObj(c: Criteria): SegmentCriteria {
-  const o: SegmentCriteria = {}
+  const o: SegmentCriteria = { audience: c.audience }
+  if (c.require_email) o.require_email = true
+  if (c.require_phone) o.require_phone = true
+  // Never send a loan filter on a customer segment: the backend refuses the combination
+  // outright rather than silently widening the audience to everybody.
+  if (c.audience === 'customers') return o
   if (c.product_type) o.products = [c.product_type]
   if (c.stage) o.stages = [c.stage]
   if (c.status) o.statuses = [c.status]
@@ -46,6 +70,10 @@ function fromCriteriaObj(raw: any): Criteria {
   let o: SegmentCriteria = {}
   try { o = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? {}) } catch { o = {} }
   return {
+    // Saved segments predate the audience field; they were all loan-book segments.
+    audience: o.audience === 'customers' ? 'customers' : 'applications',
+    require_email: !!o.require_email,
+    require_phone: !!o.require_phone,
     product_type: o.products?.[0] ?? '',
     stage: o.stages?.[0] ?? '',
     status: o.statuses?.[0] ?? '',
@@ -59,6 +87,10 @@ function fromCriteriaObj(raw: any): Criteria {
 function criteriaChips(raw: any): string[] {
   const c = fromCriteriaObj(raw)
   const chips: string[] = []
+  chips.push(c.audience === 'customers' ? 'Active customers' : 'Loan book')
+  if (c.require_email) chips.push('has email')
+  if (c.require_phone) chips.push('has phone')
+  if (c.audience === 'customers') return chips
   if (c.product_type) chips.push(c.product_type)
   if (c.stage) chips.push(`stage: ${c.stage}`)
   if (c.status) chips.push(`status: ${c.status}`)
@@ -100,8 +132,17 @@ export default function Segments() {
     setRefreshing(s.id)
     try {
       const res = await apiPost<any>(`/api/contact-lists/segments/${s.id}/materialize`, {})
-      const imported = unwrap<{ imported: number }>(res)?.imported ?? 0
-      toast.success(`Refreshed: ${fmtNum(imported)} contacts in the list`)
+      const o = unwrap<SegmentSizing>(res)
+      const imported = o?.imported ?? o?.count ?? 0
+      // Say what was dropped, not just what landed. A refresh that silently skipped
+      // people with no address, or stopped at the cap, reads as a success otherwise.
+      const notes: string[] = []
+      if (o?.mailable != null) notes.push(`${fmtNum(o.mailable)} mailable`)
+      if (o?.no_contact) notes.push(`${fmtNum(o.no_contact)} skipped with no usable address`)
+      if (o?.collided) notes.push(`${fmtNum(o.collided)} sharing a phone already in the list`)
+      if (o?.truncated) notes.push(`${fmtNum(o.truncated)} over the cap`)
+      toast.success(`Refreshed: ${fmtNum(imported)} contacts`
+        + (notes.length ? ` — ${notes.join(', ')}` : ''))
       load(true)
     } catch (e: any) { toast.error(e.message ?? 'Refresh failed') }
     finally { setRefreshing(null) }
@@ -116,7 +157,7 @@ export default function Segments() {
   return (
     <Page
       title="Contact Segments"
-      subtitle="Saved, refreshable audiences built from the loan portfolio"
+      subtitle="Saved audiences you refresh on demand — a snapshot each time, not a live view"
       loading={loading && segments.length === 0}
       actions={
         <button onClick={() => setBuilder({ open: true, editing: null })} style={btnPrimary}>
@@ -207,22 +248,26 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
   const [criteria, setCriteria] = useState<Criteria>(editing ? fromCriteriaObj(editing.criteria) : EMPTY_CRITERIA)
-  const [preview, setPreview] = useState<number | null>(editing?.last_count ?? null)
+  const [preview, setPreview] = useState<SegmentSizing | null>(
+    editing?.last_count != null ? { count: editing.last_count } : null)
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  function update(field: keyof Criteria, value: string) {
+  // Values are no longer all strings — audience is a union and the two require_* flags
+  // are booleans, so the old `Object.values(...).some(v => v.trim())` would have thrown
+  // on a boolean the moment either was touched.
+  function update<K extends keyof Criteria>(field: K, value: Criteria[K]) {
     setCriteria(prev => ({ ...prev, [field]: value }))
     setPreview(null)
   }
-  const hasAnyFilter = Object.values(criteria).some(v => v.trim() !== '')
+  const isCustomers = criteria.audience === 'customers'
 
   async function handlePreview() {
     setErr(null); setPreviewing(true)
     try {
       const res = await apiFetch<any>('/api/contact-lists/segment/preview', { method: 'POST', body: JSON.stringify(toCriteriaObj(criteria)) })
-      setPreview(unwrap<{ count: number }>(res)?.count ?? 0)
+      setPreview(unwrap<SegmentSizing>(res) ?? { count: 0 })
     } catch (e: any) { setErr(e.message ?? 'Preview failed') }
     finally { setPreviewing(false) }
   }
@@ -244,13 +289,34 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
     <Modal open onClose={onClose} title={editing ? 'Edit Segment' : 'New Segment'} width={620}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
-          <button onClick={handlePreview} disabled={previewing || !hasAnyFilter} style={{ ...btnSecondary, opacity: !hasAnyFilter ? 0.5 : 1 }}>
+          <button onClick={handlePreview} disabled={previewing} style={btnSecondary}>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{previewing ? 'progress_activity' : 'search'}</span>
             {previewing ? 'Counting…' : 'Preview Count'}
           </button>
           {preview !== null && (
-            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: preview === 0 ? RED : preview > 5000 ? AMBER : GREEN }}>
-              {fmtNum(preview)} contacts{preview > 5000 ? ' (capped at 5,000)' : ''}
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, lineHeight: 1.4,
+                           color: preview.count === 0 ? RED : GREEN }}>
+              {fmtNum(preview.count)} contacts
+              {/* The parts that used to be invisible: who was matched but has no address,
+                  and how many can actually be emailed as opposed to merely reached. */}
+              {preview.mailable != null && (
+                <span style={{ fontWeight: FW.normal, color: 'var(--txt2)' }}>
+                  {' · '}{fmtNum(preview.mailable)} mailable
+                  {preview.textable != null && `, ${fmtNum(preview.textable)} textable`}
+                </span>
+              )}
+              {/* "No usable address", not "no address": a placeholder like 08012345678
+                  counts as nothing here, and 4,073 active customers carry exactly that. */}
+              {!!preview.no_contact && (
+                <span style={{ fontWeight: FW.normal, color: AMBER }}>
+                  {' · '}{fmtNum(preview.no_contact)} with no usable address, skipped
+                </span>
+              )}
+              {!!preview.truncated && (
+                <span style={{ fontWeight: FW.normal, color: RED }}>
+                  {' · '}{fmtNum(preview.truncated)} over the cap, not included
+                </span>
+              )}
             </span>
           )}
           <button onClick={save} disabled={saving || !name.trim()} style={{ ...btnPrimary, marginLeft: 'auto', opacity: saving || !name.trim() ? 0.6 : 1 }}>
@@ -267,6 +333,44 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
 
         <div style={{ height: 1, background: 'var(--bdr)' }} />
 
+        {/* Who this segment is drawn from. The two are different populations, not two
+            filters on one — which is why the loan-book fields disappear below rather
+            than sitting there inert. */}
+        <div>
+          <label style={lbl}>Draw From</label>
+          <select value={criteria.audience} onChange={e => update('audience', e.target.value as Audience)} style={selectStyle}>
+            <option value="customers">Active customers — everyone holding a live product</option>
+            <option value="applications">Loan book — applications matching the filters below</option>
+          </select>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 5, lineHeight: 1.5 }}>
+            {isCustomers
+              ? 'Rebuilt from the customer base each time you refresh. The list is a snapshot of that moment, not a live view — nothing refreshes it on a schedule.'
+              : 'Filtered on loan applications. This table is nearly empty today, so expect a small count.'}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: TEXT.sm, cursor: 'pointer' }}>
+            <input type="checkbox" checked={criteria.require_email}
+              onChange={e => update('require_email', e.target.checked)} />
+            Only people with an email address
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: TEXT.sm, cursor: 'pointer' }}>
+            <input type="checkbox" checked={criteria.require_phone}
+              onChange={e => update('require_phone', e.target.checked)} />
+            Only people with a phone number
+          </label>
+        </div>
+
+        {isCustomers ? (
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', background: 'var(--bg)', padding: SP[3],
+                        borderRadius: RADIUS.md, border: '1px solid var(--bdr)', lineHeight: 1.6 }}>
+            An active-customer segment takes no further filters. Arrears band, application
+            stage and employer describe a loan application rather than a person, so the
+            builder does not offer them here — asking for them would otherwise have
+            widened the audience to everybody instead of narrowing it.
+          </div>
+        ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
           <div><label style={lbl}>Product Type</label>
             <select value={criteria.product_type} onChange={e => update('product_type', e.target.value)} style={selectStyle}>
@@ -286,6 +390,7 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
           <div><label style={lbl}>Outstanding Min (₦)</label><input type="number" min="0" value={criteria.outstanding_min} onChange={e => update('outstanding_min', e.target.value)} placeholder="e.g. 50000" style={inputStyle} /></div>
           <div><label style={lbl}>Outstanding Max (₦)</label><input type="number" min="0" value={criteria.outstanding_max} onChange={e => update('outstanding_max', e.target.value)} placeholder="e.g. 5000000" style={inputStyle} /></div>
         </div>
+        )}
       </div>
     </Modal>
   )

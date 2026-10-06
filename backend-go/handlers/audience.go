@@ -110,6 +110,79 @@ func contactConsentWithdrawn(ctx context.Context, db *core.DB, partyID int64, ch
 	return rows[0]["withdrawn"] == true, nil
 }
 
+// campaignSendVerdict decides whether ONE campaign recipient may be sent to.
+//
+// WHY THIS EXISTS. Until now the campaign sender checked nothing of the sort. The email
+// blast claimed a pending campaign_contacts row and sent it; the SMS path excluded
+// dnc_list by phone and nothing else. app.party_contact_consent was not referenced
+// anywhere in campaigns.go, so a marketing blast to the customer base would have gone
+// out with ZERO opt-in grants recorded for anybody — and marketing consent is 0, by
+// deliberate design (see the seeding comment in 290_customer_messaging_foundations.sql:
+// "inventing that would be the one thing this table exists to prevent").
+//
+// Email suppression itself was never the gap: SendMail already filters recipients against
+// mail_suppressions, so bounces and unsubscribes have always been honoured. What was
+// missing is the lawful basis, plus app.is_suppressed — the party-level, per-channel stop
+// that holds a "do not contact this person on this channel" recorded anywhere other than
+// a bounce.
+//
+// The rules are the file's own, applied one recipient at a time:
+//   - Suppression wins over everything. It is a stated stop.
+//   - MARKETING is opt-in. A known customer with no granted row is refused.
+//   - SERVICING is opt-out. Only an actual withdrawal refuses.
+//
+// A recipient with NO party_id is a prospect — one of the 28,529 bought-in CRC contacts —
+// and no consent row can exist for them, because consent is keyed on party_id and they
+// are not parties. Refusing them would make the Campaigns module unable to do the only
+// thing it is currently used for, and granting them a basis they never gave is not this
+// function's call either. So they pass with the reason recorded, which puts the question
+// in front of a person instead of settling it silently in code.
+func campaignSendVerdict(ctx context.Context, db *core.DB, purpose, channel string,
+	partyID int64, email, phone string) (ok bool, reason string) {
+
+	if !audienceChannels[channel] {
+		return false, "unknown channel " + channel
+	}
+
+	// Suppression first, and it applies to prospects too: it is keyed on the contact
+	// detail as well as the party, so a phone or an address can be stopped on its own.
+	if rows, err := db.PGQuery(ctx,
+		`SELECT app.is_suppressed($1,$2,$3,$4) AS suppressed`,
+		nullableInt64(partyID), nullIfBlank(phone), nullIfBlank(email), channel,
+	); err == nil && len(rows) > 0 && rows[0]["suppressed"] == true {
+		return false, "suppressed for " + channel
+	}
+
+	if !consentIsOptIn(purpose) {
+		// Servicing: a missing row means nobody asked, which is not a refusal.
+		withdrawn, err := contactConsentWithdrawn(ctx, db, partyID, channel, purpose)
+		if err == nil && withdrawn {
+			return false, "customer withdrew servicing consent for " + channel
+		}
+		return true, ""
+	}
+
+	// Marketing, and this is the half that was missing entirely.
+	if partyID == 0 {
+		return true, "prospect: no party record, so no marketing consent exists either way"
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM app.party_contact_consent
+		   WHERE party_id = $1 AND channel = $2 AND purpose = $3 AND state = 'granted'
+		     AND (expires_at IS NULL OR expires_at > NOW())
+		) AS granted`, partyID, channel, purpose)
+	if err != nil {
+		// Fail CLOSED for marketing. A database blip must not become an unconsented
+		// offer, and the send is retryable — the message is not recallable.
+		return false, "could not confirm marketing consent"
+	}
+	if len(rows) == 0 || rows[0]["granted"] != true {
+		return false, "no marketing consent on " + channel
+	}
+	return true, ""
+}
+
 // Exclusion reasons, in the order they are tested. Order is part of the contract:
 // each party is counted against the FIRST reason it fails, so the counts add up.
 const (

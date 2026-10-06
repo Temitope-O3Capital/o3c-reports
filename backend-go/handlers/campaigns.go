@@ -388,6 +388,13 @@ func startDispatch(db *core.DB, campaignID int64) {
 		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
 		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
 		isWhatsApp := str(camp["type"]) == "whatsapp" || str(camp["type"]) == "multi"
+		// The lawful basis for this campaign. 'type' is the channel mix and says nothing
+		// about it, which is why migration 336 added a column rather than reusing one.
+		// Absent (an unmigrated row) reads as marketing, the strict side.
+		campaignPurpose := purposeMarketing
+		if strings.EqualFold(strings.TrimSpace(str(camp["purpose"])), purposeServicing) {
+			campaignPurpose = purposeServicing
+		}
 		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 250)) * time.Millisecond
 		dailyLimit := effectiveCampaignDailyLimit(ctx, db)
 		perCampaignDailyLimit := intSetting(ctx, db, "campaign_per_campaign_daily_email_limit", 5000)
@@ -437,6 +444,18 @@ func startDispatch(db *core.DB, campaignID int64) {
 					WHERE id=$1 AND sms_status='pending'
 					RETURNING sms_status`, cid)
 				if len(claimed) > 0 && str(claimed[0]["sms_status"]) == "sending" {
+					// The claim above settles the phone-level stop. This settles the lawful
+					// basis, which it does not: ccNotSuppressedExpr passes NULL for the
+					// party, so a customer-level opt-out and the consent table were both
+					// invisible to it.
+					if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "sms",
+						toInt64(c["party_id"]), str(c["email"]), str(c["phone"])); !allowed {
+						db.PGExec(ctx, //nolint:errcheck
+							`UPDATE campaign_contacts SET sms_status='skipped', updated_at=NOW() WHERE id=$1`, cid)
+						slog.Info("campaign sms not sent", "campaign", campaignID, "contact", cid,
+							"purpose", campaignPurpose, "reason", why)
+						continue
+					}
 					body := withSMSOptOut(renderTemplate(str(camp["sms_body"]), mergeData))
 					ok, pid := sendSMS(ctx, db, str(c["phone"]), body)
 					smsStatus := "sent"
@@ -464,6 +483,15 @@ func startDispatch(db *core.DB, campaignID int64) {
 					WHERE id=$1 AND whatsapp_status='pending'
 					RETURNING whatsapp_status`, cid)
 				if len(claimed) > 0 && str(claimed[0]["whatsapp_status"]) == "sending" {
+					// Same addition as SMS: the claim covers the number, not the person.
+					if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "whatsapp",
+						toInt64(c["party_id"]), str(c["email"]), str(c["phone"])); !allowed {
+						db.PGExec(ctx, //nolint:errcheck
+							`UPDATE campaign_contacts SET whatsapp_status='skipped', updated_at=NOW() WHERE id=$1`, cid)
+						slog.Info("campaign whatsapp not sent", "campaign", campaignID, "contact", cid,
+							"purpose", campaignPurpose, "reason", why)
+						continue
+					}
 					body := renderTemplate(str(camp["whatsapp_body"]), mergeData)
 					templateName := str(camp["whatsapp_template_name"])
 					ok, pid := sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, templateName)
@@ -498,6 +526,18 @@ func startDispatch(db *core.DB, campaignID int64) {
 					WHERE id=$1 AND email_status='pending'
 					RETURNING id`, cid)
 				if len(claimed) == 0 {
+					continue
+				}
+				// Lawful basis and party-level suppression, neither of which this path
+				// checked before. SendMail still filters mail_suppressions underneath, so
+				// bounces and unsubscribes were always honoured; what was missing is
+				// whether this person ever agreed to hear from us at all.
+				if allowed, why := campaignSendVerdict(ctx, db, campaignPurpose, "email",
+					toInt64(c["party_id"]), str(c["email"]), str(c["phone"])); !allowed {
+					db.PGExec(ctx, //nolint:errcheck
+						`UPDATE campaign_contacts SET email_status='skipped', updated_at=NOW() WHERE id=$1`, cid)
+					slog.Info("campaign email not sent", "campaign", campaignID, "contact", cid,
+						"purpose", campaignPurpose, "reason", why)
 					continue
 				}
 				subject := renderTemplate(str(camp["email_subject"]), mergeData)
@@ -1004,8 +1044,8 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 		if b.ListID != nil && total > 0 {
 			db.PGExec(r.Context(), //nolint:errcheck
 				`INSERT INTO campaign_contacts
-				    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
-				SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number,
+				    (campaign_id, party_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
+				SELECT $1, party_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number,
 				       CASE WHEN NULLIF(state,'') IS NOT NULL
 				            THEN jsonb_set(COALESCE(merge_data,'{}'::jsonb), '{state}', to_jsonb(state))
 				            ELSE COALESCE(merge_data,'{}'::jsonb) END,
@@ -1143,8 +1183,8 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 			if lid := camp["list_id"]; lid != nil {
 				db.PGExec(r.Context(), //nolint:errcheck
 					`INSERT INTO campaign_contacts
-					    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
-					SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number,
+					    (campaign_id, party_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
+					SELECT $1, party_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number,
 					       CASE WHEN NULLIF(state,'') IS NOT NULL
 					            THEN jsonb_set(COALESCE(merge_data,'{}'::jsonb), '{state}', to_jsonb(state))
 					            ELSE COALESCE(merge_data,'{}'::jsonb) END,
