@@ -421,6 +421,44 @@ export function Pill({ label, color, bg }: { label: string; color: string; bg: s
   )
 }
 
+// ── SegmentedToggle ───────────────────────────────────────────────────────────
+// A small set of mutually-exclusive options as one pill-shaped control — branch
+// filters, Table|Summary, any 2-4 way view switch. Was being hand-rolled per page as
+// raw <button>s with inline conditional styling, which is exactly how five slightly
+// different button rows happen.
+export function SegmentedToggle<T extends string>({
+  value, onChange, options,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: string }[]
+}) {
+  return (
+    <div style={{
+      display: 'inline-flex', border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
+      overflow: 'hidden', background: 'var(--card)',
+    }}>
+      {options.map((o, i) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          style={{
+            padding: '6px 14px', fontSize: TEXT.sm, fontWeight: FW.semibold,
+            fontFamily: SORA, border: 'none', cursor: 'pointer',
+            borderLeft: i > 0 ? '1px solid var(--bdr)' : 'none',
+            background: value === o.value ? NAVY : 'transparent',
+            color: value === o.value ? '#fff' : 'var(--txt2)',
+            transition: 'background 120ms, color 120ms',
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ── ActionRow ─────────────────────────────────────────────────────────────────
 // Renders a row of small icon-buttons at the end of a table row.
 // Each action must call e.stopPropagation() is handled internally.
@@ -1132,11 +1170,16 @@ export function DataTable<T extends Record<string, any>>({
 
   const showBar = !!(searchKeys?.length || filters?.length)
 
+  // Sunken header row, same shape as the Report Builder Rethink mockup the user loved —
+  // a header reads as a shelf the data sits in, not just a bold top row. The active
+  // (sorted) column gets a soft accent tint and an inset underline on top of that, so the
+  // one column driving the current order is legible at a glance across every table in the
+  // app, not just this one page.
   const thBase: CSSProperties = {
     padding: '11px 14px', fontSize: 11, fontWeight: 700,
     color: 'var(--txt2)', textTransform: 'uppercase', fontFamily: INTER,
     letterSpacing: '0.6px', whiteSpace: 'nowrap', userSelect: 'none',
-    borderBottom: '1px solid var(--bdr)',
+    borderBottom: '1px solid var(--bdr)', background: 'var(--th-bg)',
   }
   const tdBase: CSSProperties = {
     padding: '12px 14px', fontSize: 13.5, color: 'var(--txt)',
@@ -1364,7 +1407,11 @@ export function DataTable<T extends Record<string, any>>({
                     aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
                     style={{
                       ...thBase, width: col.width, textAlign: col.align ?? 'left',
-                      color: active ? 'var(--txt)' : 'var(--txt2)',
+                      color: active ? 'var(--accent)' : 'var(--txt2)',
+                      ...(active ? {
+                        background: 'var(--accent-soft)',
+                        boxShadow: 'inset 0 -2px 0 var(--accent)',
+                      } : {}),
                     }}
                   >
                     {sortable ? (

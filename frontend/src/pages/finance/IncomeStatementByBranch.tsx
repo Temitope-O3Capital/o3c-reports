@@ -1,10 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, KpiCard, SegmentedToggle } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { ErrBanner } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmtKoboExact } from '../../lib/fmt'
-import { NAVY, GREEN, RED, TEXT, FW, SP } from '../../lib/design'
+import { GREEN, RED, NAVY, SP } from '../../lib/design'
 
 // Real Income Statement, branch-split, from Udara's own GL (app.income_statement_by_branch,
 // migration 344) — not the transaction-derived /income-statement this app already had
@@ -19,7 +18,7 @@ const BRANCHES = [
   { value: '', label: 'Consolidated' },
   { value: 'lagos', label: 'Lagos' },
   { value: 'abuja', label: 'Abuja' },
-]
+] as const
 
 function groupBy<T>(rows: T[], key: (r: T) => string) {
   const m = new Map<string, T[]>()
@@ -70,30 +69,15 @@ export default function IncomeStatementByBranch() {
   return (
     <Page title="Income Statement" subtitle={`By branch, from Udara's own GL · from ${data?.coverage_start ?? '2026-07-01'}`}
       back={{ label: 'Finance', to: '/finance' }} loading={loading && !data}
-      actions={
-        <div style={{ display: 'flex', gap: 4 }}>
-          {BRANCHES.map(b => (
-            <button key={b.value} onClick={() => setBranch(b.value)}
-              style={{
-                padding: '6px 12px', borderRadius: 8, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: '1px solid var(--card-bdr)', cursor: 'pointer',
-                background: branch === b.value ? NAVY : 'var(--card)',
-                color: branch === b.value ? '#fff' : 'var(--txt2)',
-              }}>
-              {b.label}
-            </button>
-          ))}
-        </div>
-      }
+      actions={<SegmentedToggle value={branch} onChange={setBranch} options={BRANCHES as any} />}
     >
       <ErrBanner error={error} onRetry={() => load()} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4], marginBottom: SP[4] }}>
-        <SectionCard title="Total Income"><div style={BIG}>{fmtKoboExact(totalIncome)}</div></SectionCard>
-        <SectionCard title="Total Expense"><div style={BIG}>{fmtKoboExact(totalExpense)}</div></SectionCard>
-        <SectionCard title="Net">
-          <div style={{ ...BIG, color: net >= 0 ? GREEN : RED }}>{fmtKoboExact(net)}</div>
-        </SectionCard>
+        <KpiCard label="Total Income" value={fmtKoboExact(totalIncome)} icon="trending_up" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Expense" value={fmtKoboExact(totalExpense)} icon="trending_down" accent={NAVY} loading={loading} />
+        <KpiCard label="Net" value={fmtKoboExact(net)} icon={net >= 0 ? 'add_circle' : 'remove_circle'}
+          accent={net >= 0 ? GREEN : RED} loading={loading} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
@@ -104,4 +88,3 @@ export default function IncomeStatementByBranch() {
   )
 }
 
-const BIG = { fontSize: 24, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px' }

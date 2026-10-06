@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, DateFilter, KpiCard, SegmentedToggle } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmtKoboExact, fmtNum, today } from '../../lib/fmt'
-import { NAVY, TEXT, FW, SP } from '../../lib/design'
+import { NUM, TEXT, SP, GREEN, PURPLE, BLUE } from '../../lib/design'
 
 // Total Revenue drill-down, opened from the Finance Overview page's Total Revenue
 // KpiCard. Every interest/fee line here reads Udara's own GL (app.cbs_gl_postings,
@@ -26,11 +26,11 @@ interface Breakdown {
   sector_note: string
 }
 
-const BRANCHES: { value: string; label: string }[] = [
+const BRANCHES = [
   { value: '', label: 'Consolidated' },
   { value: 'lagos', label: 'Lagos' },
   { value: 'abuja', label: 'Abuja' },
-]
+] as const
 
 function groupBy<T>(rows: T[], key: (r: T) => string) {
   const m = new Map<string, T[]>()
@@ -95,25 +95,22 @@ export default function RevenueBreakdown() {
       loading={loading && !data}
       skeletonKpis={4}
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {BRANCHES.map(b => (
-              <button key={b.value} onClick={() => setBranch(b.value)}
-                style={{
-                  padding: '6px 12px', borderRadius: 8, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                  border: '1px solid var(--card-bdr)', cursor: 'pointer',
-                  background: branch === b.value ? NAVY : 'var(--card)',
-                  color: branch === b.value ? '#fff' : 'var(--txt2)',
-                }}>
-                {b.label}
-              </button>
-            ))}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+          <SegmentedToggle value={branch} onChange={setBranch} options={BRANCHES as any} />
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
         </div>
       }
     >
       <ErrBanner error={error} onRetry={() => load()} />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
+        <KpiCard label="Total Revenue" value={fmtKoboExact(grandTotal)} icon="trending_up" accent={GREEN} loading={loading} />
+        <KpiCard label="Card Fee Income" value={fmtKoboExact(cardFeeTotal)} icon="credit_card" accent={PURPLE} loading={loading} />
+        <KpiCard label="Loan Fee Income" value={fmtKoboExact(loanFeeTotal)} icon="request_quote" accent={PURPLE} loading={loading} />
+        <KpiCard label="Interest Income" value={fmtKoboExact((data?.gl_lines ?? [])
+          .filter(g => g.statement_line.includes('Interest'))
+          .reduce((s, g) => s + Number(g.amount_kobo), 0))} icon="account_balance" accent={BLUE} loading={loading} />
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: SP[4] }}>
         <SectionCard title="Card Interest Income" subtitle="By product">
@@ -137,7 +134,7 @@ export default function RevenueBreakdown() {
             ? 'No entries recorded yet — see note below'
             : `${joiningFeeEntries.length} approved manual entr${joiningFeeEntries.length === 1 ? 'y' : 'ies'}`
         }>
-          <div style={{ ...NUMSTYLE }}>{fmtKoboExact(joiningFeeTotal)}</div>
+          <div style={BIGNUM}>{fmtKoboExact(joiningFeeTotal)}</div>
           {joiningFeeEntries.length === 0 && (
             <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[2] }}>
               Udara's own GL carries only 3 one-off manual corrections for this, ever — not a
@@ -148,7 +145,7 @@ export default function RevenueBreakdown() {
         </SectionCard>
 
         <SectionCard title="Loan Fee Income" subtitle="Management fee vs other">
-          <div style={{ ...NUMSTYLE }}>{fmtKoboExact(loanFeeTotal)}</div>
+          <div style={BIGNUM}>{fmtKoboExact(loanFeeTotal)}</div>
           {managementFeeEntries.length === 0 && (
             <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[2] }}>
               No management-fee entries recorded yet. Udara's product config has loan fees
@@ -168,4 +165,4 @@ export default function RevenueBreakdown() {
   )
 }
 
-const NUMSTYLE = { fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px' }
+const BIGNUM = { ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px' }

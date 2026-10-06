@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, KpiCard } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, KpiCard, Button, Input, Select } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmtKoboExact, fmtNum, fmtDate, fmtPct } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, PURPLE, TEXT, FW, SP } from '../../lib/design'
+import { GREEN, RED, AMBER, PURPLE, TEXT, FW, SP } from '../../lib/design'
 
 // Blink's finance report — funding, the BlueSalt fee split, and the FX pipeline
 // (accumulated foreign currency awaiting sale). Separate from BlinkCard.tsx, which
@@ -122,34 +122,23 @@ export default function BlinkReport() {
       </div>
 
       <SectionCard title="Record a Sale" subtitle="Leave rate blank to use the latest parallel-market reference rate">
-        <div style={{ display: 'flex', gap: SP[3], alignItems: 'flex-end', padding: SP[3], flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            Currency
-            <select value={saleForm.currency} onChange={e => setSaleForm({ ...saleForm, currency: e.target.value })}
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--card-bdr)' }}>
-              <option value="USD">USD</option>
-              <option value="GBP">GBP</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            Amount Sold
-            <input type="number" value={saleForm.fx_amount} onChange={e => setSaleForm({ ...saleForm, fx_amount: e.target.value })}
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--card-bdr)', width: 160 }} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            Realized Rate (optional)
-            <input type="number" value={saleForm.rate} onChange={e => setSaleForm({ ...saleForm, rate: e.target.value })}
-              placeholder="auto from parallel market"
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--card-bdr)', width: 200 }} />
-          </label>
-          <button onClick={recordSale} disabled={saleBusy}
-            style={{ padding: '8px 16px', borderRadius: 8, background: NAVY, color: '#fff', border: 'none', fontWeight: FW.semibold, cursor: 'pointer' }}>
-            {saleBusy ? 'Recording…' : 'Record Sale'}
-          </button>
+        <div style={{ display: 'flex', gap: SP[4], alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <Select label="Currency" value={saleForm.currency} onChange={e => setSaleForm({ ...saleForm, currency: e.target.value })}
+            wrapStyle={{ width: 120 }}>
+            <option value="USD">USD</option>
+            <option value="GBP">GBP</option>
+            <option value="EUR">EUR</option>
+          </Select>
+          <Input label="Amount Sold" type="number" value={saleForm.fx_amount}
+            onChange={e => setSaleForm({ ...saleForm, fx_amount: e.target.value })}
+            wrapStyle={{ width: 160 }} />
+          <Input label="Realized Rate (optional)" type="number" value={saleForm.rate}
+            onChange={e => setSaleForm({ ...saleForm, rate: e.target.value })}
+            placeholder="auto from parallel market" wrapStyle={{ width: 220 }} />
+          <Button onClick={recordSale} loading={saleBusy} style={{ marginTop: 22 }}>Record Sale</Button>
         </div>
         {saleResult && (
-          <div style={{ padding: `0 ${SP[3]}px ${SP[3]}px`, fontSize: TEXT.sm }}>
+          <div style={{ marginTop: SP[4], padding: SP[3], borderRadius: 8, background: 'var(--th-bg)', fontSize: TEXT.sm }}>
             Realized at {fmtNum(saleResult.realized_rate)} ({saleResult.rate_source}) against a booking WAC of{' '}
             {fmtNum(saleResult.booking_wac)} — gain/loss:{' '}
             <span style={{ color: (saleResult.gain_loss_ngn_kobo ?? 0) >= 0 ? GREEN : RED, fontWeight: FW.semibold }}>
