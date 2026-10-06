@@ -53,6 +53,8 @@ interface CoverageBucket {
   eligible: number
   eligible_if_off: number
   unreachable: number
+  can_email: number
+  can_sms: number
   rendered: number
   template_id: number
   template_name: string
@@ -176,6 +178,11 @@ export default function ArrearsReminders() {
   // season. At 5 a night the queue below takes months, which is a choice someone should
   // make knowingly rather than discover.
   const nightsToClear = p.max_per_run > 0 ? Math.ceil(eligibleTotal / p.max_per_run) : 0
+  // Which channel would actually carry the first live run. "Reachable" does not answer
+  // it: someone with a phone and no email is reachable and still invisible to an
+  // email-only run.
+  const canEmail = covBuckets.reduce((n, b) => n + b.can_email, 0)
+  const canSms = covBuckets.reduce((n, b) => n + b.can_sms, 0)
   const shortTpl = (n: string) => { const i = n.indexOf('·'); return i >= 0 ? n.slice(i + 1).trim() : n }
 
   const covCols: TableCol<CoverageBucket>[] = [
@@ -404,6 +411,20 @@ export default function ArrearsReminders() {
           subtitle="Which band each template is written for, and how many people it would actually reach"
           style={{ marginBottom: SP[4] }}>
           <DataTable cols={covCols} rows={covBuckets} keyFn={r => r.bucket} />
+
+          {/* Which channel could carry a first live run. Separate from the reachability
+              column above, which counts anyone with either detail: a borrower holding a
+              phone and no email is reachable and still invisible to an email-only run. */}
+          {eligibleTotal > 0 && (
+            <Caution icon="alternate_email" tone={NAVY} style={{ marginTop: SP[3] }}>
+              Of the <strong>{fmtNum(eligibleTotal)}</strong> who would be written to,{' '}
+              <strong>{fmtNum(canEmail)}</strong> have an email address and{' '}
+              <strong>{fmtNum(canSms)}</strong> have a phone number — so either channel
+              alone reaches most of them, and whichever goes live first leaves{' '}
+              {fmtNum(Math.max(eligibleTotal - Math.max(canEmail, canSms), 0))} to the other.
+              WhatsApp uses the same number as SMS.
+            </Caution>
+          )}
 
           {neverRendered.length > 0 && (
             <Caution icon="drafts" tone={AMBER} style={{ marginTop: SP[3] }}>

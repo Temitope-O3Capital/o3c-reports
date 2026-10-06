@@ -189,6 +189,11 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 		       COALESCE(SUM(outstanding_kobo) FILTER (WHERE held), 0)  AS held_kobo,
 		       COUNT(*) FILTER (WHERE NOT held AND reachable)          AS eligible,
 		       COUNT(*) FILTER (WHERE NOT held AND NOT reachable)      AS unreachable,
+		       -- Per CHANNEL, not per person, because choosing the first live channel is a
+		       -- decision and "reachable" does not answer it. A borrower with a phone and
+		       -- no email counts as reachable and is still invisible to an email-only run.
+		       COUNT(*) FILTER (WHERE NOT held AND COALESCE(email,'') <> '') AS can_email,
+		       COUNT(*) FILTER (WHERE NOT held AND COALESCE(phone,'') <> '') AS can_sms,
 		       -- What SKIP_RECOVERY=off would make reachable by this wording. Independent
 		       -- of the current setting on purpose: the page has to be able to state the
 		       -- consequence of flipping it BEFORE it is flipped.
@@ -227,6 +232,8 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 			"eligible":        toInt64(b["eligible"]),
 			"eligible_if_off": toInt64(b["eligible_if_off"]),
 			"unreachable":     toInt64(b["unreachable"]),
+			"can_email":       toInt64(b["can_email"]),
+			"can_sms":         toInt64(b["can_sms"]),
 			"rendered":        rendered[bucket],
 			"template_id":     tplID,
 			"template_name":   str(tpl["name"]),

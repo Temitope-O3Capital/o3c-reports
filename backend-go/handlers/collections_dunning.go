@@ -174,6 +174,13 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		SELECT DISTINCT ON (COALESCE('p'||d.party_id::text, 'c'||d.key_cif))
 		       d.key_cif AS cif, d.party_id, TRIM(d.product_name) AS product_name,
 		       d.dpd, d.dpd_bucket, d.outstanding_kobo,
+		       -- The name the product is actually SOLD under. The delinquency view carries
+		       -- the system name, which is a different string: "Classic Accounts" is sold
+		       -- as "Classic Card", and "Amex Naira" is sold as "O3 Green Naira" — a brand
+		       -- we do not own and must not print. See dunningFacilityDisplay.
+		       cp.product_name  AS catalog_name,
+		       cp.category      AS catalog_category,
+		       COALESCE(cp.is_cooperative, false) AS catalog_coop,
 		       COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS full_name,
 		       COALESCE(NULLIF(v.email,''), NULLIF(c.email,''))                         AS email,
 		       COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone
@@ -184,6 +191,11 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		  -- which would have emailed FOLTI TECHNOLOGIES' N154,300,000 arrears notice to
 		  -- olabode.sanusi@firstbanknigeria.com. Disclosure and misdirected collection.
 		  LEFT JOIN app.customers c          ON d.arm = 'cards' AND c.cif = d.raw_cif
+		  -- system_name is unique in app.card_products, so this cannot fan the row out.
+		  -- 24 of the 27 product names on the delinquent book resolve here; the three that
+		  -- do not are loan-arm values and fall through to dunningFacilityLabel.
+		  LEFT JOIN app.card_products cp
+		         ON UPPER(BTRIM(cp.system_name)) = UPPER(BTRIM(d.product_name))
 		 WHERE d.dpd > 0
 		   AND d.outstanding_kobo >= $3
 		   AND ($4 = 0 OR d.dpd <= $4)
@@ -275,6 +287,10 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		}
 		tpl := dunningTemplateFor(tplRows, cand.DPDBucket)
 		tplID := toInt64(tpl["id"])
+		// Resolved once per candidate, not per channel: the name does not change with
+		// the medium, only the amount does.
+		facility := dunningFacilityDisplay(cand.Facility,
+			str(r["catalog_name"]), str(r["catalog_category"]), toBool(r["catalog_coop"]))
 
 		for _, ch := range []string{"email", "whatsapp", "sms"} {
 			// Built per channel, because the amount is not spelt the same way on all
@@ -282,9 +298,9 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 			merge := map[string]any{
 				"first_name": dunningFirstName(cand.Name),
 				"full_name":  cand.Name,
-				// Rendered, not raw. cand.Facility stays as the book holds it because it
-				// is also the throttle key — see dunningFacilityLabel.
-				"facility": dunningFacilityLabel(cand.Facility),
+				// Looked up, not raw. cand.Facility stays as the book holds it because it
+				// is also the throttle key — see dunningFacilityDisplay.
+				"facility": facility,
 				"dpd":      cand.DPD,
 				"amount":   dunningAmount(cand.AmountKobo, ch),
 				"cif":      cand.CIF,
@@ -481,13 +497,58 @@ func dunningFirstName(full string) string {
 	return fields[0]
 }
 
-// dunningFacilityNames are the product names that need an editorial decision rather
-// than a rule: a brand that reads as a fragment without its noun, and a code carrying
-// an internal prefix. Keyed on the upper-cased stored value.
-var dunningFacilityNames = map[string]string{
-	"AMEX NAIRA":         "Amex Naira card",
-	"AMEX USD":           "Amex USD card",
-	"BB CLASSIC ACCOUNT": "Classic Account", // "BB" is our channel, not their product
+// dunningFacilityDisplay names the product the way the business names it.
+//
+// app.card_products is the catalogue, and it is authoritative in a way nothing derivable
+// from the raw string is: system_name is the value the delinquency view carries,
+// product_name is what the product is SOLD as, and the two differ on almost every row.
+// Guessing from the raw string got this wrong in both directions — "Classic Accounts" is
+// a Classic CARD, not an account, on 494 facilities, the largest product on the book;
+// and "Amex Naira" is sold as "O3 Green Naira", so inferring a label from the stored
+// string would have printed American Express on 112 borrowers' demand letters for a
+// product O3 does not badge that way. A name is a fact to look up, not a string to
+// derive.
+//
+// Three of the 27 names are not in the catalogue at all — the loan-arm values — and
+// those fall through to dunningFacilityLabel, which tidies the raw string instead.
+func dunningFacilityDisplay(raw, catalogName, category string, cooperative bool) string {
+	if n := strings.Join(strings.Fields(catalogName), " "); n != "" {
+		// Taken as written. The catalogue is not ours to improve on here: no
+		// singularising, and no stripping of instalment numbers, because "Business
+		// Instalment 2" is the product's real name and the 2 is part of it.
+		if !dunningLooksLikeBareCode(n) {
+			return n
+		}
+		// The catalogue has no name for it either — product_name IS the code, as it is
+		// for PREP, MEMCOS, AIRTEL and GAME. It does still know what KIND of thing it
+		// is, which is both true and more use to a borrower than the code.
+		return dunningCardKind(category, cooperative)
+	}
+	return dunningFacilityLabel(raw)
+}
+
+// dunningLooksLikeBareCode: one word, arrived shouting. PREP, MEMCOS, GAME, AIRTEL.
+// Judged by shape rather than by name so the next one does not have to reach a borrower
+// before anybody notices it.
+func dunningLooksLikeBareCode(s string) bool {
+	return !strings.ContainsAny(s, " -") && s == strings.ToUpper(s)
+}
+
+// dunningCardKind is the fallback a borrower can still recognise. Lower case on purpose:
+// this is a common noun describing the product, not its name, so "Your prepaid card with
+// O3 Capital is 5 days past due" reads as a sentence rather than a label.
+func dunningCardKind(category string, cooperative bool) string {
+	kind := "card"
+	switch strings.ToLower(strings.TrimSpace(category)) {
+	case "credit":
+		kind = "credit card"
+	case "prepaid":
+		kind = "prepaid card"
+	}
+	if cooperative {
+		return "cooperative " + kind
+	}
+	return kind
 }
 
 // dunningFacilityAcronyms survive title-casing. Everything here is a real token in the
@@ -498,25 +559,21 @@ var dunningFacilityAcronyms = map[string]bool{
 	"SSANU": true, "LIRS": true, "LBIC": true, "NOHIL": true, "BB": true,
 }
 
-// dunningFacilityLabel turns the stored product name into something a customer can be
-// shown. Every template puts it in the first sentence — "Your {{facility|account}} with
-// O3 Capital is {{dpd}} days past due" — and the stored values are internal:
+// dunningFacilityLabel tidies a raw product name for the values the card catalogue does
+// not hold — the loan-arm ones. Prefer dunningFacilityDisplay, which looks the name up
+// properly; this is only what is left when there is nothing to look up:
 //
-//	Loan (uploaded)                the import that created the row
-//	SME LOAN                       a CBS code, shouted, with a trailing space
-//	BB Classic Account             our channel prefix
-//	Business Account Instalment 2  our own instalment numbering
-//	PREP, MEMCOS, GAME, AIRTEL     codes that mean nothing outside this building
-//	Classic Accounts               plural, so "Classic Accounts is 5 days past due"
+//	SME LOAN         a CBS code, shouted, with a trailing space
+//	CONSUMER LOAN    the same
+//	Loan (uploaded)  the parenthetical names the import, not the product
 //
-// All 27 went in raw, so the previews carried "Your Loan (uploaded) with O3 Capital is
-// 5 days past due" and "Your MEMCOS with O3 Capital...". Nothing had been sent live, so
-// no borrower received one.
+// All three went in raw, so a preview read "Your Loan (uploaded) with O3 Capital is 5
+// days past due". Nothing had been sent live, so no borrower received one.
 //
-// The plural was the whole of the grammar fault, and singularising the noun fixes the
-// agreement across all six templates and all three channels without rewriting a line of
-// copy — every one of them says "is" or "has been" about this phrase. The fault was in
-// the data, not the wording.
+// Singularising here also fixes a grammar fault in all six templates on all three
+// channels without rewriting a line of copy: every one of them says "is" or "has been"
+// about this phrase, so a plural name produced "... Accounts is 5 days past due". The
+// fault was in the data, not the wording.
 //
 // Returns "" for anything it cannot render safely, which is the design and not a
 // failure: renderTemplate falls back to the default on a blank value, so the sentence
@@ -535,12 +592,8 @@ func dunningFacilityLabel(raw string) string {
 	if s == "" {
 		return ""
 	}
-	shouted := s == strings.ToUpper(s)
-	oneWord := !strings.ContainsAny(s, " -")
+	bare := dunningLooksLikeBareCode(s)
 
-	if lbl, ok := dunningFacilityNames[strings.ToUpper(s)]; ok {
-		return lbl
-	}
 	// "Loan (uploaded)" — the parenthetical names the import, not the product.
 	if i := strings.LastIndexByte(s, '('); i > 0 && strings.HasSuffix(s, ")") {
 		s = strings.TrimSpace(s[:i])
@@ -571,9 +624,7 @@ func dunningFacilityLabel(raw string) string {
 	}
 	s = strings.Join(parts, " ")
 
-	// A bare code nobody has mapped yet. Caught by shape rather than by name so the next
-	// PREP does not have to reach a borrower before anyone notices it.
-	if oneWord && shouted {
+	if bare {
 		return ""
 	}
 	return s
