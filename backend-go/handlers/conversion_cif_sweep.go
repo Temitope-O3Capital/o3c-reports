@@ -53,13 +53,27 @@ func StartConversionCIFSweep(db *core.DB) {
 		defer cancel()
 
 		WorkerBeat(ctx, db, "conversion_cif_sweep", "running", "", "")
+		// Age is measured from the CONVERSION, not from updated_at. updated_at moves
+		// whenever anything touches the lead — a note, a sweep, a migration — so it is not
+		// a clock for "how long has this been unverified". The first run of this worker
+		// proved it: lead 5060 converted on 2026-09-10 and read 0 days old, because
+		// something had stamped updated_at that afternoon, while lead 6297 read its true
+		// 25. The converting call is the evidence the conversion happened, so it is also
+		// the right thing to date it from; the dispositions ledger is the fallback for a
+		// conversion whose call row has since been voided or merged away.
 		rows, err := db.PGQuery(ctx, `
-			SELECT id, customer_name, customer_phone,
-			       GREATEST(0, EXTRACT(epoch FROM (NOW() - COALESCE(updated_at, created_at)))/86400)::int AS age_days
-			  FROM app.call_center_leads
-			 WHERE status = 'converted'
-			   AND COALESCE(btrim(customer_cif), '') = ''
-			 ORDER BY id`)
+			SELECT l.id, l.customer_name, l.customer_phone,
+			       GREATEST(0, EXTRACT(epoch FROM (NOW() - COALESCE(
+			         (SELECT min(h.created_at) FROM app.helpdesk_calls h
+			           WHERE h.lead_id = l.id AND h.voided_at IS NULL
+			             AND lower(COALESCE(h.disposition,'')) LIKE '%convert%'),
+			         (SELECT min(d.created_at) FROM app.call_center_dispositions d
+			           WHERE d.lead_id = l.id AND d.outcome = 'converted'),
+			         l.created_at)))/86400)::int AS age_days
+			  FROM app.call_center_leads l
+			 WHERE l.status = 'converted'
+			   AND COALESCE(btrim(l.customer_cif), '') = ''
+			 ORDER BY l.id`)
 		if err != nil {
 			slog.Error("conversion cif sweep: load unverified", "err", err)
 			WorkerBeat(ctx, db, "conversion_cif_sweep", "error", "", err.Error())
