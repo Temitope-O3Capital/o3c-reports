@@ -1006,3 +1006,65 @@ WAS found, the opposite of the intent. Both caught before shipping, by reading t
    releases roughly 460 borrowers whose cases are already with recovery, some with
    solicitors instructed, into automated demands. Recorded here because it is live risk, not
    because it is mine.
+
+### 14.11 The two conversions left for a human, investigated
+
+Migration 344 left two contacts at stage 'converted' whose call-centre lead said otherwise,
+because for those two the STAGE might have been the true side. Investigated 2026-10-06.
+**They turned out to be opposite cases**, which is why guessing would have been wrong either
+way.
+
+**33 / lead 3087 — Gbodume Zino. The stage is RIGHT. Leave it.**
+
+Not a contradiction at all. The contact carries `converted_cif = 00008859`, converted
+2026-08-03 07:30:56, source `zoho_desk`, and party `p:0000000000006912` with
+`card_count = 1` — he is a real card customer, confirmed in `app.customers` as
+*ZINO GBODUME*, CIF 00008859.
+
+The lead's `no_answer` is a *later, separate* event: two un-connected dials by Joy Adejoh on
+2026-09-15, six weeks after he converted. Both facts are true. A converted customer was
+cold-called again and did not pick up.
+
+The only thing worth raising operationally: **lead 3087 was created on 2026-08-24, three
+weeks AFTER this person converted**, and was then dialled as a prospect. An existing
+customer sitting in the outbound prospect queue is a list-hygiene question, not a data
+error.
+
+**38177 / lead 8880 — Omolaja Oyebajo Oluseyi. The stage is WRONG, and the agent said so
+herself.**
+
+The audit trail settles it, and it reverses the reading the call rows alone suggest:
+
+| time | what happened |
+|---|---|
+| 12:48:27 | call 15324070 logged, disposition **"Converted"**, 104 seconds |
+| 12:49:02 | call 15324364 logged, disposition **"Converted"**, no duration — this is the write-up's own row, the second row `hdLogCall` creates when a log is not merged into the telephony record |
+| **12:49:01–02** | `crm_contacts.lead_stage` moved `new` → `converted`, and `converted_at` stamped |
+| 12:49:21 | **Olakunle Yusuf edited call 15324070 from "Converted" to "Not Interested"** |
+
+So the agent recorded a conversion, corrected herself 54 seconds later — and corrected only
+ONE of the two rows her log had produced. The sibling row still reads "Converted" and nothing
+re-derived the stage from it. The lead itself ended on `called` / "Not Interested", which is
+her final intent; the sales pipeline kept the version she had already withdrawn.
+
+And there is nothing to show for the conversion: `converted_cif` NULL, `cif_number` NULL,
+`already_customer` false, party `LEAD:38177` — a synthetic prospect party created by
+`ensure_lead_party` — with `card_count = 0`. No card, no CIF, no product.
+
+**The wider count, which is the part worth taking up.** Of 1,456 contacts at stage
+'converted', 1,447 carry a CIF. Nine do not, and they split three ways:
+
+- **5 hold a card under a real party key** (`p:Z0000000000412xx`, `card_count = 1`) —
+  Solomon Ozakpo, Banji Ojo, Albert Umerah, Damilare Oshin, Ismail Okunade. Genuine
+  conversions whose `converted_cif` was simply never written onto the contact. A reporting
+  gap, not a false conversion.
+- **3 hold nothing and their lead still says 'converted'** — Oluwatomisin Owolabi (35641),
+  Chukwuka Orodu (34350), Ayodeji Amos (36869), all on `LEAD:` parties with no card. An
+  agent recorded a conversion and no customer record ever followed. Either the CIF was never
+  captured or these did not convert; only the floor knows which.
+- **1 holds nothing AND its own lead contradicts it** — Omolaja, above. The only one of the
+  nine where the agent's own correction is on the record.
+
+So the honest summary is that the conversion count is not broadly wrong: 1,447 of 1,456 are
+backed by a CIF. Four are unbacked, and exactly one of those four has evidence that it was
+withdrawn.
