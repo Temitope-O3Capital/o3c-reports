@@ -941,6 +941,51 @@ up as a number someone can read.
 Status stays `ok` when substituting. A worker that reads `error` while doing exactly what it
 was told to do is a worker people stop reading.
 
+### 14.9b A regression I shipped, and the test that let it through
+
+Worth more than the fixes above, because the fix was the thing that broke it.
+
+Converting `sqlDispositionFitsCall` to an allow-list, I built the three SQL lists from
+catalogue **codes and labels** and changed the `ELSE` from `connected` to `TRUE`. The Call
+Log form's own wording is in the catalogue in neither form, so it fell straight through to
+that `ELSE`. Measured in `app.helpdesk_calls` on 2026-10-06:
+
+| stored wording | rows | rank in the table |
+|---|---|---|
+| `not interested` | 3,768 | 2nd most common |
+| `interested` | 696 | 6th |
+| `issue resolved` | 11 | — |
+
+All three still arriving that day. "Not Interested" and "Interested" are conclusions you can
+only reach by speaking to someone, so requiring a connect was **correct**; `ELSE TRUE`
+stopped the absorb query distinguishing them from a no-answer, for 4,475 rows of write-up
+attachment. `ccDispositionCode` has always normalised these — that is the §14.4 finding — so
+**Go was right the whole time and only the SQL lost the fact.**
+
+**My own test passed, and that is the real lesson.**
+`TestSQLDispositionListsAreExhaustive` walked the catalogue, which is the same mistake the
+bug was: the catalogue is not the set of things in the column. A test that derives its
+inputs from the same place the code does cannot catch the code looking in the wrong place.
+
+Fixed by construction rather than by patching the lists. `ccClassifyWording` is now the one
+judgement; the three SQL lists are rendered by running every known wording through it; and
+`ccLegacyDispositionWordings` carries the stored forms that are neither code nor label. Go
+and SQL can no longer disagree about a wording. Two new tests walk the **column**:
+`TestEveryLiveDispositionIsClassified` holds all 25 distinct live values with their row
+counts, and `TestTheCallLogFormsOwnWordingIsCovered` pins the three by name.
+
+One deliberate live change survives, and it is the intended half: `other — describe what
+happened` (113 rows) moves from requiring a connect to carrying no evidence either way. Its
+whole meaning is "I cannot tell you from the dropdown".
+
+**A third do-not-call path.** `hdEditCall` was the one I had not checked. Correcting a call's
+disposition to Do Not Call reached `dnc_list` only when the call carried a `lead_id`, or a
+phone matching exactly one lead; with neither it suppressed nothing. Now keyed on the phone
+before any lead resolution. `customer_phone` had to be added to that handler's SELECT —
+without it the first attempt was a **silent no-op**, the exact failure mode being fixed — and
+the first insert landed inside the auto-link branch, so it would have fired only when a lead
+WAS found, the opposite of the intent. Both caught before shipping, by reading the diff.
+
 ### 14.10 Open, and genuinely not mine to close
 
 1. **Phoenix should accept `contract`.** `resolveEmploymentType`
