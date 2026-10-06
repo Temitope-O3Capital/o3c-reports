@@ -221,18 +221,27 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 	buckets := make([]map[string]any, 0, len(bucketRows))
 	for _, b := range bucketRows {
 		bucket := str(b["dpd_bucket"])
-		// dunningTemplateFor refuses rather than guesses: there is no fallback to the
-		// lowest-numbered template any more, because renaming a band's template would
-		// otherwise have sent the 1-30 courtesy wording to a debt of any age. So a false
-		// here does not mean "borrows a softer letter" — it means this band is SKIPPED,
-		// and everyone in it hears nothing at all. That is a quieter failure than the
-		// wrong letter and a worse one to leave invisible, which is why it is reported.
-		tpl, matched := dunningTemplateFor(tplRows, bucket)
+		// Matched here rather than through dunningTemplateFor on purpose. The policy that
+		// matters is dunningTemplateMatches — a band is matched by the template's NAME —
+		// and that is stable and separately tested, whereas the picker around it has had
+		// its signature and its fallback changed underneath this file once already. A
+		// reporting endpoint should not break because the thing it reports on was
+		// refactored.
+		//
+		// No match means the run SKIPS the band: there is no fallback to the
+		// lowest-numbered template, because that would have sent the 1-30 courtesy
+		// wording to a debt of any age. So a false here is not "borrows a softer letter",
+		// it is "nobody in this band is written to at all" — a quieter failure than the
+		// wrong letter and a worse one to leave invisible.
 		var tplID int64
 		var tplName string
-		if matched {
-			tplID, tplName = toInt64(tpl["id"]), str(tpl["name"])
-			used[tplID] = true
+		matched := false
+		for _, t := range tplRows {
+			if dunningTemplateMatches(str(t["name"]), bucket) {
+				tplID, tplName, matched = toInt64(t["id"]), str(t["name"]), true
+				used[tplID] = true
+				break
+			}
 		}
 		buckets = append(buckets, map[string]any{
 			"bucket":        bucket,
