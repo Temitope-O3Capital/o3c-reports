@@ -178,7 +178,34 @@ function LeadCallPanel({ lead, onDone }: { lead: Lead; onDone: (disposition?: st
 
 // ── Detail panel ──────────────────────────────────────────────────────────────
 
-// Edit a lead's identity — the way a number-only import gets a name and details.
+// Edit a lead's identity — the way a number-only import gets a name and details — and,
+// for a supervisor, its status.
+//
+// WHY STATUS IS EDITABLE HERE. A lead's status is forward-only: syncLeadFromCall will
+// advance it but never lower it, so a mis-clicked disposition is permanent. 'converted' is
+// the expensive one — rank 5, terminal, and counted. On 2026-10-02 an agent logged
+// "Converted" on lead 13080 by mistake, re-logged "Interested" twice within five minutes,
+// then voided all three calls; the lead still read Converted four days later and there was
+// no control anywhere in this app to put it back. Voiding now re-derives the lead
+// (ccRederiveLeadStatus), which covers the mis-click; this covers everything else.
+//
+// SUPERVISORS ONLY, and that is the point rather than caution. If an agent could set their
+// own leads to 'converted' the conversion count would be self-reported and worth nothing.
+// The server records every change to crm_lead_events, so a correction is visible on the
+// lead's own timeline instead of only in the number moving.
+const LEAD_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'pending',    label: 'Pending — not yet worked' },
+  { value: 'no_answer',  label: 'No Answer' },
+  { value: 'called',     label: 'Called' },
+  { value: 'not_ready',  label: 'Not Ready Yet' },
+  { value: 'callback',   label: 'Callback Scheduled' },
+  { value: 'interested', label: 'Interested' },
+  { value: 'converted',  label: 'Converted' },
+  { value: 'closed',     label: 'Closed' },
+  { value: 'invalid',    label: 'Invalid — bad number' },
+  { value: 'dnc',        label: 'Do Not Call' },
+]
+
 function EditLeadModal({ open, lead, onClose, onSaved }: {
   open: boolean; lead: Lead; onClose: () => void; onSaved: () => void
 }) {
@@ -188,7 +215,9 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
   const [cif, setCif]           = useState('')
   const [address, setAddress]   = useState('')
   const [state, setState]       = useState('')
+  const [leadStatus, setLeadStatus] = useState('')
   const [saving, setSaving]     = useState(false)
+  const canEditStatus = isHeadRole()
 
   useEffect(() => {
     if (!open) return
@@ -198,19 +227,25 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
     setCif(lead.customer_cif ?? '')
     setAddress(lead.address ?? '')
     setState(lead.state ?? '')
+    setLeadStatus(lead.status ?? '')
   }, [open, lead])
 
   async function save() {
     setSaving(true)
     try {
+      // status is sent ONLY when it actually changed. Sending it unchanged would stamp a
+      // "status corrected" event on the lead's timeline every time someone fixed a typo
+      // in an address, which is how an audit trail stops being read.
+      const body: Record<string, unknown> = {
+        customer_name: name.trim() || lead.customer_phone || '',
+        employer, email, customer_cif: cif, address, state,
+      }
+      if (canEditStatus && leadStatus && leadStatus !== lead.status) body.status = leadStatus
       await apiFetch(`/api/call-center/leads/${lead.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          customer_name: name.trim() || lead.customer_phone || '',
-          employer, email, customer_cif: cif, address, state,
-        }),
+        body: JSON.stringify(body),
       })
-      toast.success('Lead updated')
+      toast.success(body.status ? `Lead updated — status set to ${leadStatus}` : 'Lead updated')
       onSaved()
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
@@ -240,6 +275,19 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
           <div><label style={lbl}>CIF (If a Customer)</label><input value={cif} onChange={e => setCif(e.target.value)} style={inp} /></div>
         </div>
         <div><label style={lbl}>Address</label><input value={address} onChange={e => setAddress(e.target.value)} style={inp} /></div>
+        {canEditStatus && (
+          <div>
+            <label style={lbl}>Status</label>
+            <select value={leadStatus} onChange={e => setLeadStatus(e.target.value)} style={inp}>
+              {LEAD_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {leadStatus !== lead.status && (
+              <div style={{ fontSize: TEXT['2xs'], color: AMBER, marginTop: 4 }}>
+                Changing this is recorded on the lead's history with your name.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Modal>
   )

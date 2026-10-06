@@ -299,7 +299,7 @@ func hdVoidCall(db *core.DB) http.HandlerFunc {
 			return
 		}
 		cur, err := db.PGQuery(r.Context(),
-			`SELECT agent_id, notes, disposition FROM helpdesk_calls WHERE id = $1 AND voided_at IS NULL`, id)
+			`SELECT agent_id, notes, disposition, lead_id FROM helpdesk_calls WHERE id = $1 AND voided_at IS NULL`, id)
 		if err != nil {
 			respondErrLog(w, 500, "Could not load the call", err)
 			return
@@ -323,6 +323,11 @@ func hdVoidCall(db *core.DB) http.HandlerFunc {
 			"notes":       map[string]any{"from": cur[0]["notes"], "to": nil},
 			"disposition": map[string]any{"from": cur[0]["disposition"], "to": nil},
 		}, b.Reason) == nil
+		// The lead must stop being told by a call that has been withdrawn. Forward-only
+		// refuses to lower a status, so re-derivation from the surviving calls is its own
+		// path — see ccRederiveLeadStatus for the lead this cost and why it may go
+		// backwards here when nowhere else.
+		ccRederiveLeadStatus(r.Context(), db, toInt64(cur[0]["lead_id"]), "hdVoidCall")
 		respond(w, map[string]any{"id": id, "voided": true, "audited": audited}, "pg")
 	}
 }
@@ -337,13 +342,21 @@ func hdRestoreCall(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Supervisor access required")
 			return
 		}
-		if _, err := db.PGExec(r.Context(),
+		restored, err := db.PGQuery(r.Context(),
 			`UPDATE helpdesk_calls SET voided_at = NULL, voided_by = NULL, void_reason = NULL
-			  WHERE id = $1`, id); err != nil {
+			  WHERE id = $1 RETURNING lead_id`, id)
+		if err != nil {
 			respondErrLog(w, 500, "Could not restore the log", err)
 			return
 		}
 		audited := hdRecordCallEdit(r, db, id, "restore", user, map[string]any{}, "") == nil
+		// Restoring grows the evidence back, so the lead has to be re-derived here too —
+		// otherwise voiding the only converting call and then restoring it would leave the
+		// lead permanently lowered, which is the same defect pointing the other way.
+		if len(restored) > 0 {
+			ccRederiveLeadStatus(r.Context(), db, toInt64(restored[0]["lead_id"]), "hdRestoreCall")
+		}
+		respond(w, map[string]any{"id": id, "restored": true, "audited": audited}, "pg")
 		respond(w, map[string]any{"id": id, "restored": true, "audited": audited}, "pg")
 	}
 }

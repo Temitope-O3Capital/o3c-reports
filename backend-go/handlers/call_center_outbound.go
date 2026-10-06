@@ -868,6 +868,9 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 			args = append(args, strings.TrimSpace(*b.CustomerCIF))
 			n++
 		}
+		// statusBefore is captured only when the caller is actually changing the status,
+		// so the event written after the UPDATE can name what it moved from.
+		statusBefore := ""
 		if b.Status != nil {
 			// Validated against the same vocabulary call_center_leads_status_chk
 			// enforces. This wrote the request body straight through, so a typo now
@@ -877,6 +880,23 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 			if !ccLeadStatuses[st] {
 				respondErr(w, 400, "unknown status: "+*b.Status)
 				return
+			}
+			// SUPERVISOR ONLY, for the reason the assigned_to check below already gives:
+			// with this writable by anyone, an agent could set their own lead to
+			// 'converted' and take the credit, and the conversion count would be
+			// self-reported. An agent records an outcome by dispositioning a call, which
+			// goes through syncLeadFromCall and leaves a disposition behind it. This field
+			// exists to CORRECT a status that the forward-only rule has otherwise frozen —
+			// lead 13080 sat on a mis-clicked 'converted' for four days with nothing in the
+			// app able to move it — and correcting is a supervisor's job.
+			if !sup {
+				respondErr(w, 403, "Only a call-centre supervisor can change a lead's status. "+
+					"Record what happened by logging a call instead.")
+				return
+			}
+			if prior, _ := db.PGQuery(r.Context(),
+				`SELECT status FROM call_center_leads WHERE id = $1`, id); len(prior) > 0 {
+				statusBefore = str(prior[0]["status"])
 			}
 			q += fmt.Sprintf(", status=$%d", n)
 			args = append(args, st)
@@ -921,6 +941,22 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErrLog(w, 404, "Lead not found or not assigned to you", err)
 			return
+		}
+		// A status set by hand leaves a trace on the lead's own timeline. Without it the
+		// number moves and nobody can tell whether a lead converted, or someone said it
+		// had — which is precisely the position lead 13101 was in: 'converted' with no
+		// call, no disposition and nothing recording who decided that or when.
+		if newStatus := str(rows[0]["status"]); statusBefore != "" && newStatus != statusBefore {
+			if cid := toInt64(rows[0]["contact_id"]); cid > 0 {
+				if _, err := db.PGExec(r.Context(), `
+					INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
+					VALUES ($1, 'stage_regraded', $2, $3, $4, $5)`,
+					cid, statusBefore, newStatus,
+					"Lead status corrected by hand from '"+statusBefore+"' to '"+newStatus+"'.",
+					user.ID); err != nil {
+					slog.Error("ccUpdateLead: record status change", "lead", id, "err", err)
+				}
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
