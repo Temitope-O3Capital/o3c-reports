@@ -104,3 +104,42 @@ func TestLeadStatusFromSurvivingCallsStaysInsideTheVocabulary(t *testing.T) {
 		t.Errorf("a lead with no surviving calls produced invalid status %q", status)
 	}
 }
+
+// TestSalesOwnedStagesAreLeftAlone pins which stages re-derivation refuses to touch.
+//
+// Re-derivation may lower a stage the call centre set — that is its purpose — but a
+// contact Sales has moved into their own process is their work, and withdrawing a call log
+// is not authority to pull a submitted application back to 'contacted'. The same reasoning
+// that left the hand-off in place in migration 340.
+func TestSalesOwnedStagesAreLeftAlone(t *testing.T) {
+	for _, stage := range []string{"handed_to_sales", "documents_requested", "application_submitted", "approved"} {
+		if !ccSalesOwnedStages[stage] {
+			t.Errorf("%q is a Sales pipeline stage and must be protected from re-derivation", stage)
+		}
+	}
+	// These three the call centre sets itself, so re-derivation must be able to move them —
+	// 'converted' above all, since that is the stage a mis-clicked call leaves behind.
+	for _, stage := range []string{"new", "contacted", "qualified", "converted", "disqualified"} {
+		if ccSalesOwnedStages[stage] {
+			t.Errorf("%q is set by the call centre and must stay re-derivable", stage)
+		}
+	}
+	// Every protected stage must be a real one, or the guard silently protects nothing.
+	for stage := range ccSalesOwnedStages {
+		if _, ok := crmStageRank[stage]; !ok {
+			t.Errorf("%q is not a stage crmStageRank knows, so the guard is dead", stage)
+		}
+	}
+}
+
+// TestRederivedStatusMapsToAStage is the other half: whatever
+// ccLeadStatusFromSurvivingCalls returns has to produce a stage, or the sales side is
+// silently left behind — which is exactly how migration 340 ended up half-done.
+func TestRederivedStatusMapsToAStage(t *testing.T) {
+	for status := range ccLeadStatuses {
+		if stage, _ := crmStageForCall(status, ""); stage == "" {
+			t.Errorf("lead status %q maps to no sales stage, so a lead re-derived to it "+
+				"would leave crm_contacts.lead_stage untouched", status)
+		}
+	}
+}
