@@ -572,24 +572,11 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 	}
 
 	if d.AddToDNC {
-		// Store the canonical form app.norm_phone() produces — the bare last 10 digits —
-		// and conflict on it, so the list holds one row per number instead of the same
-		// number in four shapes. length()==10 is the validity guard: norm_phone returns
-		// '' (not NULL) for anything it cannot parse, and a blank row on the DNC list
-		// would suppress every contact whose phone is blank.
-		if np := normalizePhone(phone); len(np) == 10 {
-			if _, err := db.PGExec(ctx,
-				`INSERT INTO dnc_list (phone, reason, added_by)
-				 VALUES ($1, 'Agent disposition: Do Not Call', $2)
-				 ON CONFLICT (phone) DO NOTHING`, np, userID); err != nil {
-				slog.Error("ccApplyDisposition: add to DNC",
-					"contact", contactID, "err", err)
-			}
-		} else {
-			// A do-not-call we cannot act on is a regulatory gap, not a no-op.
-			slog.Warn("ccApplyDisposition: do-not-call NOT suppressed — unusable phone",
-				"contact", contactID, "phone", phone)
-		}
+		// One writer, keyed on the phone. See ccEnsureDNC for why the contact_id this
+		// path happens to hold was never the right key for a list of numbers, and which
+		// screens the two id-keyed writers between them missed.
+		ccEnsureDNC(ctx, db, phone, "Agent disposition: Do Not Call", userID,
+			"ccApplyDisposition contact="+contactID)
 	}
 
 	// A lapsed customer who asks for an offer is the entire point of a win-back
@@ -666,49 +653,14 @@ func isRawCallOutcome(s string) bool {
 
 // Whether a disposition asserts that a human conversation took place.
 //
-// This is the missing signal in call attachment. An agent who dials, gets no
-// answer, dials again and connects produces two rows; the write-up they then
-// save says which of the two it describes. "Not Interested" cannot be the
-// outcome of a call nobody answered, and "Unreachable / No Answer" cannot be the
-// outcome of a two-minute conversation — but the matcher only knew "most recent
-// un-written-up call", so a second dial routinely inherited the first call's
-// account of itself, and vice versa.
-//
 // Returns (expectsConversation, known). known=false means the disposition says
-// nothing either way and the caller should not bias on it — "Wrong Number" is
-// genuinely both (an invalid number, or a person telling you so), and guessing
-// would trade one wrong attachment for another.
-func dispositionExpectsConversation(s string) (expects, known bool) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "":
-		return false, false
-	// Nobody spoke.
-	// Nobody spoke. "Customer Rejected the Call" belongs here: they saw the call and ended
-	// it, so the number is live but no conversation happened. Omitting it let this function
-	// fall through to its closing `return true, true`, which told callAttachMode to prefer
-	// a call that CONNECTED — so hdBetterAttachTarget would move a write-up off the
-	// zero-second rejected call onto a nearby answered one by the same agent. That is
-	// precisely the mis-attachment this mechanism exists to prevent, fired for the one
-	// disposition whose entire meaning is "they declined the call itself".
-	case "unreachable / no answer", "no answer", "no_answer", "voicemail", "unreachable",
-		"customer rejected the call", "call_rejected":
-		return false, true
-	// Ambiguous by nature — do not bias.
-	//
-	// "Call Dropped" belongs here despite the line having been answered. The
-	// "connected" test a caller applies is duration > 5s OR a recording, and a
-	// call dropped after three seconds satisfies neither reliably — biasing it
-	// toward connected calls would push these write-ups onto the wrong row for
-	// exactly the calls the disposition exists to describe.
-	case "wrong number", "wrong_number", "pending / follow-up", "call dropped", "call_dropped":
-		return false, false
-	}
-	// Everything else in the vocabulary — Interested, Not Interested, Not Ready
-	// Yet, Not Eligible, Converted, Callback Scheduled, Do Not Call, Promise to
-	// Pay, Paid, Dispute, Escalated, Resolved — is a conclusion you can only
-	// reach by speaking to someone.
-	return true, true
-}
+// nothing either way and the caller should not bias on it.
+//
+// MOVED to disposition_connect_vocab.go and converted from a deny-list to an allow-list.
+// It used to end on `return true, true`, so every disposition it had not been told about
+// — including every one added to the catalogue after it was written — meant "a human
+// spoke". It now reads ccDisposition.Connected, and unrecognised wording answers
+// known=false.
 
 // callAttachMode maps a disposition to the ordering bias hdLatestCall applies:
 // 0 = no preference, 1 = prefer a call that connected, 2 = prefer a dial that did not.
@@ -768,14 +720,11 @@ func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disp
 	return toInt64(rows[0]["id"])
 }
 
-// The SQL forms of the vocabulary above, so the absorb query can make the same
-// judgement the Go classifier makes. Kept beside it and covered by
-// TestDispositionVocabularyAgrees, because two copies of a vocabulary that drift
-// apart is exactly how a call ends up carrying another call's outcome.
-const (
-	sqlNoContactDispositions = `('unreachable / no answer','no answer','no_answer','voicemail','unreachable','customer rejected the call','call_rejected')`
-	sqlAmbiguousDispositions = `('wrong number','wrong_number','pending / follow-up','call dropped','call_dropped')`
-)
+// The SQL forms of the vocabulary above now live in disposition_connect_vocab.go, where
+// they are DERIVED from ccDisposition.Connected instead of hand-typed. The two const
+// lists that used to sit here were deny-lists: they named where nobody spoke, named the
+// ambiguous cases, and let everything else mean "a human spoke" by elimination. See that
+// file for why the fall-through was the wrong default and what it cost.
 
 // sqlCallConnectedExpr renders "did this call reach a conversation?" — the telephony fact,
 // as distinct from what the agent concluded.
@@ -810,10 +759,17 @@ func sqlCallConnectedExpr(durationCol, recordingCol string) string {
 // sqlDispositionFitsCall renders the predicate "this write-up belongs on this
 // call", given a disposition column and a boolean 'connected' column.
 func sqlDispositionFitsCall(dispositionCol, connectedCol string) string {
+	// An ALLOW-LIST, in both directions. Every branch below names the dispositions it
+	// applies to; the ELSE is reached only by wording the catalogue does not recognise,
+	// and it answers TRUE — "this write-up is not contradicted" — rather than demanding a
+	// connect. That is the same answer dispositionExpectsConversation gives as known=false,
+	// and it is the cautious one: refusing to place a write-up on the only call that
+	// exists is a worse failure than placing it without evidence.
 	return `(CASE
 	           WHEN TRIM(COALESCE(` + dispositionCol + `,'')) = '' THEN TRUE
-	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlNoContactDispositions + ` THEN NOT ` + connectedCol + `
-	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlAmbiguousDispositions + ` THEN TRUE
-	           ELSE ` + connectedCol + `
+	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlNoContactDispositions() + ` THEN NOT ` + connectedCol + `
+	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlAmbiguousDispositions() + ` THEN TRUE
+	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlConversationDispositions() + ` THEN ` + connectedCol + `
+	           ELSE TRUE
 	         END)`
 }

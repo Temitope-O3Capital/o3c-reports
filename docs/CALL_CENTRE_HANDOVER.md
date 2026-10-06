@@ -776,26 +776,129 @@ My earlier note called this "three conflicting category lists". That was wrong �
 and both screens already agreed on the same five values. Checking it was the fix for the claim,
 not for the code.
 
-### 14.8 Still genuinely open
+### 14.8 The four that were open, and what closing them actually found
 
-Real, untouched, and each needs a decision rather than a patch:
+All four items this section used to list are now fixed. Each one was smaller or differently
+shaped than I had written it, and two of the four write-ups were wrong about the mechanism —
+worth keeping visible, because the pattern is the same one §14.4 records: a defect inferred
+from one code path without looking for the second.
 
-1. **A `Do Not Call` logged outside the Outbound Queue never reaches `dnc_list`.**
-   `applyQueueContact` returns immediately when the call carries no `contact_id`, and
-   `LogCallModal` only sends one when opened from the queue detail panel. Logged from Leads,
-   Helpdesk Calls or a ticket, the DNC suppression and the contact close both silently do not
-   happen.
-2. **`leadStatusFromCall` and `ccDispositionCode` still disagree on about eight other
-   dispositions** (`Escalated`, `Complaint Logged`, `Rate or Charges Too High`,
-   `Wants a Product We Do Not Offer`, `Information Sent`, `Nothing Due This Cycle`,
-   `Registration Not Completed`, `Customer Rejected the Call`) which all fall through to
-   `called`, so the contact closes while the lead reads "called", or the reverse. None is
-   positive-and-terminal, so none is urgent — but this is one function that should be two calls
-   to one normaliser.
-3. **`dispositionExpectsConversation`, `sqlNoContactDispositions` and `sqlAmbiguousDispositions`
-   are deny-lists.** Anything unlisted falls through to "a conversation happened". Migration 308
-   converted the SQL twins of these to allow-lists for exactly that reason; the Go versions were
-   not converted.
-4. **`repayment_reminder` is a valid template category the dunning worker never reads** — it
-   selects `category = 'collections'` only, so a reminder filed under the obvious category would
-   never be sent.
+**1. The do-not-call gap was real, and keyed on the wrong thing.**
+
+I wrote that a `Do Not Call` "logged outside the Outbound Queue never reaches `dnc_list`".
+Wrong: there were *two* writers, not one, each keyed on a different id.
+
+| Writer | Keyed on | Covered |
+|---|---|---|
+| `ccApplyDisposition` | `contact_id` | the Outbound Queue |
+| `syncLeadFromCall` | `lead_id` | Leads, and a lead-sourced callback |
+
+So Leads *was* covered, which my note denied. `syncLeadFromCall` even states the principle
+the rest of the code did not follow: *"that obligation does not depend on which screen
+logged the call."* What actually fell through was a call carrying **neither** id — Helpdesk
+Calls, My Dashboard, Inbound, a non-lead callback reminder — where "Do Not Call" was written
+onto the call row and suppressed nothing. The Collections queue missed it a third way: it
+posts to `collectionsOpsContact`, which had no DNC handling at all, while its disposition
+list derives from the same catalogue where `do_not_call` carries `AddToDNC: true`.
+
+The fix is `ccEnsureDNC` (`dnc_write.go`): one writer, keyed on the **phone**, which every
+one of those paths has. `dnc_list` is a list of numbers — the id was never the right key,
+it was just the key each path happened to be holding. It is idempotent, so the lead and
+contact paths calling it too cost one no-op statement and stay correct on their own. The
+collections path logs a credit event when the number on file is unusable, rather than
+returning a clean 201 on a suppression that did not happen. The admin endpoint is
+deliberately *not* merged in: it uses `DO UPDATE` and answers 422 on a bad number, because
+a person typing into a form should be told, where a disposition's side-effect cannot be.
+
+**2. The lead/contact disagreement was nine dispositions, not eight.**
+
+`leadStatusFromCall` is answered from `ccLeadStatusByDisposition` (`lead_status_vocab.go`)
+after one pass through `ccDispositionCode`. The substring switch stays as the fallback for
+free text that predates the catalogue. The table is read off each entry's own Hint:
+"stays in the queue" / "stays open until…" means the lead must not be terminal;
+"closes the contact" means it may be.
+
+The nine that used to collapse into a bare `called`: `info_sent`, `call_rejected`,
+`registration_incomplete`, `not_yet_due`, `escalated`, `complaint_logged`,
+`pending_followup` → non-terminal; `wrong_product`, `info_provided` → `closed`.
+
+**`price_objection` was deliberately left at `called`**, which is the one place I changed my
+mind while writing it. Closing the contact but keeping the lead workable is the established
+precedent, not an oversight: "Answered — Not Interested" has always worked that way and
+`leadDeclinedOnCall` exists to handle the consequence. "Rate or Charges Too High" is the
+same kind of fact — the customer saying no, for a reason that can change — and making it
+terminal would have permanently closed leads that may buy next quarter. Terminal is
+unrecoverable (rank 5, forward-only), which is the same property that made the
+`payment_to_verify` bug in §14.5 worth fixing; it is not a knob to turn casually in the
+other direction. `TestLeadStatusMatchesContactStatus` pins the invariant that *does* hold:
+a disposition leaving the contact open must never give the lead a terminal status.
+
+Note for whoever picks this up: another session converged on the same design independently
+and spotted something this write-up had wrong — `ccDispositionCode`'s legacy-label lookup is
+**case-sensitive**, so it must be handed the original casing, not a lowercased string. Their
+version is what is in the tree.
+
+**3. The deny-lists are allow-lists, and derived.**
+
+`dispositionExpectsConversation` used to end on `return true, true`: anything it had not
+been told about meant "a human spoke". That default is what let "Customer Rejected the Call"
+pull write-ups off zero-second rejected calls onto answered ones — caused by the
+fall-through, not by a decision. It now reads `ccDisposition.Connected`, the field whose
+entire job is that fact, and answers `known=false` for wording it cannot place. Every caller
+already treats `known=false` as "no preference", so the unknown case got *safer*, not
+weaker.
+
+The SQL twins are generated from the same source (`disposition_connect_vocab.go`), and
+`sqlDispositionFitsCall` now names its "yes" branch with `sqlConversationDispositions()`
+instead of reaching it through `ELSE connected`. `TestSQLDispositionListsAreExhaustive`
+asserts every catalogue code and label sits in exactly one of the three lists, so the ELSE
+is reachable only by genuinely unrecognised text.
+
+One thing the new test caught immediately, which is the best argument for having written it:
+`other` carries `Connected: true`, so SQL called it a conversation while Go called it
+unknown. Its whole meaning is "I cannot tell you from the dropdown" and the note behind it
+may equally say the line was engaged — so it is now declared as no evidence in both readers,
+via one map.
+
+**4. `repayment_reminder` is not dead, and my note said it was.**
+
+I wrote it as "a valid template category the dunning worker never reads", implying nothing
+could use it. In fact a campaign journey picks templates **by id** (`campaign_steps.go`), so
+category is only a label there — and its three starter templates are genuine *pre-due*
+reminders ("your repayment is due on {{due_date}}"), properly distinct from an arrears
+demand. It is un-automated, not dead, which is a different thing.
+
+The real hazard is the reverse of what I wrote: `collections` is the only category that is
+also a **switch**. `collections_dunning.go` selects `WHERE category = 'collections'` and,
+finding nothing, reports "no collections template configured" through a worker heartbeat —
+no error, no alert, no bounce. And "Repayment Reminder" is the obvious-looking place to file
+arrears copy. So:
+
+- `templateCategoryAutomation` records which categories a worker reads and what stops.
+- `updateTemplate` and `deleteTemplate` both refuse with 409 when the change would leave an
+  automated category empty, naming what would stop. The same guard on both routes, because
+  a rule on one of two routes is not a rule — which is how this item started.
+- The editor labels them at the point of choice: "Collections — Sent Automatically" and
+  "Repayment Reminder — Campaigns Only".
+- `TestDunningReadsAnAutomatedCategory` reads the worker's source, so moving the query's
+  category without declaring it fails loudly.
+
+### 14.9 Still open, and the first one is a decision rather than a fix
+
+1. **Phoenix should accept `contract`, and I did not ship it.** `resolveEmploymentType`
+   (`core-api/internal/httpapi/portal_handlers.go`) takes four words; `contract` becomes
+   `not_specified` and scores at the 0.20 unknown variance threshold instead of the 0.25 its
+   own scorer already has for contractors. **But 0.25 is LOOSER than 0.20**, so "fixing" it
+   tolerates more income variance and approves more contractors. That is a credit-policy
+   decision in a different system, not a bug fix, and it is not mine to make. It is also
+   entirely theoretical today: measured 2026-10-06, `app.loan_applications` holds 8 rows —
+   7 null, 1 salaried, **zero `contract`** — so no borrower has ever been affected.
+2. **`leadDeclinedOnCall` is still a substring matcher** over "not interested" and "do not
+   call". Now that `leadStatusFromCall` routes through the catalogue, this is the last reader
+   in the group that does not. Arguably `price_objection` belongs in it — the customer saying
+   no — but adding it changes when an earned `interested` is withdrawn, which moves the
+   qualified count and Sales hand-offs. Worth doing deliberately, with the numbers in front
+   of you, not as a tidy-up.
+3. **The dunning worker picks a template by NAME**, matching DPD bands ("1-30 Days", "91-180",
+   "360+"). Rename a template and it silently stops matching its band. Same class as item 4
+   above and not covered by the category guard.

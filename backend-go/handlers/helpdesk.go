@@ -4209,14 +4209,27 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// stored lower-case to match the queue + Zoho-import convention so a manually
 		// logged call sorts alongside the ones the dialer recorded.
 		purpose := strings.ToLower(strings.TrimSpace(b.Purpose))
-		// Apply the outbound-queue consequences of this call's disposition to the linked
-		// contact — the same side-effects the queue's old dedicated endpoint ran, so the
-		// Queue can now share the Leads call form without losing its dialer mechanics
-		// (contact status transitions, the agreed call-back time, DNC suppression). The
-		// last-called stamp + cool-down are already handled by ccStampQueueForPhone below,
-		// on every call; this adds only what a disposition means for the contact. The
-		// agent's label is normalised to the canonical code before it's applied.
-		applyQueueContact := func() {
+		// Apply everything this call's disposition means, in two parts.
+		//
+		// FIRST, unconditionally: the do-not-call obligation. It belongs to the CALL, not
+		// to whichever id the screen happened to send. Four of the seven screens that
+		// mount the shared call form pass no lead_id and no contact_id — Helpdesk Calls,
+		// My Dashboard, Inbound, a non-lead callback reminder — so "Do Not Call" was
+		// recorded on the call row and suppressed nothing at all. ccEnsureDNC is keyed on
+		// the phone, which every one of these paths has, and is idempotent, so the lead
+		// and contact paths writing it too costs one no-op statement.
+		//
+		// SECOND, only with a contact_id: the outbound-queue consequences — the same
+		// side-effects the queue's old dedicated endpoint ran, so the Queue can share the
+		// Leads call form without losing its dialer mechanics (contact status transitions,
+		// the agreed call-back time). The last-called stamp + cool-down are already handled
+		// by ccStampQueueForPhone below, on every call. The agent's label is normalised to
+		// the canonical code before anything is applied.
+		applyCallConsequences := func() {
+			if ccDispositionAddsToDNC(b.Disposition) {
+				ccEnsureDNC(r.Context(), db, b.CustomerPhone,
+					"Agent disposition: Do Not Call", agentID, "hdLogCall")
+			}
 			if b.ContactID == nil {
 				return
 			}
@@ -4291,7 +4304,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 					syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec, toInt64(upd[0]["id"]))
 				}
 				ccStampQueueForPhone(r.Context(), db, b.CustomerPhone) // clear a fulfilled queue call-back
-				applyQueueContact()
+				applyCallConsequences()
 				if ticketID != nil {
 					db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
 				}
@@ -4364,7 +4377,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// is what makes the call-back reminder drop the moment the customer is actually
 		// called (e.g. logged straight from the reminder popup), instead of nagging on.
 		ccStampQueueForPhone(r.Context(), db, b.CustomerPhone)
-		applyQueueContact()
+		applyCallConsequences()
 
 		if ticketID != nil {
 			db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck

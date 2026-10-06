@@ -765,8 +765,16 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 
 		user := core.UserFromCtx(r.Context())
 
-		// Resolve cif_number from the assignment before logging the contact
-		assRows, aErr := db.PGQuery(r.Context(), `SELECT account_cif FROM collection_assignments WHERE id = $1`, id)
+		// Resolve cif_number from the assignment before logging the contact — and the
+		// customer's phone with it, because a "Do Not Call" logged here has to reach
+		// dnc_list and this handler had no DNC path at all. The join matches the one the
+		// queue list uses, so the number suppressed is the number the agent was shown.
+		assRows, aErr := db.PGQuery(r.Context(), `
+			SELECT ca.account_cif, cust.phone
+			  FROM collection_assignments ca
+			  LEFT JOIN app.customers cust
+			         ON COALESCE(NULLIF(cust.cif,''), cust.contact_id) = ca.account_cif
+			 WHERE ca.id = $1`, id)
 		if aErr != nil || len(assRows) == 0 {
 			respondErr(w, 404, "Assignment not found")
 			return
@@ -780,6 +788,22 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Log contact failed")
 			return
+		}
+		// A "Do Not Call" chosen on the collections queue means the same thing it means
+		// on every other screen. This list derives its dispositions from the same
+		// catalogue, where do_not_call carries AddToDNC: true, so the option was offered
+		// here while nothing acted on it.
+		if ccDispositionAddsToDNC(b.Disposition) {
+			if !ccEnsureDNC(r.Context(), db, str(assRows[0]["phone"]),
+				"Agent disposition: Do Not Call", &user.ID, "collectionsOpsContact cif="+cif) {
+				// Say so rather than reporting a clean 201 on a suppression that did not
+				// happen: this customer asked not to be called and we cannot honour it
+				// from the number on file. The contact itself is already recorded.
+				logCreditEvent(r.Context(), db, r, "collections", "contact", fmt.Sprint(rows[0]["id"]), cif,
+					"dnc_not_suppressed",
+					"Do Not Call recorded but NOT suppressed — no usable phone on file", nil,
+					map[string]any{"phone": str(assRows[0]["phone"])})
+			}
 		}
 		// The summary line names whichever fact the screen actually recorded, so the activity
 		// feed never reads "outcome: " with nothing after it.

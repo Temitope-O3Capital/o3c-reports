@@ -3175,11 +3175,27 @@ func ccAgentPerformance(db *core.DB) http.HandlerFunc {
 // a connected call whose disposition is "Not Interested" is not simply "called".
 // The Leads page used to have its own four-outcome vocabulary that existed
 // nowhere else; this maps the shared vocabulary the whole call centre uses.
+//
+// A disposition that ccDispositionCode resolves to a code the catalogue has an
+// opinion about (ccLeadStatusByDisposition) is answered from there FIRST — one
+// normaliser, consulted once, instead of this function re-deriving the same
+// answer from substrings and occasionally landing somewhere else. What follows
+// below is deliberately kept as the fallback: free text that predates the
+// catalogue, or doesn't match any entry in it, still needs a reader, and the
+// substring switch is still the right one for that case.
 func leadStatusFromCall(outcome string, disposition *string) string {
-	d := ""
+	raw := ""
 	if disposition != nil {
-		d = strings.ToLower(strings.TrimSpace(*disposition))
+		raw = strings.TrimSpace(*disposition)
 	}
+	// ccDispositionCode's own legacy-label lookup is case-sensitive, so it needs the
+	// original casing, not the lowercased d used by the substring switch below.
+	if raw != "" {
+		if ls, ok := ccLeadStatusByDisposition[ccDispositionCode(raw)]; ok {
+			return ls
+		}
+	}
+	d := strings.ToLower(raw)
 	switch {
 	// ── Win-back outcomes, matched FIRST ──────────────────────────────────────
 	// These are full sentences, and several contain words the generic matching
@@ -3556,23 +3572,14 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 
 	// A lead marked do-not-call goes on the DNC list, exactly as the old Leads
 	// form did — that obligation does not depend on which screen logged the call.
+	// That sentence was true and only half-implemented: this path covered leads,
+	// ccApplyDisposition covered queue contacts, and a call carrying neither id was
+	// covered by nobody. ccEnsureDNC is now the single writer, keyed on the phone.
 	if status == "dnc" {
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT customer_phone FROM call_center_leads WHERE id=$1`, leadID); len(rows) > 0 {
-			// Canonical form on write, like every other DNC writer — storing the lead's
-			// raw phone is how the list ended up holding the same number in several
-			// shapes, which is why none of the suppression checks matched.
-			if np := normalizePhone(str(rows[0]["customer_phone"])); len(np) == 10 {
-				if _, err := db.PGExec(ctx,
-					`INSERT INTO dnc_list (phone, reason, added_by)
-					 VALUES ($1, 'Customer requested', $2) ON CONFLICT (phone) DO NOTHING`,
-					np, agentID); err != nil {
-					slog.Error("syncLeadFromCall: add to DNC", "lead", leadID, "err", err)
-				}
-			} else {
-				slog.Warn("syncLeadFromCall: do-not-call NOT suppressed — unusable phone",
-					"lead", leadID)
-			}
+			ccEnsureDNC(ctx, db, str(rows[0]["customer_phone"]), "Customer requested", agentID,
+				"syncLeadFromCall lead="+strconv.FormatInt(leadID, 10))
 		}
 	}
 }

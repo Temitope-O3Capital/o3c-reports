@@ -305,10 +305,16 @@ export default function CampaignTemplateEditor() {
         {/* Category */}
         <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
           style={{ ...inp, fontSize: TEXT.sm, flexShrink: 0 }}>
+          {/* Collections is first and labelled because it is the only category that is
+              also a switch: the dunning worker sends what is filed here, and finding
+              nothing it reports an idle heartbeat rather than an error. Repayment
+              Reminder is the plausible-looking place to file arrears copy and nothing
+              automated reads it, so the labels say which is which at the point of
+              choice. The server refuses to let the last Collections template leave. */}
+          <option value="collections">Collections — Sent Automatically</option>
           <option value="marketing">Marketing</option>
-          <option value="collections">Collections</option>
           <option value="onboarding">Onboarding</option>
-          <option value="repayment_reminder">Repayment Reminder</option>
+          <option value="repayment_reminder">Repayment Reminder — Campaigns Only</option>
           <option value="general">General</option>
         </select>
 

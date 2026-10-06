@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,6 +27,54 @@ func templateCategoryList() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// templateCategoryAutomation names the categories a WORKER reads on a schedule, and says
+// what stops when one is left with nothing in it.
+//
+// Exactly ONE category is load-bearing, and the asymmetry is the whole problem. Every
+// other category is a label: a campaign journey picks its template by id
+// (campaign_steps.go), so filing something under 'marketing' or 'repayment_reminder'
+// changes how it sorts on a screen and nothing else. 'collections' is different —
+// collections_dunning.go selects WHERE category = 'collections' and, finding nothing,
+// reports "no collections template configured" through a worker heartbeat and sends no
+// demands. No error, no alert, no bounce: a heartbeat that reads idle.
+//
+// 'repayment_reminder' is the trap this exists to close, and it is the obvious place to
+// file collections copy. It is NOT dead — the three starter templates under it are
+// genuine pre-due reminders ("your repayment is due on {{due_date}}"), properly distinct
+// from an arrears demand, and a campaign can send them. But nothing automated reads it,
+// so a dunning template re-filed there simply stops going out.
+var templateCategoryAutomation = map[string]string{
+	"collections": "the dunning worker, which writes to customers in arrears",
+}
+
+// templateCategoryStrandsAutomation reports whether changing or removing this template
+// would leave an automated category empty — and so silently switch off the worker that
+// reads it.
+//
+// newCategory == "" means the template is being deleted. Returns the stranded category
+// and the consequence, for an error message that names what would stop rather than just
+// refusing.
+func templateCategoryStrandsAutomation(ctx context.Context, db *core.DB, id, newCategory string) (string, string, bool) {
+	rows, err := db.PGQuery(ctx, `SELECT category FROM app.message_templates WHERE id = $1`, id)
+	if err != nil || len(rows) == 0 {
+		// Nothing to strand, or nothing we can read. Never block an edit on a failed
+		// lookup: the guard exists to prevent a silent stop, not to invent a new one.
+		return "", "", false
+	}
+	current := str(rows[0]["category"])
+	consequence, automated := templateCategoryAutomation[current]
+	if !automated || current == newCategory {
+		return "", "", false
+	}
+	left, err := db.PGQuery(ctx,
+		`SELECT count(*) AS n FROM app.message_templates WHERE category = $1 AND id <> $2`,
+		current, id)
+	if err != nil || len(left) == 0 || toInt64(left[0]["n"]) > 0 {
+		return "", "", false
+	}
+	return current, consequence, true
 }
 
 var templateUpdateCols = []string{
@@ -207,8 +256,22 @@ func updateTemplate(db *core.DB) http.HandlerFunc {
 		// error anywhere. A 422 here rather than createTemplate's quiet coercion to
 		// "general", because an edit names a category deliberately.
 		if v, ok := body["category"]; ok {
-			if c, _ := v.(string); !templateCategories[c] {
+			c, _ := v.(string)
+			if !templateCategories[c] {
 				respondErr(w, 422, "category must be one of: "+vocabList(templateCategoryList()))
+				return
+			}
+			// Validating the WORD was only half of it. The category is also a switch: move
+			// the last 'collections' template out and the dunning worker stops writing to
+			// customers in arrears, reporting nothing but an idle heartbeat. Refusing is the
+			// same answer deleteTemplate already gives for a template an active campaign
+			// needs — and this one names what would stop, because "invalid category" would
+			// not explain it.
+			if stranded, consequence, would := templateCategoryStrandsAutomation(r.Context(), db, id, c); would {
+				respondErr(w, 409, "This is the last '"+stranded+"' template, and "+consequence+
+					" reads that category. Moving it to '"+c+"' would stop those messages "+
+					"going out, with no error anywhere. Create the replacement first, then "+
+					"re-file this one.")
 				return
 			}
 		}
@@ -259,6 +322,15 @@ func deleteTemplate(db *core.DB) http.HandlerFunc {
 			`SELECT COUNT(*) FROM campaigns WHERE template_id=$1 AND status IN ('active','scheduled','sending')`, id).Scan(&refCount)
 		if refCount > 0 {
 			respondErr(w, 409, "Cannot delete a template used by active or scheduled campaigns")
+			return
+		}
+		// The same switch, on the other write path. Deleting the last 'collections'
+		// template switches the dunning worker off exactly as moving it would, so the
+		// guard belongs here too — a rule on one of two routes is not a rule.
+		if stranded, consequence, would := templateCategoryStrandsAutomation(r.Context(), db, id, ""); would {
+			respondErr(w, 409, "This is the last '"+stranded+"' template, and "+consequence+
+				" reads that category. Deleting it would stop those messages going out, "+
+				"with no error anywhere.")
 			return
 		}
 		db.PGExec(r.Context(), "DELETE FROM message_templates WHERE id=$1", id) //nolint:errcheck

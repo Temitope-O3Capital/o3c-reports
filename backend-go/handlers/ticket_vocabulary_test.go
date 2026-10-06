@@ -102,14 +102,19 @@ func constraintValues(def string) []string {
 	return out
 }
 
+// inSQLList reports whether a wording appears in one of the rendered SQL IN lists.
+// Package-level rather than a closure so both tests below read the same lists the same
+// way — a second copy of this three-line comparison is how two tests come to disagree
+// about what a list contains.
+func inSQLList(list, s string) bool {
+	return strings.Contains(list, "'"+strings.ToLower(strings.TrimSpace(s))+"'")
+}
+
 // TestDispositionVocabularyAgrees keeps the Go classifier and its SQL twin in
 // step. They make the same judgement in two languages — Go for the HTTP path,
 // SQL for the absorb query — and a disposition that drifts into only one of them
 // is how a write-up silently lands on the wrong call again.
 func TestDispositionVocabularyAgrees(t *testing.T) {
-	inSQLList := func(list, s string) bool {
-		return strings.Contains(list, "'"+strings.ToLower(strings.TrimSpace(s))+"'")
-	}
 	// DERIVED from the catalogue, not frozen.
 	//
 	// This was a hand-written literal whose comment claimed it held "every disposition the
@@ -145,17 +150,68 @@ func TestDispositionVocabularyAgrees(t *testing.T) {
 			if known {
 				t.Errorf("empty disposition should be unknown")
 			}
-		case inSQLList(sqlNoContactDispositions, d):
+		case inSQLList(sqlNoContactDispositions(), d):
 			if !known || expects {
 				t.Errorf("%q is in the SQL no-contact list but Go says expects=%v known=%v", d, expects, known)
 			}
-		case inSQLList(sqlAmbiguousDispositions, d):
+		case inSQLList(sqlAmbiguousDispositions(), d):
 			if known {
 				t.Errorf("%q is in the SQL ambiguous list but Go treats it as known", d)
 			}
-		default:
+		case inSQLList(sqlConversationDispositions(), d):
 			if !known || !expects {
-				t.Errorf("%q is in neither SQL list, so Go must treat it as implying a conversation; got expects=%v known=%v", d, expects, known)
+				t.Errorf("%q is in the SQL conversation list but Go says expects=%v known=%v", d, expects, known)
+			}
+		default:
+			// SQL has no opinion on this exact wording — the SQL lists compare literal
+			// text while Go normalises first, so a legacy stored form like "Interested"
+			// reaches none of them. What must hold is that Go's answer comes from the
+			// CATALOGUE ENTRY it resolved to, and never from a fall-through default.
+			//
+			// This branch is what the change is about. It used to read "in neither SQL
+			// list, so Go must treat it as implying a conversation" — the deny-list
+			// assumption, asserted as a test, which is why adding a disposition with
+			// Connected:false could pass while behaving wrongly.
+			code := ccDispositionCode(d)
+			cat, ok := ccDispositionByCode(code)
+			if !ok || code == "connected" || ccNoEvidenceDispositionCodes[code] {
+				if known {
+					t.Errorf("%q resolves to %q, which is no evidence either way, "+
+						"but Go claims to know (expects=%v)", d, code, expects)
+				}
+				continue
+			}
+			if !known || expects != cat.Connected {
+				t.Errorf("%q resolves to %q (Connected=%v) but Go says expects=%v known=%v",
+					d, code, cat.Connected, expects, known)
+			}
+		}
+	}
+}
+
+// TestSQLDispositionListsAreExhaustive is the allow-list property itself, as a test.
+//
+// Every catalogue code and label must sit in exactly ONE of the three SQL lists. While
+// those lists were hand-typed consts and the SQL CASE ended on `ELSE connected`, a new
+// disposition belonged to no list and silently inherited "a human spoke" — which is how
+// "Customer Rejected the Call" came to pull write-ups off zero-second rejected calls onto
+// answered ones. Now the lists are derived from ccDisposition.Connected, so this test
+// cannot fail for a newly added disposition; it fails if someone re-freezes them, or
+// introduces a fourth state with nowhere to go.
+func TestSQLDispositionListsAreExhaustive(t *testing.T) {
+	noContact, ambiguous, conversation := sqlNoContactDispositions(), sqlAmbiguousDispositions(), sqlConversationDispositions()
+	for _, d := range ccDispositions {
+		for _, form := range []string{d.Code, d.Label} {
+			n := 0
+			for _, list := range []string{noContact, ambiguous, conversation} {
+				if inSQLList(list, form) {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Errorf("%q (code %q) is in %d of the three SQL lists, want exactly 1 — "+
+					"a disposition in none of them would be judged by the CASE's ELSE branch "+
+					"rather than by a rule anyone wrote", form, d.Code, n)
 			}
 		}
 	}
