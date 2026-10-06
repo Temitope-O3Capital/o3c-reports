@@ -221,18 +221,9 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 	buckets := make([]map[string]any, 0, len(bucketRows))
 	for _, b := range bucketRows {
 		bucket := str(b["dpd_bucket"])
-		// Matched here rather than through dunningTemplateFor on purpose. The policy that
-		// matters is dunningTemplateMatches — a band is matched by the template's NAME —
-		// and that is stable and separately tested, whereas the picker around it has had
-		// its signature and its fallback changed underneath this file once already. A
-		// reporting endpoint should not break because the thing it reports on was
-		// refactored.
-		//
-		// No match means the run SKIPS the band: there is no fallback to the
-		// lowest-numbered template, because that would have sent the 1-30 courtesy
-		// wording to a debt of any age. So a false here is not "borrows a softer letter",
-		// it is "nobody in this band is written to at all" — a quieter failure than the
-		// wrong letter and a worse one to leave invisible.
+		// Exact band match first, by the same policy the run uses: a band is matched by
+		// the template's NAME (dunningTemplateMatches), which is stable and separately
+		// tested.
 		var tplID int64
 		var tplName string
 		matched := false
@@ -241,6 +232,29 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 				tplID, tplName, matched = toInt64(t["id"]), str(t["name"]), true
 				used[tplID] = true
 				break
+			}
+		}
+		// AND, when there is no exact match, what the run will ACTUALLY send.
+		//
+		// This block previously reported "no match" as "nobody in this band is written to
+		// at all", and the page said so in red. That was true of a design that never
+		// shipped: dunningTemplateFor was briefly changed to refuse, then settled on
+		// SUBSTITUTING the firmest wording at or below the band, because skipping would
+		// have stopped contacting delinquent borrowers to fix a routing fault — see the
+		// note on that function. Reporting a skip that does not happen is worse than the
+		// coupling this file was trying to avoid: a collections manager would read "nobody
+		// here is written to" about people who are being written to, in wording chosen for
+		// a younger debt.
+		//
+		// So it calls the picker for the substitute. The signature is committed and tested
+		// now; the previous objection was to depending on one that only existed in another
+		// session's working copy.
+		var subID int64
+		var subName string
+		if !matched && len(tplRows) > 0 {
+			if sub, exact := dunningTemplateFor(tplRows, bucket); !exact && sub != nil {
+				subID, subName = toInt64(sub["id"]), str(sub["name"])
+				used[subID] = true
 			}
 		}
 		buckets = append(buckets, map[string]any{
@@ -257,6 +271,9 @@ func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
 			"template_id":      tplID,
 			"template_name":    tplName,
 			"template_matches": matched,
+			// What is actually sent when no template names this band.
+			"substitute_id":   subID,
+			"substitute_name": subName,
 		})
 	}
 

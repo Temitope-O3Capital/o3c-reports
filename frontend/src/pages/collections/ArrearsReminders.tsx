@@ -58,6 +58,9 @@ interface CoverageBucket {
   rendered: number
   template_id: number
   template_name: string
+  // What the run actually sends when no template names this band.
+  substitute_id?: number
+  substitute_name?: string
   template_matches: boolean
 }
 interface Coverage {
@@ -197,12 +200,25 @@ export default function ArrearsReminders() {
     )},
     { key: 'template_name', label: 'Wording', render: r => r.template_matches ? (
       <div style={{ fontSize: TEXT.sm }}>{shortTpl(r.template_name)}</div>
+    ) : r.substitute_name ? (
+      // No template names this band, so the run SUBSTITUTES the firmest wording at or
+      // below it. This cell used to read "skipped — nobody here is written to", which
+      // described a design that never shipped: skipping would have stopped contacting
+      // delinquent borrowers to fix a routing fault. These people ARE written to, in
+      // wording written for a younger debt, which is the thing worth showing.
+      <div>
+        <div style={{ fontSize: TEXT.sm, color: AMBER, fontWeight: FW.semibold }}>
+          {shortTpl(r.substitute_name)}
+        </div>
+        <div style={{ fontSize: TEXT['2xs'], color: AMBER }}>
+          borrowed — no wording for this band
+        </div>
+      </div>
     ) : (
-      // No fallback exists: the run refuses a band it has no wording for rather than
-      // sending the gentlest letter, so nobody in this band is written to at all.
+      // Nothing at or below this band either, so there is genuinely nothing to send.
       <div>
         <div style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>none</div>
-        <div style={{ fontSize: TEXT['2xs'], color: RED }}>skipped — nobody here is written to</div>
+        <div style={{ fontSize: TEXT['2xs'], color: RED }}>no wording available</div>
       </div>
     )},
     { key: 'people', label: 'In Arrears', align: 'right',
