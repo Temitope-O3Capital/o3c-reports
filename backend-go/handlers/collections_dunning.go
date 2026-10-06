@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -272,7 +273,11 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		return 0, nil
 	}
 
-	var dispatched, suppressed, noContact, failed int64
+	var dispatched, suppressed, noContact, failed, substituted int64
+	// Facilities whose DPD band had no template of its own, counted per band so the
+	// heartbeat can name WHICH wording is missing rather than just how many were
+	// substituted. A renamed template is the likely cause and the band name points at it.
+	substitutedBands := map[string]int64{}
 	for _, r := range rows {
 		cand := dunningCandidate{
 			PartyID:    toInt64(r["party_id"]),
@@ -285,7 +290,15 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 			Email:      strings.TrimSpace(str(r["email"])),
 			Phone:      strings.TrimSpace(str(r["phone"])),
 		}
-		tpl := dunningTemplateFor(tplRows, cand.DPDBucket)
+		// The facility is still written to — a band with no wording of its own is a gap in
+		// the template set, not a reason to leave a delinquent borrower uncontacted. But a
+		// substituted band is recorded, because the old fallback picked by id and so could
+		// send a year-overdue borrower the 1-30 Days note with nothing to show it had.
+		tpl, exactBand := dunningTemplateFor(tplRows, cand.DPDBucket)
+		if !exactBand {
+			substituted++
+			substitutedBands[cand.DPDBucket]++
+		}
 		tplID := toInt64(tpl["id"])
 		// Resolved once per candidate, not per channel: the name does not change with
 		// the medium, only the amount does.
@@ -392,6 +405,22 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 
 	detail := fmt.Sprintf("%s · %d dispatched, %d suppressed, %d no-contact, %d failed across %d facilities",
 		mode, dispatched, suppressed, noContact, failed, len(rows))
+	// A substituted band is reported, and named. Silence is what made the old fallback
+	// dangerous: the run read identically whether every facility got the wording written
+	// for it, or the oldest arrears got the 1-30 Days note. Sorted so the detail string is
+	// stable between runs and two heartbeats can be diffed.
+	if substituted > 0 {
+		bands := make([]string, 0, len(substitutedBands))
+		for b, n := range substitutedBands {
+			bands = append(bands, fmt.Sprintf("%s×%d", b, n))
+		}
+		sort.Strings(bands)
+		detail += fmt.Sprintf(" · %d sent a SUBSTITUTED band (no template names theirs): %s "+
+			"— check whether a template was renamed", substituted, strings.Join(bands, ", "))
+	}
+	// Still 'ok': every facility was written to, which is the behaviour Collections asked
+	// for. The substitution belongs in the detail, not in the status — a worker that reads
+	// 'error' while doing exactly what it was told to do is a worker people stop reading.
 	if dispatched == 0 {
 		WorkerBeat(ctx, db, "collections_dunning", "idle", detail, "")
 	} else {
@@ -713,15 +742,61 @@ func dunningTemplateMatches(name, bucket string) bool {
 	return false
 }
 
-// dunningTemplateFor picks the template written for this facility's age, falling back
-// to the lowest-numbered collections template when none names the bucket.
-func dunningTemplateFor(rows []core.Row, bucket string) core.Row {
-	for _, r := range rows {
-		if dunningTemplateMatches(str(r["name"]), bucket) {
-			return r
+// dunningBandOrder lists the DPD bands from gentlest wording to firmest. It exists so a
+// substitution can be made in a direction someone chose, rather than by id.
+var dunningBandOrder = []string{"1-30", "31-60", "61-90", "91-180", "181-360", "360+"}
+
+// dunningTemplateFor picks the template written for this facility's age, and reports
+// whether it was an EXACT band match.
+//
+// Every facility is still written to — TestDunningTemplateForFallsBackToFirst records that
+// as deliberate, and it is right: a band with no wording of its own is a gap in the
+// template set, not a reason to leave a delinquent borrower uncontacted.
+//
+// WHAT WAS WRONG WAS THE DIRECTION. The fallback was `rows[0]`, the lowest-numbered
+// collections template, which on 2026-10-06 was id 7, "Arrears Reminder · 1-30 Days" — the
+// SOFTEST of the six. Since bands are matched by NAME, renaming the 360+ template sent the
+// 401 facilities over a year overdue the 1-30 Days courtesy wording. Ordering by id is
+// ordering by the accident of when someone created a row; it carried no relationship to
+// severity at all, so the fallback was as likely to be absurdly lenient as roughly right.
+//
+// It now walks DOWN dunningBandOrder from the facility's own band and takes the firmest
+// wording that exists at or below it. A 360+ facility with its own template renamed gets
+// 181-360, the next-harshest, instead of the gentlest. Leniency is still the direction of
+// any error — we would rather under-state a demand than over-state one — but it is now one
+// step of leniency rather than six.
+//
+// The caller counts every non-exact match and names the band in the worker heartbeat, so a
+// renamed template shows up as a number someone can read instead of as the wrong letter
+// quietly arriving.
+func dunningTemplateFor(rows []core.Row, bucket string) (core.Row, bool) {
+	match := func(b string) (core.Row, bool) {
+		for _, r := range rows {
+			if dunningTemplateMatches(str(r["name"]), b) {
+				return r, true
+			}
 		}
+		return nil, false
 	}
-	return rows[0]
+	if r, ok := match(bucket); ok {
+		return r, true
+	}
+	for i := len(dunningBandOrder) - 1; i >= 0; i-- {
+		if dunningBandOrder[i] != bucket {
+			continue
+		}
+		// Found where this band sits. Take the firmest wording at or below it.
+		for j := i - 1; j >= 0; j-- {
+			if r, ok := match(dunningBandOrder[j]); ok {
+				return r, false
+			}
+		}
+		break
+	}
+	// Either the band is not one we know, or nothing at or below it has a template. The
+	// lowest-numbered template is the last resort, and being too gentle with a facility we
+	// cannot classify is the safe direction for a demand for money.
+	return rows[0], false
 }
 
 // nullableInt64 keeps a zero id out of a foreign-keyed column.

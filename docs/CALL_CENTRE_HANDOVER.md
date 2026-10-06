@@ -883,30 +883,81 @@ arrears copy. So:
 - `TestDunningReadsAnAutomatedCategory` reads the worker's source, so moving the query's
   category without declaring it fails loudly.
 
-### 14.9 Still open, and the first one is a decision rather than a fix
+### 14.9 The last two code items, and a decision that is not mine
 
-1. **Phoenix should accept `contract`, and I did not ship it.** `resolveEmploymentType`
+**`leadDeclinedOnCall` reads codes now, and that closed an asymmetry I had not spotted.**
+
+The function is the ONE thing allowed to overturn an earned `interested`, and it was the
+last reader in this group still matching substrings. Its own comment said it lowercased the
+input and swapped underscores for spaces so that *"the CODE and the LABEL are matched by
+the same words"*. That held for two of the three declining dispositions and failed for the
+third:
+
+```
+winback_declined              → "winback declined"            → NO MATCH
+"Not Interested in Returning" → the same disposition, as a label → MATCHES
+```
+
+So whether a customer's refusal to come back could un-qualify their lead depended on which
+form the screen sent — and the function's own comment notes that callers differ, the
+outbound queue passing the label while the call-log endpoints pass whatever the client sent.
+Latent when found: measured 2026-10-06, **zero calls and zero leads carry any winback
+disposition in either form**, so nothing had been mis-handled. Same shape as the
+`payment_to_verify` bug in §14.5 — a real defect that had not fired yet.
+
+It now reads `ccDecliningDispositionCodes` after one pass through `ccDispositionCode`.
+`price_objection` is still deliberately absent: see the open item below.
+
+**The dunning fallback was wrong in its DIRECTION, not in existing — and I nearly broke
+something real by not checking.**
+
+My first attempt made `dunningTemplateFor` refuse when no template names the facility's
+band, so the caller would skip it. Then I found `TestDunningTemplateForFallsBackToFirst`,
+which already asserted the opposite, with the reason written in it:
+
+> `// 31-60 has no template of its own: it must still be written to, not skipped.`
+
+That is a deliberate decision and it is the right one — a band with no wording of its own is
+a gap in the template set, not a reason to leave a delinquent borrower uncontacted. Skipping
+would have silently stopped contacting people in order to fix a cosmetic routing fault. This
+is the second time in two days the lesson has been the same one: **check whether an
+inconsistency is a documented decision before "fixing" it.**
+
+What was genuinely wrong is that the fallback was `rows[0]`. Ordering by id is ordering by
+the accident of when someone created a row — it bore no relationship to severity at all. On
+2026-10-06 `rows[0]` was id 7, *"Arrears Reminder · 1-30 Days"*, the **softest of the six**.
+Because bands are matched by NAME, renaming the 360+ template sent the 401 facilities over a
+year overdue the 1-30 Days courtesy wording. No error, heartbeat ok, letter wrong in the
+lenient direction by five bands.
+
+`dunningTemplateFor` now walks DOWN `dunningBandOrder` and takes the firmest wording at or
+below the facility's own band. A 360+ facility whose template was renamed gets 181-360 — the
+next-harshest — instead of the gentlest. Leniency remains the direction of any error, which
+is right for a demand for money, but it is now **one step of leniency rather than up to
+five**. The second return value says whether the band matched exactly, and the worker counts
+every substitution and names the bands in its heartbeat detail, so a renamed template shows
+up as a number someone can read.
+
+Status stays `ok` when substituting. A worker that reads `error` while doing exactly what it
+was told to do is a worker people stop reading.
+
+### 14.10 Open, and genuinely not mine to close
+
+1. **Phoenix should accept `contract`.** `resolveEmploymentType`
    (`core-api/internal/httpapi/portal_handlers.go`) takes four words; `contract` becomes
    `not_specified` and scores at the 0.20 unknown variance threshold instead of the 0.25 its
-   own scorer already has for contractors. **But 0.25 is LOOSER than 0.20**, so "fixing" it
-   tolerates more income variance and approves more contractors. That is a credit-policy
-   decision in a different system, not a bug fix, and it is not mine to make. It is also
-   entirely theoretical today: measured 2026-10-06, `app.loan_applications` holds 8 rows —
-   7 null, 1 salaried, **zero `contract`** — so no borrower has ever been affected.
-2. **`leadDeclinedOnCall` is still a substring matcher** over "not interested" and "do not
-   call". Now that `leadStatusFromCall` routes through the catalogue, this is the last reader
-   in the group that does not. Arguably `price_objection` belongs in it — the customer saying
-   no — but adding it changes when an earned `interested` is withdrawn, which moves the
-   qualified count and Sales hand-offs. Worth doing deliberately, with the numbers in front
-   of you, not as a tidy-up.
-3. **The dunning worker picks a template by NAME, and a rename sends the gentlest letter.**
-   `dunningTemplateMatches` looks for the DPD-bucket token in the template name with digit
-   boundaries either side, and `dunningTemplateFor` falls back to `rows[0]` — the
-   lowest-numbered collections template — when no name matches. Verified 2026-10-06, that
-   row is id 7, *"Arrears Reminder · 1-30 Days"*, the softest wording of the six. So the
-   failure is not silence, which is how I first wrote it: rename the 360+ template and the
-   401 facilities over a year overdue receive the 1-30 Days copy instead. Nothing errors,
-   the heartbeat reads ok, and the letter is simply wrong in the lenient direction. This is
-   the same trap the comment above the template query already describes for the
-   `ORDER BY id LIMIT 1` it replaced — the fallback re-creates it for any renamed band.
-   Not covered by the category guard, which only protects the category from being emptied.
+   own scorer already has for contractors. **But 0.25 is LOOSER than 0.20** — it tolerates
+   more income variance and so approves more contractors. That is a credit-policy decision
+   in a different system, not a bug fix. Theoretical today: `app.loan_applications` holds
+   8 rows — 7 null, 1 salaried, **zero `contract`**.
+2. **Should `price_objection` count as a customer decline?** "Rate or Charges Too High" is
+   the customer saying no, so it arguably belongs in `ccDecliningDispositionCodes` — and for
+   the same reason it is the one disposition left mapping to `called` rather than `closed` in
+   `ccLeadStatusByDisposition`. Both choices follow the "Answered — Not Interested"
+   precedent. Adding it changes when an earned `interested` is withdrawn, which moves the
+   qualified count and what reaches Sales. A judgement with numbers attached, not a tidy-up.
+3. **`COLLECTIONS_DUNNING_SKIP_RECOVERY=off` is closer to a floodgate than a filter** —
+   another session's finding, documented in `dunningTemplateCoverage`. Turning it off
+   releases roughly 460 borrowers whose cases are already with recovery, some with
+   solicitors instructed, into automated demands. Recorded here because it is live risk, not
+   because it is mine.

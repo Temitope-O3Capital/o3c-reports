@@ -86,3 +86,34 @@ var ccLeadStatusByDisposition = map[string]string{
 	// through to its substring matcher, which is still the right reader for the free
 	// text that legacy helpdesk_calls rows carry.
 }
+
+// ccDecliningDispositionCodes are the dispositions where the CUSTOMER THEMSELVES said no.
+//
+// This is the one thing allowed to overturn an earned 'interested', so it is kept narrow
+// and explicit. leadDeclinedOnCall reads it after one pass through ccDispositionCode,
+// which makes it the last reader in this group to stop matching substrings.
+//
+// THE BUG THAT MOTIVATED THE CHANGE. The old version lowercased the input, replaced
+// underscores with spaces, and tested for "not interested" or "do not call". Its own
+// comment said that was so "the CODE and the LABEL are matched by the same words" —
+// and for two of the three it was. For the third it was not:
+//
+//	winback_declined             → "winback declined"          → NO MATCH
+//	"Not Interested in Returning" → same disposition, as a label → MATCHES
+//
+// So whether a customer's refusal to come back could un-qualify their lead depended on
+// which form the screen happened to send — and the function's own comment notes that
+// callers differ, the outbound queue passing the label while the call-log endpoints pass
+// whatever the client sent. Latent when found on 2026-10-06: zero calls and zero leads
+// carry any winback disposition in either form, so nothing had been mis-handled yet.
+//
+// 'price_objection' is deliberately ABSENT, and that is an open question rather than a
+// decision. "Rate or Charges Too High" is the customer saying no, so it arguably belongs
+// here — but adding it changes when an earned 'interested' is withdrawn, which moves the
+// qualified count and what reaches Sales. That is a judgement call with numbers attached,
+// recorded in CALL_CENTRE_HANDOVER §14.9 rather than slipped in here.
+var ccDecliningDispositionCodes = map[string]bool{
+	"answered_not_interested": true,
+	"winback_declined":        true,
+	"do_not_call":             true,
+}

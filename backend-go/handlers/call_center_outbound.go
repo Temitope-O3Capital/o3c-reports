@@ -3314,15 +3314,14 @@ func leadDeclinedOnCall(outcome string, disposition *string) bool {
 	if d == "" {
 		d = outcome
 	}
-	// Underscores become spaces so the CODE ("answered_not_interested") and the
-	// LABEL ("Answered — Not Interested") are matched by the same words. Callers
-	// pass whichever they hold: the outbound queue passes the label, the call-log
-	// and call-edit endpoints pass whatever the client sent.
-	d = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(d), "_", " "))
 	if d == "" {
 		return false
 	}
-	return strings.Contains(d, "not interested") || strings.Contains(d, "do not call")
+	// ONE normaliser, then one set. Original casing, because ccDispositionCode's own
+	// legacy-label lookup is case-sensitive. This replaced a substring test that matched
+	// "answered_not_interested" and "do_not_call" as codes but NOT "winback_declined" —
+	// see ccDecliningDispositionCodes for why that mattered and what it did not break.
+	return ccDecliningDispositionCodes[ccDispositionCode(d)]
 }
 
 // advanceLeadStatus moves a lead to the status a call implies WITHOUT re-recording the

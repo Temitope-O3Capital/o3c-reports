@@ -174,7 +174,11 @@ func TestDunningTemplateForCoversEveryLiveBucket(t *testing.T) {
 		"1-30": 7, "31-60": 13, "61-90": 14, "91-180": 15, "181-360": 16, "360+": 17,
 	}
 	for bucket, id := range want {
-		if got := toInt64(dunningTemplateFor(rows, bucket)["id"]); got != id {
+		tpl, exact := dunningTemplateFor(rows, bucket)
+		if !exact {
+			t.Errorf("bucket %q was substituted; a template names it", bucket)
+		}
+		if got := toInt64(tpl["id"]); got != id {
 			t.Errorf("bucket %q routed to template %d, want %d", bucket, got, id)
 		}
 	}
@@ -185,11 +189,13 @@ func TestDunningTemplateForFallsBackToFirst(t *testing.T) {
 		{"id": int64(7), "name": "Arrears Reminder · 1-30 Days"},
 		{"id": int64(9), "name": "Arrears Reminder · 360+ Days"},
 	}
-	if got := toInt64(dunningTemplateFor(rows, "360+")["id"]); got != 9 {
+	if tpl, _ := dunningTemplateFor(rows, "360+"); toInt64(tpl["id"]) != 9 {
+		got := toInt64(tpl["id"])
 		t.Errorf("360+ picked template %d, want 9", got)
 	}
 	// 31-60 has no template of its own: it must still be written to, not skipped.
-	if got := toInt64(dunningTemplateFor(rows, "31-60")["id"]); got != 7 {
+	if tpl, _ := dunningTemplateFor(rows, "31-60"); toInt64(tpl["id"]) != 7 {
+		got := toInt64(tpl["id"])
 		t.Errorf("31-60 fell back to template %d, want 7", got)
 	}
 }
