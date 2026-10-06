@@ -283,6 +283,38 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			out["flow_from"] = rows[0]["f"]
 			out["flow_to"] = rows[0]["t"]
 		}
+
+		// Posting & reconciliation — linked from the Settlements module, which already
+		// owns this (see this file's header comment), not rebuilt here. A read-only
+		// summary so Treasury surfaces the one place in the app that already does
+		// posting/reconciliation, rather than growing a second, competing one.
+		settlements := map[string]any{
+			"pending_manual_postings": int64(0), "pending_manual_postings_kobo": int64(0),
+			"open_nip_exceptions": int64(0), "open_nip_exceptions_kobo": int64(0),
+			"settled_today_kobo": int64(0), "failed_settlements": int64(0),
+		}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n, COALESCE(SUM(amount_kobo),0) AS kobo
+			  FROM manual_postings WHERE status='pending'`); len(rows) > 0 {
+			settlements["pending_manual_postings"] = toInt64(rows[0]["n"])
+			settlements["pending_manual_postings_kobo"] = toInt64(rows[0]["kobo"])
+		}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n, COALESCE(SUM(amount_kobo),0) AS kobo
+			  FROM settlement_exceptions WHERE status='open'`); len(rows) > 0 {
+			settlements["open_nip_exceptions"] = toInt64(rows[0]["n"])
+			settlements["open_nip_exceptions_kobo"] = toInt64(rows[0]["kobo"])
+		}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COALESCE(SUM(total_credits) FILTER (WHERE status='settled' AND batch_date=CURRENT_DATE),0) AS settled_today_kobo,
+			  COUNT(*) FILTER (WHERE status='failed') AS failed_settlements
+			FROM settlement_batches`); len(rows) > 0 {
+			settlements["settled_today_kobo"] = toInt64(rows[0]["settled_today_kobo"])
+			settlements["failed_settlements"] = toInt64(rows[0]["failed_settlements"])
+		}
+		out["settlements"] = settlements
+
 		respond(w, out, "pg")
 	}
 }

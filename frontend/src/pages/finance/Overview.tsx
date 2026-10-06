@@ -1,5 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { EBar, EDonut } from '../../components/echarts'
@@ -95,6 +96,7 @@ const TXN_COLS: TableCol<TxnRow>[] = [
 ]
 
 export default function FinanceOverview() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(sixMonthsAgoStart())
@@ -195,8 +197,14 @@ export default function FinanceOverview() {
 
       {/* Primary KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
-        <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} icon="trending_up" accent={GREEN}
-          change={pctChange(totals?.total_ngn ?? 0, prev?.total_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
+        {/* Total Revenue is the one card in this strip with a drill-down behind it — what
+            makes it up, by product, straight from Udara's own GL (migration 342). Wrapped
+            rather than adding an onClick to the shared KpiCard, which nothing else needs. */}
+        <div onClick={() => navigate('/finance/revenue-breakdown')} style={{ cursor: 'pointer' }}
+          title="Click for a breakdown of what makes up Total Revenue">
+          <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} icon="trending_up" accent={GREEN}
+            change={pctChange(totals?.total_ngn ?? 0, prev?.total_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
+        </div>
         <KpiCard label="Interest Income" value={fmt(totals?.interest_ngn ?? 0)} icon="account_balance" accent={BLUE}
           change={pctChange(totals?.interest_ngn ?? 0, prev?.interest_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
         <KpiCard label="Fee Income" value={fmt(totals?.fee_ngn ?? 0)} icon="receipt_long" accent={PURPLE}

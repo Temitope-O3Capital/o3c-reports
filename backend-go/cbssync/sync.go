@@ -1080,9 +1080,9 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	    (cbs_id, cbs_account_number, cbs_customer_id, product_code, product_name, status,
 	     principal_kobo, accrued_interest_kobo, ledger_balance_kobo, interest_rate, tenor_days,
 	     commencement_date, maturity_date, liquidation_account,
-	     reference_number, branch_name, rollover_count, date_booked, officer_name,
+	     reference_number, branch_name, branch_code, rollover_count, date_booked, officer_name,
 	     raw, synced_at)
-	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb, NOW())
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb, NOW())
 	    ON CONFLICT (cbs_id) DO UPDATE SET
 	        cbs_account_number = EXCLUDED.cbs_account_number, cbs_customer_id = EXCLUDED.cbs_customer_id,
 	        product_code = EXCLUDED.product_code, product_name = EXCLUDED.product_name, status = EXCLUDED.status,
@@ -1091,6 +1091,7 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	        tenor_days = EXCLUDED.tenor_days, commencement_date = EXCLUDED.commencement_date,
 	        maturity_date = EXCLUDED.maturity_date, liquidation_account = EXCLUDED.liquidation_account,
 	        reference_number = EXCLUDED.reference_number, branch_name = EXCLUDED.branch_name,
+	        branch_code = EXCLUDED.branch_code,
 	        rollover_count = EXCLUDED.rollover_count, date_booked = EXCLUDED.date_booked,
 	        officer_name = EXCLUDED.officer_name,
 	        raw = EXCLUDED.raw, synced_at = NOW()`
@@ -1106,7 +1107,7 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 			gstr(m, "accountStatus"), gkobo(m, "principalAmount"), gkobo(m, "accruedInterest"),
 			gkobo(m, "ledgerBalance"), gnum(m, "applicableInterestRate"), gint(m, "tenure"),
 			gts(m, "commencementDate"), gts(m, "maturityDate"), gstr(m, "liquidationAccount"),
-			gstr(m, "referenceNumber"), gstr(m, "branchName"), gint(m, "rolloverCount"),
+			gstr(m, "referenceNumber"), gstr(m, "branchName"), gstr(m, "branchCode"), gint(m, "rolloverCount"),
 			gts(m, "commencementDate"),
 			// Officer stored VERBATIM, exactly as cbs_loans.officer_name above: 7 of
 			// the 21 app.cbs_officer_map rows carry a trailing space because Udara

@@ -40,6 +40,13 @@ interface TreasuryData {
   // labels its charts from the data instead of hard-coding "30d".
   flow_from?: string
   flow_to?: string
+  // Linked from the Settlements module, which already owns posting/reconciliation
+  // (see backend-go/handlers/finance.go's header comment) — not rebuilt here.
+  settlements?: {
+    pending_manual_postings: number; pending_manual_postings_kobo: number
+    open_nip_exceptions: number; open_nip_exceptions_kobo: number
+    settled_today_kobo: number; failed_settlements: number
+  }
 }
 
 // /api/fd-book/maturity-ladder → wrapped ({ data, data_source, data_as_of }),
@@ -214,6 +221,34 @@ export default function Treasury() {
             sub={`${fmtNum(data?.past_due_fds ?? 0)} deposit${(data?.past_due_fds ?? 0) === 1 ? '' : 's'} past maturity, still active`}
           />
         </div>
+      </SectionCard>
+
+      {/* Linked from Settlements, which already owns posting/reconciliation — see this
+          file's header comment. A read-only summary, not a second posting workflow. */}
+      <SectionCard title="Posting & Reconciliation" subtitle="From the Settlements module" style={{ marginTop: SP[4] }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+          <StatTile
+            label="Pending Manual Postings"
+            value={fmtNum(data?.settlements?.pending_manual_postings ?? 0)}
+            color={(data?.settlements?.pending_manual_postings ?? 0) > 0 ? AMBER : 'var(--txt)'}
+            sub={fmtKoboExact(data?.settlements?.pending_manual_postings_kobo ?? 0)}
+          />
+          <StatTile
+            label="Open NIP Exceptions"
+            value={fmtNum(data?.settlements?.open_nip_exceptions ?? 0)}
+            color={(data?.settlements?.open_nip_exceptions ?? 0) > 0 ? RED : 'var(--txt)'}
+            sub={fmtKoboExact(data?.settlements?.open_nip_exceptions_kobo ?? 0)}
+          />
+          <StatTile label="Settled Today" value={fmtKoboExact(data?.settlements?.settled_today_kobo ?? 0)} color={GREEN} />
+          <StatTile
+            label="Failed Settlements"
+            value={fmtNum(data?.settlements?.failed_settlements ?? 0)}
+            color={(data?.settlements?.failed_settlements ?? 0) > 0 ? RED : 'var(--txt)'}
+          />
+        </div>
+        <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[3] }}>
+          Posting and reconciliation happen in Settlements — this is a read-only summary.
+        </p>
       </SectionCard>
     </Page>
   )

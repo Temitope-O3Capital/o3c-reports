@@ -222,6 +222,9 @@ const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 
 // Finance
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
+const FinanceRevenueBreakdown = lazy(() => import('./pages/finance/RevenueBreakdown'))
+const FinanceBlinkReport = lazy(() => import('./pages/finance/BlinkReport'))
+const FinanceIncomeStatementByBranch = lazy(() => import('./pages/finance/IncomeStatementByBranch'))
 const FinanceTxns         = lazy(() => import('./pages/finance/Transactions'))
 const FinanceIncome       = lazy(() => import('./pages/finance/Income'))
 const FinanceFixedDeposits = lazy(() => import('./pages/finance/FixedDeposits'))
@@ -1237,6 +1240,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Finance */}
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/revenue-breakdown"  element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceRevenueBreakdown /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/blink-report"       element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBlinkReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/income-statement-by-branch" element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncomeStatementByBranch /></PageErrorBoundary></RequireAccess>} />
                   {/* Retired: finance My Dashboard folded into Overview + End of Day */}
                   <Route path="/finance/my-dashboard"       element={<Navigate to="/finance" replace />} />
                   <Route path="/finance/transactions"       element={<RequireAccess page="transactions" user={user}><PageErrorBoundary><FinanceTxns /></PageErrorBoundary></RequireAccess>} />
