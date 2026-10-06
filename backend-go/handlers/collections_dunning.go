@@ -282,10 +282,12 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 			merge := map[string]any{
 				"first_name": dunningFirstName(cand.Name),
 				"full_name":  cand.Name,
-				"facility":   cand.Facility,
-				"dpd":        cand.DPD,
-				"amount":     dunningAmount(cand.AmountKobo, ch),
-				"cif":        cand.CIF,
+				// Rendered, not raw. cand.Facility stays as the book holds it because it
+				// is also the throttle key — see dunningFacilityLabel.
+				"facility": dunningFacilityLabel(cand.Facility),
+				"dpd":      cand.DPD,
+				"amount":   dunningAmount(cand.AmountKobo, ch),
+				"cif":      cand.CIF,
 			}
 			recipient := cand.Phone
 			if ch == "email" {
@@ -477,6 +479,124 @@ func dunningFirstName(full string) string {
 		return joined
 	}
 	return fields[0]
+}
+
+// dunningFacilityNames are the product names that need an editorial decision rather
+// than a rule: a brand that reads as a fragment without its noun, and a code carrying
+// an internal prefix. Keyed on the upper-cased stored value.
+var dunningFacilityNames = map[string]string{
+	"AMEX NAIRA":         "Amex Naira card",
+	"AMEX USD":           "Amex USD card",
+	"BB CLASSIC ACCOUNT": "Classic Account", // "BB" is our channel, not their product
+}
+
+// dunningFacilityAcronyms survive title-casing. Everything here is a real token in the
+// book: scheme and employer abbreviations, and SME. Lower-cased "Sme Loan" would read
+// as a typo on a letter about money.
+var dunningFacilityAcronyms = map[string]bool{
+	"SME": true, "USD": true, "NGN": true, "UI": true, "COOP": true,
+	"SSANU": true, "LIRS": true, "LBIC": true, "NOHIL": true, "BB": true,
+}
+
+// dunningFacilityLabel turns the stored product name into something a customer can be
+// shown. Every template puts it in the first sentence — "Your {{facility|account}} with
+// O3 Capital is {{dpd}} days past due" — and the stored values are internal:
+//
+//	Loan (uploaded)                the import that created the row
+//	SME LOAN                       a CBS code, shouted, with a trailing space
+//	BB Classic Account             our channel prefix
+//	Business Account Instalment 2  our own instalment numbering
+//	PREP, MEMCOS, GAME, AIRTEL     codes that mean nothing outside this building
+//	Classic Accounts               plural, so "Classic Accounts is 5 days past due"
+//
+// All 27 went in raw, so the previews carried "Your Loan (uploaded) with O3 Capital is
+// 5 days past due" and "Your MEMCOS with O3 Capital...". Nothing had been sent live, so
+// no borrower received one.
+//
+// The plural was the whole of the grammar fault, and singularising the noun fixes the
+// agreement across all six templates and all three channels without rewriting a line of
+// copy — every one of them says "is" or "has been" about this phrase. The fault was in
+// the data, not the wording.
+//
+// Returns "" for anything it cannot render safely, which is the design and not a
+// failure: renderTemplate falls back to the default on a blank value, so the sentence
+// becomes "Your account with O3 Capital is 5 days past due". A generic noun is always
+// true. An internal code is always a defect, and on the one kind of letter whose reader
+// is already inclined to suspect a scam, it is the detail that settles it.
+//
+// NOT a substitute for dunningCandidate.Facility, which stays raw on purpose: that value
+// is written to dunning_sends.facility and the throttle matches it back against the
+// product name (BTRIM(ds.facility) = BTRIM(d.product_name)). Prettify it there and no
+// throttle row matches again, so every borrower is reminded afresh every night.
+func dunningFacilityLabel(raw string) string {
+	// Collapsing whitespace also closes the double space in "Business Account  Instalment 1"
+	// and the trailing space Udara ships on "SME LOAN ".
+	s := strings.Join(strings.Fields(raw), " ")
+	if s == "" {
+		return ""
+	}
+	shouted := s == strings.ToUpper(s)
+	oneWord := !strings.ContainsAny(s, " -")
+
+	if lbl, ok := dunningFacilityNames[strings.ToUpper(s)]; ok {
+		return lbl
+	}
+	// "Loan (uploaded)" — the parenthetical names the import, not the product.
+	if i := strings.LastIndexByte(s, '('); i > 0 && strings.HasSuffix(s, ")") {
+		s = strings.TrimSpace(s[:i])
+	}
+	// A separator hyphen written without its spaces ("Classic Accounts- Contactless").
+	// Only asymmetric ones: SSANU-UI is a compound and must stay joined.
+	s = strings.ReplaceAll(s, "- ", " - ")
+	s = strings.ReplaceAll(s, " -", " - ")
+
+	parts := strings.Fields(s)
+	// Our instalment numbering, innermost first: "... Instalment 2" and "... 2".
+	for len(parts) > 1 {
+		last := parts[len(parts)-1]
+		if _, err := strconv.Atoi(last); err == nil ||
+			strings.EqualFold(last, "instalment") || strings.EqualFold(last, "installment") {
+			parts = parts[:len(parts)-1]
+			continue
+		}
+		break
+	}
+	for i, tok := range parts {
+		tok = dunningTitleToken(tok)
+		// The agreement fix: one account, one loan, one card.
+		if l := strings.ToLower(tok); l == "accounts" || l == "loans" || l == "cards" {
+			tok = tok[:len(tok)-1]
+		}
+		parts[i] = tok
+	}
+	s = strings.Join(parts, " ")
+
+	// A bare code nobody has mapped yet. Caught by shape rather than by name so the next
+	// PREP does not have to reach a borrower before anyone notices it.
+	if oneWord && shouted {
+		return ""
+	}
+	return s
+}
+
+// dunningTitleToken calms one SHOUTED word, keeping known acronyms and handling a
+// hyphenated compound a part at a time.
+//
+// Only all-caps tokens are touched. A token that already carries mixed case was written
+// that way deliberately and is left exactly as the book holds it — the same reasoning as
+// dunningFirstName, which refuses to prettify a legal entity on a demand for money.
+func dunningTitleToken(tok string) string {
+	if strings.Contains(tok, "-") {
+		bits := strings.Split(tok, "-")
+		for i, b := range bits {
+			bits[i] = dunningTitleToken(b)
+		}
+		return strings.Join(bits, "-")
+	}
+	if tok == "" || tok != strings.ToUpper(tok) || dunningFacilityAcronyms[tok] {
+		return tok
+	}
+	return strings.ToUpper(tok[:1]) + strings.ToLower(tok[1:])
 }
 
 // dunningAmount renders kobo the way a demand for money has to read — grouped in

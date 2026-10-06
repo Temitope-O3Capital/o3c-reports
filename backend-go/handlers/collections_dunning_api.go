@@ -123,8 +123,128 @@ func dunningStatus(db *core.DB) http.HandlerFunc {
 		}
 		out["skip_recovery"] = dunningSkipRecovery(ctx, db)
 		out["channels"] = dunningChannelReadiness(ctx, db)
+		out["coverage"] = dunningTemplateCoverage(ctx, db)
 		respond(w, out, "pg")
 	}
+}
+
+// dunningTemplateCoverage answers, bucket by bucket, "who would this wording actually
+// reach, and has it ever been seen?".
+//
+// WHY. Six templates were written, one per DPD band, the oldest three carrying the
+// firmest language in the system — recovery referral, and for 360+ the solicitors. Three
+// of them cannot fire. On 2026-10-06 the 91-180 band held 56 delinquent facilities of
+// which 55 were already with recovery, 181-360 held 4 of which 4 were, and 360+ held 401
+// of which 401 were. So the strongest letters this company has ever drafted have never
+// rendered once, not even to the staff inbox, and nobody had reviewed them in situ
+// because there was no way to notice.
+//
+// That matters twice over. Unreviewed copy is the smaller half. The larger half is that
+// COLLECTIONS_DUNNING_SKIP_RECOVERY=off releases exactly those held rows into exactly
+// those templates — around 460 borrowers whose cases are already being worked, some with
+// solicitors instructed, would begin receiving automated demands inviting them to ring in
+// and arrange repayment. The setting reads like a filter. It is closer to a floodgate,
+// and the page should say so before anyone touches it rather than after.
+//
+// The candidate shape here deliberately mirrors batchDunningRun: one row per PERSON
+// (DISTINCT ON the namespaced key, highest balance first), the same materiality floor and
+// age bound, the same recovery exclusion with 'legal' unconditional, and reachability
+// counted the way the run counts it. A coverage figure derived from a different
+// population would be worse than none, because it would be believed.
+func dunningTemplateCoverage(ctx context.Context, db *core.DB) map[string]any {
+	tplRows, err := db.PGQuery(ctx, `
+		SELECT id, name FROM app.message_templates
+		 WHERE category = 'collections' ORDER BY id`)
+	if err != nil || len(tplRows) == 0 {
+		return nil
+	}
+
+	bucketRows, err := db.PGQuery(ctx, `
+		WITH cand AS (
+		  SELECT DISTINCT ON (COALESCE('p'||d.party_id::text, 'c'||d.key_cif))
+		         d.dpd_bucket, d.dpd, d.outstanding_kobo,
+		         COALESCE(NULLIF(v.email,''), NULLIF(c.email,'')) AS email,
+		         COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,'')) AS phone,
+		         -- Kept apart because they are two different decisions. 'legal' is held no
+		         -- matter what any setting says; 'active' is held only while SKIP_RECOVERY
+		         -- is on, which is what makes eligible_if_off below answerable.
+		         EXISTS (SELECT 1 FROM app.recovery_cases rc
+		                  WHERE rc.party_id = d.party_id AND rc.status = 'legal') AS legal_held,
+		         EXISTS (SELECT 1 FROM app.recovery_cases rc
+		                  WHERE rc.party_id = d.party_id AND rc.status = 'active') AS active_held
+		    FROM app.collections_delinquent_unified d
+		    LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
+		    LEFT JOIN app.customers c ON d.arm = 'cards' AND c.cif = d.raw_cif
+		   WHERE d.dpd > 0 AND d.outstanding_kobo >= $1 AND ($2 = 0 OR d.dpd <= $2)
+		   ORDER BY COALESCE('p'||d.party_id::text, 'c'||d.key_cif), d.outstanding_kobo DESC
+		), m AS (
+		  SELECT *,
+		         (COALESCE(email,'') <> '' OR COALESCE(phone,'') <> '') AS reachable,
+		         (legal_held OR ($3 AND active_held))                   AS held
+		    FROM cand
+		)
+		SELECT dpd_bucket,
+		       COUNT(*)                                               AS people,
+		       COUNT(*) FILTER (WHERE held)                            AS held_recovery,
+		       COALESCE(SUM(outstanding_kobo) FILTER (WHERE held), 0)  AS held_kobo,
+		       COUNT(*) FILTER (WHERE NOT held AND reachable)          AS eligible,
+		       COUNT(*) FILTER (WHERE NOT held AND NOT reachable)      AS unreachable,
+		       -- What SKIP_RECOVERY=off would make reachable by this wording. Independent
+		       -- of the current setting on purpose: the page has to be able to state the
+		       -- consequence of flipping it BEFORE it is flipped.
+		       COUNT(*) FILTER (WHERE NOT legal_held AND reachable)    AS eligible_if_off
+		  FROM m
+		 GROUP BY dpd_bucket
+		 ORDER BY MIN(dpd)`,
+		dunningMinKobo(ctx, db), dunningMaxDPD(ctx, db), dunningSkipRecovery(ctx, db))
+	if err != nil {
+		return nil
+	}
+
+	// What has actually been produced, per bucket, so "never rendered" is a fact from
+	// the log rather than an inference from the population.
+	rendered := map[string]int64{}
+	if rows, _ := db.PGQuery(ctx, `
+		SELECT dpd_bucket, COUNT(*) AS n FROM app.dunning_sends
+		 WHERE outcome IN ('sent','staff_preview') GROUP BY dpd_bucket`); rows != nil {
+		for _, r := range rows {
+			rendered[str(r["dpd_bucket"])] = toInt64(r["n"])
+		}
+	}
+
+	used := map[int64]bool{}
+	buckets := make([]map[string]any, 0, len(bucketRows))
+	for _, b := range bucketRows {
+		bucket := str(b["dpd_bucket"])
+		tpl := dunningTemplateFor(tplRows, bucket)
+		tplID := toInt64(tpl["id"])
+		used[tplID] = true
+		buckets = append(buckets, map[string]any{
+			"bucket":        bucket,
+			"people":        toInt64(b["people"]),
+			"held_recovery": toInt64(b["held_recovery"]),
+			"held_kobo":     toInt64(b["held_kobo"]),
+			"eligible":        toInt64(b["eligible"]),
+			"eligible_if_off": toInt64(b["eligible_if_off"]),
+			"unreachable":     toInt64(b["unreachable"]),
+			"rendered":        rendered[bucket],
+			"template_id":     tplID,
+			"template_name":   str(tpl["name"]),
+			// False means this bucket has no template of its own and is borrowing the
+			// lowest-numbered one — the 1-30 wording on a debt of any age.
+			"template_matches": dunningTemplateMatches(str(tpl["name"]), bucket),
+		})
+	}
+
+	// A template no bucket maps to. Distinct from one whose bucket exists but is empty:
+	// this wording cannot be reached by any debt currently on the book at all.
+	orphans := make([]map[string]any, 0)
+	for _, t := range tplRows {
+		if id := toInt64(t["id"]); !used[id] {
+			orphans = append(orphans, map[string]any{"id": id, "name": str(t["name"])})
+		}
+	}
+	return map[string]any{"buckets": buckets, "templates_unreachable": orphans}
 }
 
 // dunningChannelReadiness answers "if this went live tonight, would it actually leave

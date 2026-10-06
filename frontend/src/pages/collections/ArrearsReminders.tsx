@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import {
   Page, SectionCard, KpiCard, DataTable, Modal, ErrBanner, Spinner, Button, Input,
 } from '../../components/UI'
@@ -41,6 +42,26 @@ interface Worker {
   updated_at: string
 }
 interface BookCount { facilities: number; people?: number; outstanding_kobo: number }
+// One DPD band, the wording written for it, and who that wording would actually reach.
+// eligible_if_off is deliberately independent of the current setting: the page has to be
+// able to state what turning the recovery filter off would do before anyone turns it off.
+interface CoverageBucket {
+  bucket: string
+  people: number
+  held_recovery: number
+  held_kobo: number
+  eligible: number
+  eligible_if_off: number
+  unreachable: number
+  rendered: number
+  template_id: number
+  template_name: string
+  template_matches: boolean
+}
+interface Coverage {
+  buckets: CoverageBucket[]
+  templates_unreachable: { id: number; name: string }[]
+}
 interface Status {
   mode: 'live' | 'staff_preview'
   inbox: string
@@ -52,6 +73,7 @@ interface Status {
   with_recovery?: { status: string; facilities: number; outstanding_kobo: number }[]
   skip_recovery?: boolean
   channels?: { channel: string; ready: boolean; sender: string; reason: string }[]
+  coverage?: Coverage
 }
 interface Send {
   id: number
@@ -139,6 +161,60 @@ export default function ArrearsReminders() {
     .filter(r => r.status === 'legal' || (status.skip_recovery !== false && r.status === 'active'))
     .reduce((n, r) => n + r.facilities, 0)
   const p = status.policy
+
+  const cov = status.coverage
+  const covBuckets = cov?.buckets ?? []
+  // What turning the recovery filter off would open up — and how much of that lands in
+  // bands whose wording nobody has ever seen, which is the part that makes it a
+  // consequence rather than a setting.
+  const wouldAdd = covBuckets.reduce((n, b) => n + Math.max(0, b.eligible_if_off - b.eligible), 0)
+  const dormant = covBuckets.filter(b => b.eligible === 0 && b.eligible_if_off > 0)
+  const dormantPeople = dormant.reduce((n, b) => n + b.eligible_if_off, 0)
+  const neverRendered = covBuckets.filter(b => b.rendered === 0)
+  const eligibleTotal = covBuckets.reduce((n, b) => n + b.eligible, 0)
+  // The cap is not a detail at go-live: it decides whether "live" means a week or a
+  // season. At 5 a night the queue below takes months, which is a choice someone should
+  // make knowingly rather than discover.
+  const nightsToClear = p.max_per_run > 0 ? Math.ceil(eligibleTotal / p.max_per_run) : 0
+  const shortTpl = (n: string) => { const i = n.indexOf('·'); return i >= 0 ? n.slice(i + 1).trim() : n }
+
+  const covCols: TableCol<CoverageBucket>[] = [
+    { key: 'bucket', label: 'Band', render: r => (
+      <span style={{ ...NUM, fontWeight: FW.bold, color: r.bucket === '360+' || r.bucket === '181-360' ? RED : 'var(--txt)' }}>
+        {r.bucket}
+      </span>
+    )},
+    { key: 'template_name', label: 'Wording', render: r => (
+      <div>
+        <div style={{ fontSize: TEXT.sm }}>{shortTpl(r.template_name)}</div>
+        {!r.template_matches && (
+          <div style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.semibold }}>
+            no template of its own — borrows this one
+          </div>
+        )}
+      </div>
+    )},
+    { key: 'people', label: 'In Arrears', align: 'right',
+      render: r => <span style={{ ...NUM }}>{fmtNum(r.people)}</span> },
+    { key: 'held_recovery', label: 'With Recovery', align: 'right', render: r => (
+      <div>
+        <div style={{ ...NUM, color: r.held_recovery > 0 ? AMBER : 'var(--txt3)' }}>{fmtNum(r.held_recovery)}</div>
+        {r.held_kobo > 0 && (
+          <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtKobo(r.held_kobo)}</div>
+        )}
+      </div>
+    )},
+    { key: 'eligible', label: 'Would Be Written To', align: 'right', render: r => (
+      <span style={{ ...NUM, fontWeight: FW.bold, color: r.eligible > 0 ? GREEN : 'var(--txt3)' }}>
+        {fmtNum(r.eligible)}
+      </span>
+    )},
+    { key: 'unreachable', label: 'No Contact', align: 'right',
+      render: r => <span style={{ ...NUM, color: r.unreachable > 0 ? AMBER : 'var(--txt3)' }}>{fmtNum(r.unreachable)}</span> },
+    { key: 'rendered', label: 'Ever Rendered', align: 'right', render: r => r.rendered > 0
+      ? <span style={{ ...NUM }}>{fmtNum(r.rendered)}</span>
+      : <span style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.bold }}>never</span> },
+  ]
 
   const cols: TableCol<Send>[] = [
     { key: 'sent_at', label: 'When', render: r => (
@@ -315,6 +391,53 @@ export default function ArrearsReminders() {
         </SectionCard>
       )}
 
+      {/* Which wording can actually be reached.
+          Three of the six templates — the firmest language in the system, carrying
+          recovery referral and, at 360+, the solicitors — have never rendered once, not
+          even to the staff inbox. Every borrower old enough to receive them is already
+          with recovery, so the band is populated and its eligible count is nil.
+          Unreviewed copy is the smaller half of that. The larger half is that
+          SKIP_RECOVERY is the only thing holding it back: it reads like a filter and
+          behaves like a floodgate, and nothing on this page said so until now. */}
+      {covBuckets.length > 0 && (
+        <SectionCard title="Wording Coverage"
+          subtitle="Which band each template is written for, and how many people it would actually reach"
+          style={{ marginBottom: SP[4] }}>
+          <DataTable cols={covCols} rows={covBuckets} keyFn={r => r.bucket} />
+
+          {neverRendered.length > 0 && (
+            <Caution icon="drafts" tone={AMBER} style={{ marginTop: SP[3] }}>
+              <strong>{neverRendered.length} of {covBuckets.length} templates have never
+              been rendered</strong> — {neverRendered.map(b => b.bucket).join(', ')}. Nobody has
+              read this wording as a borrower would receive it, on any channel, because nobody
+              has ever been eligible for it. Review it from the template itself rather than
+              waiting for a preview that cannot arrive.
+            </Caution>
+          )}
+
+          {status.skip_recovery !== false && wouldAdd > 0 && (
+            <Caution icon="warning" tone={RED} style={{ marginTop: SP[2] }}>
+              <strong>Turning off the recovery filter would open these reminders to{' '}
+              {fmtNum(wouldAdd)} more {wouldAdd === 1 ? 'person' : 'people'}</strong>
+              {dormantPeople > 0 && <>, {fmtNum(dormantPeople)} of them in the{' '}
+              {dormant.map(b => b.bucket).join(', ')} {dormant.length === 1 ? 'band' : 'bands'} whose
+              wording has never been seen</>}. Everyone it would release is already being worked
+              by a recovery officer, so each would be hearing from an officer and from this
+              system at once. Borrowers whose cases are with solicitors stay excluded either
+              way — no setting reaches them.
+            </Caution>
+          )}
+
+          {(cov?.templates_unreachable ?? []).length > 0 && (
+            <Caution icon="block" tone={AMBER} style={{ marginTop: SP[2] }}>
+              <strong>Written for a band that does not exist on this book:</strong>{' '}
+              {(cov?.templates_unreachable ?? []).map(t => t.name).join(', ')}. No arrears of any
+              age map to this wording, so it can never be selected.
+            </Caution>
+          )}
+        </SectionCard>
+      )}
+
       <SectionCard title="Policy In Force" subtitle="Set in configuration, applied every run"
         style={{ marginBottom: SP[4] }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[4], fontSize: TEXT.sm }}>
@@ -394,11 +517,39 @@ export default function ArrearsReminders() {
               ? <>You have {fmtNum(previewed)} previewed {previewed === 1 ? 'message' : 'messages'} to read first. Suppression and consent still apply, and no facility is contacted more than once every {p.throttle_days} days.</>
               : 'Nothing has been previewed yet.'}
           </p>
+          {eligibleTotal > 0 && (
+            <p style={{ margin: 0, color: 'var(--txt2)' }}>
+              {fmtNum(eligibleTotal)} {eligibleTotal === 1 ? 'borrower is' : 'borrowers are'} eligible
+              right now. At {fmtNum(p.max_per_run)} a run and one run a night, that is about{' '}
+              {fmtNum(nightsToClear)} {nightsToClear === 1 ? 'night' : 'nights'} to work through
+              once — raise the cap if that is not the pace you want.
+            </p>
+          )}
           <Input label='Type "SEND TO CUSTOMERS" to confirm' value={confirm}
             onChange={e => setConfirm(e.target.value)} placeholder="SEND TO CUSTOMERS" autoFocus />
         </div>
       </Modal>
     </Page>
+  )
+}
+
+// A consequence stated in prose next to the figures it follows from. Deliberately not a
+// toast or a tooltip: this is the kind of thing somebody needs to have read before they
+// change a setting, not after.
+function Caution({ icon, tone, style, children }: {
+  icon: string; tone: string; style?: CSSProperties; children: ReactNode
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: SP[2], padding: SP[3],
+      borderRadius: RADIUS.md, background: `${tone}0C`, border: `1px solid ${tone}35`,
+      fontSize: TEXT.sm, lineHeight: 1.6, color: 'var(--txt1)', ...style,
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 19, color: tone, lineHeight: 1.3 }}>
+        {icon}
+      </span>
+      <div style={{ minWidth: 0 }}>{children}</div>
+    </div>
   )
 }
 
