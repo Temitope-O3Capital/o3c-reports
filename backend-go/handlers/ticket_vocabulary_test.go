@@ -191,28 +191,126 @@ func TestDispositionVocabularyAgrees(t *testing.T) {
 
 // TestSQLDispositionListsAreExhaustive is the allow-list property itself, as a test.
 //
-// Every catalogue code and label must sit in exactly ONE of the three SQL lists. While
-// those lists were hand-typed consts and the SQL CASE ended on `ELSE connected`, a new
-// disposition belonged to no list and silently inherited "a human spoke" — which is how
-// "Customer Rejected the Call" came to pull write-ups off zero-second rejected calls onto
-// answered ones. Now the lists are derived from ccDisposition.Connected, so this test
-// cannot fail for a newly added disposition; it fails if someone re-freezes them, or
-// introduces a fourth state with nowhere to go.
+// EVERY WORDING THAT REACHES THE COLUMN must sit in exactly ONE of the three SQL lists,
+// and Go must classify it the same way. While the lists were hand-typed consts and the
+// CASE ended on `ELSE connected`, a new disposition belonged to no list and silently
+// inherited "a human spoke" — which is how "Customer Rejected the Call" came to pull
+// write-ups off zero-second rejected calls onto answered ones.
+//
+// The first version of this test only walked catalogue codes and labels, and that is
+// exactly why it passed while the fix was still broken: the Call Log form's own wording
+// ("not interested", "interested", "issue resolved" — 4,475 live rows) is in NEITHER form,
+// so it fell to the ELSE and nothing noticed. It now walks ccAllDispositionWordings,
+// which includes the legacy stored forms.
 func TestSQLDispositionListsAreExhaustive(t *testing.T) {
 	noContact, ambiguous, conversation := sqlNoContactDispositions(), sqlAmbiguousDispositions(), sqlConversationDispositions()
-	for _, d := range ccDispositions {
-		for _, form := range []string{d.Code, d.Label} {
-			n := 0
-			for _, list := range []string{noContact, ambiguous, conversation} {
-				if inSQLList(list, form) {
-					n++
-				}
+	for _, form := range ccAllDispositionWordings() {
+		n := 0
+		for _, list := range []string{noContact, ambiguous, conversation} {
+			if inSQLList(list, form) {
+				n++
 			}
-			if n != 1 {
-				t.Errorf("%q (code %q) is in %d of the three SQL lists, want exactly 1 — "+
-					"a disposition in none of them would be judged by the CASE's ELSE branch "+
-					"rather than by a rule anyone wrote", form, d.Code, n)
+		}
+		if n != 1 {
+			t.Errorf("%q is in %d of the three SQL lists, want exactly 1 — a wording in "+
+				"none of them is judged by the CASE's ELSE branch rather than by a rule "+
+				"anyone wrote", form, n)
+			continue
+		}
+		// And the list it landed in must be the one Go's own answer implies.
+		expects, known := dispositionExpectsConversation(form)
+		switch {
+		case !known && !inSQLList(ambiguous, form):
+			t.Errorf("%q: Go says it is no evidence, but SQL does not treat it as ambiguous", form)
+		case known && expects && !inSQLList(conversation, form):
+			t.Errorf("%q: Go says a human spoke, but SQL does not list it as a conversation", form)
+		case known && !expects && !inSQLList(noContact, form):
+			t.Errorf("%q: Go says nobody spoke, but SQL does not list it as no-contact", form)
+		}
+	}
+}
+
+// TestTheCallLogFormsOwnWordingIsCovered pins the three specific spellings the bug was
+// about, by name and with their measured size, so a future refactor that rebuilds the
+// lists from the catalogue alone fails here instead of in production.
+//
+// Measured 2026-10-06 in app.helpdesk_calls: "not interested" 3,768 rows (2nd most common
+// disposition in the table), "interested" 696 (6th), "issue resolved" 11 — all three still
+// arriving that day. Each is a conclusion you can only reach by speaking to someone, so
+// each must classify as a conversation, in both languages.
+func TestTheCallLogFormsOwnWordingIsCovered(t *testing.T) {
+	for _, form := range []string{"not interested", "interested", "issue resolved"} {
+		expects, known := dispositionExpectsConversation(form)
+		if !known || !expects {
+			t.Errorf("%q: expects=%v known=%v — the Call Log form sends this and it means "+
+				"a conversation happened", form, expects, known)
+		}
+		if !inSQLList(sqlConversationDispositions(), form) {
+			t.Errorf("%q is not in the SQL conversation list, so the absorb query cannot "+
+				"tell it apart from a no-answer", form)
+		}
+	}
+}
+
+// TestEveryLiveDispositionIsClassified is the test the bug actually needed: it walks the
+// wordings that are IN THE COLUMN, not the ones in the catalogue.
+//
+// Every distinct value of app.helpdesk_calls.disposition as measured 2026-10-06, with its
+// row count. Each must land in exactly one of the three SQL lists, so none of them reaches
+// the CASE's ELSE branch. Checking the catalogue instead of the column is precisely how
+// "not interested" (3,768 rows) and "interested" (696) came to be classified by a
+// fall-through — they are the Call Log form's own wording and appear in the catalogue in
+// neither form.
+//
+// A new spelling appearing in the column will NOT fail this test, because the test cannot
+// see the database. That is a real limit and the reason the counts are written down: when
+// this list is next refreshed from a live query, a value that has to be added to
+// ccLegacyDispositionWordings to pass is a value that was being judged by the ELSE.
+func TestEveryLiveDispositionIsClassified(t *testing.T) {
+	live := map[string]int{
+		"unreachable / no answer":           29273,
+		"not interested":                    3768,
+		"callback scheduled":                2480,
+		"not ready yet":                     2177,
+		"not eligible":                      1672,
+		"interested":                        696,
+		"call dropped":                      680,
+		"wrong number":                      387,
+		"customer rejected the call":        282,
+		"promise to pay":                    259,
+		"do not call":                       132,
+		"other — describe what happened":    113,
+		"information sent — awaiting reply": 71,
+		"closed":                            61,
+		"rate or charges too high":          35,
+		"paid":                              32,
+		"converted":                         12,
+		"issue resolved":                    11,
+		"information provided":              10,
+		"pending / follow-up":               7,
+		"complaint logged":                  5,
+		"escalated":                         4,
+		"wants a product we do not offer":   4,
+		"registration not completed":        2,
+		"dispute":                           1,
+	}
+	lists := map[string]string{
+		"no-contact":   sqlNoContactDispositions(),
+		"ambiguous":    sqlAmbiguousDispositions(),
+		"conversation": sqlConversationDispositions(),
+	}
+	for d, rows := range live {
+		in := make([]string, 0, 3)
+		for name, list := range lists {
+			if inSQLList(list, d) {
+				in = append(in, name)
 			}
+		}
+		if len(in) != 1 {
+			t.Errorf("%q (%d live rows) is in %v — want exactly one list. In none of them "+
+				"it is judged by the CASE's ELSE branch, which is the bug this test exists "+
+				"for; in more than one the lists overlap and the first branch silently wins.",
+				d, rows, in)
 		}
 	}
 }

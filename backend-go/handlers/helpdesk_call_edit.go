@@ -65,6 +65,9 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 
 		cur, err := db.PGQuery(r.Context(), `
 			SELECT id, agent_id, agent_name, notes, resolution, disposition, purpose,
+			       -- customer_phone so a corrected "Do Not Call" can suppress the number;
+			       -- the DNC obligation is keyed on the phone, not on a lead_id.
+			       customer_phone,
 			       direction, duration_sec, voided_at, lead_id, outcome, started_at,
 			       -- How long ago the call was is what separates a mis-pick from a later
 			       -- development; see classifyDispositionEdit. Computed in the database so
@@ -230,6 +233,17 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 		// owns the number first, then re-derive: the correction then lands on the lead's
 		// status and its displayed disposition alike.
 		if b.Disposition != nil {
+			// The do-not-call obligation does not wait for a lead. Everything below is
+			// lead-keyed — the stored lead_id, or one auto-linked by phone — so a
+			// corrected "Do Not Call" on a call with neither never reached dnc_list.
+			// An agent who mis-filed the call and fixes it here is relaying the same
+			// request the customer made. Keyed on the phone, like every other DNC writer,
+			// and idempotent, so syncLeadFromCall writing it below is a no-op.
+			if ccDispositionAddsToDNC(*b.Disposition) {
+				ccEnsureDNC(r.Context(), db, str(row["customer_phone"]),
+					"Agent disposition: Do Not Call (corrected)", &user.ID,
+					"hdEditCall call="+strconv.FormatInt(id, 10))
+			}
 			leadID := toInt64(row["lead_id"])
 			if leadID == 0 {
 				// Only auto-link when the number matches EXACTLY ONE lead. A shared or
