@@ -86,9 +86,13 @@ interface CCAgent    { id: number; full_name: string }
 // unassigned+pending (gates Distribute); recallable = assigned+pending (gates Recall).
 interface LeadSummary {
   pending: number; interested: number; callbacks: number; converted: number
+  // A converted lead naming no customer. customer_cif was blank on every lead, so a real
+  // conversion and a claimed one looked identical; this is the backlog for the agents who
+  // logged them, not an alert.
+  converted_unverified?: number
   unassigned: number; distributable: number; recallable: number
 }
-const ZERO_SUMMARY: LeadSummary = { pending: 0, interested: 0, callbacks: 0, converted: 0, unassigned: 0, distributable: 0, recallable: 0 }
+const ZERO_SUMMARY: LeadSummary = { pending: 0, interested: 0, callbacks: 0, converted: 0, converted_unverified: 0, unassigned: 0, distributable: 0, recallable: 0 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -1906,6 +1910,23 @@ export default function CallCenterLeads() {
               ))}
             </div>
 
+            {/* An unverified conversion is a converted lead that names no customer. It sits
+                here rather than in an alert because it is a backlog for whoever logged it,
+                and clicking it is the only way to find them. Six of the nine conversions on
+                the book were real and three were not; nothing distinguished them until the
+                CIF was captured. */}
+            {(summary.converted_unverified ?? 0) > 0 && (
+              <button onClick={() => setStatus('converted_unverified')}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', marginBottom: 10,
+                  padding: '6px 10px', borderRadius: RADIUS.md, border: `1px solid ${AMBER}55`,
+                  background: `${AMBER}12`, color: AMBER, fontSize: TEXT['2xs'], fontWeight: FW.semibold,
+                  cursor: 'pointer', textAlign: 'left' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>help</span>
+                {summary.converted_unverified} converted {summary.converted_unverified === 1 ? 'lead names' : 'leads name'} no
+                customer — confirm which customer it was
+              </button>
+            )}
+
             {/* Search */}
             <TblSearch value={search} onChange={setSearch}
               placeholder="Search name, phone…" width={0} style={{ marginBottom: SP[2] }} />
@@ -1939,6 +1960,10 @@ export default function CallCenterLeads() {
                 { value: 'callback',   label: 'Callback',      color: AMBER },
                 { value: 'no_answer',  label: 'No Answer',     color: RED },
                 { value: 'converted',  label: 'Converted',     color: GREEN },
+                // Not a status — a converted lead that names no customer. Offered as a chip
+                // because it is the only way an agent can find the conversions waiting on
+                // them to confirm which customer it was.
+                { value: 'converted_unverified', label: 'Converted · Unverified', color: AMBER },
                 { value: 'dnc',        label: 'DNC',           color: PURPLE },
                 // closed and invalid are set by the backend (a decline on our side, and
                 // a bad number) — without chips those leads could never be filtered to.

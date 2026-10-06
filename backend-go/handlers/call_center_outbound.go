@@ -500,7 +500,12 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		// The list + count add the status filter on top of the scope.
 		cond := scopeCond
 		args := append([]any{}, scopeArgs...)
-		if status != "" {
+		if status == "converted_unverified" {
+			// Not a real status, and deliberately not made into one: an unverified
+			// conversion is just a converted lead that names no customer, so it needs no
+			// column and clears itself the moment a CIF is matched.
+			cond += " AND l.status = 'converted' AND COALESCE(btrim(l.customer_cif), '') = ''"
+		} else if status != "" {
 			cond += fmt.Sprintf(" AND l.status=$%d", n)
 			args = append(args, status)
 			n++
@@ -518,6 +523,11 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		// distributable / recallable drive the Distribute / Recall buttons.
 		var sumPending, sumInterested, sumCallbacks, sumConverted, sumUnassigned, sumDistributable, sumRecallable int64
 		var sumCalled, sumNoAnswer, sumNotReady, sumClosed, sumInvalid, sumDNC int64
+		// A conversion that names no customer. See ccResolveCustomerCIF: customer_cif was
+		// blank on all 20,587 leads, so a real conversion and a claimed one were
+		// indistinguishable. Surfaced as a count rather than an alert because it is a
+		// backlog for the agents who logged them, not timely work.
+		var sumConvUnverified int64
 		db.PG.QueryRowContext(r.Context(), `
 			SELECT
 			  COUNT(*) FILTER (WHERE status='pending'),
@@ -538,11 +548,13 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE status='not_ready'),
 			  COUNT(*) FILTER (WHERE status='closed'),
 			  COUNT(*) FILTER (WHERE status='invalid'),
-			  COUNT(*) FILTER (WHERE status='dnc')
+			  COUNT(*) FILTER (WHERE status='dnc'),
+			  COUNT(*) FILTER (WHERE status='converted' AND COALESCE(btrim(customer_cif),'') = '')
 			FROM call_center_leads l WHERE 1=1`+scopeCond, scopeArgs...).
 			Scan(&sumPending, &sumInterested, &sumCallbacks, &sumConverted, &sumUnassigned,
 				&sumDistributable, &sumRecallable,
-				&sumCalled, &sumNoAnswer, &sumNotReady, &sumClosed, &sumInvalid, &sumDNC) //nolint:errcheck
+				&sumCalled, &sumNoAnswer, &sumNotReady, &sumClosed, &sumInvalid, &sumDNC,
+				&sumConvUnverified) //nolint:errcheck
 
 		q := `SELECT l.id, l.campaign_id, l.customer_cif, l.customer_name,
 		             l.customer_phone, l.employer, l.email, l.address, l.state, l.lead_score, l.status,
@@ -612,6 +624,9 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 				"closed":    sumClosed,
 				"invalid":   sumInvalid,
 				"dnc":       sumDNC,
+				// A conversion with no customer named. Six of the nine on the book were real
+				// and three were not, and nothing told them apart until this existed.
+				"converted_unverified": sumConvUnverified,
 			},
 		})
 	}
@@ -3604,6 +3619,18 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 	// Carry the progress into the sales pipeline. Without this the call centre's
 	// work stays in its own book and Sales keeps seeing 'new'.
 	syncCRMContactStage(ctx, db, leadID, status, dispo, agentID)
+
+	// A conversion says WHICH customer the lead became, or says it could not tell.
+	// customer_cif existed all along and was blank on all 20,587 leads — so a converted
+	// lead carried no identity at all, and six real conversions with cards behind them
+	// were indistinguishable from three claimed ones with nothing. Resolved on the phone,
+	// one match or none; see ccResolveCustomerCIF for why "one match" is the whole trick.
+	if status == "converted" {
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT customer_phone FROM call_center_leads WHERE id=$1`, leadID); len(rows) > 0 {
+			ccStampConversionCIF(ctx, db, leadID, str(rows[0]["customer_phone"]), "syncLeadFromCall")
+		}
+	}
 
 	// A lead marked do-not-call goes on the DNC list, exactly as the old Leads
 	// form did — that obligation does not depend on which screen logged the call.
