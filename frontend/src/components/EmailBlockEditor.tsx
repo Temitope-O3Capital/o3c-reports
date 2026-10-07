@@ -3,7 +3,7 @@
  * Features: drag-and-drop, undo/redo (⌘Z), 10 block types (incl. callout & stats),
  * template gallery, contentEditable rich text, image upload, mobile/desktop preview.
  */
-import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from 'react'
 import DOMPurify from 'dompurify'
 import { API, getCsrfToken } from '../lib/api'
 import { renderSample } from '../lib/personalize'
@@ -397,36 +397,47 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
   const onUpdateRef = useRef(onUpdate)
   onUpdateRef.current = onUpdate
 
-  useEffect(() => {
+  // THE text-disappeared bug, and it was not the missing focus.
+  //
+  // This div used to carry dangerouslySetInnerHTML only while NOT selected. So
+  // selecting it REMOVED that prop, and React, seeing an element whose declared
+  // children went from "this html" to nothing, emptied the node. One click wiped
+  // the block. Nothing restored it either, because the mirror below was guarded on
+  // !selected — and with no blur ever firing there was nothing to save back.
+  //
+  // The cure is to stop sharing ownership of this node's contents with React.
+  // React never sets the html now (no dangerouslySetInnerHTML on the element at
+  // all); this effect is the single writer, in both states.
+  const wasSelectedRef = useRef(selected)
+  useLayoutEffect(() => {
     const el = textRef.current
     if (!el || block.type !== 'text') return
+    const justSelected = selected && !wasSelectedRef.current
+    wasSelectedRef.current = selected
 
-    if (selected) {
-      // The div only becomes contentEditable on THIS render — the click that
-      // selected it was handled while it was still read-only, so the browser had
-      // nowhere to put a caret. Without this focus the block looks editable,
-      // takes no keystrokes, and never fires blur, so anything typed afterwards
-      // was both invisible and unsaveable. This is the "text disappeared" bug.
-      if (document.activeElement !== el) {
-        el.focus()
-        // Enter should open a new <p>, not a bare <div>: paragraphs carry the
-        // margins the exported email relies on, and <div> collapses the spacing.
-        try { document.execCommand('defaultParagraphSeparator', false, 'p') } catch { /* older engine */ }
-        const r = document.createRange()
-        r.selectNodeContents(el)
-        r.collapse(false) // caret at the end, not over the whole block
-        const sel = window.getSelection()
-        sel?.removeAllRanges()
-        sel?.addRange(r)
-      }
-      return
+    // Mirror the model into the DOM — but never into a field the user is typing
+    // in, which would fight the caret. Compare against the SANITISED string we are
+    // about to write: block.html is raw and innerHTML is browser-normalised, so
+    // comparing with the raw value rewrites on every single render.
+    if (document.activeElement !== el) {
+      const next = sanitize(block.html || '')
+      if (el.innerHTML !== next) el.innerHTML = next
     }
 
-    // Not selected: mirror the model into the DOM. Compare against the SANITISED
-    // string we are about to write, otherwise this rewrites on every render
-    // (block.html is raw, innerHTML is normalised, so they never compare equal).
-    const next = sanitize(block.html || '')
-    if (el.innerHTML !== next) el.innerHTML = next
+    // Only on the transition into selected. Doing it on every run would snatch
+    // focus back from the properties panel the moment the field blurred.
+    if (justSelected && document.activeElement !== el) {
+      el.focus()
+      // Enter should open a new <p>, not a bare <div>: paragraphs carry the
+      // margins the exported email relies on, and <div> collapses the spacing.
+      try { document.execCommand('defaultParagraphSeparator', false, 'p') } catch { /* older engine */ }
+      const r = document.createRange()
+      r.selectNodeContents(el)
+      r.collapse(false) // caret at the end, not a selection over the whole block
+      const sel = window.getSelection()
+      sel?.removeAllRanges()
+      sel?.addRange(r)
+    }
   }, [block.html, selected, block.type])
 
   // Typing is committed on a short debounce rather than per keystroke, so the undo
@@ -581,11 +592,13 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
               ))}
             </div>
           )}
+          {/* No dangerouslySetInnerHTML and no children, in EITHER state: the effect
+              above is the only writer. A conditional dangerouslySetInnerHTML is what
+              emptied the block on the click that selected it. */}
           <div ref={textRef} contentEditable={selected} suppressContentEditableWarning
             onInput={scheduleCommit}
             onBlur={commitHtml}
             style={{ padding: '20px 36px', fontSize: 14.5, lineHeight: 1.78, color: '#1a1a1a', outline: 'none', minHeight: 60 }}
-            {...(!selected ? { dangerouslySetInnerHTML: { __html: sanitize(block.html || '') } } : {})}
           />
         </>
       case 'image': {

@@ -73,6 +73,73 @@ describe('selecting a text block makes it genuinely editable', () => {
     expect(document.activeElement).toBe(sel)
   })
 
+  it('clicking into a block does not wipe what was already written', async () => {
+    // Reported after the focus fix shipped: clicking the text block cleared it.
+    // The focus test above passed throughout, because it only ever asserted that
+    // the field was focused — never that the content outlived the click.
+    const realistic = '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p>'
+      + '<p style="margin:0;">There is an update on your account.</p>'
+    await act(async () => {
+      render(<EnvelopeParent initial={{ blocks: [textBlock(realistic)] }} />)
+    })
+    expect(editable()!.textContent).toContain('Dear')
+
+    await act(async () => { fireEvent.click(editable()!) })
+
+    const el = editable()!
+    expect(el.getAttribute('contenteditable')).toBe('true')
+    expect(el.textContent).toContain('Dear')
+    expect(el.textContent).toContain('There is an update on your account.')
+    expect(el.querySelector('strong')).toBeTruthy()
+    expect(el.innerHTML).toContain('{{first_name}}')
+  })
+
+  it('survives the whole journey: select, type, move to another block, come back', async () => {
+    // The end-to-end path a person actually takes. Two blocks, so deselecting
+    // happens by selecting the other one rather than by a synthetic event.
+    const seen: EditorValue[] = []
+    await act(async () => {
+      render(<EnvelopeParent
+        initial={{ blocks: [
+          { id: 'a', type: 'text', html: '<p>First block</p>' },
+          { id: 'b', type: 'text', html: '<p>Second block</p>' },
+        ] }}
+        onValue={v => seen.push(v)} />)
+    })
+    const fields = () => Array.from(document.querySelectorAll('[contenteditable]')) as HTMLElement[]
+    expect(fields()).toHaveLength(2)
+
+    // Edit the first block.
+    await act(async () => { fireEvent.click(fields()[0]) })
+    const a = fields()[0]
+    expect(a.textContent).toContain('First block')
+    a.innerHTML = '<p>Edited first</p>'
+    await act(async () => { fireEvent.input(a) })
+
+    // Move to the second block: this blurs and deselects the first.
+    await act(async () => { fireEvent.blur(a); fireEvent.click(fields()[1]) })
+
+    expect(fields()[1].textContent).toContain('Second block')
+    expect(fields()[0].textContent).toContain('Edited first')
+
+    // Come back to the first and the edit is still there, in the model and the DOM.
+    await act(async () => { fireEvent.blur(fields()[1]); fireEvent.click(fields()[0]) })
+    expect(fields()[0].textContent).toContain('Edited first')
+
+    const last = seen[seen.length - 1]
+    expect(last.blocks.find(b => b.id === 'a')?.html).toContain('Edited first')
+    expect(last.blocks.find(b => b.id === 'b')?.html).toContain('Second block')
+  })
+
+  it('clicking a second time leaves the content alone', async () => {
+    await act(async () => {
+      render(<EnvelopeParent initial={{ blocks: [textBlock('<p>Keep this text</p>')] }} />)
+    })
+    await act(async () => { fireEvent.click(editable()!) })
+    await act(async () => { fireEvent.click(editable()!) })
+    expect(editable()!.textContent).toContain('Keep this text')
+  })
+
   it('text typed into the block is committed on blur', async () => {
     const seen: EditorValue[] = []
     await act(async () => {
