@@ -742,47 +742,109 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 		}
 		ctx := r.Context()
 
-		// Uploaded Interswitch EOD totals for the period (amounts stored in kobo).
-		var iswCount, iswVolKobo int64
+		// THE REAL INTERSWITCH FEED, against the CCS master.
+		//
+		// This handler used to read app.interswitch_txns and report it as
+		// "data_source: interswitch / source: uploaded_eod", which the screen printed
+		// as "Interswitch Txns (EOD) — uploaded". None of that was true:
+		// interswitch_txns is a back-compat VIEW that migration 126 pointed at
+		// ccs_transactions precisely because that table "never held Interswitch
+		// data". So the page compared the CCS master against the internal EOD ledger
+		// and labelled it Interswitch, while the actual uploaded settlement feed —
+		// every leg of interswitch_legs — was displayed nowhere in the module.
+		//
+		// The honest counterparty for a payment provider is the MASTER ledger, not
+		// the EOD ledger: CCS is the book Interswitch activity has to roll up to.
+		// That is the same pair the engine now runs (recon.InterswitchCCS), so this
+		// summary and a reconciliation run finally describe the same comparison.
+		//
+		// Grain: interswitch_transactions collapses interswitch_legs to one row per
+		// transaction. Summing the legs would double- and triple-count, because one
+		// transaction carries an Amount_Payable leg plus a fee leg per party.
+		//
+		// Dating: local_datetime, not settlement_date. Interswitch settles T+1, and
+		// joining on the settlement date resolves 1 transaction in 4,275.
+		var iswCount, iswGrossKobo, iswFeesKobo, iswLegs, iswDays int64
+		var iswMatched, iswNoMaster int64
 		if rows, _ := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_kobo),0) AS vol_kobo
-			FROM interswitch_txns
-			WHERE txn_date >= $1::date AND txn_date <= $2::date`, dateFrom, dateTo); len(rows) > 0 {
+			WITH src AS (
+			  SELECT LPAD(stan, 6, '0')            AS stan,
+			         local_datetime::date          AS d,
+			         gross_kobo, fees_kobo, legs_n
+			  FROM interswitch_transactions
+			  WHERE local_datetime::date BETWEEN $1::date AND $2::date
+			    AND stan <> ''
+			)
+			SELECT COUNT(*)                                 AS cnt,
+			       COALESCE(ROUND(SUM(ABS(gross_kobo))),0)  AS gross_kobo,
+			       COALESCE(ROUND(SUM(fees_kobo)),0)        AS fees_kobo,
+			       COALESCE(SUM(legs_n),0)                  AS legs,
+			       COUNT(DISTINCT d)                        AS days,
+			       COUNT(*) FILTER (WHERE EXISTS (
+			         SELECT 1 FROM ccs_transactions c
+			         WHERE LPAD(c.trace_num,6,'0') = src.stan
+			           AND c.txn_date BETWEEN src.d - 3 AND src.d + 3)) AS matched,
+			       COUNT(*) FILTER (WHERE NOT EXISTS (
+			         SELECT 1 FROM ccs_transactions c
+			         WHERE c.txn_date BETWEEN src.d - 3 AND src.d + 3)) AS no_master
+			FROM src`, dateFrom, dateTo); len(rows) > 0 {
 			iswCount = toInt64(rows[0]["cnt"])
-			iswVolKobo = toInt64(rows[0]["vol_kobo"])
+			iswGrossKobo = toInt64(rows[0]["gross_kobo"])
+			iswFeesKobo = toInt64(rows[0]["fees_kobo"])
+			iswLegs = toInt64(rows[0]["legs"])
+			iswDays = toInt64(rows[0]["days"])
+			iswMatched = toInt64(rows[0]["matched"])
+			iswNoMaster = toInt64(rows[0]["no_master"])
 		}
 
-		// Internal EOD ledger totals for the same period (amount is in NGN → kobo).
-		eod, ledgerOK := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
+		// The CCS master for the same dates — the side Interswitch must roll up to.
+		var ccsCount, ccsVolKobo, ccsDays int64
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cnt,
+			       COALESCE(SUM(amount_kobo),0) AS vol_kobo,
+			       COUNT(DISTINCT txn_date)     AS days
+			FROM ccs_transactions
+			WHERE txn_date BETWEEN $1::date AND $2::date`, dateFrom, dateTo); len(rows) > 0 {
+			ccsCount = toInt64(rows[0]["cnt"])
+			ccsVolKobo = toInt64(rows[0]["vol_kobo"])
+			ccsDays = toInt64(rows[0]["days"])
+		}
+
+		// Tie-out over what COULD tie out. Counting days the master does not cover
+		// measures the CCS feed's completeness and calls it a settlement break rate.
+		comparable := iswCount - iswNoMaster
+		var tiePct float64
+		if comparable > 0 {
+			tiePct = math.Round(float64(iswMatched)/float64(comparable)*1000) / 10
+		}
 
 		out := map[string]any{
 			"data_source": "interswitch",
-			"source":      "uploaded_eod",
+			"source":      "uploaded_settlement_reports",
 			"has_data":    iswCount > 0,
 			"fetched_at":  time.Now().UTC().Format(time.RFC3339),
 			"period":      map[string]string{"from": dateFrom, "to": dateTo},
 			"interswitch": map[string]any{
-				"txn_count":         iswCount,
-				"total_volume_kobo": iswVolKobo,
+				"txn_count":      iswCount,
+				"gross_kobo":     iswGrossKobo,
+				"fees_kobo":      iswFeesKobo,
+				"legs":           iswLegs,
+				"days_with_data": iswDays,
 			},
-			"ledger_available": ledgerOK,
+			"ccs": map[string]any{
+				"txn_count":      ccsCount,
+				"total_vol_kobo": ccsVolKobo,
+				"days_with_data": ccsDays,
+			},
+			"tie_out": map[string]any{
+				"matched":        iswMatched,
+				"comparable":     comparable,
+				"no_master_data": iswNoMaster,
+				"pct":            tiePct,
+			},
 		}
-		if ledgerOK {
-			eodVolKobo := int64(math.Round(eod.TotalVol * 100))
-			out["eod"] = map[string]any{
-				"txn_count":      eod.TxnCount,
-				"total_vol_kobo": eodVolKobo,
-			}
-			out["delta"] = map[string]any{
-				"txn_count_diff":   iswCount - eod.TxnCount,
-				"volume_kobo_diff": iswVolKobo - eodVolKobo,
-			}
-		} else {
-			// Without a ledger side, a "delta" equal to the whole uploaded volume
-			// reads as a ₦6bn discrepancy. Report the absence instead.
-			out["eod"] = nil
-			out["delta"] = nil
-			out["ledger_note"] = "No internal EOD ledger for this period — nothing to reconcile against yet."
+		if ccsCount == 0 && iswCount > 0 {
+			out["master_note"] = "The CCS master holds no transactions for these dates, so nothing here can be tied out yet — a feed to chase, not a settlement break."
 		}
 		json.NewEncoder(w).Encode(out) //nolint:errcheck
 	}

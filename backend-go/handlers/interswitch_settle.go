@@ -135,10 +135,77 @@ func iswSettleSummary(db *core.DB) http.HandlerFunc {
 			daily = []map[string]any{}
 		}
 
+		totals, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT COUNT(*)                            AS txns,
+			       COALESCE(SUM(ABS(gross_kobo)),0)    AS gross_kobo,
+			       COALESCE(SUM(fees_kobo),0)          AS fees_kobo,
+			       COALESCE(SUM(legs_n),0)             AS legs,
+			       COUNT(DISTINCT settlement_date)     AS days_present
+			FROM interswitch_transactions
+			WHERE %s`, where), args...)
+
+		// WHICH DAYS ARE MISSING.
+		//
+		// Interswitch settlement arrives as a CSV pulled from their portal once a
+		// day, so the only question that matters operationally is which days nobody
+		// has uploaded. Nothing in the module could answer it: this endpoint had no
+		// UI caller at all, and the page that claimed to show Interswitch was
+		// reading CCS data.
+		//
+		// Every CALENDAR day counts, weekends included. That is measured, not
+		// assumed: the feed has arrived on 18 Saturdays and 17 Sundays, so unlike the
+		// weekday-only card file a missing Sunday is a real gap worth chasing.
+		//
+		// Capped at 60 listed dates — a year-wide window with an empty feed would
+		// otherwise return 365 strings nobody reads.
+		var coverage map[string]any
+		if from != "" && to != "" {
+			cov, _ := db.PGQuery(r.Context(), `
+				WITH d AS (
+				  SELECT generate_series($1::date, $2::date, '1 day')::date AS day
+				), present AS (
+				  SELECT DISTINCT settlement_date AS day FROM interswitch_legs
+				  WHERE settlement_date BETWEEN $1::date AND $2::date
+				)
+				SELECT COUNT(*)                                        AS days_in_period,
+				       COUNT(*) FILTER (WHERE p.day IS NOT NULL)       AS days_present,
+				       COUNT(*) FILTER (WHERE p.day IS NULL)           AS days_missing,
+				       COALESCE(
+				         (ARRAY_AGG(d.day::text ORDER BY d.day)
+				            FILTER (WHERE p.day IS NULL))[1:60],
+				         ARRAY[]::text[])                              AS missing_days
+				FROM d LEFT JOIN present p ON p.day = d.day`, from, to)
+			coverage = firstRowOr(cov)
+		} else {
+			coverage = map[string]any{}
+		}
+
+		// The last import, so the page can say when the feed was last loaded and by
+		// whom without a second request.
+		lastImport, _ := db.PGQuery(r.Context(), `
+			SELECT i.id, i.started_at, i.finished_at, i.status, i.files_n,
+			       i.inserted_n, i.skipped_n, COALESCE(i.errors,'') AS errors,
+			       COALESCE(u.full_name,'system') AS actor
+			FROM interswitch_imports i
+			LEFT JOIN o3c_users u ON u.id = i.triggered_by
+			ORDER BY i.started_at DESC LIMIT 1`)
+
+		// The newest settlement date held, regardless of the window asked for: a
+		// period with nothing in it should still be able to say how stale the feed is.
+		var feedLast any
+		if rows, _ := db.PGQuery(r.Context(),
+			`SELECT MAX(settlement_date) AS last_day FROM interswitch_legs`); len(rows) > 0 {
+			feedLast = rows[0]["last_day"]
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"by_family": byFamily,
-			"daily":     daily,
+			"by_family":   byFamily,
+			"daily":       daily,
+			"totals":      firstRowOr(totals),
+			"coverage":    coverage,
+			"last_import": firstRowOr(lastImport),
+			"feed_last_day": feedLast,
 		})
 	}
 }

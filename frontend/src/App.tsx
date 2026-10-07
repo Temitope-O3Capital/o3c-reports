@@ -246,6 +246,7 @@ const SettleRecon      = lazy(() => import('./pages/settlements/Reconciliation')
 const SettleManualPost = lazy(() => import('./pages/settlements/ManualPostings'))
 const SettleWorkbench  = lazy(() => import('./pages/settlements/Workbench'))
 const SettleExceptions = lazy(() => import('./pages/settlements/Exceptions'))
+const SettleSupervisor = lazy(() => import('./pages/settlements/Supervisor'))
 
 // Call Center
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
@@ -1236,6 +1237,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/settlements/my-dashboard"             element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/workbench"                element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleWorkbench /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/exceptions"               element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleExceptions /></PageErrorBoundary></RequireAccess>} />
+                  {/* Supervising the desk is a head's job, like sign-off: gated on
+                      'reconciliation' rather than 'settlement' so an officer does
+                      not get a page whose only controls reassign other people's work. */}
+                  <Route path="/settlements/supervisor"               element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/reconciliation"           element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleRecon /></PageErrorBoundary></RequireAccess>} />
                   {/* Manual postings: functional, with a real approval chain, but the
                       table is empty — nobody has ever raised one. Kept reachable

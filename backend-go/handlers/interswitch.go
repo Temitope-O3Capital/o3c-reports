@@ -302,188 +302,254 @@ func interswitchSummary(db *core.DB) http.HandlerFunc {
 
 // ── Transaction Report ─────────────────────────────────────────────────────────
 
-// iswBuckets is the report's column order, matching monthlyRow.bucketValues. The
-// buckets mirror iswChannelCase so the report and the summary page classify a
-// transaction the same way. The report used to have four columns — ATM, POS, WEB
-// and a residual "Transfer" that carried bills, repayments and charges together.
-var iswBuckets = []string{"atm", "pos", "web", "bills", "repayment", "fees", "other"}
-
-// Real H1 2026 monthly figures from the half-year transaction report (kobo),
-// served only when the ledger holds nothing for the requested year, and flagged
-// source=static. That report had four columns; its residual Transfer column cannot
-// be split into bills, repayments and charges after the fact, so it is carried as
-// Other rather than spread across buckets on a guess.
-var baseMonths = []monthlyRow{
-	{Month: "January", ATM: 168_500_000, POS: 2_094_254_691, WEB: 5_507_397_656, Other: 5_515_403_000},
-	{Month: "February", ATM: 172_200_000, POS: 1_142_586_698, WEB: 4_336_613_728, Other: 6_371_468_692},
-	{Month: "March", ATM: 115_400_000, POS: 1_435_062_160, WEB: 2_825_917_248, Other: 8_441_525_120},
-	{Month: "April", ATM: 125_200_000, POS: 1_164_520_084, WEB: 3_775_154_082, Other: 9_533_611_655},
-	{Month: "May", ATM: 123_300_000, POS: 1_141_592_869, WEB: 3_923_585_065, Other: 42_530_445_160},
-	{Month: "June", ATM: 115_800_000, POS: 1_497_544_357, WEB: 3_324_723_845, Other: 9_851_054_276},
+// THE HALF-YEAR TRANSACTION REPORT, as Card Operations actually publishes it.
+//
+// Their report is four channels — ATM, POS, WEB, TRANSFER — a month per row, and
+// a second table giving each channel's share and monthly average. H1 2026 came to
+// ₦1,152,328,603.86 with TRANSFER at 71.37% of it. That shape is reproduced here
+// exactly, because it is the document that gets sent out.
+//
+// WHERE EACH CHANNEL COMES FROM. The four columns are not one feed, which is why
+// earlier attempts to serve this from a single table could never match it:
+//
+//	ATM       ccs_transactions, category cash_advance (code 300)
+//	POS       ccs_transactions, category purchase     (codes 200, 202)
+//	WEB       ccs_transactions, category utility      (code 303)
+//	TRANSFER  paystack_transfers, status success — the MOBILE APP rail, not a card
+//	          transaction at all
+//
+// TRANSFER was the column nobody could source. It is Paystack, and the match is
+// exact: January ₦55,154,030.00, February ₦63,714,686.92 and April ₦95,336,116.55
+// agree with the published report to the kobo, and May's ₦425m spike is the LIRS
+// collection their narrative calls out. The previous implementation carried that
+// column as "Other" because it could not be attributed.
+//
+// WHAT THIS CANNOT DO, and says so instead of guessing. The CCS feed stops at
+// 2025-12-31, so for H1 2026 the three card columns have no source and come back
+// zero with coverage marked incomplete. The report cannot be regenerated from the
+// platform for that period — it was produced against the live CMS, which we no
+// longer receive. Reporting zeros silently would restate a ₦1.15bn report as
+// ₦822m, so every channel carries its own source and coverage and the page refuses
+// to present a partial period as a total.
+var iswReportChannels = []struct {
+	Key, Label, Source, Note string
+}{
+	{"atm", "ATM", "ccs", "Cash advance at an ATM (CCS code 300)"},
+	{"pos", "POS", "ccs", "Card purchases, local and foreign (CCS codes 200, 202)"},
+	{"web", "WEB", "ccs", "Web channel payments (CCS code 303)"},
+	{"transfer", "TRANSFER", "paystack", "Mobile app transfers out, successful only"},
 }
 
-// monthlyRow is one month of DR volume. The buckets and Total are naira. USD is
-// the month's dollar-card volume in cents: CCS posts those cards in dollars, so
-// adding it to Total would count $1 as ₦1. It sits beside the total, never in it.
-type monthlyRow struct {
-	Month     string `json:"month"`
-	ATM       int64  `json:"atm"`
-	POS       int64  `json:"pos"`
-	WEB       int64  `json:"web"`
-	Bills     int64  `json:"bills"`
-	Repayment int64  `json:"repayment"`
-	Fees      int64  `json:"fees"`
-	Other     int64  `json:"other"`
-	Total     int64  `json:"total"`
-	USD       int64  `json:"usd"`
+// iswPeriodMonths maps a period id to its 1-based inclusive month range.
+var iswPeriodMonths = map[string][2]int{
+	"H1": {1, 6}, "H2": {7, 12}, "FY": {1, 12},
+	"Q1": {1, 3}, "Q2": {4, 6}, "Q3": {7, 9}, "Q4": {10, 12},
 }
 
-// bucketValues returns the naira buckets in iswBuckets order.
-func (m monthlyRow) bucketValues() []int64 {
-	return []int64{m.ATM, m.POS, m.WEB, m.Bills, m.Repayment, m.Fees, m.Other}
-}
-
-func (m *monthlyRow) sumTotal() {
-	m.Total = 0
-	for _, v := range m.bucketValues() {
-		m.Total += v
-	}
+// iswReportMonth is one row of the monthly table. Every figure is KOBO.
+type iswReportMonth struct {
+	Month    string `json:"month"`     // "January"
+	Short    string `json:"short"`     // "Jan"
+	ATM      int64  `json:"atm"`
+	POS      int64  `json:"pos"`
+	WEB      int64  `json:"web"`
+	Transfer int64  `json:"transfer"`
+	Total    int64  `json:"total"`
+	// CCSRows is how many master-ledger rows backed the three card columns. Zero
+	// means those columns are unsourced for the month, not that nothing happened.
+	CCSRows int64 `json:"ccs_rows"`
+	PSRows  int64 `json:"ps_rows"`
 }
 
 func interswitchReport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		year := r.URL.Query().Get("year")
-		period := r.URL.Query().Get("period")
+		period := strings.ToUpper(r.URL.Query().Get("period"))
 		if year == "" {
-			year = "2026"
+			year = strconv.Itoa(time.Now().Year())
 		}
-		if period == "" {
-			period = "H1"
+		yr, err := strconv.Atoi(year)
+		if err != nil || yr < 2000 || yr > 2200 {
+			respondErr(w, 422, "year must be a four-digit year")
+			return
 		}
+		rng, ok := iswPeriodMonths[period]
+		if !ok {
+			period, rng = "H1", iswPeriodMonths["H1"]
+		}
+
+		from := time.Date(yr, time.Month(rng[0]), 1, 0, 0, 0, 0, time.UTC)
+		// Exclusive upper bound: the first day of the month after the last one.
+		toExcl := time.Date(yr, time.Month(rng[1]), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
+		fromS, toS := from.Format("2006-01-02"), toExcl.Format("2006-01-02")
 
 		ctx := r.Context()
-		// Try to serve live data from interswitch_txns
-		yr := year
-		dbRows, err := db.PGQuery(ctx, `
-			SELECT
-				TO_CHAR(t.txn_date, 'FMMonth') AS month,
-				-- Buckets classify on app.card_txn_codes.category, as iswChannelCase does.
-				-- They once tested txn_code IN ('01'..'15'), codes this feed never uses,
-				-- which left every month 100% in the residual column. Other is codes the
-				-- category table does not know yet, so a new code shows up rather than
-				-- quietly joining a named bucket.
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+` AND c.category = 'cash_advance'), 0) AS atm,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+` AND c.category = 'purchase'), 0)     AS pos,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+` AND c.category = 'transfer'), 0)     AS web,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+` AND c.category = 'utility'), 0)      AS bills,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+` AND c.category = 'payment'), 0)      AS repayment,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+`
-					AND c.category IN ('fee', 'interest', 'penalty')), 0)                                       AS fees,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE `+iswNairaDR+`
-					AND (c.category IS NULL OR c.category NOT IN
-						('cash_advance', 'purchase', 'transfer', 'utility', 'payment', 'fee', 'interest', 'penalty'))), 0) AS other,
-				COALESCE(SUM(t.amount_kobo) FILTER (WHERE t.sign = 'DR' AND `+iswIsUSD+`), 0)               AS usd
-			`+iswChannelJoin+`
-			WHERE EXTRACT(YEAR FROM t.txn_date) = $1::int
-			GROUP BY DATE_TRUNC('month', t.txn_date), TO_CHAR(t.txn_date, 'FMMonth')
-			ORDER BY DATE_TRUNC('month', t.txn_date)`, yr)
 
-		var months []monthlyRow
-		if err == nil && len(dbRows) > 0 {
-			for _, row := range dbRows {
-				m := monthlyRow{
-					Month:     str(row["month"]),
-					ATM:       toInt64(row["atm"]),
-					POS:       toInt64(row["pos"]),
-					WEB:       toInt64(row["web"]),
-					Bills:     toInt64(row["bills"]),
-					Repayment: toInt64(row["repayment"]),
-					Fees:      toInt64(row["fees"]),
-					Other:     toInt64(row["other"]),
-					USD:       toInt64(row["usd"]),
-				}
-				m.sumTotal()
-				months = append(months, m)
-			}
-			months = selectPeriod(months, period)
-		} else {
-			// Fall back to hardcoded H1 2026 data until real imports accumulate
-			months = selectPeriod(baseMonths, period)
-			for i := range months {
-				months[i].sumTotal()
-			}
+		// One row per month in the period whether or not either side has data —
+		// generate_series drives the rows, so a month with nothing still appears
+		// with a zero rather than vanishing from the table. The old version let the
+		// GROUP BY decide, so a period with no rows produced a nil slice, serialised
+		// as "months": null, and the page died on null.reduce().
+		rows, qErr := db.PGQuery(ctx, `
+			WITH mo AS (
+			  SELECT generate_series($1::date, ($2::date - INTERVAL '1 day')::date, '1 month')::date AS m
+			),
+			ccs AS (
+			  SELECT date_trunc('month', t.txn_date)::date AS m,
+			         COALESCE(SUM(t.amount_kobo) FILTER (WHERE c.category = 'cash_advance'), 0) AS atm,
+			         COALESCE(SUM(t.amount_kobo) FILTER (WHERE c.category = 'purchase'),     0) AS pos,
+			         COALESCE(SUM(t.amount_kobo) FILTER (WHERE c.category = 'utility'),      0) AS web,
+			         COUNT(*) AS n
+			  FROM ccs_transactions t
+			  LEFT JOIN app.card_txn_codes c ON c.code = t.txn_code
+			  -- Debits on naira cards only. CCS posts dollar cards in dollars, so
+			  -- including them would count $1 as ₦1.
+			  WHERE ` + iswNairaDR + `
+			    AND t.txn_date >= $1::date AND t.txn_date < $2::date
+			  GROUP BY 1
+			),
+			ps AS (
+			  SELECT date_trunc('month', created_at_ps)::date AS m,
+			         COALESCE(SUM(amount_kobo), 0) AS transfer,
+			         COUNT(*) AS n
+			  FROM paystack_transfers
+			  WHERE status = 'success'
+			    AND created_at_ps >= $1::date AND created_at_ps < $2::date
+			  GROUP BY 1
+			)
+			SELECT TO_CHAR(mo.m, 'FMMonth')      AS month_name,
+			       TO_CHAR(mo.m, 'Mon')          AS month_short,
+			       COALESCE(ccs.atm, 0)          AS atm,
+			       COALESCE(ccs.pos, 0)          AS pos,
+			       COALESCE(ccs.web, 0)          AS web,
+			       COALESCE(ps.transfer, 0)      AS transfer,
+			       COALESCE(ccs.n, 0)            AS ccs_rows,
+			       COALESCE(ps.n, 0)             AS ps_rows
+			FROM mo
+			LEFT JOIN ccs ON ccs.m = mo.m
+			LEFT JOIN ps  ON ps.m  = mo.m
+			ORDER BY mo.m`, fromS, toS)
+		if qErr != nil {
+			respondErrLog(w, 500, "Transaction report query failed", qErr)
+			return
 		}
 
-		totals := computeTotals(months)
+		// Always a slice, never nil — see the note on the query above.
+		months := make([]iswReportMonth, 0, 12)
+		var totATM, totPOS, totWEB, totTRF, ccsRows, psRows int64
+		for _, row := range rows {
+			m := iswReportMonth{
+				Month:    str(row["month_name"]),
+				Short:    str(row["month_short"]),
+				ATM:      toInt64(row["atm"]),
+				POS:      toInt64(row["pos"]),
+				WEB:      toInt64(row["web"]),
+				Transfer: toInt64(row["transfer"]),
+				CCSRows:  toInt64(row["ccs_rows"]),
+				PSRows:   toInt64(row["ps_rows"]),
+			}
+			m.Total = m.ATM + m.POS + m.WEB + m.Transfer
+			months = append(months, m)
+			totATM += m.ATM
+			totPOS += m.POS
+			totWEB += m.WEB
+			totTRF += m.Transfer
+			ccsRows += m.CCSRows
+			psRows += m.PSRows
+		}
+
+		grand := totATM + totPOS + totWEB + totTRF
+		n := int64(len(months))
+		if n == 0 {
+			n = 1 // only reachable on a malformed range; keeps the averages finite
+		}
+
+		// Channel table: total, share and monthly average — their second table,
+		// column for column.
+		perChannel := make([]map[string]any, 0, len(iswReportChannels))
+		sums := map[string]int64{"atm": totATM, "pos": totPOS, "web": totWEB, "transfer": totTRF}
+		for _, ch := range iswReportChannels {
+			v := sums[ch.Key]
+			pct := 0.0
+			if grand > 0 {
+				pct = math.Round(float64(v)/float64(grand)*10000) / 100
+			}
+			sourced := ch.Source == "paystack" || ccsRows > 0
+			perChannel = append(perChannel, map[string]any{
+				"key":        ch.Key,
+				"label":      ch.Label,
+				"total_kobo": v,
+				"pct":        pct,
+				"avg_kobo":   v / n,
+				"source":     ch.Source,
+				"note":       ch.Note,
+				"sourced":    sourced,
+			})
+		}
+
+		// Per-feed coverage for the period, so the page can say WHY a column is
+		// empty. days_in_period against the month count is what exposes a feed that
+		// stopped partway.
+		cov, _ := db.PGQuery(ctx, `
+			SELECT 'ccs' AS src,
+			       COUNT(*)                                      AS rows_in_period,
+			       COUNT(DISTINCT txn_date)                       AS days_in_period,
+			       (SELECT MAX(txn_date) FROM ccs_transactions)   AS last_day
+			FROM ccs_transactions
+			WHERE txn_date >= $1::date AND txn_date < $2::date
+			UNION ALL
+			SELECT 'paystack',
+			       COUNT(*),
+			       COUNT(DISTINCT created_at_ps::date),
+			       (SELECT MAX(created_at_ps)::date FROM paystack_transfers)
+			FROM paystack_transfers
+			WHERE status = 'success'
+			  AND created_at_ps >= $1::date AND created_at_ps < $2::date`, fromS, toS)
+		if cov == nil {
+			cov = []core.Row{}
+		}
+
+		// The honesty flag the page leads on. A total that silently omits three of
+		// four channels is not a smaller total, it is a wrong one.
+		complete := ccsRows > 0 && psRows > 0
+		note := ""
+		switch {
+		case ccsRows == 0 && psRows == 0:
+			note = "Neither the CCS master nor Paystack holds anything for this period."
+		case ccsRows == 0:
+			note = "The CCS master holds no transactions for this period, so ATM, POS and WEB cannot be " +
+				"sourced — only TRANSFER is real. The CCS feed stops at 2025-12-31. This report was " +
+				"originally produced against the live card system, which the platform no longer receives."
+		case psRows == 0:
+			note = "Paystack holds no successful transfers for this period, so the TRANSFER column is empty."
+		}
+
 		respond(w, map[string]any{
 			"data": map[string]any{
-				"period_label": fmt.Sprintf("%s %s", strings.ToUpper(period), year),
+				"period_label": fmt.Sprintf("%s %s", period, year),
+				"period":       period,
+				"year":         year,
+				"from":         fromS,
+				"to":           toExcl.AddDate(0, 0, -1).Format("2006-01-02"),
 				"generated_at": time.Now().Format("2006-01-02"),
 				"months":       months,
-				"totals":       totals,
-				"source":       map[bool]string{true: "live", false: "static"}[err == nil && len(dbRows) > 0],
+				"channels":     perChannel,
+				"totals": map[string]any{
+					"total_kobo":       grand,
+					"avg_monthly_kobo": grand / n,
+					"months_n":         len(months),
+					"atm":              totATM,
+					"pos":              totPOS,
+					"web":              totWEB,
+					"transfer":         totTRF,
+				},
+				"coverage": cov,
+				"complete": complete,
+				"note":     note,
 			},
 		}, "ok")
 	}
 }
-
-var monthIndex = map[string]int{
-	"January": 0, "February": 1, "March": 2, "April": 3, "May": 4, "June": 5,
-	"July": 6, "August": 7, "September": 8, "October": 9, "November": 10, "December": 11,
-}
-
-var periodRanges = map[string][2]int{
-	"H1": {0, 5}, "H2": {6, 11}, "FY": {0, 11},
-	"Q1": {0, 2}, "Q2": {3, 5}, "Q3": {6, 8}, "Q4": {9, 11},
-}
-
-func selectPeriod(all []monthlyRow, period string) []monthlyRow {
-	r, ok := periodRanges[strings.ToUpper(period)]
-	if !ok {
-		r = [2]int{0, 5}
-	}
-	var out []monthlyRow
-	for _, m := range all {
-		if idx, exists := monthIndex[m.Month]; exists && idx >= r[0] && idx <= r[1] {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// computeTotals sums the period. For each bucket in iswBuckets it returns <key>,
-// <key>_pct (share of the naira total) and <key>_avg (per month), plus total, usd
-// and usd_avg. Every key is always present, as a zero for an empty period, so
-// the page never reads undefined.
-func computeTotals(months []monthlyRow) map[string]any {
-	t := map[string]any{"total": int64(0), "usd": int64(0), "usd_avg": int64(0)}
-	for _, k := range iswBuckets {
-		t[k], t[k+"_pct"], t[k+"_avg"] = int64(0), 0.0, int64(0)
-	}
-	n := int64(len(months))
-	if n == 0 {
-		return t
-	}
-	sums := make([]int64, len(iswBuckets))
-	var total, usd int64
-	for _, m := range months {
-		for i, v := range m.bucketValues() {
-			sums[i] += v
-			total += v
-		}
-		usd += m.USD
-	}
-	for i, k := range iswBuckets {
-		t[k] = sums[i]
-		t[k+"_avg"] = sums[i] / n
-		if total > 0 {
-			t[k+"_pct"] = math.Round(float64(sums[i])/float64(total)*10000) / 100
-		}
-	}
-	t["total"], t["usd"], t["usd_avg"] = total, usd, usd/n
-	return t
-}
-
 // ── EODTXN Import ──────────────────────────────────────────────────────────────
 
 type parsedTxn struct {

@@ -289,9 +289,13 @@ const SECTIONS: Section[] = [
           { label: 'Position',     to: '/settlements' },
           { label: 'Reconcile',    to: '/settlements/workbench' },
           { label: 'Exceptions',   to: '/settlements/exceptions' },
+          // Heads only — its controls reassign other people's work.
+          { label: 'Supervisor',   to: '/settlements/supervisor', vis: ['settlement_head','finance_head'] },
           { label: 'Providers',    to: '/settlements/reconciliation' },
           { label: 'Manual Postings', to: '/settlements/manual-postings' },
-          { label: 'Interswitch Report', to: '/settlements/interswitch' },
+          // Named for the feed it shows. It used to read CCS data under an
+          // Interswitch heading; it now reads the uploaded settlement reports.
+          { label: 'Interswitch Settlement', to: '/settlements/interswitch' },
           { label: 'Transaction Report', to: '/settlements/interswitch/half-year' },
         ],
       },
@@ -540,7 +544,9 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/recovery/legal': 'recovery', '/recovery/debt-sales': 'recovery',
   '/settlements': 'settlement', '/settlements/my-dashboard': 'settlement',
   '/settlements/workbench': ['settlement', 'reconciliation'], '/settlements/exceptions': ['settlement', 'reconciliation'],
-  '/settlements/position': ['settlement', 'reconciliation'], '/settlements/runs': ['settlement', 'reconciliation'],
+  // Supervisor gates on 'reconciliation' alone: its controls reassign other
+  // people's work, which is not an officer's to do.
+  '/settlements/supervisor': 'reconciliation',
   '/settlements/reconciliation': 'reconciliation', '/settlements/manual-postings': 'settlement',
   '/settlements/interswitch': ['settlement', 'cards'], '/settlements/interswitch/half-year': ['settlement', 'cards'],
   '/settlements/interswitch/import': ['settlement', 'cards'],

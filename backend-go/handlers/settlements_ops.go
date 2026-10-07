@@ -48,6 +48,10 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	r.With(access).Put("/manual-postings/{id}/reject", soaManualPostingsReject(db))
 	r.With(access).Put("/manual-postings/{id}/post", soaManualPostingsPost(db))
 	r.With(access).Put("/manual-postings/{id}/return", soaManualPostingsReturn(db))
+	// Reversal was designed and never built: the table has carried
+	// reversal_requested_by / reversal_requested_at / reversal_reason from the
+	// start, and no endpoint ever wrote them. A posted entry had no way back.
+	r.With(access).Post("/manual-postings/{id}/reverse", soaManualPostingsReverse(db))
 
 	// My Dashboard — the settlement officer's personal station
 	r.With(access).Get("/my-dashboard", soaMyDashboard(db))
@@ -76,43 +80,68 @@ func soaMyDashboard(db *core.DB) http.HandlerFunc {
 			dash["my_exceptions_value_kobo"] = rows[0]["value"]
 			dash["my_exceptions_aging"] = rows[0]["aging"]
 		}
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM recon_exceptions WHERE status IN ('open','investigating')`); len(rows) > 0 {
-			dash["team_exceptions_open"] = rows[0]["count"]
+		// The team queue, split the way the Exceptions page splits it: what a person
+		// can work, and what is waiting on a counterparty feed.
+		//
+		// WHAT WAS REMOVED HERE, and why. This dashboard also reported failed_txns
+		// from app.settlement_exceptions, postings_pending / my_postings_pending from
+		// app.manual_postings, and position_net_kobo / position_pending_kobo from
+		// app.settlement_batches. All three tables are empty, and settlement_exceptions
+		// has NO WRITER anywhere in the codebase — nothing can ever put a row in it.
+		// So a settlement officer's own dashboard opened on five tiles structurally
+		// guaranteed to read zero, which is worse than showing nothing: a zero reads
+		// as "nothing outstanding today" rather than "this was never wired up", and
+		// it sat beside real figures looking exactly the same.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) FILTER (WHERE status IN ('open','investigating'))         AS open_n,
+			       COUNT(*) FILTER (WHERE status IN ('open','investigating')
+			                          AND reason <> 'master_no_data')                 AS actionable_n,
+			       COUNT(*) FILTER (WHERE status IN ('open','investigating')
+			                          AND reason =  'master_no_data')                 AS feed_gap_n,
+			       COALESCE(SUM(ABS(amount_kobo)) FILTER (WHERE status IN ('open','investigating')
+			                          AND reason <> 'master_no_data'),0)               AS actionable_value_kobo,
+			       COUNT(*) FILTER (WHERE status IN ('open','investigating')
+			                          AND reason <> 'master_no_data'
+			                          AND created_at < NOW() - INTERVAL '30 days')     AS aged_30d_n,
+			       COUNT(*) FILTER (WHERE status IN ('open','investigating')
+			                          AND assigned_to IS NULL
+			                          AND reason <> 'master_no_data')                  AS unassigned_n
+			FROM recon_exceptions`); len(rows) > 0 {
+			dash["team_exceptions_open"] = rows[0]["open_n"]
+			dash["team_actionable"] = rows[0]["actionable_n"]
+			dash["team_feed_gap"] = rows[0]["feed_gap_n"]
+			dash["team_actionable_value_kobo"] = rows[0]["actionable_value_kobo"]
+			dash["team_aged_30d"] = rows[0]["aged_30d_n"]
+			dash["team_unassigned"] = rows[0]["unassigned_n"]
 		}
 
-		// Failed transactions (NIP/NIBSS exceptions queue)
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_kobo), 0) AS value FROM settlement_exceptions WHERE status='open'`); len(rows) > 0 {
-			dash["failed_txns"] = rows[0]["cnt"]
-			dash["failed_txns_value_kobo"] = rows[0]["value"]
-		}
-
-		// Manual postings awaiting action (team pending + mine)
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM manual_postings WHERE status='pending'`); len(rows) > 0 {
-			dash["postings_pending"] = rows[0]["count"]
-		}
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM manual_postings WHERE initiated_by=$1 AND status='pending'`, uid); len(rows) > 0 {
-			dash["my_postings_pending"] = rows[0]["count"]
-		}
-
-		// Last recon run + today's settlement position
-		if rows, _ := db.PGQuery(ctx, `SELECT status, kind, source, counterparty, unmatched_n, matched_n, finished_at, started_at FROM recon_runs ORDER BY started_at DESC LIMIT 1`); len(rows) > 0 {
+		// Last recon run — is the position current, and has anyone accepted it?
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT status, kind, source, counterparty, unmatched_n, matched_n,
+			       finished_at, started_at, period_from, period_to, signed_off_at
+			FROM recon_runs ORDER BY started_at DESC LIMIT 1`); len(rows) > 0 {
 			dash["last_run"] = rows[0]
 		}
-		if rows, _ := db.PGQuery(ctx, `
-			SELECT COALESCE(SUM(total_credits), 0) - COALESCE(SUM(total_debits), 0) AS net,
-			       COALESCE(SUM(total_credits) FILTER (WHERE status='pending'), 0) AS pending
-			FROM settlement_batches WHERE batch_date = CURRENT_DATE`); len(rows) > 0 {
-			dash["position_net_kobo"] = rows[0]["net"]
-			dash["position_pending_kobo"] = rows[0]["pending"]
-		}
 
-		// Lists: my exceptions + recent runs
-		exc, _ := db.PGQuery(ctx, `SELECT source, source_ref, reason, amount_kobo, txn_date, status, created_at FROM recon_exceptions WHERE assigned_to=$1 AND status IN ('open','investigating') ORDER BY created_at ASC LIMIT 8`, uid)
+		// Lists: my exceptions + recent runs. Oldest first — the queue is worked by
+		// age, and `id`/`detail` are carried so a row can be opened and explained
+		// without a second round trip.
+		exc, _ := db.PGQuery(ctx, `
+			SELECT e.id, e.run_id, e.source, e.source_ref, e.reason, e.detail,
+			       e.amount_kobo, e.txn_date, e.status, e.created_at,
+			       GREATEST(0, EXTRACT(DAY FROM NOW() - e.created_at))::int AS age_days
+			FROM recon_exceptions e
+			WHERE e.assigned_to=$1 AND e.status IN ('open','investigating')
+			ORDER BY e.created_at ASC LIMIT 8`, uid)
 		if exc == nil {
 			exc = []core.Row{}
 		}
 		dash["my_exception_list"] = exc
-		runs, _ := db.PGQuery(ctx, `SELECT kind, source, counterparty, status, unmatched_n, matched_n, started_at FROM recon_runs ORDER BY started_at DESC LIMIT 8`)
+		runs, _ := db.PGQuery(ctx, `
+			SELECT id, kind, source, counterparty, status, unmatched_n, matched_n,
+			       source_n, started_at, signed_off_at,
+			       CASE WHEN source_n > 0 THEN ROUND(100.0 * matched_n / source_n, 1) ELSE 0 END AS match_rate_pct
+			FROM recon_runs ORDER BY started_at DESC LIMIT 8`)
 		if runs == nil {
 			runs = []core.Row{}
 		}
@@ -573,6 +602,10 @@ func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 			  CASE WHEN mp.dr_account='SUSPENSE' THEN mp.cr_account ELSE mp.dr_account END AS account,
 			  mp.narrative AS description,
 			  COALESCE(mp.initiated_by_name, '') AS initiated_by,
+			  -- The id, not just the name, so the screen can apply the same
+			  -- maker-checker rule the approve endpoint enforces and simply not offer
+			  -- an Approve button the server would refuse.
+			  mp.initiated_by AS initiated_by_id,
 			  CASE mp.status WHEN 'pending' THEN 'pending_approval' ELSE mp.status END AS stage,
 			  mp.workflow_template_id,
 			  wt.name AS workflow_template_name,
@@ -585,9 +618,24 @@ func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 			  mp.rejected_by_name AS rejected_by,
 			  mp.rejected_at,
 			  COALESCE(mp.rejection_reason, mp.return_reason) AS rejection_reason,
-			  mp.created_at
+			  mp.created_at,
+			  -- Why this entry exists, and what it undoes. Both were invisible: a
+			  -- posting carried no link to the break it corrected, and a reversal was
+			  -- indistinguishable from an ordinary entry.
+			  mp.recon_exception_id,
+			  e.source_ref  AS exception_ref,
+			  e.reason      AS exception_reason,
+			  mp.reverses_posting_id,
+			  CASE WHEN mp.reverses_posting_id IS NOT NULL
+			       THEN 'MP-' || LPAD(mp.reverses_posting_id::text, 5, '0') END AS reverses_ref,
+			  mp.reversal_reason,
+			  -- Whether THIS entry has already been reversed, so the screen can hide
+			  -- a Reverse control that would only 409.
+			  EXISTS (SELECT 1 FROM manual_postings x
+			          WHERE x.reverses_posting_id = mp.id) AS is_reversed
 			FROM manual_postings mp
 			LEFT JOIN workflow_templates wt ON wt.id = mp.workflow_template_id
+			LEFT JOIN recon_exceptions e ON e.id = mp.recon_exception_id
 			WHERE %s
 			ORDER BY mp.created_at DESC
 			LIMIT $%d`, where, n), args...)
@@ -612,6 +660,12 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 			AmountKobo         int64  `json:"amount_kobo"`
 			Account            string `json:"account"`
 			Description        string `json:"description"`
+			// The reconciliation exception this entry corrects, when it was raised
+			// from one. This is the path that was missing: a settlement break that
+			// needs a correcting entry IS a recon exception, and with no link between
+			// them raising a posting meant retyping everything on another screen and
+			// leaving no trace of which break it answered.
+			ReconExceptionID *int64 `json:"recon_exception_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -631,12 +685,14 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO manual_postings
-			  (initiated_by, initiated_by_name, dr_account, cr_account, amount_kobo, narrative, status, workflow_template_id)
-			VALUES ($1,$2,$3,$4,$5,$6,'pending',$7)
+			  (initiated_by, initiated_by_name, dr_account, cr_account, amount_kobo,
+			   narrative, status, workflow_template_id, recon_exception_id)
+			VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8)
 			RETURNING id, 'MP-'||LPAD(id::text,5,'0') AS ref, amount_kobo, created_at`,
-			user.ID, user.FullName, drAccount, crAccount, b.AmountKobo, b.Description, b.WorkflowTemplateID)
+			user.ID, user.FullName, drAccount, crAccount, b.AmountKobo, b.Description,
+			b.WorkflowTemplateID, b.ReconExceptionID)
 		if err != nil {
-			respondErr(w, 500, "Create failed: "+err.Error())
+			respondErrLog(w, 500, "Create failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -653,14 +709,42 @@ func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 
+		// MAKER-CHECKER, enforced here rather than trusted to the screen.
+		//
+		// This UPDATE used to be `WHERE id=$3 AND status='pending'` with nothing
+		// stopping the person who raised the entry from approving it. A manual
+		// posting moves money between accounts on one person's word, so self-approval
+		// is the one thing the workflow exists to prevent — and every audit column
+		// around it (approved_by, approved_at) made it look as though a second pair
+		// of eyes had been applied.
+		//
+		// The guard is in the WHERE clause, not an if-statement above it: two
+		// concurrent approvals then race on the row rather than on a prior read.
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE manual_postings
 			SET status='approved', approved_by=$1, approved_by_name=$2,
 			    approved_at=NOW(), updated_at=NOW()
 			WHERE id=$3 AND status='pending'
+			  AND initiated_by IS DISTINCT FROM $1
 			RETURNING id`,
 			user.ID, user.FullName, id)
-		if err != nil || len(rows) == 0 {
+		if err != nil {
+			respondErrLog(w, 500, "Approve failed", err)
+			return
+		}
+		if len(rows) == 0 {
+			// Separate the two refusals, because they need different actions: one is
+			// a stale screen, the other is a control a person has to respect.
+			var mine bool
+			if chk, _ := db.PGQuery(r.Context(),
+				`SELECT initiated_by = $1 AS mine FROM manual_postings
+				 WHERE id=$2 AND status='pending'`, user.ID, id); len(chk) > 0 {
+				mine, _ = chk[0]["mine"].(bool)
+			}
+			if mine {
+				respondErr(w, 403, "You raised this posting, so you cannot approve it. It needs a second approver.")
+				return
+			}
 			respondErr(w, 404, "Posting not found or not pending")
 			return
 		}
@@ -1039,3 +1123,73 @@ func soaNIPReconResolve(db *core.DB) http.HandlerFunc {
 
 // ensure sql import is used (BeginTx returns *sql.Tx)
 var _ *sql.Tx
+
+// soaManualPostingsReverse undoes a POSTED entry by raising its mirror.
+//
+// WHY THIS DID NOT EXIST, AND WHY IT HAD TO. app.manual_postings has carried
+// reversal_requested_by, reversal_requested_at and reversal_reason since it was
+// created, and no endpoint ever wrote any of them: a posted entry was final with
+// no way back. The columns recorded an intention nobody implemented.
+//
+// A reversal is not a status change — it is a NEW posting with DR and CR swapped,
+// which means it goes through the same maker-checker path as any other entry. That
+// matters: letting one person flip a posted entry back would hand them the ability
+// to move money and then erase it, which is exactly what the approval step exists
+// to prevent. So the reversal lands as 'pending' and somebody else approves it.
+//
+// The original is left 'posted'. Its history is the point of an audit trail, and
+// reverses_posting_id is uniquely indexed, so an entry can be reversed once —
+// without that, two approvers acting on the same entry correct the accounts twice.
+func soaManualPostingsReverse(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		var b struct {
+			Reason string `json:"reason"`
+		}
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		if strings.TrimSpace(b.Reason) == "" {
+			respondErr(w, 422, "A reason is required to reverse a posted entry")
+			return
+		}
+
+		// One statement: read the original, write the mirror, and refuse anything
+		// that is not a posted entry or has already been reversed. Doing the check
+		// in Go first would leave a window where two requests both pass it.
+		rows, err := db.PGQuery(r.Context(), `
+			WITH src AS (
+			  SELECT id, dr_account, cr_account, amount_kobo, narrative, recon_exception_id
+			  FROM manual_postings
+			  WHERE id = $1
+			    AND status = 'posted'
+			    AND NOT EXISTS (
+			      SELECT 1 FROM manual_postings x WHERE x.reverses_posting_id = manual_postings.id)
+			)
+			INSERT INTO manual_postings
+			  (initiated_by, initiated_by_name, dr_account, cr_account, amount_kobo,
+			   narrative, status, recon_exception_id, reverses_posting_id,
+			   reversal_requested_by, reversal_requested_at, reversal_reason)
+			SELECT $2, $3,
+			       -- The mirror: what was debited is credited back.
+			       src.cr_account, src.dr_account, src.amount_kobo,
+			       'REVERSAL of MP-' || LPAD(src.id::text, 5, '0') || ': ' || $4,
+			       'pending', src.recon_exception_id, src.id,
+			       $2, NOW(), $4
+			FROM src
+			RETURNING id, 'MP-'||LPAD(id::text,5,'0') AS ref, reverses_posting_id, amount_kobo`,
+			id, user.ID, user.FullName, strings.TrimSpace(b.Reason))
+		if err != nil {
+			respondErrLog(w, 500, "Reverse failed", err)
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 409,
+				"Only a posted entry can be reversed, and only once. Check whether it is already reversed.")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}

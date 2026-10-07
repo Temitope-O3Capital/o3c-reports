@@ -46,10 +46,13 @@ interface ExecSettlements {
 // Fixed hues — a reason keeps its colour whatever the mix looks like this period.
 const REASON_COLOR: Record<string, string> = {
   no_candidate: RED, ambiguous: AMBER, amount_mismatch: BLUE, unclassified: '#5B7A94',
+  // Grey like 'unclassified': a day the counterparty ledger never covered is not
+  // a break anyone on the desk can answer for.
+  master_no_data: '#7B8FA1',
 }
 const REASON_LABEL: Record<string, string> = {
   no_candidate: 'No Candidate', ambiguous: 'Ambiguous', amount_mismatch: 'Amount Mismatch',
-  unclassified: 'Unclassified',
+  unclassified: 'Unclassified', master_no_data: 'Counterparty Feed Gap',
 }
 // Ageing runs fresh → stale, so colour runs calm → alarming in the same direction.
 const AGE_COLOR: Record<string, string> = {

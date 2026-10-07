@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +36,12 @@ func RegisterRecon(r chi.Router, db *core.DB) {
 	r.With(access).Post("/exceptions/{id}/assign", reconExceptionAssign(db))
 	r.With(access).Post("/exceptions/{id}/resolve", reconExceptionResolve(db))
 	r.With(access).Post("/exceptions/bulk-resolve", reconExceptionBulkResolve(db))
+
+	// Supervising the desk is a head's job, like sign-off: it is about who owns
+	// what and whether the queue is moving, not about working an item.
+	head := core.RequirePages("reconciliation")
+	r.With(head).Get("/supervisor", reconSupervisor(db))
+	r.With(head).Post("/exceptions/bulk-assign", reconExceptionBulkAssign(db))
 }
 
 /* ── Runs ────────────────────────────────────────────────────────────────── */
@@ -45,16 +53,20 @@ func reconRunStart(db *core.DB) http.HandlerFunc {
 			Counterparty string `json:"counterparty"`
 			PeriodFrom   string `json:"period_from"`
 			PeriodTo     string `json:"period_to"`
+			// Supersede acknowledges that an earlier run already covers this period
+			// and that its still-open exceptions should be closed in favour of this
+			// one. Without it an overlapping run is refused — see the guard below.
+			Supersede bool `json:"supersede"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
 		if b.Source == "" {
-			b.Source = recon.InterswitchSage.Source
+			b.Source = recon.CCSCardLedger.Source
 		}
 		if b.Counterparty == "" {
-			b.Counterparty = recon.InterswitchSage.Counterparty
+			b.Counterparty = recon.CCSCardLedger.Counterparty
 		}
 		from, err := time.Parse("2006-01-02", b.PeriodFrom)
 		if err != nil {
@@ -67,6 +79,55 @@ func reconRunStart(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		pair := recon.Pair{Source: b.Source, Counterparty: b.Counterparty}
+
+		// RUNNING THE SAME PERIOD TWICE DOUBLES THE QUEUE.
+		//
+		// Nothing stopped it. Every unmatched source row becomes a new exception on
+		// every run, so re-reconciling a period that has already been reconciled
+		// produces a second complete copy of its breaks — same transactions, new
+		// ids, all open, all ageing from today. That is a large part of how this
+		// queue reached five figures, and the operator who caused it had no way to
+		// know: the Run button simply worked.
+		//
+		// An overlapping run is now refused, with the earlier run named, unless the
+		// caller explicitly supersedes it. Matching has to consider the DEPRECATED
+		// pair name too, because the earlier CCS run is recorded under it.
+		names := recon.StoredNames(pair)
+		if len(names) == 0 {
+			respondErr(w, 422, "Unknown pair: "+pair.Source+" to "+pair.Counterparty)
+			return
+		}
+		var clauses []string
+		args := []any{b.PeriodFrom, b.PeriodTo}
+		for _, n := range names {
+			args = append(args, n.Source, n.Counterparty)
+			clauses = append(clauses, fmt.Sprintf("(r.source = $%d AND r.counterparty = $%d)",
+				len(args)-1, len(args)))
+		}
+		prior, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT r.id, r.period_from, r.period_to, r.started_at,
+			       (SELECT COUNT(*) FROM recon_exceptions e
+			        WHERE e.run_id = r.id AND e.status IN ('open','investigating')) AS open_n
+			FROM recon_runs r
+			WHERE r.status = 'ok'
+			  AND (%s)
+			  AND r.period_from <= $1::date AND r.period_to >= $2::date
+			ORDER BY r.started_at DESC`, strings.Join(clauses, " OR ")), args...)
+
+		if len(prior) > 0 && !b.Supersede {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(409)
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"error": "This period has already been reconciled for this pair. " +
+					"Running it again would duplicate every exception it raised. " +
+					"Re-run with supersede to close the earlier run's open items in favour of this one.",
+				"needs_supersede": true,
+				"prior_runs":      prior,
+			})
+			return
+		}
+
 		var triggeredBy sql.NullInt64
 		if u := core.UserFromCtx(r.Context()); u != nil && u.ID != 0 {
 			triggeredBy = sql.NullInt64{Int64: u.ID, Valid: true}
@@ -75,12 +136,35 @@ func reconRunStart(db *core.DB) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 		defer cancel()
 
-		res, err := recon.Run(ctx, db,
-			recon.Pair{Source: b.Source, Counterparty: b.Counterparty},
-			from, to, "manual", triggeredBy)
+		res, err := recon.Run(ctx, db, pair, from, to, "manual", triggeredBy)
 		if err != nil {
 			respondErr(w, 500, "Reconciliation failed: "+err.Error())
 			return
+		}
+
+		// Close the superseded run's still-open items. Only open ones: an exception
+		// somebody already resolved is a record of work done and is left exactly as
+		// it is, which is why this touches status IN ('open','investigating') and
+		// nothing else.
+		superseded := 0
+		if b.Supersede {
+			for _, p := range prior {
+				closed, cErr := db.PGQuery(ctx, `
+					UPDATE recon_exceptions
+					SET status = 'resolved',
+					    resolution_code = 'superseded',
+					    resolution_note = 'Superseded by run #' || $2::text,
+					    resolved_by = $3, resolved_at = NOW(), updated_at = NOW()
+					WHERE run_id = $1 AND status IN ('open','investigating')
+					RETURNING id`, p["id"], res.RunID, triggeredBy)
+				if cErr != nil {
+					slog.Error("recon: supersede failed", "prior_run", p["id"], "err", cErr)
+					continue
+				}
+				superseded += len(closed)
+			}
+			slog.Info("recon: superseded earlier run(s)",
+				"new_run", res.RunID, "closed", superseded, "prior_runs", len(prior))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -90,12 +174,14 @@ func reconRunStart(db *core.DB) http.HandlerFunc {
 			"matched_n":            res.MatchedN,
 			"ambiguous_n":          res.AmbiguousN,
 			"amount_mismatch_n":    res.AmountMismatchN,
+			"master_no_data_n":     res.MasterNoDataN,
 			"unmatched_n":          res.UnmatchedN,
 			"source_value_kobo":    res.SourceValueKobo,
 			"matched_value_kobo":   res.MatchedValueKobo,
 			"unmatched_value_kobo": res.UnmatchedValueKobo,
 			"match_rate_pct":       pct(res.MatchedN, res.SourceN),
 			"per_tier":             res.PerTier,
+			"superseded_n":         superseded,
 		}) //nolint:errcheck
 	}
 }
@@ -315,6 +401,18 @@ func reconExceptionList(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
+		// scope separates the queue a person can work from the queue only a data feed
+		// can fix. 'actionable' is what the Exceptions page opens on, because a list
+		// that mixes the two is unworkable in practice: most of the 10,527 items that
+		// accumulated here were days the counterparty ledger never covered, so every
+		// attempt to triage the queue ran into items nobody could close, and the
+		// triage stopped. Not expressible through `reason`, which takes one value.
+		switch qstr(r, "scope") {
+		case "actionable":
+			where += " AND e.reason <> 'master_no_data'"
+		case "feed_gap":
+			where += " AND e.reason = 'master_no_data'"
+		}
 		if v := qstr(r, "assigned_to"); v != "" {
 			where += fmt.Sprintf(" AND e.assigned_to = $%d", n)
 			args = append(args, v)
@@ -368,7 +466,17 @@ func reconExceptionSummary(db *core.DB) http.HandlerFunc {
 			                     AND created_at < NOW() - INTERVAL '30 days')         AS aged_30d_n,
 			  COUNT(*) FILTER (WHERE status IN ('open','investigating') AND reason='ambiguous')       AS ambiguous_n,
 			  COUNT(*) FILTER (WHERE status IN ('open','investigating') AND reason='amount_mismatch') AS amount_mismatch_n,
-			  COUNT(*) FILTER (WHERE status IN ('open','investigating') AND reason='no_candidate')    AS no_candidate_n
+			  COUNT(*) FILTER (WHERE status IN ('open','investigating') AND reason='no_candidate')    AS no_candidate_n,
+			  -- Reported separately, and excluded from the actionable count below,
+			  -- because nobody on the settlement desk can resolve a day the
+			  -- counterparty ledger never received. It belongs to whoever owns the
+			  -- feed. Counting it as an open break is what let the queue grow to
+			  -- 10,527 items that no amount of investigation could ever close.
+			  COUNT(*) FILTER (WHERE status IN ('open','investigating') AND reason='master_no_data')  AS master_no_data_n,
+			  COUNT(*) FILTER (WHERE status IN ('open','investigating')
+			                     AND reason <> 'master_no_data')                      AS actionable_n,
+			  COALESCE(SUM(ABS(amount_kobo)) FILTER (WHERE status IN ('open','investigating')
+			                     AND reason <> 'master_no_data'),0)                    AS actionable_value_kobo
 			FROM recon_exceptions`)
 		if err != nil || len(rows) == 0 {
 			respondErrLog(w, 500, "Query failed", err)
@@ -414,6 +522,12 @@ var reconResolutionCodes = map[string]bool{
 	"processor_error":   true,
 	"ledger_error":      true,
 	"written_off":       true,
+	// System-set, not an operator choice: written when a later run supersedes the
+	// run that raised the item. It is in this map so the code survives the same
+	// validation as any other, and it keeps "why was this closed" answerable —
+	// without it a superseded break would have to borrow a disposition that claims
+	// somebody investigated it.
+	"superseded": true,
 }
 
 func reconExceptionResolve(db *core.DB) http.HandlerFunc {
@@ -509,4 +623,253 @@ func reconCodeList() []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+/* ── Supervising the desk ─────────────────────────────────────────────────── */
+
+// reconSupervisor answers the three questions a settlement head actually has:
+// who owns what, is the queue moving, and what is waiting on me.
+//
+// It exists because the answer to the first one was "nobody". Every actionable
+// break in the queue — 11,069 of them, ₦819m, the oldest 63 days old — is
+// unassigned, and there was no surface anywhere in the module that could say so or
+// do anything about it. An exception queue without ownership is a list, not a
+// workflow: nothing ages against a person, nothing is anyone's to close, and the
+// backlog grows without ever being refused.
+func reconSupervisor(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		out := map[string]any{}
+
+		// Per-officer load. LEFT JOIN from the user, so an officer with nothing
+		// assigned still appears — that is the whole point of the view.
+		officers, _ := db.PGQuery(ctx, `
+			SELECT u.id AS user_id, u.full_name, u.role,
+			       COUNT(e.id) FILTER (WHERE e.status IN ('open','investigating')
+			                             AND e.reason <> 'master_no_data')              AS assigned_n,
+			       COALESCE(SUM(ABS(e.amount_kobo)) FILTER (WHERE e.status IN ('open','investigating')
+			                             AND e.reason <> 'master_no_data'), 0)          AS assigned_value_kobo,
+			       COALESCE(MAX(EXTRACT(DAY FROM NOW() - e.created_at))
+			                  FILTER (WHERE e.status IN ('open','investigating')), 0)::int AS oldest_days,
+			       COUNT(e.id) FILTER (WHERE e.status IN ('open','investigating')
+			                             AND e.reason <> 'master_no_data'
+			                             AND e.created_at < NOW() - INTERVAL '30 days')  AS aged_30d_n,
+			       COUNT(e.id) FILTER (WHERE e.status IN ('resolved','written_off')
+			                             AND e.resolved_at > NOW() - INTERVAL '30 days') AS resolved_30d
+			FROM o3c_users u
+			LEFT JOIN recon_exceptions e ON e.assigned_to = u.id
+			WHERE u.role IN ('settlement_officer','settlement_head') AND u.is_active
+			GROUP BY 1, 2, 3
+			ORDER BY assigned_n DESC, u.full_name`)
+		if officers == nil {
+			officers = []core.Row{}
+		}
+		out["officers"] = officers
+
+		// The unclaimed pool — what a supervisor is here to distribute.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n,
+			       COALESCE(SUM(ABS(amount_kobo)), 0) AS value_kobo,
+			       COALESCE(MAX(EXTRACT(DAY FROM NOW() - created_at)), 0)::int AS oldest_days
+			FROM recon_exceptions
+			WHERE status IN ('open','investigating')
+			  AND reason <> 'master_no_data'
+			  AND assigned_to IS NULL`); len(rows) > 0 {
+			out["unassigned"] = rows[0]
+		}
+
+		// Ageing over the actionable queue only. A feed gap that is 90 days old is
+		// not a desk that is 90 days behind.
+		aging, _ := db.PGQuery(ctx, `
+			SELECT CASE WHEN created_at > NOW() - INTERVAL '7 days'  THEN '0-7d'
+			            WHEN created_at > NOW() - INTERVAL '30 days' THEN '8-30d'
+			            WHEN created_at > NOW() - INTERVAL '90 days' THEN '31-90d'
+			            ELSE '90d+' END AS bucket,
+			       COUNT(*) AS n,
+			       COALESCE(SUM(ABS(amount_kobo)), 0) AS value_kobo
+			FROM recon_exceptions
+			WHERE status IN ('open','investigating') AND reason <> 'master_no_data'
+			GROUP BY 1
+			ORDER BY MIN(created_at) DESC`)
+		if aging == nil {
+			aging = []core.Row{}
+		}
+		out["aging"] = aging
+
+		byReason, _ := db.PGQuery(ctx, `
+			SELECT reason, COUNT(*) AS n, COALESCE(SUM(ABS(amount_kobo)), 0) AS value_kobo
+			FROM recon_exceptions
+			WHERE status IN ('open','investigating')
+			GROUP BY 1 ORDER BY n DESC`)
+		if byReason == nil {
+			byReason = []core.Row{}
+		}
+		out["by_reason"] = byReason
+
+		// Runs a head has not accepted. Sign-off is the artifact that says a human
+		// looked at the position, and an unsigned run means nobody has.
+		unsigned, _ := db.PGQuery(ctx, `
+			SELECT r.id, r.source, r.counterparty, r.period_from, r.period_to,
+			       r.source_n, r.matched_n, r.unmatched_n, r.started_at,
+			       CASE WHEN r.source_n > 0
+			            THEN ROUND(100.0 * r.matched_n / r.source_n, 1) ELSE 0 END AS match_rate_pct,
+			       COALESCE(t.full_name, 'system') AS triggered_by_name
+			FROM recon_runs r
+			LEFT JOIN o3c_users t ON t.id = r.triggered_by
+			WHERE r.status = 'ok' AND r.signed_off_at IS NULL
+			ORDER BY r.started_at DESC LIMIT 20`)
+		if unsigned == nil {
+			unsigned = []core.Row{}
+		}
+		out["runs_unsigned"] = unsigned
+
+		// Is the queue moving? Resolutions per day for the last fortnight, so a
+		// supervisor sees throughput rather than only backlog.
+		throughput, _ := db.PGQuery(ctx, `
+			WITH d AS (
+			  SELECT generate_series(CURRENT_DATE - 13, CURRENT_DATE, '1 day')::date AS day
+			)
+			SELECT d.day,
+			       COUNT(e.id) AS resolved_n,
+			       COALESCE(SUM(ABS(e.amount_kobo)), 0) AS resolved_value_kobo
+			FROM d
+			LEFT JOIN recon_exceptions e
+			       ON e.resolved_at::date = d.day
+			      AND e.status IN ('resolved','written_off')
+			GROUP BY d.day ORDER BY d.day`)
+		if throughput == nil {
+			throughput = []core.Row{}
+		}
+		out["throughput"] = throughput
+
+		// Reported apart, and never mixed into the desk's numbers.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n, COALESCE(SUM(ABS(amount_kobo)), 0) AS value_kobo
+			FROM recon_exceptions
+			WHERE status IN ('open','investigating') AND reason = 'master_no_data'`); len(rows) > 0 {
+			out["feed_gap"] = rows[0]
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
+	}
+}
+
+// reconExceptionBulkAssign gives the queue owners, two ways.
+//
+//	{"ids": [1,2,3], "user_id": 15}       — give these items to that officer
+//	{"user_ids": [15,19], "limit": 200}   — share the oldest N unclaimed items out
+//
+// The second form is the one that matters: with 11,069 unassigned items, handing
+// them over one id at a time is not a workflow anybody would finish. Sharing is
+// round-robin over the OLDEST first, so the backlog drains from the end that has
+// waited longest and each officer gets a comparable slice rather than one person
+// inheriting the whole age range.
+//
+// Feed gaps are never assigned, in either form. Nobody on the desk can close a day
+// the counterparty never sent, and putting one in a person's queue makes their
+// numbers a lie.
+func reconExceptionBulkAssign(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			IDs     []int64 `json:"ids"`
+			UserID  int64   `json:"user_id"`
+			UserIDs []int64 `json:"user_ids"`
+			Limit   int     `json:"limit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+
+		ctx := r.Context()
+
+		// Explicit form: named items to one officer.
+		if len(b.IDs) > 0 {
+			if b.UserID == 0 {
+				respondErr(w, 422, "user_id is required when ids are given")
+				return
+			}
+			rows, err := db.PGQuery(ctx, `
+				UPDATE recon_exceptions
+				SET assigned_to = $1,
+				    status = CASE WHEN status = 'open' THEN 'investigating' ELSE status END,
+				    updated_at = NOW()
+				WHERE id = ANY($2::bigint[])
+				  AND status IN ('open','investigating')
+				  AND reason <> 'master_no_data'
+				RETURNING id`, b.UserID, int64Array(b.IDs))
+			if err != nil {
+				respondErrLog(w, 500, "Assign failed", err)
+				return
+			}
+			respond(w, map[string]any{"assigned": len(rows)}, "ok")
+			return
+		}
+
+		// Distribute form: share the oldest unclaimed items across the officers given.
+		if len(b.UserIDs) == 0 {
+			respondErr(w, 422, "give either ids with user_id, or user_ids to share the queue out")
+			return
+		}
+		limit := b.Limit
+		if limit <= 0 {
+			limit = 100
+		}
+		if limit > 5000 {
+			limit = 5000
+		}
+
+		rows, err := db.PGQuery(ctx, `
+			WITH k AS (SELECT $1::bigint[] AS ids),
+			pool AS (
+			  SELECT id, (ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) - 1) AS rn
+			  FROM recon_exceptions
+			  WHERE status IN ('open','investigating')
+			    AND reason <> 'master_no_data'
+			    AND assigned_to IS NULL
+			  ORDER BY created_at ASC, id ASC
+			  LIMIT $2
+			)
+			UPDATE recon_exceptions e
+			SET assigned_to = k.ids[(p.rn % cardinality(k.ids)) + 1],
+			    status = 'investigating',
+			    updated_at = NOW()
+			FROM pool p CROSS JOIN k
+			WHERE e.id = p.id
+			RETURNING e.id, e.assigned_to`, int64Array(b.UserIDs), limit)
+		if err != nil {
+			respondErrLog(w, 500, "Distribute failed", err)
+			return
+		}
+
+		per := map[string]int{}
+		for _, row := range rows {
+			per[fmt.Sprint(row["assigned_to"])]++
+		}
+		respond(w, map[string]any{"assigned": len(rows), "per_officer": per}, "ok")
+	}
+}
+
+// int64Array renders a Go slice as a Postgres bigint[] literal.
+//
+// pgx can bind a []int64 directly, but this package talks to the database through
+// database/sql with the pgx stdlib driver, where a slice is not a scalar the
+// driver will accept. The values are int64 — they cannot carry quotes, commas or
+// anything else that would need escaping — so a literal is safe here in a way that
+// string interpolation never is.
+func int64Array(xs []int64) string {
+	if len(xs) == 0 {
+		return "{}"
+	}
+	var sb strings.Builder
+	sb.WriteByte('{')
+	for i, x := range xs {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(strconv.FormatInt(x, 10))
+	}
+	sb.WriteByte('}')
+	return sb.String()
 }

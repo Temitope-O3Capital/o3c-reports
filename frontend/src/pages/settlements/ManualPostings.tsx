@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, ExpandableFilterBar, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, ExpandableFilterBar, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter, NameCell, ActionRow, Badge } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -22,6 +22,7 @@ interface ManualPosting {
   account: string
   description: string
   initiated_by: string
+  initiated_by_id: number | null
   stage: 'pending_approval' | 'approved' | 'posted' | 'rejected' | 'returned'
   approver_roles: string[]
   poster_roles: string[]
@@ -33,6 +34,18 @@ interface ManualPosting {
   rejected_at: string | null
   rejection_reason: string | null
   created_at: string
+  // Why this entry exists, and what it undoes. Both were invisible before: a
+  // posting carried no link to the break it corrected, and a reversal was
+  // indistinguishable from an ordinary entry.
+  recon_exception_id: number | null
+  exception_ref: string | null
+  exception_reason: string | null
+  reverses_posting_id: number | null
+  reverses_ref: string | null
+  reversal_reason: string | null
+  // Whether THIS entry has already been reversed — an entry can be reversed once,
+  // so the control is hidden rather than offered and refused.
+  is_reversed: boolean
 }
 
 // ── Stage stepper ─────────────────────────────────────────────────────────────
@@ -372,8 +385,18 @@ export default function ManualPostings() {
   const [approveLoading, setApproveLoading] = useState(false)
   const [sel, setSel] = useState<Set<string | number>>(new Set())
 
+  const [reverseRow, setReverseRow] = useState<ManualPosting | null>(null)
+
   const role = useMemo<string>(() => {
     try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' }
+  }, [])
+  // Needed for maker-checker: the screen must not offer an Approve button the
+  // approve endpoint will refuse because this is the person who raised the entry.
+  const myId = useMemo<number | null>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('o3c_user') ?? '{}').id
+      return typeof v === 'number' ? v : null
+    } catch { return null }
   }, [])
 
   const load = useCallback(async (silent = false) => {
@@ -443,6 +466,25 @@ export default function ManualPostings() {
     }
   }
 
+  // Reversing a posted entry raises its MIRROR — same amount, DR and CR swapped —
+  // which then needs its own approver. It is not a status flip: letting one person
+  // undo a posted entry alone would hand them the ability to move money and then
+  // erase it, which is the thing the approval step exists to prevent.
+  async function handleReverse(reason: string) {
+    if (!reverseRow) return
+    setActionSaving(true)
+    try {
+      await apiPost(`/api/settlements/manual-postings/${reverseRow.id}/reverse`, { reason })
+      toast.success(`Reversal of ${reverseRow.ref} raised — it needs approval like any other entry`)
+      setReverseRow(null)
+      load()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Reverse failed')
+    } finally {
+      setActionSaving(false)
+    }
+  }
+
 
   const isSettlementOfficer = !['finance_head', 'cfo', 'treasury_officer', 'finance_officer'].includes(role)
 
@@ -480,15 +522,73 @@ export default function ManualPostings() {
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
     },
     {
-      key: 'stage', label: 'Stage', width: 130,
-      render: r => <StatusBadge status={r.stage} />,
+      key: 'stage', label: 'Stage', width: 170,
+      render: r => {
+        const mine = myId !== null && r.initiated_by_id === myId
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <StatusBadge status={r.stage} />
+              {r.is_reversed && <Badge variant="default">reversed</Badge>}
+              {r.reverses_ref && <Badge variant="warning">reversal</Badge>}
+            </span>
+            {/* Says WHY there is no Approve button, rather than leaving an officer
+                to discover the control by being refused by it. */}
+            {r.stage === 'pending_approval' && mine && (
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                you raised this — needs another approver
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
-      key: '_actions', label: '', sortable: false, width: 160,
+      // The two links that were invisible: the break this entry corrects, and the
+      // entry a reversal undoes. A posting with neither is a bare instruction with
+      // no stated cause, which is how this table ends up unauditable.
+      key: '_origin', label: 'Origin', width: 170, sortable: false,
+      render: r => {
+        if (r.recon_exception_id) {
+          return (
+            <a href={`/settlements/exceptions?focus=${r.recon_exception_id}`}
+              style={{ fontSize: TEXT.xs, color: NAVY, textDecoration: 'none' }}
+              title={r.exception_reason ?? undefined}>
+              <span className="material-symbols-rounded" aria-hidden="true"
+                style={{ fontSize: 13, verticalAlign: -2, marginRight: 3 }}>rule</span>
+              break {r.exception_ref ?? `#${r.recon_exception_id}`}
+            </a>
+          )
+        }
+        if (r.reverses_ref) {
+          return (
+            <span style={{ fontSize: TEXT.xs, color: AMBER }} title={r.reversal_reason ?? undefined}>
+              <span className="material-symbols-rounded" aria-hidden="true"
+                style={{ fontSize: 13, verticalAlign: -2, marginRight: 3 }}>undo</span>
+              reverses {r.reverses_ref}
+            </span>
+          )
+        }
+        return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>raised directly</span>
+      },
+    },
+    {
+      key: '_actions', label: '', sortable: false, width: 190,
       render: (r) => {
-        const isAdmin    = role === 'admin'
-        const canApprove = r.stage === 'pending_approval' && (isAdmin || (r.approver_roles ?? []).includes(role))
-        const canPost    = r.stage === 'approved'         && (isAdmin || (r.poster_roles ?? []).includes(role))
+        const isAdmin = role === 'admin'
+        // MAKER-CHECKER, mirrored from the approve endpoint. The server refuses a
+        // self-approval outright; offering the button anyway would mean every
+        // officer meets a 403 on their own entry and learns the control by being
+        // blocked by it. Admin is not exempt: the point is a second pair of eyes,
+        // and a role cannot supply one.
+        const mine = myId !== null && r.initiated_by_id === myId
+        const canApprove = r.stage === 'pending_approval' && !mine
+          && (isAdmin || (r.approver_roles ?? []).includes(role))
+        const canPost    = r.stage === 'approved'
+          && (isAdmin || (r.poster_roles ?? []).includes(role))
+        // A posted entry can be reversed once, and a reversal is itself a new
+        // posting that needs its own approver.
+        const canReverse = r.stage === 'posted' && !r.is_reversed
         return (
           <ActionRow actions={[
             ...(canApprove ? [
@@ -498,6 +598,9 @@ export default function ManualPostings() {
             ...(canPost ? [
               { icon: 'post_add', label: 'Post', onClick: () => setPostRow(r) },
               { icon: 'keyboard_return', label: 'Return', onClick: () => setReturnRow(r) },
+            ] : []),
+            ...(canReverse ? [
+              { icon: 'undo', label: 'Reverse', onClick: () => setReverseRow(r), danger: true as const },
             ] : []),
           ] satisfies RowAction[]} />
         )
@@ -623,6 +726,18 @@ export default function ManualPostings() {
         confirmColor={AMBER}
         onClose={() => setReturnRow(null)}
         onSubmit={handleReturn}
+        saving={actionSaving}
+      />
+
+      <ReasonModal
+        open={reverseRow !== null}
+        title={reverseRow
+          ? `Reverse ${reverseRow.ref} — ${fmtKobo(reverseRow.amount_kobo)}`
+          : 'Reverse Posting'}
+        confirmLabel="Raise Reversal"
+        confirmColor={RED}
+        onClose={() => setReverseRow(null)}
+        onSubmit={handleReverse}
         saving={actionSaving}
       />
     </Page>

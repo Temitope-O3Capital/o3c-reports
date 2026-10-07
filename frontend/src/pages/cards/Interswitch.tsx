@@ -1,290 +1,561 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  Page, SectionCard, KpiCard, ErrBanner, DataTable, EmptyState, DateFilter,
+  Button, Badge, StatusBadge, SegmentedToggle,
+} from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
-import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-import { EArea, EBar } from '../../components/echarts'
-import { fmtUsdCents } from '../../lib/currency'
+import { fmtKobo, fmtKoboExact, fmtNum, fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { EBar } from '../../components/echarts'
+import { humanLabel } from '../../lib/labels'
+
+/*
+  INTERSWITCH SETTLEMENT — the real feed.
+
+  Interswitch has no API. Its settlement data is a CSV pulled from their portal
+  once a day and uploaded here, so the page is built around that workflow: what
+  arrived, what it settled, and — the question that actually matters for a daily
+  feed — WHICH DAYS NOBODY HAS UPLOADED.
+
+  WHAT THIS REPLACES. This route read /api/cards/interswitch/summary, which serves
+  app.interswitch_txns: a back-compat VIEW that migration 126 pointed at
+  ccs_transactions precisely because that table "never held Interswitch data". So
+  the Interswitch page showed CCS card-ledger figures under Interswitch headings,
+  while the real settlement feed — every leg of interswitch_legs — had no page at
+  all, and /api/interswitch/summary had no caller anywhere in the frontend.
+
+  The figures here now agree with the Interswitch panel on Providers and with the
+  reconciliation engine, because all three finally read the same table. The CCS
+  card analytics this page used to carry (products, merchants, USD cards) remain on
+  Cards → Overview, where they belong.
+*/
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface InterswitchSummary {
-  report_date: string
-  total_volume_kobo: number
-  total_count: number
-  channel_breakdown: { channel: string; volume_kobo: number; count: number; pct: number }[]
-  product_breakdown: { product: string; volume_kobo: number; count: number }[]
-  txn_type_breakdown: { type: string; count: number; volume_kobo: number }[]
-  daily_trend: { date: string; atm: number; pos: number; web: number; bills: number; repayment: number; fees: number }[]
-  top_merchants: { name: string; volume_kobo: number; count: number }[]
-  // Dollar cards, in cents. CCS posts them in US dollars, so every figure above
-  // is naira cards only and these are reported on their own.
-  usd_count?: number
-  usd_volume_cents?: number
-  usd_channel_breakdown?: { channel: string; volume_cents: number; count: number }[]
+interface FamilyRow {
+  report_family: string
+  session: string
+  txns: number
+  gross_kobo: number
+  fees_kobo: number
+  legs: number
 }
 
-type Period = 'mtd' | 'l30d' | 'l90d' | 'ytd'
-const PERIOD_OPTIONS: { id: Period; label: string }[] = [
-  { id: 'mtd', label: 'MTD' }, { id: 'l30d', label: 'Last 30d' },
-  { id: 'l90d', label: 'Last 90d' }, { id: 'ytd', label: 'YTD' },
-]
-
-// Keys are the channel label upper-cased (see the lookup below). The labels come
-// from app.card_txn_codes.category via iswChannelCase — they used to be
-// ATM/POS/WEB/Transfer, a classification that matched no code in this feed and
-// reported everything as Transfer.
-const CH_COLOR: Record<string, string> = {
-  'ATM / CASH': NAVY,
-  'POS / PURCHASE': BLUE,
-  'WEB TRANSFER': AMBER,
-  'BILL PAYMENT': GREEN,
-  'REPAYMENT': PURPLE,
-  'FEES & INTEREST': RED,
-  'OTHER': '#94A3B8',
+interface DailyRow {
+  day: string
+  report_family: string
+  txns: number
+  gross_kobo: number
 }
 
-function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Period) => void }) {
+interface Totals {
+  txns: number; gross_kobo: number; fees_kobo: number; legs: number; days_present: number
+}
+
+interface Coverage {
+  days_in_period?: number
+  days_present?: number
+  days_missing?: number
+  missing_days?: string[]
+}
+
+interface LastImport {
+  id?: number
+  started_at?: string
+  finished_at?: string
+  status?: string
+  files_n?: number
+  inserted_n?: number
+  skipped_n?: number
+  errors?: string
+  actor?: string
+}
+
+interface Summary {
+  by_family: FamilyRow[]
+  daily: DailyRow[]
+  totals: Totals
+  coverage: Coverage
+  last_import: LastImport
+  feed_last_day: string | null
+}
+
+interface ImportRow {
+  id: number
+  started_at: string
+  finished_at: string | null
+  status: string
+  files_n: number
+  legs_n: number
+  inserted_n: number
+  skipped_n: number
+  errors: string
+  actor: string
+}
+
+interface ImportResult {
+  import_id?: number
+  files?: number
+  legs?: number
+  inserted?: number
+  skipped?: number
+  errors?: string[]
+}
+
+// Fixed hues, so a channel keeps its colour whatever this period's mix looks like.
+const FAMILY_COLOR: Record<string, string> = {
+  AGENCY_BANKING: NAVY, POS: BLUE, ATM_WITHDRAWAL: AMBER, WEB: GREEN,
+  QT_TRANSFERS: PURPLE, IPG: '#0891B2', ATM_TRANSFERS: '#DB2777',
+  TRANSFER_SERVICE_CORE: '#65A30D', BILLPAYMENT: '#EA580C',
+  PREPAID_CARD_LOAD: '#7C3AED', OTHER: '#94A3B8',
+}
+
+function nairaAxis(v: number) {
+  if (v >= 1e11) return `₦${(v / 1e11).toFixed(1)}B`
+  if (v >= 1e8)  return `₦${(v / 1e8).toFixed(0)}M`
+  if (v >= 1e5)  return `₦${(v / 1e5).toFixed(0)}K`
+  return v === 0 ? '0' : ''
+}
+
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  return Math.floor((Date.now() - t) / 86_400_000)
+}
+
+/* The dates nobody uploaded, spelled out. This is the page's most actionable
+   output, so it is a list of days to go and fetch, not a count. */
+function MissingDays({ days, onUpload }: { days: string[]; onUpload: () => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? days : days.slice(0, 12)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--chip-bg)', borderRadius: RADIUS.md, padding: 3, border: '1px solid var(--bdr)' }}>
-      {PERIOD_OPTIONS.map(opt => (
-        <button key={opt.id} onClick={() => onChange(opt.id)} style={{
-          padding: '5px 14px', borderRadius: 7, border: 'none',
-          fontSize: TEXT.sm, fontWeight: period === opt.id ? FW.bold : FW.medium,
-          fontFamily: INTER, cursor: 'pointer',
-          background: period === opt.id ? 'var(--card)' : 'transparent',
-          color: period === opt.id ? 'var(--txt)' : 'var(--txt2)',
-          boxShadow: period === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 130ms',
-        }}>{opt.label}</button>
-      ))}
+    <div style={{ marginTop: SP[3] }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: SP[3] }}>
+        {shown.map(d => (
+          <span key={d} style={{
+            ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold,
+            padding: '3px 9px', borderRadius: 999,
+            background: `${AMBER}18`, color: AMBER, whiteSpace: 'nowrap',
+          }}>{fmtDate(d)}</span>
+        ))}
+        {days.length > shown.length && (
+          <button type="button" onClick={() => setExpanded(true)} style={{
+            fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 9px',
+            borderRadius: 999, border: '1px dashed var(--bdr)', background: 'transparent',
+            color: 'var(--txt2)', cursor: 'pointer',
+          }}>+{days.length - shown.length} more</button>
+        )}
+      </div>
+      <Button size="sm" icon="upload_file" onClick={onUpload}>Upload the Missing Days</Button>
     </div>
   )
 }
 
-export default function Interswitch() {
-  const [data, setData] = useState<InterswitchSummary | null>(null)
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function InterswitchSettlement() {
+  const navigate = useNavigate()
+  const [from, setFrom] = useState(monthStart())
+  const [to, setTo]     = useState(today())
+  const [d, setD]       = useState<Summary | null>(null)
+  const [history, setHistory] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('mtd')
+  const [error, setError]     = useState<string | null>(null)
+  const [grain, setGrain]     = useState<'family' | 'session'>('family')
 
-  const load = useCallback(async (p: Period) => {
-    setLoading(true); setError(null)
+  // Upload, inline. The feed is a daily file; sending it should not require
+  // navigating to a different module.
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const [files, setFiles]   = useState<File[]>([])
+  const [busy, setBusy]     = useState(false)
+  const [result, setResult] = useState<ImportResult | null>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const r = await apiFetch<any>(`/api/cards/interswitch/summary?period=${p}`)
-      const d = r?.data ?? r ?? {}
-      setData({ ...d,
-        product_breakdown:  d.product_breakdown ?? [],
-        txn_type_breakdown: d.txn_type_breakdown ?? [],
-        daily_trend:        d.daily_trend ?? [],
-        top_merchants:      d.top_merchants ?? [],
-      })
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
-  }, [])
+      const [sum, hist] = await Promise.all([
+        apiFetch<Summary>(`/api/interswitch/summary?date_from=${from}&date_to=${to}`),
+        apiFetch<{ data: ImportRow[] }>('/api/interswitch/imports').catch(() => null),
+      ])
+      setD(sum)
+      setHistory(hist?.data ?? [])
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load Interswitch settlement')
+    } finally {
+      setLoading(false)
+    }
+  }, [from, to])
 
-  useEffect(() => { load(period) }, [load, period])
+  useEffect(() => { load() }, [load])
 
-  const title = 'Interswitch: Card Activity'
-  const back = { label: 'Cards', to: '/cards' }
-  const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
+  const focusUpload = useCallback(() => { fileRef.current?.click() }, [])
 
-  if (loading) return (
-    <Page title={title} back={back} actions={actions}>
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}><Spinner size={32} /></div>
-    </Page>
-  )
-  if (error) return (
-    <Page title={title} back={back} actions={actions}>
-      <ErrBanner error={error} onRetry={() => load(period)} />
-    </Page>
-  )
-  if (!data) return null
+  const doImport = useCallback(async () => {
+    if (!files.length) return
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const form = new FormData()
+      files.forEach(f => form.append('files', f))
+      const r = await apiFetch<ImportResult>('/api/interswitch/import', { method: 'POST', body: form })
+      setResult(r)
+      setFiles([])
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Import failed')
+    } finally { setBusy(false) }
+  }, [files, load])
 
-  const avgTxn = data.total_count > 0 ? data.total_volume_kobo / data.total_count : 0
-  const productsActive = data.product_breakdown.filter(p => p.count > 0).length
-  const totalMerchantVol = data.top_merchants.reduce((s, m) => s + m.volume_kobo, 0) || 1
-  const totalProdVol = data.product_breakdown.reduce((s, p) => s + p.volume_kobo, 0) || 1
+  const totals    = d?.totals
+  const coverage  = d?.coverage ?? {}
+  const lastImp   = d?.last_import ?? {}
+  const missing   = coverage.missing_days ?? []
+  const staleDays = daysSince(d?.feed_last_day)
+
+  // ── Channel table ───────────────────────────────────────────────────────────
+  const famRows = useMemo(() => {
+    const src = d?.by_family ?? []
+    if (grain === 'session') return src
+    // Collapse the DR/PR settlement sessions into one row per channel.
+    const m = new Map<string, FamilyRow>()
+    for (const r of src) {
+      const cur = m.get(r.report_family)
+      if (!cur) {
+        m.set(r.report_family, { ...r, session: 'all' })
+      } else {
+        cur.txns = Number(cur.txns) + Number(r.txns)
+        cur.gross_kobo = Number(cur.gross_kobo) + Number(r.gross_kobo)
+        cur.fees_kobo = Number(cur.fees_kobo) + Number(r.fees_kobo)
+        cur.legs = Number(cur.legs) + Number(r.legs)
+      }
+    }
+    return [...m.values()].sort((a, b) => Number(b.gross_kobo) - Number(a.gross_kobo))
+  }, [d, grain])
+
+  const famMax = useMemo(
+    () => Math.max(0, ...famRows.map(r => Number(r.gross_kobo))), [famRows])
+
+  const famCols: TableCol<FamilyRow>[] = [
+    { key: 'report_family', label: 'Channel', sortable: true, render: r => (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
+        <span aria-hidden="true" style={{
+          width: 9, height: 9, borderRadius: 2,
+          background: FAMILY_COLOR[r.report_family] ?? 'var(--txt3)',
+        }} />
+        <span style={{ fontWeight: FW.medium }}>{humanLabel(r.report_family)}</span>
+      </span>
+    ) },
+    ...(grain === 'session'
+      ? [{
+          key: 'session', label: 'Session', width: 100, sortable: true,
+          render: (r: FamilyRow) => <Badge variant="default">{r.session || '—'}</Badge>,
+        } as TableCol<FamilyRow>]
+      : []),
+    { key: 'txns', label: 'Transactions', align: 'right', sortable: true,
+      render: r => <span style={NUM}>{fmtNum(r.txns)}</span> },
+    { key: 'gross_kobo', label: 'Gross Settled', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.gross_kobo)}</span> },
+    { key: 'share', label: 'Share', width: 90, render: r => {
+      const pct = famMax > 0 ? (Number(r.gross_kobo) / famMax) * 100 : 0
+      return (
+        <div aria-hidden="true" style={{
+          height: 4, borderRadius: 2, background: 'var(--bdr)', overflow: 'hidden', minWidth: 48,
+        }}>
+          <div style={{
+            height: '100%', width: `${pct}%`, borderRadius: 2,
+            background: FAMILY_COLOR[r.report_family] ?? 'var(--txt3)',
+          }} />
+        </div>
+      )
+    } },
+    { key: 'fees_kobo', label: 'Fees', align: 'right', sortable: true,
+      render: r => (
+        <span style={{ ...NUM, color: Number(r.fees_kobo) < 0 ? RED : 'var(--txt2)' }}>
+          {fmtKobo(Math.abs(Number(r.fees_kobo)))}
+        </span>
+      ) },
+    // Legs are shown because the collapse is why these figures can be trusted:
+    // interswitch_legs holds one row per settlement leg, so summing it raw
+    // double- and triple-counts a single transaction.
+    { key: 'legs', label: 'Legs', align: 'right', sortable: true, width: 80,
+      render: r => <span style={{ ...NUM, color: 'var(--txt3)' }}>{fmtNum(r.legs)}</span> },
+  ]
+
+  // ── Daily chart: one stacked bar per settlement date ────────────────────────
+  const chartData = useMemo(() => {
+    const byDay = new Map<string, Record<string, number | string>>()
+    for (const r of d?.daily ?? []) {
+      const key = String(r.day).slice(0, 10)
+      const row = byDay.get(key) ?? { day: fmtDate(key) }
+      row[r.report_family] = Number(row[r.report_family] ?? 0) + Number(r.gross_kobo)
+      byDay.set(key, row)
+    }
+    return [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, v]) => v)
+  }, [d])
+
+  const chartSeries = useMemo(() => {
+    const fams = new Set<string>()
+    for (const r of d?.daily ?? []) fams.add(r.report_family)
+    return [...fams].map(f => ({
+      key: f, name: humanLabel(f), color: FAMILY_COLOR[f] ?? '#94A3B8',
+    }))
+  }, [d])
+
+  const histCols: TableCol<ImportRow>[] = [
+    { key: 'started_at', label: 'Uploaded', width: 160, sortable: true,
+      render: h => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDatetime(h.started_at)}</span> },
+    { key: 'actor', label: 'By', width: 150,
+      render: h => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{h.actor}</span> },
+    { key: 'files_n', label: 'Files', align: 'right', width: 70,
+      render: h => <span style={NUM}>{fmtNum(h.files_n)}</span> },
+    { key: 'legs_n', label: 'Legs Read', align: 'right', width: 100,
+      render: h => <span style={NUM}>{fmtNum(h.legs_n)}</span> },
+    { key: 'inserted_n', label: 'Inserted', align: 'right', width: 100,
+      render: h => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtNum(h.inserted_n)}</span> },
+    // Skipped is normal, not an error: the parser drops Interswitch's aggregate
+    // rollups and anything already loaded, so an operator can drag a whole day's
+    // folder in without curating it first.
+    { key: 'skipped_n', label: 'Skipped', align: 'right', width: 90,
+      render: h => <span style={{ ...NUM, color: 'var(--txt3)' }}>{fmtNum(h.skipped_n)}</span> },
+    { key: 'status', label: 'Status', width: 125, render: h => (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
+        <StatusBadge status={h.status} size="sm" />
+        {h.errors && (
+          <span className="material-symbols-rounded" title={h.errors} aria-label={h.errors}
+            style={{ fontSize: 15, color: AMBER }}>warning</span>
+        )}
+      </span>
+    ) },
+  ]
 
   return (
     <Page
-      title={title}
-      subtitle={data.report_date ? `Report date: ${data.report_date}` : undefined}
-      back={back}
-      actions={actions}
+      title="Interswitch Settlement"
+      subtitle="Uploaded daily from the Interswitch portal — POS, ATM, web, bill payment and agency banking"
+      loading={loading && !d}
+      skeletonKpis={4}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+          <Button size="sm" variant="secondary" icon="upload_file" onClick={focusUpload}>
+            Upload CSV
+          </Button>
+          <Button size="sm" variant="secondary" icon="play_arrow"
+            onClick={() => navigate('/settlements/workbench')}>Reconcile</Button>
+          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
+        </div>
+      }
     >
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Total Volume (₦)"       value={fmtKoboExact(data.total_volume_kobo)} icon="swap_horiz"    accent={NAVY}  />
-        <KpiCard label="Total Transactions" value={fmtNum(data.total_count)}         icon="receipt_long"  accent={BLUE}  />
-        <KpiCard label="Avg Transaction"    value={fmtKoboExact(avgTxn)}                  icon="bar_chart"     accent={AMBER} />
-        <KpiCard label="Products Active"    value={fmtNum(productsActive)}            icon="credit_card"   accent={GREEN} />
-      </div>
+      <ErrBanner error={error} onRetry={load} />
 
-      {(data.usd_count ?? 0) > 0 && (
-        <SectionCard title="USD Cards" subtitle="Posted by CCS in US dollars, so kept out of every naira figure on this page" style={{ marginBottom: 14 }}>
-          <div style={{ display: 'flex', gap: SP[6], flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1.1 }}>{fmtUsdCents(data.usd_volume_cents ?? 0)}</div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>{fmtNum(data.usd_count ?? 0)} transactions</div>
+      {/* One hidden input, driven by every Upload control on the page. */}
+      <input
+        ref={fileRef} type="file" multiple accept=".csv,.txt,.xls,.xlsx"
+        style={{ display: 'none' }}
+        onChange={e => {
+          if (e.target.files) { setFiles(Array.from(e.target.files)); setResult(null) }
+        }}
+      />
+
+      {/* ── What is missing: the page's first answer ── */}
+      {d && Number(coverage.days_missing ?? 0) > 0 && (
+        <div role="alert" style={{
+          display: 'flex', alignItems: 'flex-start', gap: SP[3],
+          padding: SP[4], marginBottom: SP[5], borderRadius: RADIUS.lg,
+          background: 'var(--card)', border: '1px solid var(--card-bdr)',
+          borderLeft: `4px solid ${AMBER}`, boxShadow: 'var(--card-shadow)',
+        }}>
+          <span className="material-symbols-rounded" aria-hidden="true"
+            style={{ fontSize: 22, color: AMBER, flexShrink: 0, marginTop: 1 }}>event_busy</span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>
+              {fmtNum(coverage.days_missing)} day{Number(coverage.days_missing) === 1 ? '' : 's'} in
+              this period have no settlement file
             </div>
-            <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-              {(data.usd_channel_breakdown ?? []).map(ch => (
-                <div key={ch.channel} style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm, fontFamily: INTER }}>
-                  <span style={{ color: 'var(--txt)' }}>{ch.channel}</span>
-                  <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtUsdCents(ch.volume_cents)} · {fmtNum(ch.count)} txns</span>
-                </div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 3, lineHeight: 'var(--lh-relaxed)' }}>
+              The feed arrives every calendar day, weekends included, so each of these is a file still
+              to be pulled from the Interswitch portal. Nothing on those dates can be reconciled until
+              it is uploaded.
+            </div>
+            {missing.length > 0 && <MissingDays days={missing} onUpload={focusUpload} />}
+          </div>
+        </div>
+      )}
+
+      {d && staleDays !== null && staleDays > 2 && Number(coverage.days_missing ?? 0) === 0 && (
+        <div role="status" style={{
+          display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
+          padding: SP[4], marginBottom: SP[5], borderRadius: RADIUS.lg,
+          background: 'var(--card)', border: '1px solid var(--card-bdr)',
+          borderLeft: `4px solid ${AMBER}`,
+        }}>
+          <span className="material-symbols-rounded" aria-hidden="true"
+            style={{ fontSize: 20, color: AMBER }}>schedule</span>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            The newest settlement file held is{' '}
+            <strong style={{ color: 'var(--txt)' }}>{fmtDate(d.feed_last_day!)}</strong> —{' '}
+            {fmtNum(staleDays)} days ago.
+          </div>
+          <Button size="sm" variant="secondary" icon="upload_file"
+            onClick={focusUpload} style={{ marginLeft: 'auto' }}>Upload</Button>
+        </div>
+      )}
+
+      {/* ── Staged files / import result ── */}
+      {(files.length > 0 || result) && (
+        <SectionCard style={{ marginBottom: SP[4] }}
+          title={files.length > 0 ? `${files.length} file(s) ready to import` : 'Import complete'}
+          actions={files.length > 0
+            ? (
+              <div style={{ display: 'flex', gap: SP[2] }}>
+                <Button size="sm" variant="secondary" onClick={() => setFiles([])} disabled={busy}>
+                  Clear
+                </Button>
+                <Button size="sm" icon="upload" onClick={doImport} loading={busy}>Import</Button>
+              </div>
+            )
+            : <Button size="sm" variant="secondary" onClick={() => setResult(null)}>Dismiss</Button>}
+        >
+          {files.length > 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {files.map(f => (
+                <span key={f.name} style={{
+                  fontSize: TEXT.xs, padding: '3px 9px', borderRadius: 999,
+                  background: 'var(--th-bg)', color: 'var(--txt2)',
+                }}>{f.name}</span>
               ))}
             </div>
-          </div>
+          ) : result && (
+            <div style={{ display: 'flex', gap: SP[6], flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Files</div>
+                <div style={{ ...NUM, fontWeight: FW.semibold }}>{fmtNum(result.files)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Legs read</div>
+                <div style={{ ...NUM, fontWeight: FW.semibold }}>{fmtNum(result.legs)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Inserted</div>
+                <div style={{ ...NUM, fontWeight: FW.semibold, color: GREEN }}>{fmtNum(result.inserted)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Skipped</div>
+                <div style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt3)' }}>{fmtNum(result.skipped)}</div>
+              </div>
+              {result.errors && result.errors.length > 0 && (
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Notes</div>
+                  <div style={{ fontSize: TEXT.xs, color: AMBER }}>{result.errors.join(' · ')}</div>
+                </div>
+              )}
+            </div>
+          )}
         </SectionCard>
       )}
 
-      {/* Channel breakdown bar chart */}
-      <SectionCard title="Channel Breakdown" subtitle="Volume by what the customer did. Cash, purchase, transfer, bills, repayment, charges" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[6], alignItems: 'center' }}>
-          <EBar
-            data={data.channel_breakdown}
-            xKey="channel"
-            series={[{ key: 'volume_kobo', name: 'Volume', color: NAVY, colorFn: (e) => CH_COLOR[e.channel.toUpperCase()] ?? NAVY }]}
-            height={200}
-            valueFmt={(v) => fmtKoboExact(v)}
-            axisFmt={(v) => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''}
-            legend={false}
-          />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-            {data.channel_breakdown.map(ch => {
-              const color = CH_COLOR[ch.channel.toUpperCase()] ?? NAVY
-              return (
-                <div key={ch.channel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[2]} ${SP[3]}`, background: `${color}0A`, borderRadius: RADIUS.md, border: `1px solid ${color}18` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{ch.channel}</span>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(ch.volume_kobo)}</div>
-                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{ch.pct.toFixed(1)}% · {fmtNum(ch.count)} txns</div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </SectionCard>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+        gap: SP[3], marginBottom: SP[5],
+      }}>
+        <KpiCard label="Gross Settled" value={fmtKobo(totals?.gross_kobo)}
+          sub={`${fmtNum(totals?.txns)} transactions · ${fmtNum(totals?.legs)} legs`}
+          icon="credit_card" accent={BLUE} loading={loading && !d} />
+        <KpiCard label="Fees & Charges" value={fmtKobo(Math.abs(Number(totals?.fees_kobo ?? 0)))}
+          sub={Number(totals?.fees_kobo ?? 0) < 0 ? 'deducted from gross' : 'added to gross'}
+          icon="price_change" accent={AMBER} loading={loading && !d} />
+        <KpiCard label="Days Uploaded"
+          value={`${fmtNum(coverage.days_present)} / ${fmtNum(coverage.days_in_period)}`}
+          sub={Number(coverage.days_missing ?? 0) > 0
+            ? `${fmtNum(coverage.days_missing)} still to upload`
+            : 'period complete'}
+          icon="event_available"
+          accent={Number(coverage.days_missing ?? 0) > 0 ? AMBER : GREEN} loading={loading && !d} />
+        <KpiCard label="Last Upload"
+          value={lastImp.started_at ? fmtDate(lastImp.started_at) : 'never'}
+          sub={lastImp.started_at
+            ? `${lastImp.actor} · ${fmtNum(lastImp.inserted_n)} legs inserted`
+            : 'no settlement file has been uploaded'}
+          icon="upload_file"
+          accent={lastImp.status === 'ok' ? GREEN : lastImp.status ? AMBER : NAVY}
+          loading={loading && !d} />
+      </div>
 
-      {/* Daily trend stacked area */}
-      <SectionCard title="Daily Trend" subtitle="Stacked volume by channel" style={{ marginBottom: 14 }} actions={
-        <div style={{ display: 'flex', gap: SP[3] }}>
-          {Object.entries(CH_COLOR).map(([ch, c]) => (
-            <div key={ch} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
-              <div style={{ width: 10, height: 3, borderRadius: 2, background: c }} />{ch}
-            </div>
-          ))}
+      {/* ── Drop zone ── */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => {
+          e.preventDefault(); setDragging(false)
+          if (e.dataTransfer.files?.length) {
+            setFiles(Array.from(e.dataTransfer.files)); setResult(null)
+          }
+        }}
+        onClick={focusUpload}
+        role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusUpload() } }}
+        aria-label="Upload Interswitch settlement files"
+        style={{
+          padding: SP[5], marginBottom: SP[4], cursor: 'pointer',
+          border: `1.5px dashed ${dragging ? BLUE : 'var(--bdr)'}`,
+          borderRadius: RADIUS.lg, textAlign: 'center',
+          background: dragging ? `${BLUE}0A` : 'var(--card)',
+          transition: 'border-color 120ms, background 120ms',
+        }}
+      >
+        <span className="material-symbols-rounded" aria-hidden="true"
+          style={{ fontSize: 28, color: dragging ? BLUE : 'var(--txt3)' }}>cloud_upload</span>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginTop: 4 }}>
+          Drop today&apos;s Interswitch settlement files here
         </div>
-      }>
-        <EArea
-          data={data.daily_trend}
-          xKey="date"
-          series={[
-            { key: 'atm', name: 'ATM / Cash', color: NAVY },
-            { key: 'pos', name: 'POS / Purchase', color: BLUE },
-            { key: 'web', name: 'Web Transfer', color: AMBER },
-            { key: 'bills', name: 'Bill Payment', color: GREEN },
-            { key: 'repayment', name: 'Repayment', color: PURPLE },
-            { key: 'fees', name: 'Fees & Interest', color: RED },
-          ]}
-          height={220}
-          stack
-          endLabel
-          endFmt={(v) => fmtKobo(v)}
-          valueFmt={(v) => fmtKoboExact(v)}
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+          A whole day&apos;s folder is fine — aggregate rollups and rows already loaded are skipped
+        </div>
+      </div>
+
+      <SectionCard title="Settlement by Channel" padding={false} style={{ marginBottom: SP[4] }}
+        subtitle="Transactions, not legs — one transaction carries an Amount_Payable leg plus a fee leg per party"
+        actions={
+          <SegmentedToggle<'family' | 'session'> value={grain} onChange={setGrain}
+            options={[{ value: 'family', label: 'By Channel' }, { value: 'session', label: 'By Session' }]} />
+        }>
+        <DataTable
+          cols={famCols} rows={famRows}
+          keyFn={r => `${r.report_family}-${r.session}`}
+          loading={loading && !d} skeletonRows={6}
+          emptyText={
+            <EmptyState icon="upload_file" title="No settlement loaded for this period"
+              description="Interswitch has no API — pull the CSV from their portal and upload it."
+              action={{ label: 'Upload CSV', icon: 'upload_file', onClick: focusUpload }} />
+          }
         />
       </SectionCard>
 
-      {/* Product breakdown + Transaction type */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: 14 }}>
-        <SectionCard title="Product Breakdown" subtitle="Naira card volume by product">
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: 'var(--th-bg)' }}>
-                {['Product', 'Volume', 'Transactions', '% Share'].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Product' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.product_breakdown.map((p, i) => {
-                const colors = [NAVY, BLUE, AMBER, GREEN, RED, PURPLE]
-                const color = colors[i % colors.length]
-                const pct = ((p.volume_kobo / totalProdVol) * 100).toFixed(1)
-                return (
-                  <tr key={p.product} style={{ borderBottom: '1px solid var(--bdr)' }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
-                    <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-                        <span style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{p.product}</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(p.volume_kobo)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(p.count)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{pct}%</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+      {chartData.length > 0 && (
+        <SectionCard title="Daily Settlement" style={{ marginBottom: SP[4] }}
+          subtitle="Stacked by channel — a gap in the bars is a day nobody uploaded">
+          <EBar
+            data={chartData} xKey="day" stack height={280}
+            valueFmt={fmtKoboExact} axisFmt={nairaAxis}
+            series={chartSeries as any}
+          />
         </SectionCard>
+      )}
 
-        <SectionCard title="Transaction Type" subtitle="By transaction category">
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: 'var(--th-bg)' }}>
-                {['Type', 'Count', 'Volume'].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Type' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.txn_type_breakdown.map(t => (
-                <tr key={t.type} style={{ borderBottom: '1px solid var(--bdr)' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
-                  <td style={{ padding: '10px 12px', fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{t.type}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(t.count)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(t.volume_kobo)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </SectionCard>
-      </div>
-
-      {/* Top merchants */}
-      <SectionCard title="Top Merchants" subtitle="Card purchases on naira cards, by volume">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: 'var(--th-bg)' }}>
-              {['#', 'Merchant', 'Volume', 'Transactions', '% of Total'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: h === '#' || h === 'Merchant' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.top_merchants.slice(0, 10).map((m, i) => (
-              <tr key={m.name} style={{ borderBottom: '1px solid var(--bdr)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
-                <td style={{ padding: '10px 12px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: INTER, width: 36 }}>{i + 1}</td>
-                <td style={{ padding: '10px 12px', fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{m.name}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(m.volume_kobo)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(m.count)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{((m.volume_kobo / totalMerchantVol) * 100).toFixed(1)}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <SectionCard title="Upload History" padding={false}
+        subtitle="Every settlement file loaded, newest first">
+        <DataTable
+          cols={histCols} rows={history} keyFn={h => h.id}
+          loading={loading && !history.length} skeletonRows={5} pageSize={10}
+          emptyText={
+            <EmptyState icon="history" title="Nothing uploaded yet"
+              description="No Interswitch settlement file has been loaded through this page."
+              action={{ label: 'Upload CSV', icon: 'upload_file', onClick: focusUpload }} />
+          }
+        />
       </SectionCard>
     </Page>
   )
