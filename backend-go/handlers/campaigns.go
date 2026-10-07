@@ -740,6 +740,11 @@ var campaignUpdateCols = []string{
 	"name", "description", "email_subject", "email_body_html", "email_body_text",
 	"from_name", "from_email", "sms_body", "whatsapp_body", "whatsapp_template_name",
 	"scheduled_at", "list_id", "email_blocks_json",
+	// purpose was readable by the dispatch gate and the preflight but writable
+	// nowhere — not here, not on create, not through any endpoint — so every
+	// campaign was pinned to the column default 'marketing' for life and the
+	// servicing route (which needs no consent) could not be chosen at all.
+	"purpose",
 }
 
 func RegisterCampaigns(r chi.Router, db *core.DB) {
@@ -1117,6 +1122,7 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			SMSBody              *string `json:"sms_body"`
 			WhatsAppBody         *string `json:"whatsapp_body"`
 			WhatsAppTemplateName *string `json:"whatsapp_template_name"`
+			Purpose              string  `json:"purpose"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -1148,6 +1154,13 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 		if b.ScheduledAt != nil && strings.TrimSpace(*b.ScheduledAt) != "" {
 			status = "scheduled"
 		}
+		// Default to marketing, which is the stricter gate: a campaign that is
+		// really servicing can be relabelled, whereas defaulting the other way
+		// would let an unconsented marketing send through on a mislabelled draft.
+		b.Purpose = strings.ToLower(strings.TrimSpace(b.Purpose))
+		if b.Purpose != purposeServicing {
+			b.Purpose = purposeMarketing
+		}
 
 		var total int64
 		if b.ListID != nil {
@@ -1162,12 +1175,12 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			    (name, description, status, type, list_id, email_subject, email_body_html,
 			     email_body_text, from_name, from_email, sms_body,
 			     whatsapp_body, whatsapp_template_name,
-			     scheduled_at, total_contacts, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+			     scheduled_at, total_contacts, created_by, purpose)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
 			b.Name, b.Description, status, b.Type, b.ListID,
 			b.EmailSubject, b.EmailBodyHTML, b.EmailBodyText, b.FromName, b.FromEmail,
 			b.SMSBody, b.WhatsAppBody, b.WhatsAppTemplateName,
-			b.ScheduledAt, total, user.ID)
+			b.ScheduledAt, total, user.ID, b.Purpose)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -1212,6 +1225,34 @@ func getCampaign(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// campaignStatusForSchedule says which status a campaign should move to when its
+// scheduled_at is set or cleared, or "" to leave the status alone.
+//
+// A send time has to move the STATUS too, or it is just a date sitting in a column.
+// The scheduler only ever looks for `status='scheduled' AND scheduled_at <= NOW()`,
+// so a draft given a time kept status='draft' and silently never fired — the page
+// showed a send time that meant nothing at all. The reverse matters as much:
+// clearing the time used to leave the campaign 'scheduled' with a NULL date, which
+// that query can never match, so it stayed pending for good and could not be
+// returned to draft.
+//
+// Only draft <-> scheduled move. An active, paused, completed or cancelled campaign
+// is not editable here anyway, and inferring a status change for one from a date
+// would be a different and much worse bug.
+func campaignStatusForSchedule(current string, scheduledAt any) string {
+	hasDate := false
+	if s, ok := scheduledAt.(string); ok && strings.TrimSpace(s) != "" {
+		hasDate = true
+	}
+	switch {
+	case hasDate && current == "draft":
+		return "scheduled"
+	case !hasDate && current == "scheduled":
+		return "draft"
+	}
+	return ""
+}
+
 func updateCampaign(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -1237,6 +1278,18 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 				return
 			}
 		}
+		// Validate purpose here rather than letting the CHECK from migration 336
+		// reject it, so a typo reads as a sentence instead of a 500.
+		if p, ok := body["purpose"]; ok {
+			ps, _ := p.(string)
+			ps = strings.ToLower(strings.TrimSpace(ps))
+			if ps != purposeMarketing && ps != purposeServicing {
+				respondErr(w, 422, `purpose must be "marketing" or "servicing".`)
+				return
+			}
+			body["purpose"] = ps
+		}
+
 		parts, args := buildSet(body, campaignUpdateCols, 1)
 		if len(parts) == 0 {
 			respondErr(w, 422, "No fields to update")
@@ -1252,11 +1305,27 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 				args = append(args, toInt64(tr[0]["n"]))
 			}
 		}
+
+		if raw, ok := body["scheduled_at"]; ok {
+			if next := campaignStatusForSchedule(str(stRows[0]["status"]), raw); next != "" {
+				n := len(args) + 1
+				parts = append(parts, fmt.Sprintf("status=$%d", n))
+				args = append(args, next)
+			}
+		}
+
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
-		db.PGExec(r.Context(), //nolint:errcheck
+		// The error here used to be discarded, and the handler then re-read the row
+		// and returned 200 regardless — so a rejected write (a bad enum, a type
+		// mismatch, a constraint) was reported to the UI as a successful save, and
+		// the autosave indicator said "Saved" over work that had not been stored.
+		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf("UPDATE campaigns SET %s WHERE id=$%d",
-				strings.Join(parts, ","), len(args)), args...)
+				strings.Join(parts, ","), len(args)), args...); err != nil {
+			respondErrLog(w, 500, "Could not save this campaign", err)
+			return
+		}
 
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT c.*, u.full_name AS created_by_name, cl.name AS list_name

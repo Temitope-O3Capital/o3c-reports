@@ -934,6 +934,10 @@ export default function CampaignDetail() {
   const [attribution,  setAttribution]  = useState<CampaignAttr | null>(null)
   const [saving,       setSaving]       = useState(false)
   const [lastSaved,    setLastSaved]    = useState<Date | null>(null)
+  // A failed save has to be visible. This used to be swallowed entirely.
+  const [saveErr,      setSaveErr]      = useState<string | null>(null)
+  // 'marketing' | 'servicing'. Decides whether the consent gate applies at all.
+  const [purpose,      setPurpose]      = useState('marketing')
   const [starting,     setStarting]     = useState(false)
   const [pausing,      setPausing]      = useState(false)
   const [cancelling,   setCancelling]   = useState(false)
@@ -991,6 +995,7 @@ export default function CampaignDetail() {
         setFromEmail(camp.from_email ?? '')
         setScheduledAt(toDatetimeLocal(camp.scheduled_at ?? ''))
         setListId(camp.list_id ?? '')
+        setPurpose(((camp as any).purpose === 'servicing') ? 'servicing' : 'marketing')
         let blocks: EmailBlock[] = [], settings: EmailSettings = {}
         const src = camp.email_blocks_json || camp.email_body_text || ''
         if (src) {
@@ -1046,35 +1051,38 @@ export default function CampaignDetail() {
     if (initialLoadRef.current || !canEdit || !id) return
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
     autoSaveRef.current = setTimeout(async () => {
-      const p: Record<string, any> = { name }
-      if (description) p.description = description
-      if (scheduledAt) p.scheduled_at = new Date(scheduledAt).toISOString()
-      if (listId !== '') p.list_id = Number(listId)
-      if (isSMS)      p.sms_body = smsBody
-      if (isWhatsApp) { p.whatsapp_body = waBody; p.whatsapp_template_name = waTplName }
-      if (isEmail) {
-        p.email_subject     = emailSubject
-        p.email_blocks_json = JSON.stringify(emailBlocks)
-        const html          = exportToHtml(emailBlocks.blocks, emailBlocks.settings)
-        p.email_body_html   = html
-        p.email_body_text   = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-        if (fromName)  p.from_name  = fromName
-        if (fromEmail) p.from_email = fromEmail
-      }
+      // One payload builder for both the autosave and the Save button: two copies
+      // of "what a campaign is" drifted apart, and the autosave's copy is the one
+      // nobody watches.
       try {
-        await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(p) })
+        await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) })
         setLastSaved(new Date())
-      } catch { /* silent auto-save failure */ }
+        setSaveErr(null)
+      } catch (ex: any) {
+        // Not silent any more. A draft that is quietly failing to save looks
+        // exactly like one that is saving, and the backend used to return 200
+        // on a rejected write, so this was invisible from both ends.
+        setSaveErr(ex?.message ?? 'Could not save this draft')
+      }
     }, 2500)
     return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, description, emailBlocks, emailSubject, fromName, fromEmail, smsBody, waBody, waTplName, scheduledAt, listId])
+  }, [name, description, emailBlocks, emailSubject, fromName, fromEmail, smsBody, waBody, waTplName, scheduledAt, listId, purpose])
 
+  // Send an explicit null for anything the user has cleared.
+  //
+  // These fields used to be omitted when empty, and the backend only updates the
+  // keys it is given — so once a description, a send time, a from-address or a
+  // contact list had been set, there was no way to unset it from this page. The
+  // schedule was the one that mattered: you could not cancel a scheduled send,
+  // only move it. buildSet treats a present-but-null key as "set NULL", so the
+  // clear works as soon as the key is actually sent.
   function buildPayload() {
     const p: Record<string, any> = { name }
-    if (description) p.description = description
-    if (scheduledAt) p.scheduled_at = new Date(scheduledAt).toISOString()
-    if (listId !== '') p.list_id = Number(listId)
+    p.description  = description || null
+    p.scheduled_at = scheduledAt ? new Date(scheduledAt).toISOString() : null
+    p.list_id      = listId !== '' ? Number(listId) : null
+    p.purpose      = purpose
     if (isSMS)      p.sms_body = smsBody
     if (isWhatsApp) { p.whatsapp_body = waBody; p.whatsapp_template_name = waTplName }
     if (isEmail) {
@@ -1083,8 +1091,8 @@ export default function CampaignDetail() {
       const html = exportToHtml(emailBlocks.blocks, emailBlocks.settings)
       p.email_body_html   = html
       p.email_body_text   = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-      if (fromName)  p.from_name  = fromName
-      if (fromEmail) p.from_email = fromEmail
+      p.from_name  = fromName  || null
+      p.from_email = fromEmail || null
     }
     return p
   }
@@ -1095,9 +1103,14 @@ export default function CampaignDetail() {
     try {
       await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) })
       setLastSaved(new Date())
+      setSaveErr(null)
       toast.success('Saved')
       load()
-    } catch (ex: any) { toast.error(ex.message ?? 'Save failed') }
+    } catch (ex: any) {
+      const m = ex?.message ?? 'Save failed'
+      setSaveErr(m)
+      toast.error(m)
+    }
     finally { setSaving(false) }
   }
 
@@ -1248,12 +1261,20 @@ export default function CampaignDetail() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'], background: `${statusMeta.color}18`, color: statusMeta.color, border: `1px solid ${statusMeta.color}40`, fontFamily: SORA, letterSpacing: '.04em', textTransform: 'uppercase' }}>{statusMeta.label}</span>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'], background: `${typeColor}14`, color: typeColor, fontFamily: SORA }}>{typeLabel}</span>
-          {lastSaved && canEdit && (
+          {/* A failed save outranks the last successful one: "saved at 14:02" next
+              to unsaved work is worse than no indicator at all. */}
+          {saveErr && canEdit ? (
+            <span title={saveErr}
+              style={{ fontSize: TEXT.xs, color: RED, display: 'flex', alignItems: 'center', gap: 4, fontWeight: FW.semibold, maxWidth: 420 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cloud_off</span>
+              Not saved — {saveErr}
+            </span>
+          ) : lastSaved && canEdit ? (
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', alignItems: 'center', gap: 4 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 13 }}>cloud_done</span>
               {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
-          )}
+          ) : null}
           {canEdit && (
             <button onClick={save} disabled={saving} style={{ ...btnSecondary, gap: 6, opacity: saving ? .7 : 1 }}>
               {saving ? 'Saving…' : 'Save'}
@@ -1414,6 +1435,33 @@ export default function CampaignDetail() {
                   <label style={lbl}>Schedule Date <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional, leave blank to send immediately)</span></label>
                   <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
                     disabled={!canEdit} style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  {scheduledAt && campaign.status === 'draft' && (
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
+                      Saving moves this campaign to Scheduled. Clear the date to put it back to Draft.
+                    </div>
+                  )}
+                </div>
+
+                {/* Purpose. The column existed and gated every send, but was
+                    writable nowhere, so every campaign was marketing for life and
+                    the servicing path could not be chosen. */}
+                <div>
+                  <label style={lbl}>Purpose <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(decides whether consent is required)</span></label>
+                  {canEdit ? (
+                    <select value={purpose} onChange={e => setPurpose(e.target.value)} style={fld}>
+                      <option value="marketing">Marketing — an offer or promotion</option>
+                      <option value="servicing">Servicing — about a product they already hold</option>
+                    </select>
+                  ) : (
+                    <div style={{ padding: '8px 12px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.base }}>
+                      {purpose === 'servicing' ? 'Servicing' : 'Marketing'}
+                    </div>
+                  )}
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4, lineHeight: 1.55 }}>
+                    {purpose === 'servicing'
+                      ? 'Servicing needs no marketing consent. Only an explicit withdrawal, a bounce or an unsubscribe stops a message. Use it only when the subject really is a product the recipient holds.'
+                      : 'Marketing requires recorded consent per customer, or a marketing basis on the list for prospects. Without it every recipient is skipped.'}
+                  </div>
                 </div>
               </div>
             </SectionCard>
@@ -1966,7 +2014,11 @@ export default function CampaignDetail() {
         onConfirm={startCampaign}
         listId={listId !== '' ? listId : campaign.list_id}
         campaignType={campaign.type}
-        campaignPurpose={(campaign as any).purpose}
+        // The form's value, not the last-loaded one: startCampaign saves the
+        // payload (which carries purpose) before it starts, so this is what will
+        // actually apply. Showing the stale value would have the modal promise a
+        // different gate from the one the send uses.
+        campaignPurpose={purpose}
       />
       <TemplatePickerModal open={tplOpen} onClose={() => setTplOpen(false)} onApply={applyTemplate} channel={tplFor} />
       <PushToCallCenterModal campaignId={id!} open={pushOpen} onClose={() => setPushOpen(false)} />
