@@ -2094,7 +2094,18 @@ func campaignProgress(db *core.DB) http.HandlerFunc {
 			       AND (email_status='pending' OR sms_status='pending' OR whatsapp_status='pending')) AS pending,
 			    (SELECT COUNT(*) FROM campaign_contacts
 			     WHERE campaign_id=c.id
-			       AND (email_status IN ('bounced','spam','failed') OR sms_status='failed' OR whatsapp_status='failed')) AS bounced
+			       AND (email_status IN ('bounced','spam','failed') OR sms_status='failed' OR whatsapp_status='failed')) AS bounced,
+			    (SELECT COUNT(*) FROM campaign_contacts
+			     WHERE campaign_id=c.id AND (
+			         email_sent_at    > NOW() - INTERVAL '5 minutes' OR
+			         sms_sent_at      > NOW() - INTERVAL '5 minutes' OR
+			         whatsapp_sent_at > NOW() - INTERVAL '5 minutes')) AS sent_last_5m,
+			    (SELECT COUNT(*) FROM campaign_contacts
+			     WHERE campaign_id=c.id AND (
+			         email_sent_at::date    = CURRENT_DATE OR
+			         sms_sent_at::date      = CURRENT_DATE OR
+			         whatsapp_sent_at::date = CURRENT_DATE)) AS sent_today,
+			    c.pause_reason, c.paused_until, c.started_at
 			FROM campaigns c WHERE c.id=$1`, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Campaign not found")
@@ -2114,6 +2125,37 @@ func campaignProgress(db *core.DB) http.HandlerFunc {
 				pct = 100
 			}
 		}
+		// Throughput and what happens next. A bare percentage is not enough on a list
+		// this size: the effective daily cap is what decides whether a campaign
+		// finishes this afternoon or in ten days, and when the sender hits it the
+		// campaign pauses itself — which previously looked, from the UI, exactly like
+		// it had stopped for no reason.
+		sentLast5m := toInt64(row["sent_last_5m"])
+		sentToday := toInt64(row["sent_today"])
+		dailyLimit := int64(effectiveCampaignDailyLimit(r.Context(), db))
+		perCampaignLimit := int64(intSetting(r.Context(), db, "campaign_per_campaign_daily_email_limit", 5000))
+		// The binding cap is whichever is lower, ignoring 0 which means "no limit".
+		effectiveCap := dailyLimit
+		if perCampaignLimit > 0 && (effectiveCap == 0 || perCampaignLimit < effectiveCap) {
+			effectiveCap = perCampaignLimit
+		}
+
+		perMin := float64(sentLast5m) / 5.0
+		remainingToday := int64(0)
+		if effectiveCap > 0 {
+			if r := effectiveCap - sentToday; r > 0 {
+				remainingToday = r
+			}
+		} else {
+			remainingToday = pending
+		}
+		// Whole days still needed after today's allowance is spent.
+		daysRemaining := 0
+		if effectiveCap > 0 && pending > remainingToday {
+			left := pending - remainingToday
+			daysRemaining = int((left + effectiveCap - 1) / effectiveCap)
+		}
+
 		respond(w, map[string]any{
 			"status":       str(row["status"]),
 			"total":        total,
@@ -2123,6 +2165,17 @@ func campaignProgress(db *core.DB) http.HandlerFunc {
 			"delivered":    delivered,
 			"bounced":      bounced,
 			"progress_pct": pct,
+
+			"sent_last_5m":     sentLast5m,
+			"per_minute":       perMin,
+			"sent_today":       sentToday,
+			"daily_cap":        effectiveCap,
+			"remaining_today":  remainingToday,
+			"days_remaining":   daysRemaining,
+			"pause_reason":     str(row["pause_reason"]),
+			"paused_until":     row["paused_until"],
+			"started_at":       row["started_at"],
+			"warmup_mode":      boolSetting(r.Context(), db, "campaign_warmup_mode_enabled", true),
 		}, "db")
 	}
 }

@@ -898,6 +898,12 @@ function ContactsSection({ campaignId }: { campaignId: string }) {
 interface Progress {
   status: string; total: number; done: number; pending: number
   sent: number; delivered: number; bounced: number; progress_pct: number
+  // Throughput and what happens next. A percentage alone does not tell you whether
+  // a 9,307-recipient send finishes this afternoon or in ten days.
+  sent_last_5m: number; per_minute: number
+  sent_today: number; daily_cap: number; remaining_today: number; days_remaining: number
+  pause_reason: string; paused_until: string | null; started_at: string | null
+  warmup_mode: boolean
 }
 
 type TabKey = 'setup' | 'content' | 'sequence' | 'review' | 'results'
@@ -1034,13 +1040,20 @@ export default function CampaignDetail() {
       .catch(() => {})
   }, [canEdit])
 
-  // progress polling for active campaigns
+  // Progress polling. Also while PAUSED: a campaign that has hit the daily cap
+  // pauses itself, and polling only while 'active' meant the display vanished at
+  // exactly the moment somebody needs to know why sending stopped.
   useEffect(() => {
-    if (campaign?.status !== 'active') {
+    const watching = campaign?.status === 'active' || campaign?.status === 'paused'
+    if (!watching) {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
       return
     }
-    const poll = () => apiFetch<Progress>(`/api/campaigns/${id}/progress`).then(r => setProgress(r)).catch(() => {})
+    // unwrap: the endpoint answers { data: {...} } like every other one here, and
+    // this was reading the envelope, so every figure in the banner was undefined.
+    const poll = () => apiFetch<any>(`/api/campaigns/${id}/progress`)
+      .then(r => setProgress(unwrap<Progress>(r)))
+      .catch(() => {})
     poll()
     progressIntervalRef.current = setInterval(poll, 5000)
     return () => { if (progressIntervalRef.current) clearInterval(progressIntervalRef.current) }
@@ -1330,34 +1343,81 @@ export default function CampaignDetail() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      {/* Live progress banner (active only) */}
-      {campaign.status === 'active' && (
-        <div style={{ marginBottom: 16, background: 'var(--card)', border: `1px solid ${GREEN}40`, borderRadius: RADIUS.lg, padding: '14px 18px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: GREEN, display: 'inline-block' }} />
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Sending Live</span>
+      {/* Live progress. Shown while PAUSED as well as active: the sender pauses
+          itself on the daily cap, and hiding the banner then left the campaign
+          looking as though it had stopped for no reason. */}
+      {(campaign.status === 'active' || campaign.status === 'paused') && (() => {
+        const paused = campaign.status === 'paused'
+        const capped = paused && progress?.pause_reason === 'daily_limit'
+        const tone = capped ? AMBER : paused ? AMBER : GREEN
+        const perMin = progress?.per_minute ?? 0
+        // Minutes to clear what today's allowance still permits.
+        const etaMin = perMin > 0 && progress
+          ? Math.ceil(Math.min(progress.pending, progress.remaining_today) / perMin)
+          : null
+        return (
+          <div style={{ marginBottom: 16, background: 'var(--card)', border: `1px solid ${tone}40`, borderRadius: RADIUS.lg, padding: '14px 18px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone, display: 'inline-block' }} />
+                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                  {capped ? 'Paused — Daily Limit Reached' : paused ? 'Paused' : 'Sending Live'}
+                </span>
+                {!paused && perMin > 0 && (
+                  <span style={{ fontSize: TEXT.xs, ...NUM, color: 'var(--txt3)' }}>
+                    {perMin.toFixed(0)}/min{etaMin != null ? ` · ~${etaMin} min left today` : ''}
+                  </span>
+                )}
+              </div>
+              {progress && (
+                <span style={{ fontSize: TEXT.sm, ...NUM, color: 'var(--txt2)' }}>
+                  {fmtNum(progress.done)} / {fmtNum(progress.total)} · {fmtPct(progress.progress_pct)}
+                </span>
+              )}
             </div>
+
+            <div style={{ height: 6, background: 'var(--th-bg)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${progress?.progress_pct ?? 0}%`, background: tone, borderRadius: 3, transition: 'width 1s ease' }} />
+            </div>
+
             {progress && (
-              <span style={{ fontSize: TEXT.sm, ...NUM, color: 'var(--txt2)' }}>
-                {fmtNum(progress.done)} / {fmtNum(progress.total)} · {fmtPct(progress.progress_pct)}
-              </span>
+              <div style={{ display: 'flex', gap: 20, marginTop: 8, flexWrap: 'wrap' }}>
+                {([
+                  ['Sent', progress.sent, BLUE],
+                  ['Delivered', progress.delivered, GREEN],
+                  ['Bounced', progress.bounced, RED],
+                  ['Pending', progress.pending, 'var(--txt2)'],
+                ] as [string, number, string][]).map(([label, val, color]) => (
+                  <span key={label} style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                    {label}: <span style={{ ...NUM, color, fontWeight: FW.semibold }}>{fmtNum(val)}</span>
+                  </span>
+                ))}
+                {progress.daily_cap > 0 && (
+                  <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                    Today: <span style={{ ...NUM, color: 'var(--txt1)', fontWeight: FW.semibold }}>
+                      {fmtNum(progress.sent_today)} / {fmtNum(progress.daily_cap)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Why it stopped, and when it will carry on. Without this the pause is
+                indistinguishable from a failure. */}
+            {progress && progress.daily_cap > 0 && progress.days_remaining > 0 && (
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: RADIUS.md, background: `${AMBER}0e`, border: `1px solid ${AMBER}33`, fontSize: TEXT.xs, color: 'var(--txt1)', lineHeight: 1.55 }}>
+                <strong>This send is spread across days.</strong>{' '}
+                The cap is {fmtNum(progress.daily_cap)} a day
+                {progress.warmup_mode ? ' (warm-up mode is on, which lowers it)' : ''}, and{' '}
+                {fmtNum(progress.pending)} are still to go — about {progress.days_remaining} more day
+                {progress.days_remaining === 1 ? '' : 's'}. It resumes on its own
+                {progress.paused_until ? ` after ${fmtDatetime(progress.paused_until)}` : ' within ten minutes of the cap resetting'}.
+                {' '}Raise or clear the limit in Settings to finish sooner.
+              </div>
             )}
           </div>
-          <div style={{ height: 6, background: 'var(--th-bg)', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${progress?.progress_pct ?? 0}%`, background: GREEN, borderRadius: 3, transition: 'width 1s ease' }} />
-          </div>
-          {progress && (
-            <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
-              {([['Sent', progress.sent, BLUE], ['Delivered', progress.delivered, GREEN], ['Bounced', progress.bounced, RED]] as [string, number, string][]).map(([label, val, color]) => (
-                <span key={label} style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-                  {label}: <span style={{ ...NUM, color, fontWeight: FW.semibold }}>{fmtNum(val)}</span>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        )
+      })()}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--bdr)', marginBottom: 24 }}>
