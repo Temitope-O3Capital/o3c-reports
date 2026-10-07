@@ -20,7 +20,8 @@ import { useState } from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
 import EmailBlockEditor, {
-  exportToHtml, parseBlocks, parseEditorValue, type EmailBlock, type EmailSettings,
+  exportToHtml, parseBlocks, parseEditorValue, hardenSpacingForOutlook,
+  type EmailBlock, type EmailSettings,
 } from './EmailBlockEditor'
 
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
@@ -376,6 +377,65 @@ describe('a parent that rebuilds value every render', () => {
     // Losing the selection here is what turned contentEditable back off mid-edit
     // and let the DOM be overwritten with the pre-edit html.
     expect(editable()!.getAttribute('contenteditable')).toBe('true')
+  })
+})
+
+describe('spacing survives Outlook, not just Gmail', () => {
+  // Reported: line spacing showed in the canvas, in the preview and in Gmail, and
+  // was absent in Outlook. The sent message carried 14 unitless
+  // "line-height: 1.5" declarations and no mso rule — Word's engine ignores a
+  // unitless multiplier, every other client honours it.
+  it('converts a unitless line-height to a percentage and adds the Word rule', () => {
+    const html = exportToHtml([textBlock('<p style="line-height: 1.5;">Spaced</p>')], {})
+    expect(html).toContain('line-height: 150%')
+    expect(html).toContain('mso-line-height-rule: exactly')
+    // Nothing unitless may survive into the sent HTML.
+    expect(html).not.toMatch(/line-height:\s*1\.5\s*[;"]/)
+  })
+
+  it('handles every value the Line dropdown offers', () => {
+    for (const [mult, pct] of [['1.2', '120%'], ['1.5', '150%'], ['1.8', '180%'], ['2.2', '220%']]) {
+      const html = exportToHtml([textBlock(`<p style="line-height: ${mult};">x</p>`)], {})
+      expect(html, `multiplier ${mult}`).toContain(`line-height: ${pct}`)
+    }
+  })
+
+  it('rounds fractional pixels, which Word snaps unpredictably', () => {
+    const html = exportToHtml([textBlock('<p style="line-height: 22.0083px;">x</p>')], {})
+    expect(html).toContain('line-height: 22px')
+    expect(html).not.toContain('22.0083')
+  })
+
+  it('leaves a value that already has a unit alone', () => {
+    const html = exportToHtml([textBlock('<p style="line-height: 150%;">x</p>')], {})
+    expect(html).toContain('line-height: 150%')
+    // and does not double up the rule
+    expect(html.match(/mso-line-height-rule/g) ?? []).toHaveLength(0)
+  })
+
+  it('gives the paragraph gap its Word equivalent, idempotently', () => {
+    const once = hardenSpacingForOutlook('<p style="margin-bottom: 24px;">x</p>')
+    expect(once).toContain('mso-margin-bottom-alt: 24px')
+    // Re-running must not stack duplicates — export runs on every save.
+    const twice = hardenSpacingForOutlook(once)
+    expect(twice.match(/mso-margin-bottom-alt/g) ?? []).toHaveLength(1)
+  })
+
+  it('the editor still stores the plain multiplier, so the dropdown reads back', async () => {
+    // The hardening is an export concern only. If it leaked into the stored block
+    // the Line dropdown would have to understand percentages to show the value.
+    const seen: EditorValue[] = []
+    await act(async () => {
+      render(<EnvelopeParent initial={{ blocks: [textBlock('<p>One</p>')] }} onValue={v => seen.push(v)} />)
+    })
+    await act(async () => { fireEvent.click(editable()!) })
+    await act(async () => {
+      fireEvent.change(screen.getByTitle('Line spacing'), { target: { value: '1.5' } })
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 550)) })
+    const stored = seen[seen.length - 1].blocks[0].html ?? ''
+    expect(stored).toContain('line-height: 1.5')
+    expect(stored).not.toContain('mso-line-height-rule')
   })
 })
 

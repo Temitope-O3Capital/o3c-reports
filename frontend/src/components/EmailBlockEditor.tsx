@@ -189,6 +189,45 @@ export function parseEditorValue(v: unknown): { blocks: EmailBlock[]; settings: 
   return empty
 }
 
+// hardenSpacingForOutlook rewrites the spacing declarations that Outlook ignores.
+//
+// Outlook on Windows renders with Word's engine, and Word ignores a UNITLESS
+// line-height. The editor stores exactly that — "line-height: 1.5" — because it is
+// what the browser produces and what every other client honours, so line spacing
+// appeared correctly in the canvas, in the preview and in Gmail, and silently
+// vanished in Outlook. Checked against a real sent message: 14 unitless
+// declarations, no mso rule anywhere.
+//
+// A percentage is an exact translation of a multiplier and, unlike px, needs no
+// assumption about the font size it is resolving against. mso-line-height-rule
+// tells Word to apply the value literally instead of substituting its own leading.
+// Fractional pixels are rounded because Word snaps them unpredictably.
+//
+// This runs at EXPORT only. The stored block keeps the plain multiplier, so
+// re-opening a template shows "1.5" in the dropdown rather than "150%".
+export function hardenSpacingForOutlook(html: string): string {
+  if (!html) return html
+  let out = html
+    // Unitless multiplier -> percentage + the Word-specific rule.
+    .replace(
+      /line-height:\s*([0-9]*\.?[0-9]+)\s*(?=[;"'}]|$)/gi,
+      (_m, n: string) => `line-height: ${Math.round(parseFloat(n) * 100)}%; mso-line-height-rule: exactly`,
+    )
+    // Fractional px -> whole px.
+    .replace(
+      /line-height:\s*([0-9]*\.?[0-9]+)px/gi,
+      (_m, n: string) => `line-height: ${Math.round(parseFloat(n))}px`,
+    )
+  // Word reads mso-margin-bottom-alt where it ignores margin-bottom on a <p>, which
+  // is what the paragraph-gap control sets. The negative lookahead keeps this
+  // idempotent so a re-export cannot stack duplicates.
+  out = out.replace(
+    /margin-bottom:\s*([0-9]+)px(?!\s*;\s*mso-margin-bottom-alt)/gi,
+    (m, n: string) => `${m}; mso-margin-bottom-alt: ${n}px`,
+  )
+  return out
+}
+
 export function exportToHtml(blocks: EmailBlock[] = [], settings: EmailSettings = {}): string {
   const bg = settings.background || '#E8ECF2'; const w = settings.contentWidth || 660
   // Preheader = the preview snippet inbox clients show after the subject. Hidden
@@ -205,7 +244,8 @@ export function exportToHtml(blocks: EmailBlock[] = [], settings: EmailSettings 
   const cardStyle = full
     ? `width:100%;background:#ffffff;`
     : `width:100%;max-width:${w}px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.09);`
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>body{margin:0;padding:0;background:${bg};}a{color:inherit;}img{border:0;max-width:100%;height:auto;}@media(max-width:600px){.ec{width:100%!important;border-radius:0!important;}}</style></head><body style="margin:0;padding:0;background:${bg};">${preheader}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${bg};"><tr><td align="center" style="padding:${outerPad};"><table role="presentation" cellspacing="0" cellpadding="0" border="0" class="ec" style="${cardStyle}">${blocks.map(blockToHtml).join('')}</table></td></tr></table></body></html>`
+  const body = blocks.map(blockToHtml).join('')
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>body{margin:0;padding:0;background:${bg};}a{color:inherit;}img{border:0;max-width:100%;height:auto;}@media(max-width:600px){.ec{width:100%!important;border-radius:0!important;}}</style></head><body style="margin:0;padding:0;background:${bg};">${preheader}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${bg};"><tr><td align="center" style="padding:${outerPad};"><table role="presentation" cellspacing="0" cellpadding="0" border="0" class="ec" style="${cardStyle}">${hardenSpacingForOutlook(body)}</table></td></tr></table></body></html>`
 }
 
 export const blocksToHtml = (blocks: EmailBlock[], s?: EmailSettings) => exportToHtml(blocks, s)
