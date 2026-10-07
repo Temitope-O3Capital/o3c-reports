@@ -171,7 +171,7 @@ export default function BalanceSheet() {
     >
       <ErrBanner error={error} onRetry={() => load()} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         <KpiCard label="Total Assets" value={fmtKoboExact(primary?.assets_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} loading={loading} />
         <KpiCard label="Total Liabilities" value={fmtKoboExact(primary?.liabilities_kobo ?? 0)} icon="savings" accent={AMBER} loading={loading} />
         <KpiCard label="Net Position" value={fmtKoboExact(primary?.net_position_kobo ?? 0)}

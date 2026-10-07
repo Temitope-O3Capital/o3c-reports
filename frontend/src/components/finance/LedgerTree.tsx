@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { fmtNum } from '../../lib/fmt'
 import { Sk } from '../UI'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 // A real ledger: sections (Assets/Liabilities, Income/Expense, Operating/Investing/
 // Financing...) expand to lines, lines expand to accounts, every level shows its own
@@ -81,6 +82,7 @@ export function LedgerTree({
   /** Plural noun for the count badge, e.g. "postings" (default) or "items". */
   unitLabel?: string
 }) {
+  const isMobile = useIsMobile()
   const unit = (n: number) => `${fmtNum(n)} ${n === 1 ? unitLabel.replace(/s$/, '') : unitLabel}`
   // Both maps default-open: a ledger that hides its own breakdown on first paint reads as
   // empty, not summarized. Collapsing is the user's choice to make, not the default.
@@ -131,7 +133,10 @@ export function LedgerTree({
               }}
             >
               <Chevron open={sOpen} />
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '0.01em', flex: 1 }}>
+              <span style={{
+                fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '0.01em', flex: 1,
+                minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
                 {section.label}
               </span>
               <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtAmount(sTotal)}</span>
@@ -158,13 +163,14 @@ export function LedgerTree({
                   >
                     {expandable ? <Chevron open={lOpen} /> : <span style={{ width: 18, flexShrink: 0 }} />}
                     <span style={{
-                      fontSize: TEXT.sm, fontWeight: FW.semibold, color: line.onClick && !expandable ? NAVY : 'var(--txt)', flex: 1,
+                      fontSize: TEXT.sm, fontWeight: FW.semibold, color: line.onClick && !expandable ? 'var(--accent)' : 'var(--txt)', flex: 1,
                       textDecoration: line.onClick && !expandable ? 'underline' : undefined, textDecorationStyle: 'dotted', textUnderlineOffset: 3,
+                      minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {line.label}
                       {line.meta && <span style={{ color: 'var(--txt3)', fontWeight: FW.normal, marginLeft: 6, fontSize: TEXT.xs }}>{line.meta}</span>}
                     </span>
-                    {lPostings > 0 && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginRight: SP[2] }}>{unit(lPostings)}</span>}
+                    {lPostings > 0 && !isMobile && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginRight: SP[2] }}>{unit(lPostings)}</span>}
                     <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtAmount(lTotal)}</span>
                   </div>
 
@@ -175,20 +181,21 @@ export function LedgerTree({
                       onClick={acc.onClick}
                       onKeyDown={acc.onClick ? (e => (e.key === 'Enter' || e.key === ' ') && acc.onClick!()) : undefined}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: SP[2], height: ROW_H - 4, padding: `0 ${SP[4]} 0 76px`,
+                        display: 'flex', alignItems: 'center', gap: SP[2], height: ROW_H - 4, padding: `0 ${SP[4]} 0 ${isMobile ? '40px' : '76px'}`,
                         borderTop: '1px solid var(--bdr)', cursor: acc.onClick ? 'pointer' : 'default',
                       }}
                       onMouseEnter={e => { if (acc.onClick) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}
                     >
                       <span style={{
-                        fontSize: TEXT.sm, color: acc.onClick ? NAVY : 'var(--txt2)', flex: 1,
+                        fontSize: TEXT.sm, color: acc.onClick ? 'var(--accent)' : 'var(--txt2)', flex: 1,
                         textDecoration: acc.onClick ? 'underline' : undefined, textDecorationStyle: 'dotted', textUnderlineOffset: 3,
+                        minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
                         {acc.label}
                         {acc.meta && <span style={{ color: 'var(--txt3)', marginLeft: 6, fontSize: TEXT.xs }}>· {acc.meta}</span>}
                       </span>
-                      {!!acc.postings && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginRight: SP[2] }}>{unit(acc.postings)}</span>}
+                      {!!acc.postings && !isMobile && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginRight: SP[2] }}>{unit(acc.postings)}</span>}
                       <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtAmount(acc.amount)}</span>
                     </div>
                   ))}

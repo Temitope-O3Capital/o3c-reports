@@ -250,7 +250,7 @@ export default function FinanceOverview() {
           title="Financial Position"
           subtitle={`Assets and liabilities from the live books of record${position?.as_of?.cards ? ` · cards to ${fmtDate(position.as_of.cards)}` : ''}`}
           actions={
-            <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY }}>
+            <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--accent)' }}>
               Full Balance Sheet
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
             </span>

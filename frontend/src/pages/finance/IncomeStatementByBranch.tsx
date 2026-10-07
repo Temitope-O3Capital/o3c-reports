@@ -157,7 +157,7 @@ export default function IncomeStatementByBranch() {
     >
       <ErrBanner error={error} onRetry={() => load()} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         <KpiCard label="Total Income" value={fmtKoboExact(totalIncome)} icon="trending_up" accent={GREEN} loading={loading} />
         <KpiCard label="Total Expense" value={fmtKoboExact(totalExpense)} icon="trending_down" accent={NAVY} loading={loading} />
         <KpiCard label="Net" value={fmtKoboExact(net)} icon={net >= 0 ? 'add_circle' : 'remove_circle'}

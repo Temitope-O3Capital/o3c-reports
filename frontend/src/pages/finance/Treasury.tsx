@@ -206,7 +206,7 @@ export default function Treasury() {
           as four assets. */}
       <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo"
         actions={
-          <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY }}>
+          <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--accent)' }}>
             Full Balance Sheet
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
           </span>

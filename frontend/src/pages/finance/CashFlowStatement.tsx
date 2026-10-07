@@ -148,7 +148,7 @@ export default function CashFlowStatement() {
     >
       <ErrBanner error={error} onRetry={() => load()} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         <KpiCard label="Net Change in Cash" value={fmtKoboExact(netChange)}
           icon={netChange >= 0 ? 'trending_up' : 'trending_down'} accent={netChange >= 0 ? GREEN : RED} loading={loading} />
         <KpiCard label="Operating" value={fmtKoboExact(totalByActivity.get('operating') ?? 0)} icon="sync_alt" accent={NAVY} loading={loading} />

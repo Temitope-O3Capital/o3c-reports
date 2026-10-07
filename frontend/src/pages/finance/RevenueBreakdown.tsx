@@ -204,7 +204,7 @@ export default function RevenueBreakdown() {
     >
       <ErrBanner error={error} onRetry={() => load()} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         <KpiCard label="Total Revenue" value={fmtKoboExact(totalRevenue)} icon="trending_up" accent={GREEN} loading={loading} />
         <KpiCard label="Card Revenue" value={fmtKoboExact(cardRevenue)} icon="credit_card" accent={PURPLE} loading={loading} />
         <KpiCard label="Loan Revenue" value={fmtKoboExact(loanRevenue)} icon="request_quote" accent={PURPLE} loading={loading} />
@@ -216,7 +216,7 @@ export default function RevenueBreakdown() {
 
       <div style={{ marginTop: SP[4] }}>
         <SectionCard title="Blink" subtitle="Standalone FX service — funding, fee split, and realized FX gain/loss">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: SP[4] }}>
             <div>
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 4 }}>O3's Net Fee Share</div>
               <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold }}>{fmtPct(blink?.fee_split.o3_share_pct ?? 0)}</div>
@@ -230,7 +230,7 @@ export default function RevenueBreakdown() {
               <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: blinkGainLoss >= 0 ? GREEN : AMBER }}>{fmtKoboExact(blinkGainLoss)}</div>
             </div>
           </div>
-          <a href="/finance/blink-report" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: SP[3], fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, textDecoration: 'none' }}>
+          <a href="/finance/blink-report" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: SP[3], fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--accent)', textDecoration: 'none' }}>
             Full Blink FX Report <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
           </a>
         </SectionCard>
