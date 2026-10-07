@@ -272,24 +272,27 @@ const SECTIONS: Section[] = [
       {
         icon: 'compare_arrows', label: 'Settlement & Reconciliation', to: '/settlements',
         vis: ['settlement_officer','settlement_head','finance_head'],
-        // The module serves two jobs: OPERATIONS (do the day's work) and REPORTING
-        // (see the position). Entries are grouped in that order.
+        // Ordered as the work actually runs: see the position, reconcile it, work
+        // what broke, drill into a provider.
         //
-        // Removed: 'NIP Reconciliation' and 'NIP Batch Exceptions' (no NIBSS feed
-        // exists — those pages could never show anything, and NIP activity that IS
-        // visible arrives via Paystack), and 'Failed Transactions' / 'Batches',
-        // both folded into Exceptions and the run log. Their routes still resolve
-        // for anyone holding a bookmark.
+        // Nine entries became five. The module had grown a page per table, and six
+        // of those tables are empty — app.settlement_exceptions has NO WRITER
+        // anywhere in the codebase, the NIP tables do not exist at all, and
+        // settlement_batches / manual_postings / interswitch_imports have never held
+        // a row. 'Settlement Position' is now the landing page rather than a child
+        // of it; 'Runs & Imports' folded into Reconcile, because a run cannot be
+        // judged without the log of what else landed around it; 'Processor
+        // Reconciliation' became 'Providers', which is what it shows. Every retired
+        // route redirects, so bookmarks still land somewhere useful.
         subs: [
-          { label: 'My Dashboard',             to: '/settlements/my-dashboard', vis: ['settlement_officer'] },
-          { label: 'Recon Workbench',          to: '/settlements/workbench' },
-          { label: 'Exceptions & Failures',    to: '/settlements/exceptions' },
-          { label: 'Settlement Position',      to: '/settlements/position' },
-          { label: 'Runs & Imports',           to: '/settlements/runs' },
-          { label: 'Processor Reconciliation', to: '/settlements/reconciliation' },
-          { label: 'Manual Postings',          to: '/settlements/manual-postings' },
-          { label: 'Interswitch',              to: '/settlements/interswitch' },
-          { label: 'Transaction Report',       to: '/settlements/interswitch/half-year' },
+          { label: 'My Work',      to: '/settlements/my-dashboard', vis: ['settlement_officer'] },
+          { label: 'Position',     to: '/settlements' },
+          { label: 'Reconcile',    to: '/settlements/workbench' },
+          { label: 'Exceptions',   to: '/settlements/exceptions' },
+          { label: 'Providers',    to: '/settlements/reconciliation' },
+          { label: 'Manual Postings', to: '/settlements/manual-postings' },
+          { label: 'Interswitch Report', to: '/settlements/interswitch' },
+          { label: 'Transaction Report', to: '/settlements/interswitch/half-year' },
         ],
       },
     ],
@@ -320,12 +323,16 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        // Revenue Breakdown retired — the Income Statement ledger above does the same
-        // drill-down natively now (branch/date filters, click a line for its entries).
-        icon: 'payments', label: 'Revenue', to: '/finance/blink-report',
+        // Revenue Breakdown is its own page again — branch-as-columns, fixed categories
+        // (card interest/fees, loan interest/fees, investments, Blink), the specific
+        // breakdown the finance meeting asked for. The Income Statement (Books of
+        // Accounts, above) stays a single-column ledger with Location as a filter — two
+        // different jobs, not duplicates.
+        icon: 'payments', label: 'Revenue', to: '/finance/revenue-breakdown',
         vis: ['finance_officer','finance_head'],
         subs: [
-          { label: 'Blink FX Report', to: '/finance/blink-report' },
+          { label: 'Revenue Breakdown', to: '/finance/revenue-breakdown' },
+          { label: 'Blink FX Report',   to: '/finance/blink-report' },
         ],
       },
       {

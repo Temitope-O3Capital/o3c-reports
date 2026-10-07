@@ -222,6 +222,7 @@ const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 
 // Finance
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
+const FinanceRevenueBreakdown = lazy(() => import('./pages/finance/RevenueBreakdown'))
 const FinanceBlinkReport = lazy(() => import('./pages/finance/BlinkReport'))
 const FinanceIncomeStatementByBranch = lazy(() => import('./pages/finance/IncomeStatementByBranch'))
 const FinanceBalanceSheet = lazy(() => import('./pages/finance/BalanceSheet'))
@@ -235,18 +236,15 @@ const FinanceTreasury     = lazy(() => import('./pages/finance/Treasury'))
 const FinanceCommissions  = lazy(() => import('./pages/finance/Commissions'))
 
 // Settlements
+// Settlement & Reconciliation — five surfaces. Batches, FailedTransactions, NIP,
+// NIPReconciliation, Position and Runs are no longer imported: their routes
+// redirect (see the route block), so the chunks are not built or shipped.
 const SettleMyDashboard = lazy(() => import('./pages/settlements/MyDashboard'))
 const SettleOverview   = lazy(() => import('./pages/settlements/Overview'))
-const SettleBatches    = lazy(() => import('./pages/settlements/Batches'))
-const SettleNIP        = lazy(() => import('./pages/settlements/NIP'))
-const SettleNIPRecon   = lazy(() => import('./pages/settlements/NIPReconciliation'))
 const SettleRecon      = lazy(() => import('./pages/settlements/Reconciliation'))
-const SettleFailed     = lazy(() => import('./pages/settlements/FailedTransactions'))
 const SettleManualPost = lazy(() => import('./pages/settlements/ManualPostings'))
 const SettleWorkbench  = lazy(() => import('./pages/settlements/Workbench'))
 const SettleExceptions = lazy(() => import('./pages/settlements/Exceptions'))
-const SettlePosition   = lazy(() => import('./pages/settlements/Position'))
-const SettleRuns       = lazy(() => import('./pages/settlements/Runs'))
 
 // Call Center
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
@@ -1225,24 +1223,35 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/cards/my-queue"         element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMyQueue /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Settlements */}
-                  <Route path="/settlements/my-dashboard"             element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleMyDashboard /></PageErrorBoundary></RequireAccess>} />
+                  {/* SETTLEMENT & RECONCILIATION — five surfaces, down from thirteen.
+                      The module had grown a page per table, and six of those tables
+                      are empty: app.settlement_exceptions has NO WRITER anywhere in
+                      the codebase, the NIP tables do not exist at all, and
+                      settlement_batches / manual_postings / interswitch_imports have
+                      never held a row. Those pages could not show anything, ever.
+                      Their routes redirect rather than 404 so existing bookmarks and
+                      links in old emails still land somewhere useful. */}
                   <Route path="/settlements"                          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/batches"                  element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleBatches /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/nip"                      element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleNIP /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/nip-recon"                element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleNIPRecon /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/reconciliation"           element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleRecon /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/failed"                   element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleFailed /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/manual-postings"          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleManualPost /></PageErrorBoundary></RequireAccess>} />
-                  {/* Rebuilt module: operations (workbench, exceptions) + reporting (position) */}
+                  <Route path="/settlements/my-dashboard"             element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/workbench"                element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleWorkbench /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/exceptions"               element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleExceptions /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/position"                 element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettlePosition /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/runs"                     element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleRuns /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/reconciliation"           element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleRecon /></PageErrorBoundary></RequireAccess>} />
+                  {/* Manual postings: functional, with a real approval chain, but the
+                      table is empty — nobody has ever raised one. Kept reachable
+                      rather than retired, because it works. */}
+                  <Route path="/settlements/manual-postings"          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleManualPost /></PageErrorBoundary></RequireAccess>} />
+
+                  {/* Retired. Folded into a surface that can actually show something. */}
+                  <Route path="/settlements/runs"      element={<Navigate to="/settlements/workbench" replace />} />
+                  <Route path="/settlements/position"  element={<Navigate to="/settlements" replace />} />
+                  <Route path="/settlements/batches"   element={<Navigate to="/settlements/exceptions" replace />} />
+                  <Route path="/settlements/failed"    element={<Navigate to="/settlements/exceptions" replace />} />
+                  <Route path="/settlements/nip"       element={<Navigate to="/settlements/exceptions" replace />} />
+                  <Route path="/settlements/nip-recon" element={<Navigate to="/settlements/exceptions" replace />} />
 
                   {/* Finance */}
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
-                  {/* Retired: folded into the Income Statement, which now does the same drill-down natively */}
-                  <Route path="/finance/revenue-breakdown"  element={<Navigate to="/finance/income-statement-by-branch" replace />} />
+                  <Route path="/finance/revenue-breakdown"  element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceRevenueBreakdown /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/blink-report"       element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBlinkReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income-statement-by-branch" element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncomeStatementByBranch /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/balance-sheet"      element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBalanceSheet /></PageErrorBoundary></RequireAccess>} />

@@ -393,6 +393,25 @@ func main() {
 		return
 	}
 
+	if which == "incomelines" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		rows, _ := db.PGQuery(ctx, `SELECT statement_line, product_label, COUNT(*) AS accounts FROM gl_account_lines WHERE statement='income' GROUP BY statement_line, product_label ORDER BY statement_line, product_label`)
+		for _, r := range rows {
+			fmt.Printf("%-28v %v\n", r["statement_line"], r["product_label"])
+		}
+		return
+	}
+
 	if which == "ledgercheck" {
 		cfg, err := core.LoadConfig()
 		if err != nil {

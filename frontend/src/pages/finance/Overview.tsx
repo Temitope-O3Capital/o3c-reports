@@ -198,10 +198,10 @@ export default function FinanceOverview() {
       {/* Primary KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
         {/* Total Revenue is the one card in this strip with a drill-down behind it — the
-            Income Statement ledger, straight from Udara's own GL. Wrapped rather than
-            adding an onClick to the shared KpiCard, which nothing else needs. */}
-        <div onClick={() => navigate('/finance/income-statement-by-branch')} style={{ cursor: 'pointer' }}
-          title="Click for the Income Statement">
+            Revenue Breakdown page, branch-as-columns, straight from Udara's own GL. Wrapped
+            rather than adding an onClick to the shared KpiCard, which nothing else needs. */}
+        <div onClick={() => navigate('/finance/revenue-breakdown')} style={{ cursor: 'pointer' }}
+          title="Click for a breakdown of what makes up Total Revenue">
           <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} icon="trending_up" accent={GREEN}
             change={pctChange(totals?.total_ngn ?? 0, prev?.total_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
         </div>
