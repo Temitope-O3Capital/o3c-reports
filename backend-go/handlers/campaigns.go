@@ -687,8 +687,65 @@ func ScheduleCampaignAutoResume(db *core.DB) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	resumeDailyLimitCampaigns(db)
+	resumeStrandedCampaigns(db)
 	for range ticker.C {
 		resumeDailyLimitCampaigns(db)
+		resumeStrandedCampaigns(db)
+	}
+}
+
+// resumeStrandedCampaigns restarts a campaign left 'active' with work outstanding
+// and NO dispatcher running.
+//
+// WHY THIS EXISTS, from an actual stranding. A deploy restarted the backend at
+// 15:41 in the middle of a 9,307-recipient send. The killed process never ran its
+// deferred releaseCampaignDispatchLock, so dispatch_lock_until stayed 15 minutes in
+// the future; the new process ran ResumeInterruptedCampaigns at boot, inside that
+// window, and acquireCampaignDispatchLock refused it — correctly, since from the
+// DB's point of view a worker still held the lock. Nothing retried: the only
+// periodic sweep looks for status='paused' AND pause_reason='daily_limit'. The
+// campaign sat 'active' with 2,927 contacts pending and sent nothing further, with
+// no error anywhere, until somebody restarted it by hand.
+//
+// So every restart during a send silently stranded that send. This closes it.
+//
+// The lock is the safety interlock, and it is why this cannot simply reuse
+// ResumeInterruptedCampaigns on a timer: that resets 'sending' rows back to
+// 'pending', and doing so while a LIVE dispatcher holds a row mid-flight would
+// re-send it. A live dispatcher refreshes the lock on every contact, so an expired
+// or absent lock is solid evidence that nobody is working the campaign.
+func resumeStrandedCampaigns(db *core.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	rows, err := db.PGQuery(ctx, `
+		SELECT c.id
+		  FROM campaigns c
+		 WHERE c.status = 'active'
+		   AND (c.dispatch_lock_until IS NULL OR c.dispatch_lock_until < NOW())
+		   AND EXISTS (
+		       SELECT 1 FROM campaign_contacts cc
+		        WHERE cc.campaign_id = c.id
+		          AND (cc.sms_status = 'pending' OR cc.email_status = 'pending'
+		               OR cc.whatsapp_status = 'pending' OR cc.sms_status = 'sending'
+		               OR cc.email_status = 'sending' OR cc.whatsapp_status = 'sending')
+		   )`)
+	if err != nil {
+		slog.Error("Stranded-campaign sweep: query failed", "err", err)
+		return
+	}
+	for _, row := range rows {
+		id := toInt64(row["id"])
+		if id <= 0 {
+			continue
+		}
+		// Safe now: the lock has expired, so no dispatcher is mid-flight on these.
+		for _, ch := range []string{"sms_status", "email_status", "whatsapp_status"} {
+			db.PGExec(ctx, fmt.Sprintf( //nolint:errcheck
+				`UPDATE campaign_contacts SET %[1]s='pending', updated_at=NOW()
+				  WHERE campaign_id=$1 AND %[1]s='sending'`, ch), id)
+		}
+		slog.Warn("Resuming a campaign stranded by an interrupted dispatch", "campaign_id", id)
+		startDispatch(db, id)
 	}
 }
 
