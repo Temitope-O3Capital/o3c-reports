@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, KpiCard, DateFilter, Modal } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, KpiCard, SegmentedToggle, DateFilter, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { LedgerTree } from '../../components/finance/LedgerTree'
+import type { LedgerSection, LedgerLine, LedgerAccount } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmtKoboExact, fmtNum, fmtDate, fmtPct } from '../../lib/fmt'
 import { GREEN, PURPLE, BLUE, AMBER, NAVY, TEXT, FW, SP } from '../../lib/design'
@@ -8,13 +10,12 @@ import { GREEN, PURPLE, BLUE, AMBER, NAVY, TEXT, FW, SP } from '../../lib/design
 // Total Revenue drill-down — what the finance meeting actually asked for: card interest
 // by product, loan interest by SME/Individual, interest on investments, card fees
 // (including the joining fee) by product, loan fees (management/other), and Blink as its
-// own standalone line. Branch is laid out as columns (Lagos | Abuja | Total) rather than a
-// filter toggle, per the finance meeting's own framing of this specific page — unlike the
-// three Books of Accounts (Balance Sheet/Income Statement/Cash Flow), which are fixed
-// single-column ledgers with Location as a filter. Reads the same
-// /income-statement-by-branch endpoint those pages use (no branch param = every branch in
-// one response), grouped here by statement_line/product_label with branch pivoted into
-// columns, plus Blink's own fee/FX summary folded in as its own section.
+// own standalone block. Built the same way as the three Books of Accounts (LedgerTree,
+// Location as a filter, not columns) rather than its earlier branch-as-columns layout —
+// one consistent ledger design across the whole module. Reads the same
+// /income-statement-by-branch endpoint those pages use, grouped here by category (not raw
+// statement_line) since that's the specific breakdown the finance meeting asked for, with
+// product as the expandable line and branch as the account-level leaf.
 
 interface Line { branch: string; statement_line: string; product_label: string | null; statement: 'income' | 'expense'; amount_kobo: number; postings: number }
 interface Payload { lines: Line[]; totals: { branch: string; statement: string; amount_kobo: number }[]; coverage_start: string }
@@ -30,6 +31,12 @@ interface BlinkCurrencyRow { currency: string; fx_total: number; ngn_total: numb
 interface BlinkSaleRow { gain_loss_ngn_kobo?: number }
 interface BlinkPayload { funding_by_currency: BlinkCurrencyRow[]; realized_sales: BlinkSaleRow[]; fee_split: BlinkFeeSplit }
 
+const BRANCHES = [
+  { value: '', label: 'Consolidated' },
+  { value: 'lagos', label: 'Lagos' },
+  { value: 'abuja', label: 'Abuja' },
+] as const
+
 const entryCols: TableCol<Entry>[] = [
   { key: 'financial_date', label: 'Date', render: r => <span>{r.financial_date ? fmtDate(r.financial_date) : '—'}</span> },
   { key: 'account_name', label: 'Account', render: r => <span>{r.account_name ?? r.fee_type ?? '—'}</span> },
@@ -38,25 +45,10 @@ const entryCols: TableCol<Entry>[] = [
   { key: 'amount_kobo', label: 'Amount', align: 'right', render: r => fmtKoboExact(r.amount_kobo ?? 0) },
 ]
 
-interface PivotRow { detail: string; byBranch: Record<string, number>; byBranchPostings: Record<string, number>; total: number; statement_line: string; product_label: string | null }
-
-function pivotByBranch(lines: Line[], branches: string[]): PivotRow[] {
-  const byDetail = new Map<string, PivotRow>()
-  for (const l of lines) {
-    const key = `${l.statement_line}::${l.product_label ?? ''}`
-    let row = byDetail.get(key)
-    if (!row) {
-      row = { detail: l.product_label ?? l.statement_line, byBranch: {}, byBranchPostings: {}, total: 0, statement_line: l.statement_line, product_label: l.product_label }
-      byDetail.set(key, row)
-    }
-    row.byBranch[l.branch] = (row.byBranch[l.branch] ?? 0) + Number(l.amount_kobo)
-    row.byBranchPostings[l.branch] = (row.byBranchPostings[l.branch] ?? 0) + Number(l.postings)
-    row.total += Number(l.amount_kobo)
-  }
-  return [...byDetail.values()].sort((a, b) => b.total - a.total)
-}
+interface Drill { statement_line: string; product_label: string | null; branch: string; amount: number; postings: number }
 
 export default function RevenueBreakdown() {
+  const [branch, setBranch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [data, setData] = useState<Payload | null>(null)
@@ -64,7 +56,7 @@ export default function RevenueBreakdown() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [drill, setDrill] = useState<{ statement_line: string; product_label: string | null; branch: string; amount: number; postings: number } | null>(null)
+  const [drill, setDrill] = useState<Drill | null>(null)
   const [entries, setEntries] = useState<Entry[] | null>(null)
   const [entriesLoading, setEntriesLoading] = useState(false)
 
@@ -73,6 +65,7 @@ export default function RevenueBreakdown() {
     setError(null)
     try {
       const q = new URLSearchParams()
+      if (branch) q.set('branch', branch)
       if (dateFrom) q.set('date_from', dateFrom)
       if (dateTo) q.set('date_to', dateTo)
       const [incRes, blinkRes] = await Promise.allSettled([
@@ -86,50 +79,19 @@ export default function RevenueBreakdown() {
       setLoading(false)
     }
   }
-  useEffect(() => { load() }, [dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [branch, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const income = useMemo(() => (data?.lines ?? []).filter(l => l.statement === 'income'), [data])
-  const branches = useMemo(() => {
-    const set = new Set(income.map(l => l.branch))
-    const order = ['Lagos', 'Abuja']
-    return [...order.filter(b => set.has(b)), ...[...set].filter(b => !order.includes(b))]
-  }, [income])
 
-  const section = (statementLine: string) => pivotByBranch(income.filter(l => l.statement_line === statementLine), branches)
-
-  // When a section table merges more than one statement_line (Card Fees folds in the
-  // joining fee; Other Income folds in penalties/other-interest), prefix each row with
-  // where it came from — a bare product label like "Prepaid" reads as a product name,
-  // not "a penalty on the Prepaid product."
-  const tagged = (statementLine: string, label: string) =>
-    section(statementLine).map(r => ({ ...r, detail: r.product_label ? `${label} — ${r.product_label}` : label }))
-
-  const cardInterest = useMemo(() => section('Card Interest Income'), [income, branches])
-  const loanInterest = useMemo(() => section('Loan Interest Income'), [income, branches])
-  const investments = useMemo(() => section('Interest on Investments'), [income, branches])
-  const cardFees = useMemo(() => [...section('Card Fee Income'), ...tagged('Card Joining Fee Income', 'Joining Fee'), ...tagged('Card Joining Fees', 'Joining Fee')], [income, branches])
-  const loanFees = useMemo(() => [...section('Loan Fee Income')], [income, branches])
-  const other = useMemo(() => [...tagged('Card Penalty Income', 'Card Penalty'), ...tagged('Other Interest Income', 'Other Interest'), ...section('Other Income')], [income, branches])
-
-  const totalRevenue = income.reduce((s, l) => s + Number(l.amount_kobo), 0)
-  const cardRevenue = [...cardInterest, ...cardFees].reduce((s, r) => s + r.total, 0)
-  const loanRevenue = [...loanInterest, ...loanFees].reduce((s, r) => s + r.total, 0)
-  const investmentOther = [...investments, ...other].reduce((s, r) => s + r.total, 0)
-
-  const blinkFunding = blink?.funding_by_currency ?? []
-  const blinkGainLoss = (blink?.realized_sales ?? []).reduce((s, r) => s + Number(r.gain_loss_ngn_kobo ?? 0), 0)
-
-  async function openDrill(row: PivotRow, branch: string) {
-    const amount = row.byBranch[branch] ?? 0
-    const postings = row.byBranchPostings[branch] ?? 0
-    setDrill({ statement_line: row.statement_line, product_label: row.product_label, branch, amount, postings })
+  async function openDrill(statementLine: string, productLabel: string | null, branchLabel: string, amount: number, postings: number) {
+    setDrill({ statement_line: statementLine, product_label: productLabel, branch: branchLabel, amount, postings })
     setEntries(null)
     setEntriesLoading(true)
     try {
       const q = new URLSearchParams()
-      q.set('statement_line', row.statement_line)
-      q.set('product_label', row.product_label ?? '')
-      const branchParam = branch === 'Lagos' ? 'lagos' : branch === 'Abuja' ? 'abuja' : ''
+      q.set('statement_line', statementLine)
+      q.set('product_label', productLabel ?? '')
+      const branchParam = branchLabel === 'Lagos' ? 'lagos' : branchLabel === 'Abuja' ? 'abuja' : ''
       if (branchParam) q.set('branch', branchParam)
       if (dateFrom) q.set('date_from', dateFrom)
       if (dateTo) q.set('date_to', dateTo)
@@ -142,28 +104,88 @@ export default function RevenueBreakdown() {
     }
   }
 
-  function colsFor(rows: PivotRow[]): TableCol<PivotRow>[] {
-    const cols: TableCol<PivotRow>[] = [{ key: 'detail', label: 'Detail' }]
-    for (const b of branches) {
-      cols.push({
-        key: b, label: b, align: 'right',
-        render: r => (r.byBranch[b] ? (
-          <span style={{ cursor: 'pointer', color: NAVY, textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}
-            onClick={() => openDrill(r, b)}>
-            {fmtKoboExact(r.byBranch[b])}
-          </span>
-        ) : <span style={{ color: 'var(--txt3)' }}>—</span>),
-      })
+  // One category -> one LedgerSection. Within it, product (or the tagged label for a
+  // merged category) is the expandable Line; branch is the Account-level leaf — a single
+  // branch (either because Location is filtered, or because the data only ever has one)
+  // collapses straight to a clickable row the same way every other LedgerTree does.
+  function buildSection(key: string, label: string, accent: string, rows: { statementLine: string; productLabel: string | null; lineLabel: string }[]): LedgerSection {
+    const byLine = new Map<string, Line[]>()
+    for (const spec of rows) {
+      const matches = income.filter(l => l.statement_line === spec.statementLine && (l.product_label ?? '') === (spec.productLabel ?? ''))
+      if (matches.length === 0) continue
+      const arr = byLine.get(spec.lineLabel) ?? []
+      arr.push(...matches)
+      byLine.set(spec.lineLabel, arr)
     }
-    cols.push({ key: 'total', label: 'Total', align: 'right', render: r => <strong>{fmtKoboExact(r.total)}</strong> })
-    return cols
+    const lines: LedgerLine[] = [...byLine.entries()].map(([lineLabel, lineRows]) => {
+      const accounts: LedgerAccount[] = lineRows.map((r, i) => ({
+        key: `${key}-${lineLabel}-${r.branch}-${i}`,
+        label: lineRows.length === 1 ? lineLabel : r.branch,
+        amount: Number(r.amount_kobo),
+        postings: r.postings,
+        onClick: () => openDrill(r.statement_line, r.product_label, r.branch, Number(r.amount_kobo), r.postings),
+      }))
+      // A single-branch line collapses straight to a clickable row (LedgerTree's own
+      // rule: one account sharing the line's label) — but that only hides the chevron,
+      // it doesn't wire the click. line.onClick has to be set explicitly too, or the
+      // collapsed row looks clickable (underlined) but does nothing.
+      const soleAccount = accounts.length === 1 && accounts[0].label === lineLabel
+      return { key: lineLabel, label: lineLabel, accounts, onClick: soleAccount ? accounts[0].onClick : undefined }
+    }).sort((a, b) => {
+      const at = a.accounts.reduce((s, x) => s + x.amount, 0)
+      const bt = b.accounts.reduce((s, x) => s + x.amount, 0)
+      return bt - at
+    })
+    return { key, label, accent, lines }
   }
 
-  const Section = ({ title, subtitle, rows }: { title: string; subtitle?: string; rows: PivotRow[] }) => (
-    <SectionCard title={title} subtitle={subtitle ?? fmtKoboExact(rows.reduce((s, r) => s + r.total, 0))}>
-      <DataTable cols={colsFor(rows)} rows={rows} keyFn={(r, i) => `${title}-${i}`} emptyText="No lines in this period" />
-    </SectionCard>
-  )
+  const cardInterestSection = useMemo(() => buildSection('card-interest', 'Card Interest Income', PURPLE,
+    [...new Set(income.filter(l => l.statement_line === 'Card Interest Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Card Interest Income', productLabel: p || null, lineLabel: p || 'Card Interest Income' })),
+  ), [income])
+
+  const loanInterestSection = useMemo(() => buildSection('loan-interest', 'Loan Interest Income', PURPLE,
+    [...new Set(income.filter(l => l.statement_line === 'Loan Interest Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Loan Interest Income', productLabel: p || null, lineLabel: p || 'Loan Interest Income' })),
+  ), [income])
+
+  const investmentsSection = useMemo(() => buildSection('investments', 'Interest on Investments', BLUE,
+    [{ statementLine: 'Interest on Investments', productLabel: null, lineLabel: 'Interest on Investments' }],
+  ), [income])
+
+  const cardFeesSection = useMemo(() => buildSection('card-fees', 'Card Fees', PURPLE, [
+    ...[...new Set(income.filter(l => l.statement_line === 'Card Fee Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Card Fee Income', productLabel: p || null, lineLabel: p || 'Card Fee Income' })),
+    ...[...new Set(income.filter(l => l.statement_line === 'Card Joining Fee Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Card Joining Fee Income', productLabel: p || null, lineLabel: p ? `Joining Fee — ${p}` : 'Joining Fee' })),
+    ...[...new Set(income.filter(l => l.statement_line === 'Card Joining Fees').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Card Joining Fees', productLabel: p || null, lineLabel: p ? `Joining Fee — ${p}` : 'Joining Fee' })),
+  ]), [income])
+
+  const loanFeesSection = useMemo(() => buildSection('loan-fees', 'Loan Fees', PURPLE,
+    [...new Set(income.filter(l => l.statement_line === 'Loan Fee Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Loan Fee Income', productLabel: p || null, lineLabel: p || 'Loan Fee Income' })),
+  ), [income])
+
+  const otherSection = useMemo(() => buildSection('other', 'Other Income', BLUE, [
+    ...[...new Set(income.filter(l => l.statement_line === 'Card Penalty Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Card Penalty Income', productLabel: p || null, lineLabel: p ? `Card Penalty — ${p}` : 'Card Penalty' })),
+    ...[...new Set(income.filter(l => l.statement_line === 'Other Interest Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Other Interest Income', productLabel: p || null, lineLabel: 'Other Interest' })),
+    ...[...new Set(income.filter(l => l.statement_line === 'Other Income').map(l => l.product_label ?? ''))]
+      .map(p => ({ statementLine: 'Other Income', productLabel: p || null, lineLabel: 'Other Income' })),
+  ]), [income])
+
+  const sections = [cardInterestSection, loanInterestSection, investmentsSection, cardFeesSection, loanFeesSection, otherSection]
+    .filter(s => s.lines.length > 0)
+
+  const totalRevenue = income.reduce((s, l) => s + Number(l.amount_kobo), 0)
+  const cardRevenue = income.filter(l => l.statement_line.startsWith('Card')).reduce((s, l) => s + Number(l.amount_kobo), 0)
+  const loanRevenue = income.filter(l => l.statement_line.startsWith('Loan')).reduce((s, l) => s + Number(l.amount_kobo), 0)
+  const investmentOther = totalRevenue - cardRevenue - loanRevenue
+
+  const blinkFunding = blink?.funding_by_currency ?? []
+  const blinkGainLoss = (blink?.realized_sales ?? []).reduce((s, r) => s + Number(r.gain_loss_ngn_kobo ?? 0), 0)
 
   return (
     <Page
@@ -172,7 +194,13 @@ export default function RevenueBreakdown() {
       back={{ label: 'Finance', to: '/finance' }}
       loading={loading && !data}
       skeletonKpis={4}
-      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)' }}>Location</span>
+          <SegmentedToggle value={branch} onChange={setBranch} options={BRANCHES as any} />
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
+      }
     >
       <ErrBanner error={error} onRetry={() => load()} />
 
@@ -183,14 +211,10 @@ export default function RevenueBreakdown() {
         <KpiCard label="Investments & Other" value={fmtKoboExact(investmentOther)} icon="account_balance" accent={BLUE} loading={loading} />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-        <Section title="Card Interest Income" subtitle={`By product · ${fmtKoboExact(cardInterest.reduce((s, r) => s + r.total, 0))}`} rows={cardInterest} />
-        <Section title="Loan Interest Income" subtitle={`SME vs Individual · ${fmtKoboExact(loanInterest.reduce((s, r) => s + r.total, 0))}`} rows={loanInterest} />
-        <Section title="Interest on Investments" rows={investments} />
-        <Section title="Card Fees" subtitle={`By product, including the joining fee · ${fmtKoboExact(cardFees.reduce((s, r) => s + r.total, 0))}`} rows={cardFees} />
-        <Section title="Loan Fees" subtitle={`Management vs other · ${fmtKoboExact(loanFees.reduce((s, r) => s + r.total, 0))}`} rows={loanFees} />
-        <Section title="Other Income" subtitle="Card penalties, other interest, unclassified" rows={other} />
+      <LedgerTree sections={sections} grandTotalLabel="Total Revenue" grandTotal={totalRevenue} fmtAmount={fmtKoboExact}
+        loading={loading && !data} emptyText="No revenue lines in this period" />
 
+      <div style={{ marginTop: SP[4] }}>
         <SectionCard title="Blink" subtitle="Standalone FX service — funding, fee split, and realized FX gain/loss">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4] }}>
             <div>
