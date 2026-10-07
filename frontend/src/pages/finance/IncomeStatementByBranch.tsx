@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, KpiCard, SegmentedToggle, DateFilter, Modal } from '../../components/UI'
+import { Page, DataTable, ErrBanner, KpiCard, SegmentedToggle, DateFilter, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { LedgerTree } from '../../components/finance/LedgerTree'
+import type { LedgerSection, LedgerLine, LedgerAccount } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmtKoboExact, fmtDate } from '../../lib/fmt'
 import { GREEN, RED, NAVY, TEXT, FW, SP } from '../../lib/design'
@@ -11,7 +13,12 @@ import { GREEN, RED, NAVY, TEXT, FW, SP } from '../../lib/design'
 // filter by; see backend-go/handlers/income_statement_branch.go's header). Also absorbs
 // what used to be the separate Revenue Breakdown page: card joining fees and loan fees
 // are folded in here as their own lines, since they answer the same question this page
-// now does natively. Every row drills into the real entries behind it.
+// now does natively.
+//
+// Rendered as a real ledger (LedgerTree): Income/Expense sections expand to statement
+// lines (Card Interest Income, Rent...), which expand to the individual accounts/products
+// behind them, each with its own subtotal, down to one grand total (Net) at the foot —
+// not a flat table. Every account row still drills into its real GL entries on click.
 
 interface Line { branch: string; statement_line: string; product_label: string | null; statement: 'income' | 'expense'; amount_kobo: number; postings: number }
 interface Totals { branch: string; statement: string; amount_kobo: number }
@@ -94,12 +101,47 @@ export default function IncomeStatementByBranch() {
     }
   }
 
-  const cols: TableCol<Line>[] = [
-    { key: 'statement_line', label: 'Line' },
-    { key: 'product_label', label: 'Detail', render: r => r.product_label ?? '—' },
-    { key: 'branch', label: 'Branch' },
-    { key: 'amount_kobo', label: 'Amount', align: 'right', render: r => fmtKoboExact(r.amount_kobo) },
-    { key: 'postings', label: 'Postings', align: 'right' },
+  // Lines (flat, from the API) -> statement_line groups -> account/product rows, the
+  // shape LedgerTree renders. A line with exactly one account sharing its own name
+  // collapses to a single clickable row instead of a pointless one-item expand.
+  function buildLines(rows: Line[]): LedgerLine[] {
+    const byLine = new Map<string, Line[]>()
+    for (const r of rows) {
+      const arr = byLine.get(r.statement_line) ?? []
+      arr.push(r)
+      byLine.set(r.statement_line, arr)
+    }
+    return [...byLine.entries()].map(([statementLine, lineRows]) => {
+      // Consolidated shows every branch's contribution as its own row (not summed away),
+      // so the same product can appear twice — "Platinum" for Lagos and for Abuja. Suffix
+      // with the branch whenever more than one branch is present, so they read as two
+      // different rows rather than a duplicate.
+      const multiBranch = new Set(lineRows.map(r => r.branch)).size > 1
+      const accounts: LedgerAccount[] = lineRows.map((r, i) => ({
+        key: `${statementLine}-${r.product_label ?? 'none'}-${r.branch}-${i}`,
+        label: r.product_label ?? statementLine,
+        meta: multiBranch ? r.branch : undefined,
+        amount: Number(r.amount_kobo),
+        postings: r.postings,
+        onClick: () => openDrill(r),
+      }))
+      const soleAccount = accounts.length === 1 && accounts[0].label === statementLine
+      return {
+        key: statementLine,
+        label: statementLine,
+        accounts,
+        onClick: soleAccount ? accounts[0].onClick : undefined,
+      }
+    }).sort((a, b) => {
+      const at = a.accounts.reduce((s, x) => s + x.amount, 0)
+      const bt = b.accounts.reduce((s, x) => s + x.amount, 0)
+      return bt - at
+    })
+  }
+
+  const sections: LedgerSection[] = [
+    { key: 'income', label: 'Income', lines: buildLines(income), accent: GREEN },
+    { key: 'expense', label: 'Expense', lines: buildLines(expense), accent: RED },
   ]
 
   return (
@@ -122,10 +164,8 @@ export default function IncomeStatementByBranch() {
           accent={net >= 0 ? GREEN : RED} loading={loading} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
-        <SectionCard title="Income"><DataTable cols={cols} rows={income} keyFn={(r, i) => `inc-${i}`} onRowClick={openDrill} /></SectionCard>
-        <SectionCard title="Expense"><DataTable cols={cols} rows={expense} keyFn={(r, i) => `exp-${i}`} onRowClick={openDrill} /></SectionCard>
-      </div>
+      <LedgerTree sections={sections} grandTotalLabel="Net" grandTotal={net} fmtAmount={fmtKoboExact} loading={loading && !data}
+        emptyText="No income or expense lines in this period" />
 
       <Modal open={!!drill} onClose={() => setDrill(null)}
         title={drill ? `${drill.statement_line}${drill.product_label ? ' — ' + drill.product_label : ''}` : ''} width={760}>

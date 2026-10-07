@@ -1,16 +1,22 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, KpiCard, SegmentedToggle, DateFilter, Modal } from '../../components/UI'
+import { Page, DataTable, ErrBanner, KpiCard, SegmentedToggle, DateFilter, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { LedgerTree } from '../../components/finance/LedgerTree'
+import type { LedgerSection } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtDate } from '../../lib/fmt'
 import { GREEN, RED, NAVY, PURPLE, TEXT, FW, SP } from '../../lib/design'
 
 // Cash Flow Statement — did not exist anywhere in this system before migration 348.
 // Reads cbs_gl_postings directly rather than the pre-aggregated app.cash_flow_statement_by_branch
 // view, so Date can be a real filter (see backend-go/handlers/cash_flow.go's header for why).
 // Built by whole-ledger conservation rather than leg-by-leg pairing — see that file for the
-// method and its small, disclosed reconciliation gap. Every row drills into the real GL
-// postings behind it.
+// method and its small, disclosed reconciliation gap.
+//
+// Rendered as a real ledger (LedgerTree): Operating/Investing/Financing/Unclassified
+// sections, each line directly drillable into the real GL postings behind it. Net Change
+// in Cash (the grand total) deliberately excludes Unclassified — that section is a flag,
+// not a real activity, same framing as its red-bordered card before this pass.
 
 interface Line { branch: string; activity: 'operating' | 'investing' | 'financing' | 'unclassified'; line_label: string; amount_kobo: number; postings: number }
 interface Totals { branch: string; activity: string; amount_kobo: number }
@@ -31,7 +37,7 @@ const ACTIVITY_META: Record<string, { label: string; accent: string; icon: strin
   operating: { label: 'Operating Activities', accent: NAVY, icon: 'sync_alt' },
   investing: { label: 'Investing Activities', accent: PURPLE, icon: 'trending_up' },
   financing: { label: 'Financing Activities', accent: GREEN, icon: 'account_balance' },
-  unclassified: { label: 'Unclassified', accent: RED, icon: 'help' },
+  unclassified: { label: 'Unclassified — not a real activity, flagged not summed', accent: RED, icon: 'help' },
 }
 
 function groupBy<T>(rows: T[], key: (r: T) => string) {
@@ -90,7 +96,6 @@ export default function CashFlowStatement() {
     return m
   }, [data])
   const netChange = ['operating', 'investing', 'financing'].reduce((s, a) => s + (totalByActivity.get(a) ?? 0), 0)
-  const unclassifiedTotal = totalByActivity.get('unclassified') ?? 0
 
   async function openDrill(row: Line) {
     setDrill(row)
@@ -112,11 +117,19 @@ export default function CashFlowStatement() {
     }
   }
 
-  const cols: TableCol<Line>[] = [
-    { key: 'line_label', label: 'Line' },
-    { key: 'amount_kobo', label: 'Amount', align: 'right', render: r => fmtKoboExact(r.amount_kobo) },
-    { key: 'postings', label: 'Postings', align: 'right', render: r => fmtNum(r.postings) },
-  ]
+  const sections: LedgerSection[] = (['operating', 'investing', 'financing', 'unclassified'] as const)
+    .filter(a => (byActivity.get(a)?.length ?? 0) > 0)
+    .map(a => ({
+      key: a,
+      label: ACTIVITY_META[a].label,
+      accent: ACTIVITY_META[a].accent,
+      lines: (byActivity.get(a) ?? []).map(row => ({
+        key: `${a}-${row.line_label}`,
+        label: row.line_label,
+        accounts: [{ key: `${a}-${row.line_label}-acc`, label: row.line_label, amount: Number(row.amount_kobo), postings: row.postings, onClick: () => openDrill(row) }],
+        onClick: () => openDrill(row),
+      })),
+    }))
 
   return (
     <Page
@@ -143,25 +156,8 @@ export default function CashFlowStatement() {
         <KpiCard label="Financing" value={fmtKoboExact(totalByActivity.get('financing') ?? 0)} icon="account_balance" accent={GREEN} loading={loading} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4] }}>
-        {(['operating', 'investing', 'financing'] as const).map(a => (
-          <SectionCard key={a} title={ACTIVITY_META[a].label} subtitle={fmtKoboExact(totalByActivity.get(a) ?? 0)}>
-            <DataTable cols={cols} rows={byActivity.get(a) ?? []} keyFn={(r, i) => `${a}-${i}`} onRowClick={openDrill} emptyText="No activity in this period" />
-          </SectionCard>
-        ))}
-      </div>
-
-      {(byActivity.get('unclassified')?.length ?? 0) > 0 && (
-        <div style={{ marginTop: SP[4] }}>
-          <SectionCard
-            title="Unclassified"
-            subtitle={`${fmtKoboExact(unclassifiedTotal)} — generic GL accounts not yet mapped to an activity; see footnote`}
-            style={{ borderLeft: `3px solid ${RED}` }}
-          >
-            <DataTable cols={cols} rows={byActivity.get('unclassified') ?? []} keyFn={(r, i) => `u-${i}`} onRowClick={openDrill} emptyText="Nothing unclassified" />
-          </SectionCard>
-        </div>
-      )}
+      <LedgerTree sections={sections} grandTotalLabel="Net Change in Cash" grandTotal={netChange} fmtAmount={fmtKoboExact}
+        loading={loading && !data} emptyText="No activity in this period" />
 
       <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[4], lineHeight: 1.55 }}>{data?.basis}</p>
 

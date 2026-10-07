@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, KpiCard, SegmentedToggle, Modal } from '../../components/UI'
+import { Page, DataTable, ErrBanner, KpiCard, SegmentedToggle, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { LedgerTree } from '../../components/finance/LedgerTree'
+import type { LedgerSection } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtDate } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, TEXT, FW, SP } from '../../lib/design'
 
 // Balance Sheet — promoted out of the "Financial Position" section that used to sit
@@ -14,7 +16,15 @@ import { GREEN, RED, AMBER, NAVY, TEXT, FW, SP } from '../../lib/design'
 // equity figure, not folded into Net Position, explicitly partial-period. No date range
 // filter here (unlike Income Statement/Cash Flow) — this is a live point-in-time
 // position, not a period, and no snapshot history exists to reconstruct an "as of a past
-// date" balance sheet from. Every row drills into the real underlying records.
+// date" balance sheet from.
+//
+// Rendered as a real ledger (LedgerTree), one per currency: Assets/Liabilities/Equity
+// sections, each line directly drillable into the real loan/FD/card records behind it —
+// these lines are already the finest grain financial_position_by_branch offers (no
+// per-product breakdown exists under "Loan Receivable" the way Income Statement's lines
+// break into products), so each is a single clickable row rather than a three-level
+// expand. Net Position (Assets − Liabilities) is the grand total; Equity is excluded from
+// it deliberately, same framing the KPI strip already uses.
 
 interface Line { currency: string; side: 'Asset' | 'Liability' | 'Equity'; line: string; gl_code: string; amount_kobo: number; items: number }
 interface Totals { currency: string; assets_kobo: number; liabilities_kobo: number; opening_equity_kobo: number; net_position_kobo: number }
@@ -126,12 +136,24 @@ export default function BalanceSheet() {
     }
   }
 
-  const cols: TableCol<Line>[] = [
-    { key: 'line', label: 'Line' },
-    { key: 'gl_code', label: 'GL Code', align: 'right' },
-    { key: 'amount_kobo', label: 'Amount', align: 'right', render: r => fmtKoboExact(r.amount_kobo) },
-    { key: 'items', label: 'Items', align: 'right', render: r => fmtNum(r.items) },
-  ]
+  function sectionsFor(currency: string, lines: Line[]): LedgerSection[] {
+    const forSide = (side: Line['side']): LedgerSection['lines'] =>
+      lines.filter(l => l.side === side).map(l => ({
+        key: `${currency}-${l.line}`,
+        label: l.line,
+        meta: l.gl_code,
+        accounts: [{ key: `${currency}-${l.line}-acc`, label: l.line, amount: Number(l.amount_kobo), postings: l.items, onClick: () => openDrill(l) }],
+        onClick: () => openDrill(l),
+      }))
+    const out: LedgerSection[] = [
+      { key: 'assets', label: 'Assets', lines: forSide('Asset'), accent: NAVY },
+      { key: 'liabilities', label: 'Liabilities', lines: forSide('Liability'), accent: AMBER },
+    ]
+    if (lines.some(l => l.side === 'Equity')) {
+      out.push({ key: 'equity', label: 'Equity (Frozen Opening) — not included in Net Position', lines: forSide('Equity'), accent: GREEN })
+    }
+    return out
+  }
 
   return (
     <Page
@@ -160,22 +182,23 @@ export default function BalanceSheet() {
           icon="account_balance" accent={GREEN} loading={loading} />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
         {(data?.totals ?? []).map(t => {
           const lines = (data?.lines ?? []).filter(l => l.currency === t.currency)
           return (
-            <div key={t.currency} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
-              <SectionCard title={`Assets · ${t.currency}`} subtitle={fmtKoboExact(t.assets_kobo)}>
-                <DataTable cols={cols} rows={lines.filter(l => l.side === 'Asset')} keyFn={(r, i) => `a-${t.currency}-${i}`} onRowClick={openDrill} emptyText="No asset lines" />
-              </SectionCard>
-              <SectionCard title={`Liabilities · ${t.currency}`} subtitle={fmtKoboExact(t.liabilities_kobo)}>
-                <DataTable cols={cols} rows={lines.filter(l => l.side === 'Liability')} keyFn={(r, i) => `l-${t.currency}-${i}`} onRowClick={openDrill} emptyText="No liability lines" />
-              </SectionCard>
-              {lines.some(l => l.side === 'Equity') && (
-                <SectionCard title={`Equity (Frozen Opening) · ${t.currency}`} subtitle="2026-01-01, flagged estimate — see footnote" style={{ gridColumn: '1 / -1' }}>
-                  <DataTable cols={cols} rows={lines.filter(l => l.side === 'Equity')} keyFn={(r, i) => `e-${t.currency}-${i}`} onRowClick={openDrill} emptyText="No equity lines" />
-                </SectionCard>
-              )}
+            <div key={t.currency}>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: SP[2] }}>
+                {t.currency}
+              </div>
+              <LedgerTree
+                sections={sectionsFor(t.currency, lines)}
+                grandTotalLabel="Net Position"
+                grandTotal={t.assets_kobo - t.liabilities_kobo}
+                fmtAmount={fmtKoboExact}
+                loading={loading && !data}
+                emptyText={`No ${t.currency} lines`}
+                unitLabel="items"
+              />
             </div>
           )
         })}
