@@ -378,6 +378,25 @@ const TBtn = ({ icon, title, onPress }: { icon: string; title: string; onPress: 
   </button>
 )
 const TBar = () => <div style={{ width: 1, height: 14, background: '#334155', margin: '0 2px' }} />
+const TSel: CSSProperties = {
+  fontSize: 10.5, background: '#334155', color: '#cbd5e1', border: 'none',
+  borderRadius: 4, padding: '2px 4px', cursor: 'pointer',
+}
+
+// Font choices for email. Each is a stack ending in a generic family, because a
+// face the recipient's client does not have must fall back to something sane rather
+// than to whatever the client picks. Deliberately short: these are the faces that
+// are actually present across Windows, macOS, iOS and Android mail clients.
+const FONT_STACKS: [string, string][] = [
+  ['Inter / Arial', "'Inter', Arial, Helvetica, sans-serif"],
+  ['Helvetica', "Helvetica, Arial, sans-serif"],
+  ['Verdana', "Verdana, Geneva, sans-serif"],
+  ['Tahoma', "Tahoma, Verdana, sans-serif"],
+  ['Trebuchet MS', "'Trebuchet MS', Tahoma, sans-serif"],
+  ['Georgia', "Georgia, 'Times New Roman', serif"],
+  ['Times New Roman', "'Times New Roman', Times, serif"],
+  ['Courier New', "'Courier New', Courier, monospace"],
+]
 
 // ── CanvasBlock ────────────────────────────────────────────────────────────────
 interface CBP {
@@ -465,28 +484,118 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
   // styleWithCSS=true for colour and alignment because inline styles survive
   // Gmail and Outlook; false for bold/italic/underline so they stay as <b>/<i>/<u>,
   // which survive even the strictest HTML-email sanitisers.
+  // Remember where the caret or selection was inside this block.
+  //
+  // A <select> in the toolbar takes focus when you open it, which collapses the
+  // selection — so the Style and Size dropdowns applied their command to nothing.
+  // The buttons escaped this only because they preventDefault on mousedown. Rather
+  // than suppress mousedown across the whole toolbar (which stops a <select> from
+  // opening at all, the reason Size appeared dead), keep the last in-block range
+  // and put it back before running any command.
+  const savedRangeRef = useRef<Range | null>(null)
+  const rememberSelection = useCallback(() => {
+    const el = textRef.current
+    const sel = window.getSelection()
+    if (!el || !sel || sel.rangeCount === 0) return
+    const r = sel.getRangeAt(0)
+    if (el.contains(r.commonAncestorContainer)) savedRangeRef.current = r.cloneRange()
+  }, [])
+
+  const restoreSelection = useCallback((): boolean => {
+    const el = textRef.current
+    if (!el) return false
+    el.focus()
+    const saved = savedRangeRef.current
+    const sel = window.getSelection()
+    if (!sel) return false
+    if (saved && el.contains(saved.commonAncestorContainer)) {
+      sel.removeAllRanges()
+      sel.addRange(saved)
+      return true
+    }
+    // Nothing remembered (the toolbar was used before the text was touched):
+    // act on the whole block rather than silently doing nothing.
+    const r = document.createRange()
+    r.selectNodeContents(el)
+    sel.removeAllRanges()
+    sel.addRange(r)
+    return true
+  }, [])
+
   const exec = useCallback((cmd: string, arg?: string, css = false) => {
     const el = textRef.current
     if (!el) return
-    el.focus()
+    restoreSelection()
     try {
       document.execCommand('styleWithCSS', false, String(css))
       document.execCommand(cmd, false, arg)
     } catch { /* an unsupported command must not take the text with it */ }
+    rememberSelection()
     scheduleCommit()
-  }, [scheduleCommit])
+  }, [scheduleCommit, restoreSelection, rememberSelection])
+
+  // Line height and paragraph spacing have no execCommand, so they are applied
+  // directly to the block-level elements the selection touches. Inline styles on
+  // <p>/<h*>/<li> are the only spacing that survives Gmail and Outlook — a
+  // stylesheet would be stripped, and a <br> would not be spacing at all.
+  const BLOCK_SEL = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,div'
+  const blockTargets = useCallback((): HTMLElement[] => {
+    const el = textRef.current
+    if (!el) return []
+    const sel = window.getSelection()
+    const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null
+    let t = (Array.from(el.querySelectorAll(BLOCK_SEL)) as HTMLElement[])
+      .filter(b => !range || range.intersectsNode(b))
+    if (t.length === 0) {
+      // Bare text with no block wrapper: give it one so there is something to
+      // carry the style, then re-find it.
+      try {
+        document.execCommand('styleWithCSS', false, 'false')
+        document.execCommand('formatBlock', false, 'p')
+      } catch { /* ignore */ }
+      t = Array.from(el.querySelectorAll(BLOCK_SEL)) as HTMLElement[]
+    }
+    return t.length ? t : [el] // last resort: the block itself
+  }, [])
+
+  const styleSelectedBlocks = useCallback((prop: 'lineHeight' | 'marginBottom', value: string) => {
+    if (!textRef.current) return
+    restoreSelection()
+    for (const t of blockTargets()) t.style[prop] = value
+    rememberSelection()
+    scheduleCommit()
+  }, [scheduleCommit, restoreSelection, rememberSelection, blockTargets])
+
+  // Indent is NOT execCommand('indent'). Checked in Chrome: even with
+  // styleWithCSS=true it wraps the selection in a <blockquote> — which Gmail and
+  // Outlook both restyle — and its outdent mangled the markup, turning
+  // "<p>a</p><p>b</p>" into "a<br><p>b</p>". Stepping margin-left on the block
+  // elements gives a plain inline margin that every client honours, and reverses
+  // cleanly because it is just a number going back down.
+  const indentBlocks = useCallback((direction: 1 | -1) => {
+    if (!textRef.current) return
+    restoreSelection()
+    for (const t of blockTargets()) {
+      const cur = parseInt(t.style.marginLeft || '0', 10) || 0
+      const next = Math.max(0, Math.min(160, cur + direction * 32))
+      t.style.marginLeft = next ? `${next}px` : ''
+    }
+    rememberSelection()
+    scheduleCommit()
+  }, [scheduleCommit, restoreSelection, rememberSelection, blockTargets])
 
   const insertAtCaret = useCallback((txt: string) => {
     const el = textRef.current
     if (!el) return
-    el.focus()
+    restoreSelection()
     try { document.execCommand('insertText', false, txt) }
     catch {
       const s = window.getSelection()
       if (s?.rangeCount) { const r = s.getRangeAt(0); r.deleteContents(); r.insertNode(document.createTextNode(txt)) }
     }
+    rememberSelection()
     scheduleCommit()
-  }, [scheduleCommit])
+  }, [scheduleCommit, restoreSelection, rememberSelection])
 
   // Drop a pending commit when this block goes away, so the timer cannot fire into
   // a component that no longer exists.
@@ -512,15 +621,19 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
         </div>
       case 'text':
         return <>
+          {/* NO onMouseDown preventDefault on this container. Suppressing mousedown
+              across the whole toolbar stops a <select> from opening at all, which is
+              why Style and Size looked dead. The buttons preventDefault individually
+              (see TBtn); the dropdowns rely on the saved range instead. */}
           {selected && (
-            <div onMouseDown={e => e.preventDefault()}
+            <div
               style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '5px 8px', background: '#1e293b', flexWrap: 'wrap' }}>
               {/* Paragraph style */}
               <select
                 onChange={e => { exec('formatBlock', e.target.value); e.currentTarget.selectedIndex = 0 }}
                 defaultValue=""
                 title="Paragraph style"
-                style={{ fontSize: 10.5, background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 4, padding: '2px 4px', cursor: 'pointer' }}>
+                style={TSel}>
                 <option value="" disabled>Style</option>
                 <option value="p">Paragraph</option>
                 <option value="h1">Heading 1</option>
@@ -528,18 +641,64 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
                 <option value="h3">Heading 3</option>
                 <option value="blockquote">Quote</option>
               </select>
-              {/* Font size — <font size> is the one sizing primitive every mail client renders */}
+              {/* Font family — inline font-family, which is what mail clients honour.
+                  Every stack ends in a generic so a missing face still degrades well. */}
+              <select
+                onChange={e => { exec('fontName', e.target.value, true); e.currentTarget.selectedIndex = 0 }}
+                defaultValue=""
+                title="Font"
+                style={TSel}>
+                <option value="" disabled>Font</option>
+                {FONT_STACKS.map(([label, stack]) => (
+                  <option key={label} value={stack}>{label}</option>
+                ))}
+              </select>
+              {/* Font size. Left as <font size="n"> deliberately: it is the one sizing
+                  primitive every mail client renders, including Outlook's Word engine. */}
               <select
                 onChange={e => { exec('fontSize', e.target.value); e.currentTarget.selectedIndex = 0 }}
                 defaultValue=""
                 title="Text size"
-                style={{ fontSize: 10.5, background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 4, padding: '2px 4px', cursor: 'pointer' }}>
+                style={TSel}>
                 <option value="" disabled>Size</option>
+                <option value="1">Tiny</option>
                 <option value="2">Small</option>
                 <option value="3">Normal</option>
+                <option value="4">Medium</option>
                 <option value="5">Large</option>
                 <option value="6">Huge</option>
+                <option value="7">Display</option>
               </select>
+              {/* Line spacing, applied to the block elements the selection touches. */}
+              <select
+                onChange={e => { styleSelectedBlocks('lineHeight', e.target.value); e.currentTarget.selectedIndex = 0 }}
+                defaultValue=""
+                title="Line spacing"
+                style={TSel}>
+                <option value="" disabled>Line</option>
+                <option value="1.2">Tight 1.2</option>
+                <option value="1.5">Normal 1.5</option>
+                <option value="1.8">Relaxed 1.8</option>
+                <option value="2.2">Double 2.2</option>
+              </select>
+              {/* Space after a paragraph — the gap between paragraphs, which is what
+                  people mean by "spacing" in an email and what <br> cannot give you. */}
+              <select
+                onChange={e => { styleSelectedBlocks('marginBottom', e.target.value); e.currentTarget.selectedIndex = 0 }}
+                defaultValue=""
+                title="Space after paragraph"
+                style={TSel}>
+                <option value="" disabled>Gap</option>
+                <option value="0px">None</option>
+                <option value="8px">Small</option>
+                <option value="14px">Normal</option>
+                <option value="24px">Large</option>
+              </select>
+              <TBar />
+              {/* Indent steps margin-left rather than calling execCommand('indent'),
+                  which wraps the text in a <blockquote> mail clients restyle. */}
+              <TBtn icon="format_indent_increase" title="Indent" onPress={() => indentBlocks(1)} />
+              <TBtn icon="format_indent_decrease" title="Outdent" onPress={() => indentBlocks(-1)} />
               <TBar />
               {([
                 ['format_bold', 'Bold', () => exec('bold')],
@@ -596,9 +755,13 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
               above is the only writer. A conditional dangerouslySetInnerHTML is what
               emptied the block on the click that selected it. */}
           <div ref={textRef} contentEditable={selected} suppressContentEditableWarning
-            onInput={scheduleCommit}
+            onInput={() => { rememberSelection(); scheduleCommit() }}
+            onKeyUp={rememberSelection}
+            onMouseUp={rememberSelection}
             onBlur={commitHtml}
-            style={{ padding: '20px 36px', fontSize: 14.5, lineHeight: 1.78, color: '#1a1a1a', outline: 'none', minHeight: 60 }}
+            // fontFamily matches the exported email's stack, so the canvas shows the
+            // face the recipient will see rather than the app's own UI font.
+            style={{ padding: '20px 36px', fontFamily: FONT, fontSize: 14.5, lineHeight: 1.78, color: '#1a1a1a', outline: 'none', minHeight: 60 }}
           />
         </>
       case 'image': {

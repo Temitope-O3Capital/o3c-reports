@@ -195,6 +195,86 @@ describe('selecting a text block makes it genuinely editable', () => {
   })
 })
 
+describe('the formatting toolbar', () => {
+  // Reported as "indentation, spacing, font type and size not working". Size and
+  // Style were <select>s inside a container that called preventDefault on
+  // mousedown, which stops a dropdown from opening at all; font, spacing and
+  // indent had no controls. execCommand does not exist in jsdom, so the commands
+  // themselves cannot be asserted here — what IS asserted is that the controls
+  // exist, that the container does not suppress the interaction that opens them,
+  // and that the spacing paths (which are plain DOM, not execCommand) really work.
+  const openToolbar = async (html = '<p>One</p><p>Two</p>') => {
+    await act(async () => {
+      render(<EnvelopeParent initial={{ blocks: [textBlock(html)] }} />)
+    })
+    await act(async () => { fireEvent.click(editable()!) })
+  }
+
+  it('offers style, font, size, line spacing, paragraph gap and indent', async () => {
+    await openToolbar()
+    for (const title of ['Paragraph style', 'Font', 'Text size', 'Line spacing', 'Space after paragraph']) {
+      expect(screen.getByTitle(title), `missing control: ${title}`).toBeTruthy()
+    }
+    expect(screen.getByTitle('Indent')).toBeTruthy()
+    expect(screen.getByTitle('Outdent')).toBeTruthy()
+  })
+
+  it('does not swallow the mousedown that opens a dropdown', async () => {
+    await openToolbar()
+    const sizeSelect = screen.getByTitle('Text size')
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    sizeSelect.dispatchEvent(ev)
+    // A prevented mousedown is exactly why Size appeared dead.
+    expect(ev.defaultPrevented).toBe(false)
+  })
+
+  it('a formatting button still suppresses mousedown, to keep the selection', async () => {
+    await openToolbar()
+    const bold = screen.getByTitle('Bold')
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    bold.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+  })
+
+  it('line spacing is applied to the paragraphs, as an inline style', async () => {
+    await openToolbar()
+    await act(async () => {
+      fireEvent.change(screen.getByTitle('Line spacing'), { target: { value: '2.2' } })
+    })
+    const ps = Array.from(editable()!.querySelectorAll('p')) as HTMLElement[]
+    expect(ps.length).toBe(2)
+    for (const p of ps) expect(p.style.lineHeight).toBe('2.2')
+  })
+
+  it('paragraph gap is applied as margin-bottom, and reaches the saved document', async () => {
+    const seen: EditorValue[] = []
+    await act(async () => {
+      render(<EnvelopeParent initial={{ blocks: [textBlock('<p>One</p><p>Two</p>')] }} onValue={v => seen.push(v)} />)
+    })
+    await act(async () => { fireEvent.click(editable()!) })
+    await act(async () => {
+      fireEvent.change(screen.getByTitle('Space after paragraph'), { target: { value: '24px' } })
+    })
+    const ps = Array.from(editable()!.querySelectorAll('p')) as HTMLElement[]
+    for (const p of ps) expect(p.style.marginBottom).toBe('24px')
+
+    // And it must survive into the emitted document, not just the canvas.
+    await act(async () => { await new Promise(r => setTimeout(r, 550)) })
+    expect(seen[seen.length - 1].blocks[0].html).toContain('margin-bottom: 24px')
+  })
+
+  it('spacing still works on a block with no paragraph wrapper', async () => {
+    await openToolbar('Bare text with no block element')
+    await act(async () => {
+      fireEvent.change(screen.getByTitle('Line spacing'), { target: { value: '1.8' } })
+    })
+    // Either a <p> was created to carry it, or the block itself did.
+    const el = editable()!
+    const carrier = (el.querySelector('p') as HTMLElement | null) ?? el
+    expect(carrier.style.lineHeight).toBe('1.8')
+  })
+})
+
 describe('page settings round-trip', () => {
   it('the editor reports settings as part of the document', async () => {
     const seen: EditorValue[] = []
