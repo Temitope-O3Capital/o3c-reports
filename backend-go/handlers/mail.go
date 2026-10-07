@@ -245,6 +245,24 @@ func mailInboundParse(db *core.DB) http.HandlerFunc {
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 				nullableID(relatedMailID), fromEmail, fromName, to, subject, bodyText, bodyHTML, ns(messageID), ns(inReplyTo), ns(headers))
 		}
+
+		// An emailed opt-out has to ACT, not just land in a table. With the app on a
+		// private network the unsubscribe link is a mailto, so this is the path every
+		// unsubscribe now takes — storing it in inbound_mail and leaving the customer
+		// subscribed would be promising an opt-out and not performing it.
+		if mailLooksLikeUnsubscribe(subject, bodyText) {
+			if _, err := db.PGExec(r.Context(), `
+				INSERT INTO mail_suppressions (email, reason, source, is_active, created_at, updated_at)
+				VALUES (LOWER(BTRIM($1)), 'unsubscribe', 'inbound_reply', TRUE, NOW(), NOW())
+				ON CONFLICT (email) DO UPDATE
+				   SET is_active = TRUE, reason = 'unsubscribe',
+				       source = 'inbound_reply', updated_at = NOW()`,
+				fromEmail); err != nil {
+				slog.Error("inbound unsubscribe: could not suppress", "err", err)
+			} else {
+				slog.Info("inbound unsubscribe honoured", "to", to)
+			}
+		}
 		w.WriteHeader(200)
 	}
 }
@@ -943,8 +961,19 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		if len(opt.To) > 0 {
 			recipientEmail = opt.To[0].Email
 		}
-		opt.HTMLBody = appendUnsubscribeHTML(ctx, db, opt.HTMLBody, mailID, recipientEmail)
-		opt.TextBody = appendUnsubscribeText(ctx, db, opt.TextBody, mailID, recipientEmail)
+		// The builder's Footer block emits {{unsubscribe_url}} and NOTHING ever filled
+		// it — renderTemplate resolves an unknown tag to the empty string, so a
+		// designed footer shipped <a href="">Unsubscribe</a>. Substitute the real
+		// target here, where the mail id and the recipient are both known, and only
+		// append the separate fallback footer when the body has no link of its own.
+		target := unsubscribeURL(ctx, db, mailID, recipientEmail)
+		if target != "" && strings.Contains(opt.HTMLBody, "{{unsubscribe_url}}") {
+			opt.HTMLBody = strings.ReplaceAll(opt.HTMLBody, "{{unsubscribe_url}}", escapeMailHTML(target))
+			opt.TextBody = strings.ReplaceAll(opt.TextBody, "{{unsubscribe_url}}", target)
+		} else {
+			opt.HTMLBody = appendUnsubscribeHTML(ctx, db, opt.HTMLBody, mailID, recipientEmail)
+			opt.TextBody = appendUnsubscribeText(ctx, db, opt.TextBody, mailID, recipientEmail)
+		}
 	}
 	args := map[string]string{}
 	for k, v := range opt.CustomArgs {
@@ -1003,9 +1032,17 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 			listRecipientEmail = opt.To[0].Email
 		}
 		unsubURL := unsubscribeURL(ctx, db, mailID, listRecipientEmail)
-		payload["headers"] = map[string]string{
-			"List-Unsubscribe":      "<" + unsubURL + ">",
-			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		if unsubURL != "" {
+			h := map[string]string{"List-Unsubscribe": "<" + unsubURL + ">"}
+			// List-Unsubscribe-Post is RFC 8058 one-click, which is HTTPS-only.
+			// Advertising it alongside a mailto is malformed, and some providers
+			// treat a header they cannot honour as a negative signal. Previously it
+			// was sent unconditionally, and with an empty URL the header went out as
+			// the literal "<>".
+			if !unsubscribeIsMailto(unsubURL) {
+				h["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+			}
+			payload["headers"] = h
 		}
 	}
 	// Add List-Unsubscribe headers for notification mail preferences.
@@ -1311,16 +1348,49 @@ func parseUnsubToken(token, secretKey string) (mailID int64, email string, ok bo
 	return mailID, string(payloadBytes[colonIdx+1:]), true
 }
 
+// mailLooksLikeUnsubscribe recognises an opt-out request sent by email.
+//
+// Deliberately narrow. It reads the SUBJECT, which is what the mailto link and
+// every client's own unsubscribe control pre-fill, and only the first line of the
+// body — so a customer writing "please don't unsubscribe me" in a long reply, or
+// quoting our own footer back at us underneath their message, is not opted out by
+// accident. Quoted text is exactly how a naive body-wide match gets this wrong.
+func mailLooksLikeUnsubscribe(subject, body string) bool {
+	hay := strings.ToLower(strings.TrimSpace(subject))
+	if first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0]); first != "" {
+		hay += " \n " + strings.ToLower(first)
+	}
+	for _, kw := range []string{"unsubscribe", "opt out", "opt-out", "stop email", "remove me"} {
+		if strings.Contains(hay, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 func appendUnsubscribeHTML(ctx context.Context, db *core.DB, html string, mailID int64, recipientEmail string) string {
 	if mailID <= 0 {
 		return html
 	}
 	link := unsubscribeURL(ctx, db, mailID, recipientEmail)
 	if link == "" {
-		slog.Warn("APP_BASE_URL not set — unsubscribe link omitted from bulk mail. This may violate CAN-SPAM/NDPR compliance.")
+		slog.Warn("No usable unsubscribe target — link omitted from bulk mail. This may " +
+			"violate CAN-SPAM/NDPR. Set APP_URL to a public host, or MAIL_UNSUBSCRIBE_EMAIL.")
 		return html
 	}
-	footer := fmt.Sprintf(`<p style="margin-top:24px;font-size:12px;color:#64748b;">You are receiving this email from O3 Capital. <a href="%s" style="color:#0E2841;">Unsubscribe</a></p>`, escapeMailHTML(link))
+	// The wording has to match the mechanism. "Unsubscribe" on a mailto opens a
+	// compose window, which is confusing if the text implies a web page — so say
+	// what will happen, and keep the subject line the reader sees meaningful.
+	label := "Unsubscribe"
+	note := "You are receiving this email from O3 Capital."
+	if unsubscribeIsMailto(link) {
+		note = "You are receiving this email from O3 Capital. To stop, send us the " +
+			"pre-filled message below and we will remove you."
+		label = "Unsubscribe by email"
+	}
+	footer := fmt.Sprintf(
+		`<p style="margin-top:24px;font-size:12px;line-height:150%%;mso-line-height-rule:exactly;color:#64748b;">%s <a href="%s" style="color:#0E2841;">%s</a></p>`,
+		note, escapeMailHTML(link), label)
 	return html + footer
 }
 
@@ -1332,26 +1402,114 @@ func appendUnsubscribeText(ctx context.Context, db *core.DB, text string, mailID
 	return strings.TrimSpace(text) + "\n\nUnsubscribe: " + link
 }
 
+// hostIsReachableByRecipients reports whether a base URL is one a CUSTOMER's mail
+// client could actually open.
+//
+// This workspace is deployed on a private network: APP_BASE_URL is
+// https://crm.o3cards.pri:8443 and APP_URL is unset. So every unsubscribe link ever
+// generated pointed at a host that exists only inside the office — present, signed,
+// and completely unusable — and the List-Unsubscribe header carried the same dead
+// address, which Gmail and Outlook both read and hold against a sender. ".pri" is
+// not a delegated TLD, so nothing resolves it from outside.
+func hostIsReachableByRecipients(base string) bool {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return false
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	if h == "" || h == "localhost" {
+		return false
+	}
+	for _, suffix := range []string{".pri", ".local", ".internal", ".lan", ".intranet", ".corp", ".home"} {
+		if strings.HasSuffix(h, suffix) {
+			return false
+		}
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified())
+	}
+	// A bare hostname with no dot cannot be resolved from the public internet.
+	return strings.Contains(h, ".")
+}
+
+// unsubscribeMailto is the opt-out route that does NOT depend on this app being
+// reachable: a plain mailbox on a public domain.
+//
+// List-Unsubscribe with a mailto is RFC 2369, predates the HTTPS form, and is still
+// honoured by Gmail, Outlook and Apple Mail — each renders its own Unsubscribe
+// control and sends the message on the reader's behalf. MAIL_INBOUND_DOMAIN is
+// already a public domain pointed at inbound parse, so the address is deliverable
+// without any change to the network.
+func unsubscribeMailto(ctx context.Context, db *core.DB) string {
+	if addr := strings.TrimSpace(os.Getenv("MAIL_UNSUBSCRIBE_EMAIL")); addr != "" {
+		return addr
+	}
+	if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='mail_unsubscribe_email'`); len(rows) > 0 {
+		if addr := strings.TrimSpace(str(rows[0]["value"])); addr != "" {
+			return addr
+		}
+	}
+	domain := strings.TrimSpace(os.Getenv("MAIL_INBOUND_DOMAIN"))
+	if domain == "" {
+		if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='mail_inbound_domain'`); len(rows) > 0 {
+			domain = strings.TrimSpace(str(rows[0]["value"]))
+		}
+	}
+	domain = strings.TrimPrefix(strings.TrimPrefix(domain, "@"), ".")
+	if domain == "" {
+		return ""
+	}
+	return "unsubscribe@" + domain
+}
+
+// unsubscribeIsMailto distinguishes the two forms for callers that must treat them
+// differently — notably List-Unsubscribe-Post, which is HTTPS-only.
+func unsubscribeIsMailto(target string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(target)), "mailto:")
+}
+
+// unsubscribeURL returns the opt-out target for one message: a signed HTTPS link
+// when this app is publicly reachable, a mailto when it is not. It never returns a
+// link the recipient cannot use, because an unreachable one is worse than none —
+// the footer and the List-Unsubscribe header both promise something that fails
+// silently, and the reader's only remaining move is the spam button.
 func unsubscribeURL(ctx context.Context, db *core.DB, mailID int64, recipientEmail string) string {
-	base := os.Getenv("APP_BASE_URL")
+	base := os.Getenv("APP_URL")
+	if base == "" {
+		base = os.Getenv("APP_BASE_URL")
+	}
 	if base == "" {
 		if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='app_base_url'`); len(rows) > 0 {
 			base = str(rows[0]["value"])
 		}
 	}
-	base = strings.TrimRight(base, "/")
-	if base == "" {
-		return ""
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+
+	if hostIsReachableByRecipients(base) {
+		secretKey := os.Getenv("SECRET_KEY")
+		if secretKey != "" && recipientEmail != "" {
+			token := generateUnsubToken(mailID, recipientEmail, secretKey)
+			return fmt.Sprintf("%s/api/mail/unsubscribe?token=%s", base, url.QueryEscape(token))
+		}
+		if secretKey == "" {
+			slog.Warn("SECRET_KEY not set; unsubscribe links are unsigned (plain mail_id)")
+		}
+		return fmt.Sprintf("%s/api/mail/unsubscribe?mail_id=%d", base, mailID)
 	}
-	secretKey := os.Getenv("SECRET_KEY")
-	if secretKey != "" && recipientEmail != "" {
-		token := generateUnsubToken(mailID, recipientEmail, secretKey)
-		return fmt.Sprintf("%s/api/mail/unsubscribe?token=%s", base, url.QueryEscape(token))
+
+	// Privately hosted. The subject carries the mail id so the request is
+	// attributable to a recipient without a signed token.
+	if addr := unsubscribeMailto(ctx, db); addr != "" {
+		return fmt.Sprintf("mailto:%s?subject=%s", addr,
+			url.QueryEscape(fmt.Sprintf("UNSUBSCRIBE %d", mailID)))
 	}
-	if secretKey == "" {
-		slog.Warn("SECRET_KEY not set; unsubscribe links are unsigned (plain mail_id)")
-	}
-	return fmt.Sprintf("%s/api/mail/unsubscribe?mail_id=%d", base, mailID)
+	slog.Warn("no usable unsubscribe target: this app is not publicly reachable and no " +
+		"unsubscribe mailbox is configured — set MAIL_UNSUBSCRIBE_EMAIL")
+	return ""
 }
 
 func mailDomain(ctx context.Context, db *core.DB) string {
