@@ -60,6 +60,7 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	// Financial position — assets and liabilities per currency, from the books of
 	// record. See finPosition below for why this is not the general ledger.
 	r.With(access).Get("/position", finPosition(db))
+	r.With(access).Get("/position/entries", finPositionEntries(db))
 
 	// FX (parallel-market) rates. Gated on "fx_rates" for the same reason as
 	// /eod — the page route gates on that key alone. The refresh POST triggers
@@ -110,22 +111,44 @@ func branchDisplayName(v string) string {
 	}
 }
 
+// glPostingsCoverageStart is the real floor of app.cbs_gl_postings (Udara's own ledger
+// history limit, not a filter any handler applies) — every GL-sourced finance page says so
+// explicitly rather than let an earlier date range render as a silent zero.
+const glPostingsCoverageStart = "2026-07-01"
+
+// branchFilterName maps the UI's lowercase branch param to Udara's RAW branch_name, as
+// stored on cbs_gl_postings/cbs_loans/cbs_fixed_deposits — NOT the translated display form
+// branchDisplayName returns. '' means no filter at all.
+func branchFilterName(v string) string {
+	switch v {
+	case "lagos":
+		return "Head Office Branch"
+	case "abuja":
+		return "Abuja Branch"
+	default:
+		return ""
+	}
+}
+
 func finPosition(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		branch := branchDisplayName(qstr(r, "branch"))
 
+		// Always read the branch-split view, even for Consolidated — summing it across
+		// branches agrees exactly with the older whole-company app.financial_position
+		// (live-verified: NGN/USD Asset/Liability totals match to the kobo), so there is
+		// no need for two code paths, and Consolidated now gets the same 'Equity' line
+		// (the frozen 2026-01-01 opening balance) the per-branch view already exposes.
 		var lines []map[string]any
 		var err error
 		if branch == "" {
 			lines, err = db.PGQuery(ctx, `
-				SELECT currency, side, line, gl_code, amount_kobo, items
-				  FROM app.financial_position
+				SELECT currency, side, line, gl_code, SUM(amount_kobo) AS amount_kobo, SUM(items) AS items
+				  FROM app.financial_position_by_branch
+				 GROUP BY currency, side, sort, line, gl_code
 				 ORDER BY currency, side, sort`)
 		} else {
-			// Branch-split book: same sources, grouped by app.financial_position_by_branch
-			// (migration 339), which also carries an 'Equity' side (the frozen 2026-01-01
-			// opening balance) that the whole-company view above does not expose.
 			lines, err = db.PGQuery(ctx, `
 				SELECT currency, side, line, gl_code, amount_kobo, items
 				  FROM app.financial_position_by_branch
@@ -177,11 +200,16 @@ func finPosition(db *core.DB) http.HandlerFunc {
 		// GL feed at all (Udara's own ceiling), so this is explicitly partial-period, not
 		// a true full-year retained earnings — the frontend must say so, not just render it.
 		var retainedEarningsKobo int64
-		if branch != "" {
+		{
+			reWhere := ""
+			var reArgs []any
+			if branch != "" {
+				reWhere = "WHERE branch = $1"
+				reArgs = []any{branch}
+			}
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT COALESCE(SUM(CASE WHEN statement = 'income' THEN amount_kobo ELSE -amount_kobo END), 0) AS n
-				  FROM app.income_statement_by_branch
-				 WHERE branch = $1`, branch); len(rows) > 0 {
+				  FROM app.income_statement_by_branch `+reWhere, reArgs...); len(rows) > 0 {
 				retainedEarningsKobo = toInt64(rows[0]["n"])
 			}
 		}
@@ -220,6 +248,107 @@ func finPosition(db *core.DB) http.HandlerFunc {
 				"no FX rate is applied. Assets minus liabilities is a NET POSITION, not equity: " +
 				"this database holds no capital or reserves source.",
 		}, "pg")
+	}
+}
+
+// finPositionEntries is the Balance Sheet's drill-down: the actual records behind one
+// line, within whatever Location filter is set. Unlike Income Statement/Cash Flow, these
+// are NOT GL postings — financial_position's own sources are live snapshot tables
+// (cbs_loans, cbs_fixed_deposits, app.card_balances), so the drill-down reads those
+// directly, one query per line identity since each source has its own shape.
+func finPositionEntries(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		line := qstr(r, "line")
+		udaraBranch := ""
+		switch qstr(r, "branch") {
+		case "lagos":
+			udaraBranch = "Head Office Branch"
+		case "abuja":
+			udaraBranch = "Abuja Branch"
+		}
+
+		var rows []map[string]any
+		var err error
+		switch line {
+		case "Loan Receivable":
+			bw, args := "", []any{}
+			if udaraBranch != "" {
+				bw = "AND branch_name = $1"
+				args = append(args, udaraBranch)
+			}
+			rows, err = db.PGQuery(ctx, `
+				SELECT cbs_account_number, product_name, status, outstanding_principal_kobo, branch_name
+				  FROM cbs_loans
+				 WHERE status NOT IN ('Closed', 'Revoked') `+bw+`
+				 ORDER BY outstanding_principal_kobo DESC LIMIT 500`, args...)
+		case "Fixed Deposit Principal", "Fixed Deposit Interest Payable":
+			bw, args := "", []any{}
+			if udaraBranch != "" {
+				bw = "AND branch_name = $1"
+				args = append(args, udaraBranch)
+			}
+			rows, err = db.PGQuery(ctx, `
+				SELECT cbs_account_number, COALESCE(NULLIF(btrim(raw->>'name'), ''), cbs_customer_id) AS customer_name,
+				       principal_kobo, accrued_interest_kobo, maturity_date, branch_name
+				  FROM cbs_fixed_deposits
+				 WHERE status = 'Active' AND raw->>'hasDisbursed' IS DISTINCT FROM 'false' `+bw+`
+				 ORDER BY principal_kobo DESC LIMIT 500`, args...)
+		case "Card Receivable", "Card Customer Float":
+			officeLocation := ""
+			switch qstr(r, "branch") {
+			case "lagos":
+				officeLocation = "Lagos (Head Quarter)"
+			case "abuja":
+				officeLocation = "Abuja"
+			}
+			balCol := "receivable_kobo"
+			if line == "Card Customer Float" {
+				balCol = "float_kobo"
+			}
+			currency := qstr(r, "currency")
+			bw, args := "WHERE b."+balCol+" > 0", []any{}
+			if currency != "" {
+				args = append(args, currency)
+				bw += " AND b.currency = $" + itoa(len(args))
+			}
+			if officeLocation != "" {
+				args = append(args, officeLocation)
+				bw += " AND u.office_location = $" + itoa(len(args))
+			} else if qstr(r, "branch") != "" {
+				// Lagos/Abuja requested but resolves to neither — Unattributed, so no row
+				// can match a real office_location; return nothing rather than everything.
+				bw += " AND FALSE"
+			}
+			rows, err = db.PGQuery(ctx, `
+				SELECT b.account_no, b.cif, b.product_name, b.currency, b.`+balCol+` AS amount_kobo, u.office_location
+				  FROM app.card_balances b
+				  LEFT JOIN app.v_card_sale_officer o ON o.account_no = b.account_no
+				  LEFT JOIN o3c_users u ON u.id = o.officer_id
+				  `+bw+`
+				 ORDER BY b.`+balCol+` DESC LIMIT 500`, args...)
+		case "Opening Equity (2026-01-01)":
+			bw, args := "", []any{}
+			if udaraBranch != "" {
+				bw = "AND branch_name = $1"
+				args = append(args, udaraBranch)
+			}
+			rows, err = db.PGQuery(ctx, `
+				SELECT branch_name, amount_kobo, is_estimated, note
+				  FROM gl_opening_balances
+				 WHERE as_of_date = DATE '2026-01-01' AND line = 'Opening Equity' `+bw, args...)
+		default:
+			respond(w, map[string]any{"error": "unknown line"}, "pg")
+			return
+		}
+		if err != nil {
+			respondErrLog(w, 500, "balance sheet entries failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, map[string]any{"entries": rows}, "pg")
 	}
 }
 

@@ -683,7 +683,6 @@ func main() {
 		r.Route("/api/finance", func(r chi.Router) {
 			handlers.RegisterFinance(r, db)
 			handlers.RegisterFeeIncomeOps(r, db)
-			handlers.RegisterRevenueBreakdown(r, db)
 			handlers.RegisterBlinkFinance(r, db)
 			handlers.RegisterIncomeStatementByBranch(r, db)
 			handlers.RegisterCashFlow(r, db)

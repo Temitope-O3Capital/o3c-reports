@@ -320,11 +320,12 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'payments', label: 'Revenue', to: '/finance/revenue-breakdown',
+        // Revenue Breakdown retired — the Income Statement ledger above does the same
+        // drill-down natively now (branch/date filters, click a line for its entries).
+        icon: 'payments', label: 'Revenue', to: '/finance/blink-report',
         vis: ['finance_officer','finance_head'],
         subs: [
-          { label: 'Revenue Breakdown', to: '/finance/revenue-breakdown' },
-          { label: 'Blink FX Report',   to: '/finance/blink-report' },
+          { label: 'Blink FX Report', to: '/finance/blink-report' },
         ],
       },
       {

@@ -339,6 +339,152 @@ func main() {
 		return
 	}
 
+	if which == "drilldowncheck" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		check := func(name, sql string, args ...any) {
+			rows, err := db.PGQuery(ctx, sql, args...)
+			if err != nil {
+				fmt.Printf("%-20s ERROR: %v\n", name, err)
+				return
+			}
+			fmt.Printf("%-20s OK, %d rows\n", name, len(rows))
+		}
+		check("loan receivable", `SELECT cbs_account_number, product_name, status, outstanding_principal_kobo, branch_name FROM cbs_loans WHERE status NOT IN ('Closed','Revoked') AND branch_name = $1 ORDER BY outstanding_principal_kobo DESC LIMIT 500`, "Head Office Branch")
+		check("fd principal", `SELECT cbs_account_number, COALESCE(NULLIF(btrim(raw->>'name'), ''), cbs_customer_id) AS customer_name, principal_kobo, accrued_interest_kobo, maturity_date, branch_name FROM cbs_fixed_deposits WHERE status='Active' AND raw->>'hasDisbursed' IS DISTINCT FROM 'false' AND branch_name = $1 ORDER BY principal_kobo DESC LIMIT 500`, "Abuja Branch")
+		check("card receivable", `SELECT b.account_no, b.cif, b.product_name, b.currency, b.receivable_kobo AS amount_kobo, u.office_location FROM app.card_balances b LEFT JOIN app.v_card_sale_officer o ON o.account_no=b.account_no LEFT JOIN o3c_users u ON u.id=o.officer_id WHERE b.receivable_kobo > 0 AND b.currency = $1 ORDER BY b.receivable_kobo DESC LIMIT 500`, "NGN")
+		check("opening equity", `SELECT branch_name, amount_kobo, is_estimated, note FROM gl_opening_balances WHERE as_of_date=DATE '2026-01-01' AND line='Opening Equity' AND branch_name = $1`, "Head Office Branch")
+		check("income entries (income line)", `SELECT p.id, p.financial_date, p.narration, p.posting_reference, p.account_number, p.account_name, p.side, p.amount_kobo FROM cbs_gl_postings p JOIN gl_account_lines l ON l.account_number=p.account_number WHERE l.statement_line = $1 AND (l.product_label = $2 OR ($2='' AND l.product_label IS NULL)) AND p.financial_date >= $3::date ORDER BY p.financial_date DESC LIMIT 500`, "Card Interest Income", "", "2026-07-01")
+		check("cashflow entries", `WITH account_kind AS (SELECT account_number, BOOL_OR(product_category='fixed_deposit') AS is_fd, BOOL_OR(product_category='loan') AS is_loan FROM cbs_gl_postings WHERE financial_date >= DATE '2026-07-01' GROUP BY account_number), classified AS (SELECT p.id, p.financial_date, p.narration, p.posting_reference, p.account_number, p.account_name, p.side, p.amount_kobo, CASE p.branch_name WHEN 'Head Office Branch' THEN 'Lagos' WHEN 'Abuja Branch' THEN 'Abuja' ELSE COALESCE(p.branch_name,'Unattributed') END AS branch, COALESCE(a.activity, CASE WHEN l.account_number IS NOT NULL THEN 'operating' END, CASE WHEN k.is_fd THEN 'financing' END, CASE WHEN k.is_loan THEN 'investing' END, CASE WHEN p.product_category='withholding_tax' THEN 'operating' END, 'unclassified') AS activity, COALESCE(a.label, l.statement_line, CASE WHEN k.is_fd THEN 'Fixed Deposit Principal Movement' END, CASE WHEN k.is_loan THEN 'Loan Principal Movement' END, CASE WHEN p.product_category='withholding_tax' THEN 'Withholding Tax' END, 'Unclassified (' || p.product_category || ')') AS line_label FROM cbs_gl_postings p LEFT JOIN gl_account_lines l ON l.account_number=p.account_number LEFT JOIN gl_cash_flow_accounts a ON a.account_number=p.account_number LEFT JOIN account_kind k ON k.account_number=p.account_number WHERE p.financial_date >= $1::date) SELECT id, financial_date, narration, posting_reference, account_number, account_name, side, amount_kobo, branch FROM classified WHERE activity = $2 AND line_label = $3 ORDER BY financial_date DESC LIMIT 500`, "2026-07-01", "financing", "Fixed Deposit Principal Movement")
+		return
+	}
+
+	if which == "positioncheck" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		rows, _ := db.PGQuery(ctx, `SELECT currency, side, SUM(amount_kobo) AS n FROM app.financial_position GROUP BY currency, side ORDER BY 1,2`)
+		fmt.Println("--- financial_position (whole company) ---")
+		for _, r := range rows {
+			fmt.Printf("%v %v %v\n", r["currency"], r["side"], r["n"])
+		}
+		rows2, _ := db.PGQuery(ctx, `SELECT currency, side, SUM(amount_kobo) AS n FROM app.financial_position_by_branch WHERE side IN ('Asset','Liability') GROUP BY currency, side ORDER BY 1,2`)
+		fmt.Println("--- financial_position_by_branch, summed across all branches ---")
+		for _, r := range rows2 {
+			fmt.Printf("%v %v %v\n", r["currency"], r["side"], r["n"])
+		}
+		return
+	}
+
+	if which == "ledgercheck" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+
+		fmt.Println("--- income: whole-period (no date filter) vs the view's own totals ---")
+		rows, err := db.PGQuery(ctx, `
+			WITH income AS (
+				SELECT CASE p.branch_name WHEN 'Head Office Branch' THEN 'Lagos' WHEN 'Abuja Branch' THEN 'Abuja' ELSE COALESCE(p.branch_name,'Unattributed') END AS branch,
+				       SUM(CASE WHEN p.side='credit' THEN p.amount_kobo ELSE -p.amount_kobo END) AS amount_kobo
+				  FROM cbs_gl_postings p JOIN gl_account_lines l ON l.account_number=p.account_number
+				 WHERE l.statement='income' AND p.financial_date >= DATE '2026-07-01'
+				 GROUP BY 1)
+			SELECT branch, amount_kobo FROM income ORDER BY branch`)
+		if err != nil {
+			fmt.Println("direct-query error:", err)
+			os.Exit(1)
+		}
+		for _, r := range rows {
+			fmt.Printf("direct:  %-14v %v\n", r["branch"], r["amount_kobo"])
+		}
+		rows2, _ := db.PGQuery(ctx, `
+			SELECT branch, SUM(amount_kobo) AS amount_kobo FROM app.income_statement_by_branch
+			 WHERE statement='income' GROUP BY branch ORDER BY branch`)
+		for _, r := range rows2 {
+			fmt.Printf("view:    %-14v %v\n", r["branch"], r["amount_kobo"])
+		}
+
+		fmt.Println("\n--- income: narrowed to a date range (should be LESS than whole-period) ---")
+		rows3, err := db.PGQuery(ctx, `
+			WITH income AS (
+				SELECT CASE p.branch_name WHEN 'Head Office Branch' THEN 'Lagos' WHEN 'Abuja Branch' THEN 'Abuja' ELSE COALESCE(p.branch_name,'Unattributed') END AS branch,
+				       SUM(CASE WHEN p.side='credit' THEN p.amount_kobo ELSE -p.amount_kobo END) AS amount_kobo
+				  FROM cbs_gl_postings p JOIN gl_account_lines l ON l.account_number=p.account_number
+				 WHERE l.statement='income' AND p.financial_date >= DATE '2026-07-01'
+				   AND p.financial_date >= $1::date AND p.financial_date <= $2::date
+				 GROUP BY 1)
+			SELECT branch, amount_kobo FROM income ORDER BY branch`, "2026-09-01", "2026-09-30")
+		if err != nil {
+			fmt.Println("date-range query error:", err)
+			os.Exit(1)
+		}
+		for _, r := range rows3 {
+			fmt.Printf("Sep only: %-14v %v\n", r["branch"], r["amount_kobo"])
+		}
+
+		fmt.Println("\n--- cash flow: whole-period direct vs view ---")
+		rows4, err := db.PGQuery(ctx, `
+			WITH account_kind AS (
+				SELECT account_number, BOOL_OR(product_category='fixed_deposit') AS is_fd, BOOL_OR(product_category='loan') AS is_loan
+				  FROM cbs_gl_postings WHERE financial_date >= DATE '2026-07-01' GROUP BY account_number
+			), classified AS (
+				SELECT p.side, p.amount_kobo,
+				       COALESCE(a.activity,
+				                CASE WHEN l.account_number IS NOT NULL THEN 'operating' END,
+				                CASE WHEN k.is_fd THEN 'financing' END,
+				                CASE WHEN k.is_loan THEN 'investing' END,
+				                CASE WHEN p.product_category='withholding_tax' THEN 'operating' END,
+				                'unclassified') AS activity
+				  FROM cbs_gl_postings p
+				  LEFT JOIN gl_account_lines l ON l.account_number=p.account_number
+				  LEFT JOIN gl_cash_flow_accounts a ON a.account_number=p.account_number
+				  LEFT JOIN account_kind k ON k.account_number=p.account_number
+				 WHERE p.financial_date >= $1::date
+			)
+			SELECT activity, SUM(CASE WHEN side='credit' THEN amount_kobo ELSE -amount_kobo END) AS amount_kobo
+			  FROM classified WHERE activity NOT IN ('cash','internal') GROUP BY activity ORDER BY activity`,
+			"2026-07-01")
+		if err != nil {
+			fmt.Println("cash flow direct-query error:", err)
+			os.Exit(1)
+		}
+		for _, r := range rows4 {
+			fmt.Printf("direct:  %-14v %v\n", r["activity"], r["amount_kobo"])
+		}
+		rows5, _ := db.PGQuery(ctx, `
+			SELECT activity, SUM(amount_kobo) AS amount_kobo FROM app.cash_flow_statement_by_branch
+			 GROUP BY activity ORDER BY activity`)
+		for _, r := range rows5 {
+			fmt.Printf("view:    %-14v %v\n", r["activity"], r["amount_kobo"])
+		}
+		return
+	}
+
 	if which == "cashflowcheck" {
 		cfg, err := core.LoadConfig()
 		if err != nil {

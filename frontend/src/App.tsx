@@ -222,7 +222,6 @@ const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 
 // Finance
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
-const FinanceRevenueBreakdown = lazy(() => import('./pages/finance/RevenueBreakdown'))
 const FinanceBlinkReport = lazy(() => import('./pages/finance/BlinkReport'))
 const FinanceIncomeStatementByBranch = lazy(() => import('./pages/finance/IncomeStatementByBranch'))
 const FinanceBalanceSheet = lazy(() => import('./pages/finance/BalanceSheet'))
@@ -1242,7 +1241,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Finance */}
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/finance/revenue-breakdown"  element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceRevenueBreakdown /></PageErrorBoundary></RequireAccess>} />
+                  {/* Retired: folded into the Income Statement, which now does the same drill-down natively */}
+                  <Route path="/finance/revenue-breakdown"  element={<Navigate to="/finance/income-statement-by-branch" replace />} />
                   <Route path="/finance/blink-report"       element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBlinkReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income-statement-by-branch" element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncomeStatementByBranch /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/balance-sheet"      element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBalanceSheet /></PageErrorBoundary></RequireAccess>} />

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, ErrBanner, EmptyState, Sk, DateFilter } from '../../components/UI'
 import { EArea, EBar } from '../../components/echarts'
 import StatTile from './StatTile'
@@ -67,6 +68,7 @@ function daysAgo(n: number): string {
 }
 
 export default function Treasury() {
+  const navigate = useNavigate()
   const [data, setData] = useState<TreasuryData | null>(null)
   const [ladder, setLadder] = useState<MaturityBucket[]>([])
   const [loading, setLoading] = useState(true)
@@ -202,7 +204,14 @@ export default function Treasury() {
           like-looking tiles: the FD lines are money owed to depositors, and
           sitting them next to the loan book in the same neutral treatment read
           as four assets. */}
-      <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo">
+      <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo"
+        actions={
+          <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY }}>
+            Full Balance Sheet
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
+          </span>
+        }
+      >
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Assets</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
           <StatTile label="Loan Book" value={fmtKoboExact(loanBook)} color={NAVY} sub="outstanding principal" />
