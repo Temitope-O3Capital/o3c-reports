@@ -7596,8 +7596,39 @@ func hdCallCandidates(db *core.DB) http.HandlerFunc {
 		hours := qint(r, "hours", 12, 1, 72)
 
 		var agentID int64
+		var agentName string
+		seesEveryone := false
 		if u := core.UserFromCtx(r.Context()); u != nil {
 			agentID = u.ID
+			agentName = u.FullName
+			seesEveryone = u.HasPage("call_center_stats") || u.CanSeeAllRows()
+		}
+
+		// ROW SCOPE. This endpoint had none: it filtered on the phone number and a time
+		// window only, so an agent typing a number into the Log Call form saw the legs
+		// her COLLEAGUES had handled on it — customer name, CIF, and who took the call.
+		// Every sibling here scopes (hdListCalls, hdRecordingCall, hdCallStats); this
+		// one was simply missed.
+		//
+		// And it was not only visible. The modal auto-selects the most recent connected
+		// leg and adopts its duration, direction, customer name and CIF into the write
+		// up, so a colleague's call could silently become the basis of someone else's
+		// logged call — in a call centre where handled volume and talk time are the
+		// KPIs, that is a measurement problem as much as a privacy one. Measured over
+		// 72 hours, 40 numbers carried candidate legs from more than one agent.
+		//
+		// The is_mine flag below already existed and was read NOWHERE, which is why
+		// nothing caught this. It stays, because for a supervisor — who legitimately
+		// sees every leg — it is the thing that tells them apart.
+		scope := ""
+		args := []any{phone, hours, agentID}
+		if !seesEveryone {
+			// Same predicate as the call list: agent_id where the import linked one,
+			// else a case/whitespace-insensitive name match, so a leg carrying only the
+			// agent's name still reads as her own.
+			scope = fmt.Sprintf(" AND (agent_id = $%d OR lower(btrim(agent_name)) = lower(btrim($%d)))",
+				len(args)+1, len(args)+2)
+			args = append(args, agentID, agentName)
 		}
 
 		rows, err := db.PGQuery(r.Context(), `
@@ -7613,9 +7644,9 @@ func hdCallCandidates(db *core.DB) http.HandlerFunc {
 			  AND COALESCE(NULLIF(TRIM(notes), ''), NULLIF(TRIM(disposition), '')) IS NULL
 			  -- A call the workspace itself created has nothing to contribute: it has
 			  -- no duration and no recording, so attaching to it gains nothing.
-			  AND zoho_call_id IS NOT NULL
+			  AND zoho_call_id IS NOT NULL`+scope+`
 			ORDER BY started_at DESC
-			LIMIT 12`, phone, hours, agentID)
+			LIMIT 12`, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Could not list calls for this number", err)
 			return

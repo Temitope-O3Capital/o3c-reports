@@ -464,9 +464,15 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         const list: CallCandidate[] = Array.isArray(res) ? res : (res?.data ?? [])
         setCandidates(list)
         // Auto-select only when it is genuinely unambiguous: the most recent call
-        // is recent AND actually connected. Otherwise leave it to the agent rather
-        // than stamping a guess on their work.
-        const best = list.find(c => (c.duration_sec ?? 0) > 5) ?? null
+        // is recent, actually connected, AND the caller's own.
+        //
+        // is_mine was computed by the server and read NOWHERE, so this happily
+        // adopted a COLLEAGUE's leg — taking its duration, direction, customer name
+        // and CIF into somebody else's write-up. The endpoint is row-scoped now, so
+        // for an agent every candidate is already hers; this guard is what protects
+        // a supervisor, who legitimately sees the whole team's legs and must never
+        // have one silently attributed to them.
+        const best = list.find(c => (c.duration_sec ?? 0) > 5 && c.is_mine !== false) ?? null
         const fresh = best && (Date.now() - new Date(best.started_at).getTime()) < 15 * 60_000
         if (best && fresh) selectCall(best)
       })
