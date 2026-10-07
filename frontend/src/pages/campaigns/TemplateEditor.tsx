@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { NAVY, BLUE, INTER, TEXT, FW, RADIUS } from '../../lib/design'
-import EmailBlockEditor, { blocksToHtml, parseBlocks, type Block } from '../../components/EmailBlockEditor'
+import EmailBlockEditor, { blocksToHtml, parseEditorValue, type Block, type EmailSettings } from '../../components/EmailBlockEditor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,11 +17,14 @@ interface FormState {
   whatsapp_body: string
   email_subject: string
   email_blocks: Block[]
+  // Page-level look: background, content width, preheader, full-bleed. Kept with
+  // the blocks so what the toolbar sets survives a save instead of being dropped.
+  email_settings: EmailSettings
 }
 
 const BLANK: FormState = {
   name: '', channel: 'email', category: 'marketing',
-  sms_body: '', whatsapp_body: '', email_subject: '', email_blocks: [],
+  sms_body: '', whatsapp_body: '', email_subject: '', email_blocks: [], email_settings: {},
 }
 
 // A starter template can be handed in via router state to prefill the editor.
@@ -191,6 +194,7 @@ export default function CampaignTemplateEditor() {
       whatsapp_body: seed?.whatsapp_body ?? '',
       email_subject: seed?.email_subject ?? '',
       email_blocks: seed?.email_blocks ?? [],
+      email_settings: {},
     }
   })
   const [saving, setSaving]   = useState(false)
@@ -208,11 +212,19 @@ export default function CampaignTemplateEditor() {
         sms_body: t.sms_body ?? '',
         whatsapp_body: t.whatsapp_body ?? '',
         email_subject: t.email_subject ?? '',
-        email_blocks: parseBlocks(t.email_blocks),
+        email_blocks: parseEditorValue(t.email_blocks).blocks,
+        email_settings: parseEditorValue(t.email_blocks).settings,
       }))
       .catch(() => navigate('/campaigns/templates'))
       .finally(() => setLoading(false))
   }, [id, navigate])
+
+  // Memoised so the editor sees a stable prop. A fresh object literal here made the
+  // editor re-run its external-sync effect on every keystroke anywhere on the page.
+  const emailValue = useMemo(
+    () => ({ blocks: form.email_blocks, settings: form.email_settings }),
+    [form.email_blocks, form.email_settings],
+  )
 
   const save = useCallback(async () => {
     if (!form.name.trim()) return
@@ -227,10 +239,12 @@ export default function CampaignTemplateEditor() {
         body.whatsapp_body = form.whatsapp_body
       } else {
         body.email_subject = form.email_subject
-        const emailHtml = blocksToHtml(form.email_blocks)
+        const emailHtml = blocksToHtml(form.email_blocks, form.email_settings)
         body.email_body_html = emailHtml
         body.email_body_text = emailHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-        body.email_blocks = form.email_blocks
+        // The { blocks, settings } envelope — the same shape campaigns persist, so
+        // the page look round-trips instead of resetting to the defaults on reload.
+        body.email_blocks = { blocks: form.email_blocks, settings: form.email_settings }
       }
       if (form.id) await apiPut(`/api/message-templates/${form.id}`, body)
       else         await apiPost('/api/message-templates', body)
@@ -351,8 +365,8 @@ export default function CampaignTemplateEditor() {
             ))}
           </div>
           <EmailBlockEditor
-            value={{ blocks: form.email_blocks }}
-            onChange={v => setForm(f => ({ ...f, email_blocks: v.blocks }))}
+            value={emailValue}
+            onChange={v => setForm(f => ({ ...f, email_blocks: v.blocks, email_settings: v.settings ?? {} }))}
           />
         </div>
       ) : form.channel === 'sms' ? (

@@ -46,13 +46,18 @@ const DEF: Record<string, () => EmailBlock> = {
   header:  () => ({ id: uid(), type: 'header',  logoText: 'O3 Capital', tagline: 'Your Financial Partner', bg: NAVY, textColor: '#ffffff', padding: 36 }),
   text:    () => ({ id: uid(), type: 'text',    html: '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0;">Enter your message here. You can format text and insert merge tags.</p>' }),
   image:   () => ({ id: uid(), type: 'image',   src: '', alt: '', link: '', align: 'center', rounded: false, fullWidth: true }),
-  button:  () => ({ id: uid(), type: 'button',  text: 'Get Started', url: '{{cta_url}}', bg: NAVY, textColor: '#ffffff', align: 'center', size: 'md', rounded: true }),
+  // url starts EMPTY on purpose. It used to default to '{{cta_url}}', a tag nothing
+  // fills, and renderTemplate turns an unfilled tag into the empty string — so every
+  // email built from a starter template shipped its main call to action as
+  // href="", a button that visibly does nothing. Empty is caught by the canvas
+  // warning and the properties panel instead of reaching a customer.
+  button:  () => ({ id: uid(), type: 'button',  text: 'Get Started', url: '', bg: NAVY, textColor: '#ffffff', align: 'center', size: 'md', rounded: true }),
   divider: () => ({ id: uid(), type: 'divider', color: '#E5E7EB', thickness: 1, margin: 20 }),
   spacer:  () => ({ id: uid(), type: 'spacer',  height: 32 }),
   two_col: () => ({ id: uid(), type: 'two_col', leftHtml: '<p style="margin:0;font-size:14px;line-height:1.7;"><strong>Left column</strong><br/>Your content here.</p>', rightHtml: '<p style="margin:0;font-size:14px;line-height:1.7;"><strong>Right column</strong><br/>Your content here.</p>', split: '50/50' }),
   footer:  () => ({ id: uid(), type: 'footer',  text: '© 2026 O3 Capital Financial Services Ltd · Lagos, Nigeria', unsubscribe: true }),
   callout: () => ({ id: uid(), type: 'callout', theme: 'warning', icon: '⚠️', title: 'Important Notice', body: 'Enter your callout message here. This block draws attention to critical information.' }),
-  stats:   () => ({ id: uid(), type: 'stats',   cols: [{ value: '₦{{amount}}', label: 'Outstanding Balance', color: RED }, { value: '{{due_date}}', label: 'Payment Due', color: '#D97706' }] }),
+  stats:   () => ({ id: uid(), type: 'stats',   cols: [{ value: '₦{{amount|—}}', label: 'Outstanding Balance', color: RED }, { value: '{{due_date|—}}', label: 'Payment Due', color: '#D97706' }] }),
 }
 
 const PALETTE = [
@@ -68,7 +73,20 @@ const PALETTE = [
   { type: 'footer',  label: 'Footer',  icon: 'bottom_navigation' },
 ]
 
-const MERGE_TAGS = ['{{first_name}}', '{{last_name}}', '{{amount}}', '{{due_date}}', '{{company}}', '{{cta_url}}', '{{phone}}', '{{cif}}']
+// Merge tags, split by what actually gets filled at send time.
+//
+// renderTemplate resolves an UNKNOWN tag to the empty string, so a tag the sender
+// cannot fill does not show up as a mistake — it just silently disappears from the
+// message. campaignContactMergeData fills the contact fields for every campaign;
+// amount/due_date and friends are filled only by the templates that carry that
+// context (collections dunning, statements). Offering both lists flat meant a
+// marketing email could ship "₦" where "₦12,500" was intended, with nothing to
+// show anything had gone wrong.
+//
+// Use the `{{tag|fallback}}` form for anything in the second group, which
+// renderTemplate honours, so an unfilled tag reads as a dash rather than a gap.
+const MERGE_TAGS = ['{{first_name}}', '{{last_name}}', '{{full_name}}', '{{phone}}', '{{email}}', '{{cif}}']
+const CONTEXT_MERGE_TAGS = ['{{amount|—}}', '{{due_date|—}}', '{{company|—}}']
 
 // ── Template presets ───────────────────────────────────────────────────────────
 const TEMPLATES = [
@@ -76,15 +94,15 @@ const TEMPLATES = [
   { id: 'simple', name: 'Simple Message', icon: 'article', color: BLUE, desc: 'Header · Message · CTA · Footer',
     blocks: [DEF.header(), { ...DEF.text(), html: '<p style="margin:0 0 16px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0 0 16px;">There is an update on your O3 Capital account.</p><p style="margin:0;">Thank you for banking with us.</p>' }, { ...DEF.button(), text: 'View My Account' }, DEF.footer()] },
   { id: 'reminder', name: 'Payment Reminder', icon: 'payment', color: RED, desc: 'Stats block · Callout · Pay CTA',
-    blocks: [{ ...DEF.header(), bg: RED, tagline: 'Action Required' }, { ...DEF.text(), html: '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0;">Your O3C account has a balance still to clear.</p>' }, { ...DEF.stats(), cols: [{ value: '₦{{amount}}', label: 'Outstanding Balance', color: RED }, { value: '{{due_date}}', label: 'Payment Due', color: '#D97706' }] }, { ...DEF.callout(), theme: 'warning', icon: '⚠️', title: 'Late Payment Charge', body: 'Payments after the due date attract 2% a month. Clearing the balance before then avoids it.' }, { ...DEF.button(), text: 'Pay My Balance', bg: RED }, DEF.footer()] },
+    blocks: [{ ...DEF.header(), bg: RED, tagline: 'Action Required' }, { ...DEF.text(), html: '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0;">Your O3C account has a balance still to clear.</p>' }, { ...DEF.stats(), cols: [{ value: '₦{{amount|—}}', label: 'Outstanding Balance', color: RED }, { value: '{{due_date|—}}', label: 'Payment Due', color: '#D97706' }] }, { ...DEF.callout(), theme: 'warning', icon: '⚠️', title: 'Late Payment Charge', body: 'Payments after the due date attract 2% a month. Clearing the balance before then avoids it.' }, { ...DEF.button(), text: 'Pay My Balance', bg: RED }, DEF.footer()] },
   { id: 'welcome', name: 'Welcome', icon: 'waving_hand', color: '#7C3AED', desc: 'Onboard new customers',
     blocks: [DEF.header(), { ...DEF.text(), html: '<h2 style="margin:0 0 14px;color:#0E2841;font-size:22px;font-weight:700;">Welcome, {{first_name}}</h2><p style="margin:0 0 14px;">Your O3C account is ready.</p><ul style="margin:0;padding-left:20px;color:#374151;line-height:2.1;"><li><strong>Instant payments</strong>, anywhere, at any hour</li><li><strong>Cashback rewards</strong> on every spend</li><li><strong>Zero forex fees</strong> on international transfers</li><li><strong>Support around the clock</strong></li></ul>' }, { ...DEF.callout(), theme: 'info', icon: 'ℹ️', title: 'Complete Your Profile', body: 'Verify your BVN and NIN within 30 days. Until you do, your credit limit stays capped and some features stay closed.' }, { ...DEF.button(), text: 'Activate My Account' }, DEF.footer()] },
   { id: 'promo', name: 'Promotion', icon: 'local_offer', color: '#059669', desc: 'Hero image · Headline · CTA',
     blocks: [DEF.header(), DEF.image(), { ...DEF.text(), html: '<h2 style="margin:0 0 12px;font-size:22px;color:#0E2841;font-weight:700;">An offer for you, {{first_name}}</h2><p style="margin:0 0 16px;color:#4B5563;line-height:1.7;">Your O3C Card earns cashback, charges no forex fees, and moves money instantly.</p>' }, { ...DEF.button(), text: 'See The Offer', bg: '#059669' }, DEF.footer()] },
   { id: 'statement', name: 'Monthly Statement', icon: 'receipt_long', color: '#2B50E0', desc: 'Statement notification + stats',
-    blocks: [DEF.header(), { ...DEF.text(), html: '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0;">Your monthly statement is ready.</p>' }, { ...DEF.stats(), cols: [{ value: '₦{{amount}}', label: 'Total Spend', color: NAVY }, { value: '{{due_date}}', label: 'Statement Period', color: '#2B50E0' }] }, { ...DEF.button(), text: 'View Full Statement', bg: '#2B50E0' }, DEF.footer()] },
+    blocks: [DEF.header(), { ...DEF.text(), html: '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0;">Your monthly statement is ready.</p>' }, { ...DEF.stats(), cols: [{ value: '₦{{amount|—}}', label: 'Total Spend', color: NAVY }, { value: '{{due_date|—}}', label: 'Statement Period', color: '#2B50E0' }] }, { ...DEF.button(), text: 'View Full Statement', bg: '#2B50E0' }, DEF.footer()] },
   { id: 'loan', name: 'Loan Update', icon: 'account_balance', color: '#D97706', desc: 'Approval · 3-col stats · Next steps',
-    blocks: [{ ...DEF.header(), tagline: 'Loan Update' }, { ...DEF.callout(), theme: 'success', icon: '✅', title: 'Your Loan Is Approved', body: 'We have approved your application. The funds reach your account within one working day.' }, { ...DEF.stats(), cols: [{ value: '₦{{amount}}', label: 'Approved Amount', color: '#059669' }, { value: '{{due_date}}', label: 'First Repayment', color: '#D97706' }, { value: '12 months', label: 'Loan Tenure', color: NAVY }] }, { ...DEF.text(), html: '<p style="margin:0 0 14px;">Keep enough in your account to cover each monthly repayment on its due date. Late payments attract a charge.</p>' }, { ...DEF.button(), text: 'View Loan Dashboard' }, DEF.footer()] },
+    blocks: [{ ...DEF.header(), tagline: 'Loan Update' }, { ...DEF.callout(), theme: 'success', icon: '✅', title: 'Your Loan Is Approved', body: 'We have approved your application. The funds reach your account within one working day.' }, { ...DEF.stats(), cols: [{ value: '₦{{amount|—}}', label: 'Approved Amount', color: '#059669' }, { value: '{{due_date|—}}', label: 'First Repayment', color: '#D97706' }, { value: '12 months', label: 'Loan Tenure', color: NAVY }] }, { ...DEF.text(), html: '<p style="margin:0 0 14px;">Keep enough in your account to cover each monthly repayment on its due date. Late payments attract a charge.</p>' }, { ...DEF.button(), text: 'View Loan Dashboard' }, DEF.footer()] },
 ]
 
 // ── HTML generator ─────────────────────────────────────────────────────────────
@@ -139,11 +157,36 @@ function blockToHtml(b: EmailBlock): string {
 // jsonb columns as JSON STRINGS (the DB layer stringifies []byte), so templates
 // arrive with email_blocks as a string — this normalises array | string | null.
 export function parseBlocks(v: unknown): EmailBlock[] {
-  if (Array.isArray(v)) return v as EmailBlock[]
-  if (typeof v === 'string' && v.trim()) {
-    try { const p = JSON.parse(v); return Array.isArray(p) ? p as EmailBlock[] : [] } catch { return [] }
+  return parseEditorValue(v).blocks
+}
+
+// parseEditorValue normalises every shape email content has been stored in:
+//   - a bare EmailBlock[] (older templates)
+//   - a JSON string of either shape (jsonb arrives stringified)
+//   - the { blocks, settings } envelope campaigns already persist
+//
+// Templates used to keep only the array, so page background, content width,
+// preheader and full-bleed were set in the toolbar, applied to the preview, and
+// then thrown away on save. Reading the envelope here lets a template carry them
+// without a new column, in the same shape campaigns use.
+export function parseEditorValue(v: unknown): { blocks: EmailBlock[]; settings: EmailSettings } {
+  const empty = { blocks: [] as EmailBlock[], settings: {} as EmailSettings }
+  let raw: unknown = v
+  if (typeof raw === 'string') {
+    if (!raw.trim()) return empty
+    try { raw = JSON.parse(raw) } catch { return empty }
   }
-  return []
+  if (Array.isArray(raw)) return { blocks: raw as EmailBlock[], settings: {} }
+  if (raw && typeof raw === 'object') {
+    const o = raw as { blocks?: unknown; settings?: unknown }
+    if (Array.isArray(o.blocks)) {
+      return {
+        blocks: o.blocks as EmailBlock[],
+        settings: (o.settings && typeof o.settings === 'object' ? o.settings : {}) as EmailSettings,
+      }
+    }
+  }
+  return empty
 }
 
 export function exportToHtml(blocks: EmailBlock[] = [], settings: EmailSettings = {}): string {
@@ -252,7 +295,14 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
         <PPField label="Rounded Corners"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={!!block.rounded} onChange={e => onUpdate({ rounded: e.target.checked })} />Apply 8px Radius</label></PPField></>
     case 'button':
       return <><PPField label="Label"><PPInp value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
-        <PPField label="Link URL"><PPInp value={block.url || ''} placeholder="{{cta_url}}" onChange={e => onUpdate({ url: e.target.value })} /></PPField>
+        <PPField label="Link URL">
+          <PPInp value={block.url || ''} placeholder="https://o3capital.com/offer" onChange={e => onUpdate({ url: e.target.value })} />
+          {!String(block.url || '').trim() && (
+            <div style={{ fontSize: 10.5, color: '#D97706', marginTop: 4, lineHeight: 1.5 }}>
+              This button has no link, so it will do nothing when clicked.
+            </div>
+          )}
+        </PPField>
         <ColorField label="Background" value={block.bg} def={NAVY} onPick={v => onUpdate({ bg: v })} />
         <ColorField label="Text Color" value={block.textColor} def="#ffffff" onPick={v => onUpdate({ textColor: v })} />
         <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />
@@ -317,6 +367,18 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
   }
 }
 
+// Rich-text toolbar atoms. Module-level so the reference is stable and the buttons
+// are never remounted mid-edit. onMouseDown + preventDefault instead of onClick,
+// because a click would move focus out of the contentEditable and collapse the
+// selection the command is meant to act on.
+const TBtn = ({ icon, title, onPress }: { icon: string; title: string; onPress: () => void }) => (
+  <button type="button" title={title} onMouseDown={e => { e.preventDefault(); onPress() }}
+    style={{ padding: '2px 4px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', borderRadius: 3, display: 'flex' }}>
+    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
+  </button>
+)
+const TBar = () => <div style={{ width: 1, height: 14, background: '#334155', margin: '0 2px' }} />
+
 // ── CanvasBlock ────────────────────────────────────────────────────────────────
 interface CBP {
   block: EmailBlock; selected: boolean; idx: number; total: number
@@ -328,11 +390,105 @@ interface CBP {
 }
 
 function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSelect, onUpdate, onMove, onDelete, onDuplicate, onDragStart, onDragEnd, onDragOver, onDrop }: CBP) {
-  const textRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLDivElement | null>(null)
+  const commitRef = useRef<number | null>(null)
+
+  // Latest onUpdate, so a debounced commit never fires against a stale closure.
+  const onUpdateRef = useRef(onUpdate)
+  onUpdateRef.current = onUpdate
+
   useEffect(() => {
-    if (textRef.current && block.type === 'text' && !selected && textRef.current.innerHTML !== block.html)
-      textRef.current.innerHTML = sanitize(block.html || '')
+    const el = textRef.current
+    if (!el || block.type !== 'text') return
+
+    if (selected) {
+      // The div only becomes contentEditable on THIS render — the click that
+      // selected it was handled while it was still read-only, so the browser had
+      // nowhere to put a caret. Without this focus the block looks editable,
+      // takes no keystrokes, and never fires blur, so anything typed afterwards
+      // was both invisible and unsaveable. This is the "text disappeared" bug.
+      if (document.activeElement !== el) {
+        el.focus()
+        // Enter should open a new <p>, not a bare <div>: paragraphs carry the
+        // margins the exported email relies on, and <div> collapses the spacing.
+        try { document.execCommand('defaultParagraphSeparator', false, 'p') } catch { /* older engine */ }
+        const r = document.createRange()
+        r.selectNodeContents(el)
+        r.collapse(false) // caret at the end, not over the whole block
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(r)
+      }
+      return
+    }
+
+    // Not selected: mirror the model into the DOM. Compare against the SANITISED
+    // string we are about to write, otherwise this rewrites on every render
+    // (block.html is raw, innerHTML is normalised, so they never compare equal).
+    const next = sanitize(block.html || '')
+    if (el.innerHTML !== next) el.innerHTML = next
   }, [block.html, selected, block.type])
+
+  // Typing is committed on a short debounce rather than per keystroke, so the undo
+  // stack holds edits rather than characters, and flushed on blur. The unmount
+  // commit is the safety net: a block deleted, reordered or deselected by an
+  // external sync while still focused would otherwise lose the last few seconds.
+  const commitHtml = useCallback(() => {
+    if (commitRef.current) { window.clearTimeout(commitRef.current); commitRef.current = null }
+    const el = textRef.current
+    if (!el) return
+    if (el.innerHTML !== (block.html || '')) onUpdateRef.current({ html: el.innerHTML })
+  }, [block.html])
+
+  const scheduleCommit = useCallback(() => {
+    if (commitRef.current) window.clearTimeout(commitRef.current)
+    commitRef.current = window.setTimeout(() => { commitRef.current = null; commitHtml() }, 400)
+  }, [commitHtml])
+
+  // execCommand is deprecated on paper and still the only thing that toggles
+  // formatting correctly inside contentEditable in every browser we support. The
+  // hand-rolled version this replaces wrapped the selection in a fresh <strong>
+  // each time, so bold could be switched on but never off, and a selection
+  // spanning two paragraphs threw.
+  //
+  // styleWithCSS=true for colour and alignment because inline styles survive
+  // Gmail and Outlook; false for bold/italic/underline so they stay as <b>/<i>/<u>,
+  // which survive even the strictest HTML-email sanitisers.
+  const exec = useCallback((cmd: string, arg?: string, css = false) => {
+    const el = textRef.current
+    if (!el) return
+    el.focus()
+    try {
+      document.execCommand('styleWithCSS', false, String(css))
+      document.execCommand(cmd, false, arg)
+    } catch { /* an unsupported command must not take the text with it */ }
+    scheduleCommit()
+  }, [scheduleCommit])
+
+  const insertAtCaret = useCallback((txt: string) => {
+    const el = textRef.current
+    if (!el) return
+    el.focus()
+    try { document.execCommand('insertText', false, txt) }
+    catch {
+      const s = window.getSelection()
+      if (s?.rangeCount) { const r = s.getRangeAt(0); r.deleteContents(); r.insertNode(document.createTextNode(txt)) }
+    }
+    scheduleCommit()
+  }, [scheduleCommit])
+
+  // Drop a pending commit when this block goes away, so the timer cannot fire into
+  // a component that no longer exists.
+  //
+  // There is deliberately NO "rescue the edit on unmount" here. It reads like a
+  // safety net and cannot be one: the commit goes through updateBlock, i.e. setState
+  // on the editor, and if the editor itself is unmounting React discards it — while
+  // if only the block is gone, updateBlock finds no matching id and does nothing.
+  // What actually protects the text is the debounce below plus the focus fix above,
+  // which makes blur fire reliably.
+  useEffect(() => () => {
+    if (commitRef.current) window.clearTimeout(commitRef.current)
+  }, [])
 
   const ct = CT[block.theme || 'warning']
 
@@ -345,27 +501,89 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
         </div>
       case 'text':
         return <>
-          {selected && <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '4px 8px', background: '#1e293b', flexWrap: 'wrap' }}>
-            {[
-              { icon: 'format_bold',         fn: () => { const s = window.getSelection(); if (!s?.rangeCount) return; const r = s.getRangeAt(0); const e = document.createElement('strong'); e.appendChild(r.extractContents()); r.insertNode(e) } },
-              { icon: 'format_italic',       fn: () => { const s = window.getSelection(); if (!s?.rangeCount) return; const r = s.getRangeAt(0); const e = document.createElement('em'); e.appendChild(r.extractContents()); r.insertNode(e) } },
-              { icon: 'format_underlined',   fn: () => { const s = window.getSelection(); if (!s?.rangeCount) return; const r = s.getRangeAt(0); const e = document.createElement('u'); e.appendChild(r.extractContents()); r.insertNode(e) } },
-              { icon: 'format_align_left',   fn: () => { const el = window.getSelection()?.anchorNode?.parentElement?.closest('p,div,h1,h2,h3') as HTMLElement|null; if (el) el.style.textAlign = 'left' } },
-              { icon: 'format_align_center', fn: () => { const el = window.getSelection()?.anchorNode?.parentElement?.closest('p,div,h1,h2,h3') as HTMLElement|null; if (el) el.style.textAlign = 'center' } },
-              { icon: 'link',                fn: () => { const s = window.getSelection(); if (!s?.rangeCount) return; const url = prompt('URL:'); if (!url) return; const r = s.getRangeAt(0); const a = document.createElement('a'); a.href = url; a.style.color = NAVY; a.appendChild(r.extractContents()); r.insertNode(a) } },
-            ].map(({ icon, fn }) => (
-              <button key={icon} type="button" onMouseDown={e => { e.preventDefault(); fn() }} style={{ padding: '2px 4px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', borderRadius: 3, display: 'flex' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
-              </button>
-            ))}
-            <div style={{ width: 1, height: 14, background: '#334155', margin: '0 2px' }} />
-            {MERGE_TAGS.slice(0, 5).map(t => (
-              <button key={t} type="button" onMouseDown={e => { e.preventDefault(); const s = window.getSelection(); if (!s?.rangeCount) return; const r = s.getRangeAt(0); r.deleteContents(); r.insertNode(document.createTextNode(t)) }}
-                style={{ fontSize: 9.5, padding: '1px 5px', background: '#334155', border: 'none', color: '#94a3b8', borderRadius: 3, cursor: 'pointer', fontFamily: 'monospace' }}>{t}</button>
-            ))}
-          </div>}
+          {selected && (
+            <div onMouseDown={e => e.preventDefault()}
+              style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '5px 8px', background: '#1e293b', flexWrap: 'wrap' }}>
+              {/* Paragraph style */}
+              <select
+                onChange={e => { exec('formatBlock', e.target.value); e.currentTarget.selectedIndex = 0 }}
+                defaultValue=""
+                title="Paragraph style"
+                style={{ fontSize: 10.5, background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 4, padding: '2px 4px', cursor: 'pointer' }}>
+                <option value="" disabled>Style</option>
+                <option value="p">Paragraph</option>
+                <option value="h1">Heading 1</option>
+                <option value="h2">Heading 2</option>
+                <option value="h3">Heading 3</option>
+                <option value="blockquote">Quote</option>
+              </select>
+              {/* Font size — <font size> is the one sizing primitive every mail client renders */}
+              <select
+                onChange={e => { exec('fontSize', e.target.value); e.currentTarget.selectedIndex = 0 }}
+                defaultValue=""
+                title="Text size"
+                style={{ fontSize: 10.5, background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 4, padding: '2px 4px', cursor: 'pointer' }}>
+                <option value="" disabled>Size</option>
+                <option value="2">Small</option>
+                <option value="3">Normal</option>
+                <option value="5">Large</option>
+                <option value="6">Huge</option>
+              </select>
+              <TBar />
+              {([
+                ['format_bold', 'Bold', () => exec('bold')],
+                ['format_italic', 'Italic', () => exec('italic')],
+                ['format_underlined', 'Underline', () => exec('underline')],
+                ['strikethrough_s', 'Strikethrough', () => exec('strikeThrough')],
+              ] as [string, string, () => void][]).map(([icon, title, fn]) => (
+                <TBtn key={icon} icon={icon} title={title} onPress={fn} />
+              ))}
+              <TBar />
+              {([
+                ['format_list_bulleted', 'Bulleted list', () => exec('insertUnorderedList')],
+                ['format_list_numbered', 'Numbered list', () => exec('insertOrderedList')],
+              ] as [string, string, () => void][]).map(([icon, title, fn]) => (
+                <TBtn key={icon} icon={icon} title={title} onPress={fn} />
+              ))}
+              <TBar />
+              {([
+                ['format_align_left', 'Align left', () => exec('justifyLeft', undefined, true)],
+                ['format_align_center', 'Align centre', () => exec('justifyCenter', undefined, true)],
+                ['format_align_right', 'Align right', () => exec('justifyRight', undefined, true)],
+              ] as [string, string, () => void][]).map(([icon, title, fn]) => (
+                <TBtn key={icon} icon={icon} title={title} onPress={fn} />
+              ))}
+              <TBar />
+              <label title="Text colour" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14, color: '#94a3b8' }}>format_color_text</span>
+                <input type="color" defaultValue={NAVY}
+                  onChange={e => exec('foreColor', e.target.value, true)}
+                  style={{ width: 16, height: 14, border: 'none', background: 'none', padding: 0, cursor: 'pointer' }} />
+              </label>
+              <TBtn icon="link" title="Add link" onPress={() => {
+                const url = window.prompt('Link URL:')
+                if (url && /^(https?:|mailto:|\{\{)/i.test(url.trim())) exec('createLink', url.trim())
+                else if (url) window.alert('Use a full http(s), mailto: or {{merge_tag}} URL.')
+              }} />
+              <TBtn icon="link_off" title="Remove link" onPress={() => exec('unlink')} />
+              <TBtn icon="format_clear" title="Clear formatting" onPress={() => exec('removeFormat')} />
+              <TBar />
+              {MERGE_TAGS.map(t => (
+                <button key={t} type="button" title="Filled for every contact"
+                  onMouseDown={e => { e.preventDefault(); insertAtCaret(t) }}
+                  style={{ fontSize: 9.5, padding: '1px 5px', background: '#334155', border: 'none', color: '#94a3b8', borderRadius: 3, cursor: 'pointer', fontFamily: 'monospace' }}>{t}</button>
+              ))}
+              {CONTEXT_MERGE_TAGS.map(t => (
+                <button key={t} type="button"
+                  title="Only filled where the message carries that context (collections, statements). The |— is the fallback when it does not."
+                  onMouseDown={e => { e.preventDefault(); insertAtCaret(t) }}
+                  style={{ fontSize: 9.5, padding: '1px 5px', background: 'transparent', border: '1px dashed #475569', color: '#64748b', borderRadius: 3, cursor: 'pointer', fontFamily: 'monospace' }}>{t}</button>
+              ))}
+            </div>
+          )}
           <div ref={textRef} contentEditable={selected} suppressContentEditableWarning
-            onBlur={() => { if (textRef.current) onUpdate({ html: textRef.current.innerHTML }) }}
+            onInput={scheduleCommit}
+            onBlur={commitHtml}
             style={{ padding: '20px 36px', fontSize: 14.5, lineHeight: 1.78, color: '#1a1a1a', outline: 'none', minHeight: 60 }}
             {...(!selected ? { dangerouslySetInnerHTML: { __html: sanitize(block.html || '') } } : {})}
           />
@@ -385,6 +603,14 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
           <div style={{ display: 'inline-block', padding: block.size === 'lg' ? '14px 44px' : block.size === 'sm' ? '8px 22px' : '12px 32px', background: block.bg || NAVY, color: block.textColor || '#fff', fontWeight: 700, fontSize: block.size === 'lg' ? 15 : 13.5, borderRadius: block.rounded !== false ? 7 : 2 }}>
             {block.text || 'Click Here'}
           </div>
+          {/* A dead call-to-action is invisible in a preview — it looks like a button
+              and only fails once it is in somebody's inbox. Say so on the canvas. */}
+          {!String(block.url || '').trim() && (
+            <div style={{ marginTop: 7, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#92400E', background: '#FEF3C7', border: '1px solid #D97706', borderRadius: 5, padding: '3px 8px' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>warning</span>
+              No link set — this button goes nowhere
+            </div>
+          )}
         </div>
       case 'divider':
         return <div style={{ padding: `${block.margin || 20}px 36px` }}><hr style={{ border: 'none', borderTop: `${block.thickness || 1}px solid ${block.color || '#E5E7EB'}`, margin: 0 }} /></div>
@@ -670,21 +896,39 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
 
   const selected = blocks.find(b => b.id === selectedId) ?? null
 
-  useEffect(() => { onChange?.({ blocks, settings }) }, [blocks, settings])
+  // True while we are adopting a document that came FROM the parent, so the emit
+  // below does not bounce it straight back. Without this the two effects oscillate
+  // forever whenever the parent's copy differs from the canvas (see the comment on
+  // the sync effect) — a synchronous loop that freezes the tab, not a slow render.
+  const adoptingRef = useRef(false)
+
+  useEffect(() => {
+    if (adoptingRef.current) { adoptingRef.current = false; return }
+    onChange?.({ blocks, settings })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, settings])
 
   // Sync EXTERNAL value changes into the canvas — e.g. "Load Template" or the
-  // campaign's saved blocks arriving after mount. Guarded by a content signature
-  // so the editor's own emits (above) don't feed back into a loop: we only pull
-  // in `value.blocks` when it differs from what's currently on the canvas.
+  // campaign's saved blocks arriving after mount.
+  //
+  // This has to tell "the parent echoing what we just emitted" apart from "a new
+  // document from outside", and a parent that rebuilds `value` every render
+  // (TemplateEditor passes value={{ blocks: form.email_blocks }}) is always one
+  // revision behind. Adopting that stale revision made us emit again, which made
+  // the parent lag again: an endless ping-pong that locked the browser whenever
+  // the two revisions differed — which any block arriving without an `id` guarantees,
+  // because the canvas mints one and the parent's copy still lacks it.
+  //
+  // So: ignore anything that already matches the canvas, and never echo back what
+  // we adopt. Selection survives unless the block being edited is genuinely gone.
   useEffect(() => {
     const incoming = value?.blocks
     if (!incoming) return
-    const sig = (bs: EmailBlock[]) => JSON.stringify(bs)
-    if (sig(incoming) !== sig(blocks)) {
-      push(incoming.map(b => ({ ...b, id: b.id || uid() })))
-      setSelectedId(null)
-      if (value?.settings) setSettings(value.settings)
-    }
+    if (JSON.stringify(incoming) === JSON.stringify(blocks)) return
+    adoptingRef.current = true
+    push(incoming.map(b => ({ ...b, id: b.id || uid() })))
+    if (value?.settings) setSettings(value.settings)
+    setSelectedId(cur => (cur && incoming.some(b => b.id === cur) ? cur : null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 

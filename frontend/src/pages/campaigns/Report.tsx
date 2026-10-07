@@ -130,7 +130,15 @@ interface CampaignAttr {
 }
 interface ReportResp { campaign: any; metrics: Metrics; channels?: ChannelMetric[]; timeline: TimelinePoint[]; top_links: { url: string; clicks: number }[]; contact_stats: ContactStats; benchmarks?: Benchmarks; insights?: Insights }
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
-interface PreflightResp { total: number; with_email: number; with_phone: number; suppressed: number; duplicates: number; invalid: number; usable: number; warnings: string[] }
+interface PreflightResp {
+  total: number; with_email: number; with_phone: number; suppressed: number
+  duplicates: number; invalid: number; usable: number; warnings: string[]
+  // How many the lawful-basis gate will refuse. Without this the modal reported a
+  // healthy audience for a campaign that would send nothing at all.
+  consent_blocked: number
+  purpose: string
+  list_consent_basis: string | null
+}
 interface ContactListItem { id: number; name: string; total?: number }
 interface Template { id: number; name: string; channel: string; category: string; sms_body?: string; whatsapp_body?: string; email_subject?: string; email_blocks?: any[] }
 interface CampaignContact { id: number; first_name?: string; last_name?: string; email?: string; phone?: string; state?: string; sms_status?: string; email_status?: string }
@@ -553,9 +561,9 @@ function EmailReadOnlyPreview({ html, subject }: { html: string; subject: string
 
 // ── Preflight Modal ────────────────────────────────────────────────────────────
 
-function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
+function PreflightModal({ open, onClose, onConfirm, listId, campaignType, campaignPurpose }: {
   open: boolean; onClose: () => void; onConfirm: () => Promise<void>
-  listId?: number | ''; campaignType: string
+  listId?: number | ''; campaignType: string; campaignPurpose?: string
 }) {
   const [loading, setLoading]       = useState(false)
   const [data, setData]             = useState<PreflightResp | null>(null)
@@ -565,7 +573,8 @@ function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
   useEffect(() => {
     if (!open) { setData(null); setFetchErr(null); return }
     setLoading(true)
-    const q = listId ? `?list_id=${listId}&type=${campaignType}` : `?type=${campaignType}`
+    const purposeQ = `&purpose=${encodeURIComponent(campaignPurpose || 'marketing')}`
+    const q = (listId ? `?list_id=${listId}&type=${campaignType}` : `?type=${campaignType}`) + purposeQ
     apiFetch<any>(`/api/campaigns/preflight${q}`)
       .then((r: any) => {
         const d = r?.data ?? r ?? {}
@@ -579,11 +588,18 @@ function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
           invalid:    d.invalid_email ?? 0,
           usable:     d.estimated_messages ?? 0,
           warnings:   d.warnings ?? [],
+          consent_blocked:    d.consent_blocked ?? 0,
+          purpose:            d.purpose ?? 'marketing',
+          list_consent_basis: d.list_consent_basis ?? null,
         })
       })
       .catch(ex => setFetchErr(ex.message))
       .finally(() => setLoading(false))
-  }, [open, listId, campaignType])
+  }, [open, listId, campaignType, campaignPurpose])
+
+  // Starting a campaign that can send nothing just marks it completed with every
+  // contact skipped, which reads like a delivery failure. Refuse it at the door.
+  const nothingToSend = !!data && !loading && data.usable === 0
 
   async function confirm() {
     setConfirming(true)
@@ -597,10 +613,11 @@ function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={confirm} disabled={confirming || loading}
-            style={{ ...btnPrimary, background: GREEN, borderColor: GREEN, gap: 6, opacity: (confirming || loading) ? .7 : 1 }}>
+          <button onClick={confirm} disabled={confirming || loading || nothingToSend}
+            title={nothingToSend ? 'No recipient would receive this campaign' : undefined}
+            style={{ ...btnPrimary, background: nothingToSend ? 'var(--txt3)' : GREEN, borderColor: nothingToSend ? 'var(--txt3)' : GREEN, gap: 6, opacity: (confirming || loading || nothingToSend) ? .7 : 1, cursor: nothingToSend ? 'not-allowed' : 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>play_arrow</span>
-            {confirming ? 'Starting…' : 'Start Campaign'}
+            {confirming ? 'Starting…' : nothingToSend ? 'Nothing To Send' : 'Start Campaign'}
           </button>
         </div>
       }
@@ -613,7 +630,10 @@ function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
             {([
               ['Total',      data.total,      NAVY],
-              ['Usable',     data.usable,     GREEN],
+              ['Will Send',  data.usable,     data.usable === 0 ? RED : GREEN],
+              ...(data.consent_blocked > 0
+                ? [['No Consent', data.consent_blocked, RED]] as [string, number, string][]
+                : []),
               ['Suppressed', data.suppressed, AMBER],
               ['Duplicates', data.duplicates, AMBER],
               ['Invalid',    data.invalid,    RED],
@@ -1946,6 +1966,7 @@ export default function CampaignDetail() {
         onConfirm={startCampaign}
         listId={listId !== '' ? listId : campaign.list_id}
         campaignType={campaign.type}
+        campaignPurpose={(campaign as any).purpose}
       />
       <TemplatePickerModal open={tplOpen} onClose={() => setTplOpen(false)} onApply={applyTemplate} channel={tplFor} />
       <PushToCallCenterModal campaignId={id!} open={pushOpen} onClose={() => setPushOpen(false)} />

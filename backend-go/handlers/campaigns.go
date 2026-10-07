@@ -116,6 +116,14 @@ func campaignContactMergeData(c map[string]any) map[string]any {
 	mergeData["phone"] = str(c["phone"])
 	mergeData["email"] = str(c["email"])
 	mergeData["cif_number"] = str(c["cif_number"])
+	// The email builder offers {{cif}} in its merge-tag strip, but only
+	// {{cif_number}} was ever filled — and renderTemplate resolves an unknown tag
+	// to the empty string, so the advertised tag silently vanished from the sent
+	// message instead of failing loudly. Alias it rather than change the label,
+	// since {{cif}} is already sitting inside saved templates.
+	if _, taken := mergeData["cif"]; !taken {
+		mergeData["cif"] = str(c["cif_number"])
+	}
 	return mergeData
 }
 
@@ -605,10 +613,24 @@ func startDispatch(db *core.DB, campaignID int64) {
 			time.Sleep(sendDelay) // rate-limit provider calls
 		}
 
-		// Only auto-complete if there were contacts to send — a campaign with
-		// 0 contacts (no list attached yet) stays active so the user can attach
-		// a list and resume without it locking itself immediately.
-		if len(contactRows) > 0 {
+		// A campaign with NO contacts at all has no list attached yet, so it stays
+		// active and somebody can attach one and resume.
+		//
+		// But "nothing was pending" is not the same thing, and treating them alike
+		// left a campaign running forever. prepareCampaignRecipients settles people
+		// before the loop — no usable address, a suppressed number, a do-not-call
+		// entry — and the consent gate settles the rest inside it. So a campaign
+		// whose whole audience was skipped reaches this point with contactRows
+		// empty and a populated contact table, and used to sit at 'active'
+		// indefinitely: never completing, shown as still sending, and invisible to
+		// ResumeInterruptedCampaigns because nothing is pending. Decide on whether
+		// the campaign HAS contacts, not on whether any were left to send.
+		snapshotted := 0
+		if tr, _ := db.PGQuery(ctx,
+			"SELECT COUNT(*) AS n FROM campaign_contacts WHERE campaign_id=$1", campaignID); len(tr) > 0 {
+			snapshotted = int(toInt64(tr[0]["n"]))
+		}
+		if len(contactRows) > 0 || snapshotted > 0 {
 			db.PGExec(ctx, //nolint:errcheck
 				"UPDATE campaigns SET status='completed', pause_reason=NULL, paused_until=NULL, completed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='active'",
 				campaignID)
@@ -748,6 +770,53 @@ func RegisterCampaignWebhooks(r chi.Router, db *core.DB) {
 	r.Post("/email-webhook", emailWebhook(db))
 }
 
+// preflightConsentBlocked counts how many of a list's addressable members the
+// lawful-basis gate would refuse on this channel.
+//
+// The preflight checked addresses thoroughly — missing, invalid, role, disposable,
+// suppressed, duplicated — and said nothing at all about consent, which is the one
+// thing that stops a whole campaign rather than a few rows of it. So it could
+// report 9,307 usable recipients for a campaign that would send zero, and the only
+// way to find out was to press Start and watch every contact come back 'skipped'.
+// Counting it here mirrors campaignSendVerdict, so the estimate and the sender
+// agree instead of contradicting each other.
+func preflightConsentBlocked(ctx context.Context, db *core.DB, listID, channel, purpose, listBasis string) int64 {
+	addr := "NULLIF(TRIM(m.email),'')"
+	if channel == "sms" || channel == "whatsapp" {
+		addr = "NULLIF(TRIM(m.phone),'')"
+	}
+	count := func(q string, args ...any) int64 {
+		rows, err := db.PGQuery(ctx, q, args...)
+		if err != nil || len(rows) == 0 {
+			return 0
+		}
+		return toInt64(rows[0]["n"])
+	}
+	if purpose == purposeServicing {
+		// Servicing needs no consent. Only an explicit withdrawal stops it.
+		return count(`
+			SELECT COUNT(*) AS n FROM contact_list_members m
+			 WHERE m.list_id=$1 AND m.status='active' AND `+addr+` IS NOT NULL
+			   AND m.party_id IS NOT NULL
+			   AND EXISTS (SELECT 1 FROM app.party_contact_consent c
+			                WHERE c.party_id=m.party_id AND c.channel=$2
+			                  AND c.purpose='servicing' AND c.state='withdrawn')`, listID, channel)
+	}
+	// Marketing: a known customer needs a granted, unexpired row of their own; a
+	// prospect is governed by the basis recorded on the list.
+	prospectsAllowed, _ := prospectMarketingVerdict(listBasis)
+	return count(`
+		SELECT COUNT(*) AS n FROM contact_list_members m
+		 WHERE m.list_id=$1 AND m.status='active' AND `+addr+` IS NOT NULL
+		   AND (
+		     (m.party_id IS NOT NULL AND NOT EXISTS (
+		         SELECT 1 FROM app.party_contact_consent c
+		          WHERE c.party_id=m.party_id AND c.channel=$2 AND c.purpose='marketing'
+		            AND c.state='granted' AND (c.expires_at IS NULL OR c.expires_at > NOW())))
+		     OR (m.party_id IS NULL AND $3)
+		   )`, listID, channel, !prospectsAllowed)
+}
+
 func campaignPreflight(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		listID := qstr(r, "list_id")
@@ -819,6 +888,34 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 			usableEmail = 0
 		}
 		usableSMS := withPhone
+
+		// Lawful basis, which this estimate used to ignore entirely.
+		purpose := strings.ToLower(strings.TrimSpace(qstr(r, "purpose")))
+		if purpose != purposeServicing {
+			purpose = purposeMarketing // the campaigns default, and the stricter read
+		}
+		listBasis := str(row1(`SELECT consent_basis FROM contact_lists WHERE id=$1`, listID)["consent_basis"])
+
+		blockedEmail, blockedSMS := int64(0), int64(0)
+		if channel == "email" || channel == "multi" {
+			blockedEmail = preflightConsentBlocked(r.Context(), db, listID, "email", purpose, listBasis)
+			if blockedEmail > usableEmail {
+				blockedEmail = usableEmail
+			}
+			usableEmail -= blockedEmail
+		}
+		if channel == "sms" || channel == "whatsapp" || channel == "multi" {
+			smsChannel := "sms"
+			if channel == "whatsapp" {
+				smsChannel = "whatsapp"
+			}
+			blockedSMS = preflightConsentBlocked(r.Context(), db, listID, smsChannel, purpose, listBasis)
+			if blockedSMS > usableSMS {
+				blockedSMS = usableSMS
+			}
+			usableSMS -= blockedSMS
+		}
+
 		usable := usableEmail
 		if channel == "sms" || channel == "whatsapp" {
 			usable = usableSMS
@@ -847,6 +944,27 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 			ORDER BY id ASC
 			LIMIT 25`, listID)
 		warnings := []string{}
+
+		// Consent first, because it is the only one of these that can stop every
+		// single message, and the only one whose fix is a decision rather than data.
+		if blocked := blockedEmail + blockedSMS; blocked > 0 {
+			switch {
+			case usable == 0 && purpose == purposeMarketing:
+				warnings = append(warnings, fmt.Sprintf(
+					"Nothing will be sent: all %d addressable contact(s) are refused because this is a "+
+						"marketing campaign and none of them has given marketing consent. Record consent "+
+						"for the segment, set a marketing basis on the list if these are prospects, or "+
+						"change the campaign purpose to servicing if the message is about a product they hold.",
+					blocked))
+			case purpose == purposeMarketing:
+				warnings = append(warnings, fmt.Sprintf(
+					"%d contact(s) will be skipped: no marketing consent on record for them", blocked))
+			default:
+				warnings = append(warnings, fmt.Sprintf(
+					"%d contact(s) will be skipped: they have withdrawn servicing contact", blocked))
+			}
+		}
+
 		if channel == "email" || channel == "multi" {
 			if total-withEmail > 0 {
 				warnings = append(warnings, fmt.Sprintf("%d active contact(s) have no email address", total-withEmail))
@@ -899,6 +1017,13 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 			"usable_email_recipients": usableEmail,
 			"usable_sms_recipients":   usableSMS,
 			"estimated_messages":      usable,
+			// What the lawful-basis gate will refuse, so the estimate above is
+			// "will be sent" rather than "has a working address".
+			"purpose":                 purpose,
+			"list_consent_basis":      listBasis,
+			"consent_blocked_email":   blockedEmail,
+			"consent_blocked_sms":     blockedSMS,
+			"consent_blocked":         blockedEmail + blockedSMS,
 			"send_delay_ms":           sendDelayMs,
 			"daily_email_limit":       dailyEmailLimit,
 			"estimated_seconds":       estimatedSeconds,
