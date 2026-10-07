@@ -20,7 +20,21 @@ interface ContactList {
   member_count?: number
   created_at: string
   created_by_name?: string
+  // What makes marketing to this list defensible. A prospect list with nothing recorded
+  // here is refused at dispatch, so it has to be visible and settable on this page.
+  consent_basis?: string | null
+  consent_note?: string | null
+  consent_recorded_at?: string | null
 }
+
+const CONSENT_BASES: { v: string; label: string; note: string }[] = [
+  { v: 'opt_in_collected', label: 'They Opted In', note: 'they asked us to contact them, and we hold the record' },
+  { v: 'legitimate_interest', label: 'Legitimate Interest', note: 'an existing relationship, on a related subject' },
+  { v: 'third_party_asserted', label: 'Third Party Asserted It', note: 'the source claims consent — we did not collect it' },
+  { v: 'not_for_marketing', label: 'Not For Marketing', note: 'explicitly never to be marketed to' },
+]
+const BASIS_LABEL: Record<string, string> =
+  Object.fromEntries(CONSENT_BASES.map(b => [b.v, b.label]))
 
 interface Member {
   id: number
@@ -534,6 +548,7 @@ export default function ContactLists() {
   const [editSaving,   setEditSaving]   = useState(false)
   const [editErr,      setEditErr]      = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ContactList | null>(null)
+  const [basisTarget,  setBasisTarget]  = useState<ContactList | null>(null)
   const [openList,     setOpenList]     = useState<ContactList | null>(null)
   const [listSearch,   setListSearch]   = useState('')
 
@@ -614,6 +629,26 @@ export default function ContactLists() {
         </span>
       ),
     },
+    {
+      // Said on the list itself, because "the campaign sent nothing" is the alternative
+      // way to discover this, and it is a much worse one.
+      key: 'consent_basis', label: 'Marketing Basis',
+      render: r => r.consent_basis
+        ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.sm,
+                         color: r.consent_basis === 'not_for_marketing' ? RED : GREEN, fontWeight: FW.semibold }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>
+              {r.consent_basis === 'not_for_marketing' ? 'block' : 'verified_user'}
+            </span>
+            {BASIS_LABEL[r.consent_basis] ?? r.consent_basis}
+          </span>
+        ) : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.sm, color: AMBER }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>gpp_maybe</span>
+            Not Recorded
+          </span>
+        ),
+    },
     { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
     { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
     { key: '_actions', label: '', sortable: false,
@@ -621,6 +656,7 @@ export default function ContactLists() {
         const actions: RowAction[] = [
           { icon: 'group', label: 'View Contacts', onClick: () => setOpenList(r) },
           ...(canWrite ? [
+            { icon: 'verified_user', label: 'Marketing Basis', onClick: () => setBasisTarget(r) },
             { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
             { icon: 'delete', label: 'Delete', onClick: () => setDeleteTarget(r), danger: true },
           ] : []),
@@ -773,6 +809,102 @@ export default function ContactLists() {
         onConfirm={doDelete}
         onClose={() => setDeleteTarget(null)}
       />
+
+      {basisTarget && (
+        <BasisModal
+          list={basisTarget}
+          onClose={() => setBasisTarget(null)}
+          onSaved={() => { setBasisTarget(null); load() }}
+        />
+      )}
     </Page>
+  )
+}
+
+// ── Marketing basis for a list ────────────────────────────────────────────────
+//
+// Why a whole modal for one enum. These lists are prospects — people who are not
+// customers, so there is no per-person consent record to write and never will be until
+// they become one. What makes marketing to them defensible is where the list came from,
+// which is a fact about the list, recorded once, by whoever knows it.
+//
+// Nothing recorded REFUSES at dispatch rather than passing with a note. That is the
+// deliberate part: it was previously a decision nobody had made, taken by default.
+function BasisModal({ list, onClose, onSaved }: {
+  list: ContactList; onClose: () => void; onSaved: () => void
+}) {
+  const [basis, setBasis] = useState(list.consent_basis ?? '')
+  const [note, setNote] = useState(list.consent_note ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const needsNote = basis === 'third_party_asserted'
+
+  async function save() {
+    setSaving(true); setErr(null)
+    try {
+      await apiPut(`/api/contact-lists/${list.id}/consent-basis`, { basis, note: note.trim() })
+      toast.success(basis
+        ? `Marketing basis recorded for "${list.name}"`
+        : `Marketing basis cleared — campaigns to "${list.name}" will be refused`)
+      onSaved()
+    } catch (ex: any) { setErr(ex.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Marketing Basis — ${list.name}`} width={620}
+      footer={
+        <>
+          <button onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button onClick={save} disabled={saving || (needsNote && !note.trim())}
+            style={{ ...btnPrimary, opacity: saving || (needsNote && !note.trim()) ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : 'Record Basis'}
+          </button>
+        </>
+      }>
+      <ErrBanner error={err} />
+      <div style={{ display: 'grid', gap: SP[3] }}>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
+          {fmtNum(Number(list.member_count ?? 0))} contacts. A <strong>servicing</strong> message
+          needs no basis and is never blocked. This answers the other question: on what footing
+          may we <strong>market</strong> to these people?
+        </div>
+
+        <div>
+          <label style={lbl}>Basis</label>
+          <select value={basis} onChange={e => setBasis(e.target.value)} style={fieldInput}>
+            <option value="">Nothing recorded — marketing refused</option>
+            {CONSENT_BASES.map(b => <option key={b.v} value={b.v}>{b.label} — {b.note}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label style={lbl}>Where This List Came From</label>
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={3}
+            placeholder="CRC bureau extract, supplied 2026-09-28, supplier asserts opt-in at point of capture"
+            style={fieldTextarea} />
+          <div style={{ fontSize: TEXT.xs, color: needsNote ? AMBER : 'var(--txt3)', marginTop: 4, lineHeight: 1.5 }}>
+            {needsNote
+              ? 'Required: name the supplier and what they asserted. A third-party claim with no note cannot be defended later.'
+              : 'Optional, but it is what somebody reads in a year when asked why we mailed these people.'}
+          </div>
+        </div>
+
+        {basis === 'third_party_asserted' && (
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt1)', lineHeight: 1.6, padding: '8px 10px',
+                        borderRadius: RADIUS.md, background: `${AMBER}0d`, border: `1px solid ${AMBER}55` }}>
+            This records the <strong>supplier's claim</strong>, not consent we collected. It is a
+            defensible position, and it is also the weakest one — the record will say so.
+          </div>
+        )}
+
+        {list.consent_recorded_at && (
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            Last recorded {fmtDatetime(list.consent_recorded_at)}
+          </div>
+        )}
+      </div>
+    </Modal>
   )
 }

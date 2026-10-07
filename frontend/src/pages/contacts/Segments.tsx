@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, Modal, ConfirmModal, EmptyState, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, Modal, ConfirmModal, EmptyState, Button, Input, Select, Textarea, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
@@ -176,6 +176,7 @@ export default function Segments() {
   const [refreshing, setRefreshing] = useState<number | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<SavedSegment | null>(null)
   const [builder, setBuilder] = useState<{ open: boolean; editing: SavedSegment | null }>({ open: false, editing: null })
+  const [consentFor, setConsentFor] = useState<SavedSegment | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -281,6 +282,22 @@ export default function Segments() {
                   )}
                 </div>
 
+                {/* Whether a marketing campaign could actually send to this segment. A
+                    prospect list with no recorded basis is refused at dispatch, so saying
+                    so here is cheaper than finding out from a campaign that sent nothing. */}
+                {s.last_list_id && (
+                  <div style={{ fontSize: TEXT.xs, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 14, color: s.list_consent_basis ? GREEN : AMBER }}>
+                      {s.list_consent_basis ? 'verified_user' : 'gpp_maybe'}
+                    </span>
+                    <span style={{ color: 'var(--txt2)' }}>
+                      {s.list_consent_basis
+                        ? <>Marketing basis: <strong style={{ color: 'var(--txt1)' }}>{humanLabel(s.list_consent_basis)}</strong></>
+                        : <>No marketing basis recorded — servicing only</>}
+                    </span>
+                  </div>
+                )}
+
                 {/* A failed automatic rebuild, on the card rather than only in the log. */}
                 {s.last_refresh_error && (
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10,
@@ -303,6 +320,12 @@ export default function Segments() {
                       <span className="material-symbols-rounded" style={{ fontSize: 15 }}>list</span>List
                     </button>
                   )}
+                  {s.last_list_id && (
+                    <button onClick={() => setConsentFor(s)} style={{ ...miniBtn, background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}
+                      title="Who in this segment may be marketed to">
+                      <span className="material-symbols-rounded" style={{ fontSize: 15 }}>verified_user</span>Consent
+                    </button>
+                  )}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
                     <IconBtn icon="edit" title="Edit" onClick={() => setBuilder({ open: true, editing: s })} />
                     <IconBtn icon="delete" title="Delete" danger onClick={() => setDeleteTarget(s)} />
@@ -322,12 +345,242 @@ export default function Segments() {
         />
       )}
 
+      {consentFor && (
+        <SegmentConsent
+          segment={consentFor}
+          onClose={() => setConsentFor(null)}
+          onSaved={() => load(true)}
+        />
+      )}
+
       <ConfirmModal open={!!deleteTarget} title="Delete Segment"
         body={`Delete "${deleteTarget?.name}"? The generated contact list is kept.`}
         onConfirm={doDelete} onClose={() => setDeleteTarget(null)} />
     </Page>
   )
 }
+
+// ── Consent for a whole segment ───────────────────────────────────────────────
+
+interface ConsentChannel {
+  channel: string; members: number; known_customers: number
+  marketing_granted: number; withdrawn: number; never_asked: number
+}
+interface ConsentStatus { built?: boolean; list_id?: number; channels?: ConsentChannel[] }
+
+const CONSENT_BASES: { v: string; label: string; note: string }[] = [
+  { v: 'opt_in_collected', label: 'They Opted In', note: 'they asked us to contact them, and we hold the record' },
+  { v: 'legitimate_interest', label: 'Legitimate Interest', note: 'an existing relationship, on a related subject' },
+  { v: 'third_party_asserted', label: 'Third Party Asserted It', note: 'the source claims consent — we did not collect it' },
+  { v: 'not_for_marketing', label: 'Not For Marketing', note: 'explicitly never to be marketed to' },
+]
+
+// Two different questions live in this one modal, because they are two different populations
+// in the same segment and nobody should have to know that to use it.
+//
+// A KNOWN CUSTOMER has a party_id, so consent is a per-person record in
+// app.party_contact_consent — the same row the Consent Register shows, written here for a
+// population somebody has already defined instead of by pasting 10,896 ids into a textarea.
+// A PROSPECT has no party_id and never will until they become a customer, so there is no
+// per-person row to write; what governs them is the basis recorded on the list itself.
+// Marketing to a prospect list with no basis is refused at dispatch, which is why the
+// list-level question is answerable here rather than only in the API.
+function SegmentConsent({ segment, onClose, onSaved }: {
+  segment: SavedSegment; onClose: () => void; onSaved: () => void
+}) {
+  const [status, setStatus] = useState<ConsentStatus | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  const [channels, setChannels] = useState<string[]>(['email'])
+  const [purpose, setPurpose] = useState('marketing')
+  const [state, setState] = useState('granted')
+  const [basis, setBasis] = useState('')
+  const [evidence, setEvidence] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const [listBasis, setListBasis] = useState(segment.list_consent_basis ?? '')
+  const [listNote, setListNote] = useState('')
+  const [savingBasis, setSavingBasis] = useState(false)
+
+  const loadStatus = useCallback(() => {
+    apiFetch<ConsentStatus>(`/api/contact-lists/segments/${segment.id}/consent`)
+      .then(r => setStatus(unwrap<ConsentStatus>(r) ?? null))
+      .catch(e => setErr(e.message))
+  }, [segment.id])
+  useEffect(() => { loadStatus() }, [loadStatus])
+
+  const known = status?.channels?.[0]?.known_customers ?? 0
+  const members = status?.channels?.[0]?.members ?? 0
+  const prospects = Math.max(0, members - known)
+
+  const needsConfirm = purpose === 'marketing' && state === 'granted'
+  const ready = channels.length > 0 && known > 0
+    && (!needsConfirm || (confirm === 'I HAVE THE EVIDENCE' && basis.trim() !== '' && evidence.trim().length >= 8))
+
+  async function submit() {
+    setBusy(true)
+    try {
+      const r = unwrap<any>(await apiPost(`/api/contact-lists/segments/${segment.id}/consent`, {
+        channels, purpose, state, basis, evidence, confirm,
+      }))
+      toast.success(`${purpose} consent recorded as ${state} for ${fmtNum(r?.customers ?? 0)} customers`)
+      setConfirm('')
+      loadStatus()
+      onSaved()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not record the decision') }
+    finally { setBusy(false) }
+  }
+
+  async function saveBasis() {
+    setSavingBasis(true)
+    try {
+      await apiPut(`/api/contact-lists/${segment.last_list_id}/consent-basis`,
+        { basis: listBasis, note: listNote })
+      toast.success(listBasis ? 'Marketing basis recorded for this list' : 'Marketing basis cleared')
+      onSaved()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not record the basis') }
+    finally { setSavingBasis(false) }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Consent — ${segment.name}`} width={700}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
+      <ErrBanner error={err} onRetry={loadStatus} />
+
+      {!status ? (
+        <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
+      ) : !status.built ? (
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          Build this segment's list first — there is nobody to record a decision about yet.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: SP[4] }}>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: TEXT.xs }}>
+            <QFact label="In the list" value={fmtNum(members)} />
+            <QFact label="Known customers" value={fmtNum(known)} tone={known ? GREEN : undefined}
+              note="consent is a per-person record" />
+            <QFact label="Prospects" value={fmtNum(prospects)} tone={prospects ? AMBER : undefined}
+              note="governed by the list basis below" />
+          </div>
+
+          {/* Where marketing consent actually stands, per channel, before anybody decides. */}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.xs }}>
+              <thead>
+                <tr style={{ color: 'var(--txt3)', textAlign: 'left' }}>
+                  <th style={cth}>Channel</th><th style={cthNum}>Granted</th>
+                  <th style={cthNum}>Withdrawn</th><th style={cthNum}>Never Asked</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(status.channels ?? []).map(c => (
+                  <tr key={c.channel} style={{ borderTop: '1px solid var(--bdr)' }}>
+                    <td style={ctd}>{humanLabel(c.channel)}</td>
+                    <td style={{ ...ctdNum, color: c.marketing_granted ? GREEN : 'var(--txt3)', fontWeight: FW.semibold }}>{fmtNum(c.marketing_granted)}</td>
+                    <td style={{ ...ctdNum, color: c.withdrawn ? RED : 'var(--txt3)' }}>{fmtNum(c.withdrawn)}</td>
+                    <td style={ctdNum}>{fmtNum(c.never_asked)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6,
+                        padding: '8px 10px', borderRadius: RADIUS.md, background: `${BLUE}0C`, border: `1px solid ${BLUE}30` }}>
+            A <strong>servicing</strong> message — about a product someone already holds — needs no
+            consent at all and is never blocked here. Everything below is about <strong>marketing</strong>.
+          </div>
+
+          {/* ── Known customers ── */}
+          {known > 0 && (
+            <div style={{ display: 'grid', gap: SP[3] }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                Record A Decision For The {fmtNum(known)} Known Customers
+              </div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                One basis and one piece of evidence covers everybody in this segment. If these
+                people did not all agree in the same way, they belong in separate segments.
+              </div>
+              <div>
+                <label style={lbl}>Channels This Covers</label>
+                <MultiPick options={['email', 'sms', 'whatsapp'].map(v => ({ v, label: humanLabel(v) }))}
+                  selected={channels} onChange={setChannels} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
+                <Select label="Purpose" value={purpose} onChange={e => setPurpose(e.target.value)}>
+                  <option value="marketing">Marketing</option>
+                  <option value="servicing">Servicing</option>
+                </Select>
+                <Select label="Answer" value={state} onChange={e => setState(e.target.value)}>
+                  <option value="granted">Granted</option>
+                  <option value="withdrawn">Withdrawn</option>
+                  <option value="pending">Pending</option>
+                </Select>
+              </div>
+              <Input label="Basis" placeholder="signup_form, call_confirmation, contract_clause_8"
+                value={basis} onChange={e => setBasis(e.target.value)}
+                hint={needsConfirm ? 'Required for a marketing yes: how did they give it?' : undefined} />
+              <Input label="Evidence" placeholder="Onboarding form batch 2026-09, scanned to DMS/consent/2026-09"
+                value={evidence} onChange={e => setEvidence(e.target.value)}
+                hint={needsConfirm ? 'Required. Name the form, call or document — not the answer.' : undefined} />
+              {needsConfirm && (
+                <div style={{ border: `1px solid ${AMBER}55`, background: `${AMBER}0d`, borderRadius: RADIUS.md, padding: SP[3] }}>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt1)', marginBottom: SP[2], lineHeight: 1.6 }}>
+                    You are recording that {fmtNum(known)} people agreed to marketing contact. This is
+                    the document that makes those messages lawful. Type <strong>I HAVE THE EVIDENCE</strong> to continue.
+                  </div>
+                  <Input value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="I HAVE THE EVIDENCE" />
+                </div>
+              )}
+              <div>
+                <Button onClick={submit} disabled={!ready || busy}>
+                  {busy ? 'Recording…' : `Record For ${fmtNum(known)} Customers`}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Prospects ── */}
+          {prospects > 0 && (
+            <div style={{ display: 'grid', gap: SP[3], paddingTop: SP[3], borderTop: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                Marketing Basis For The {fmtNum(prospects)} Prospects
+              </div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6 }}>
+                These people are not customers yet, so there is no per-person consent record to
+                write. What makes marketing to them defensible is where the list came from —
+                recorded once, on the list. <strong>With nothing recorded, a marketing campaign
+                to this list is refused.</strong>
+              </div>
+              <Select label="Basis" value={listBasis} onChange={e => setListBasis(e.target.value)}>
+                <option value="">Nothing recorded — marketing refused</option>
+                {CONSENT_BASES.map(b => <option key={b.v} value={b.v}>{b.label} — {b.note}</option>)}
+              </Select>
+              <Textarea label="Where This List Came From" rows={3} value={listNote}
+                onChange={e => setListNote(e.target.value)}
+                placeholder="CRC bureau extract, supplied 2026-09-28, supplier asserts opt-in at point of capture"
+                hint={listBasis === 'third_party_asserted'
+                  ? 'Required: name the supplier and what they asserted. A third-party claim with no note cannot be defended later.'
+                  : 'Optional, but it is what somebody reads in a year when asked why we mailed these people.'} />
+              <div>
+                <Button onClick={saveBasis}
+                  disabled={savingBasis || (listBasis === 'third_party_asserted' && !listNote.trim())}>
+                  {savingBasis ? 'Saving…' : 'Record Basis'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+const cth: React.CSSProperties = { padding: '6px 8px', fontWeight: FW.medium, whiteSpace: 'nowrap' }
+const cthNum: React.CSSProperties = { ...cth, textAlign: 'right' }
+const ctd: React.CSSProperties = { padding: '6px 8px', color: 'var(--txt1)' }
+const ctdNum: React.CSSProperties = { ...ctd, textAlign: 'right', fontFamily: MONO }
 
 // ── Contact data checker ──────────────────────────────────────────────────────
 

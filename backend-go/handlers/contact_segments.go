@@ -348,7 +348,10 @@ func segmentConsentStatus(db *core.DB) http.HandlerFunc {
 			  LEFT JOIN app.party_contact_consent c
 			         ON c.party_id = m.party_id AND c.channel = ch.channel
 			        AND c.purpose = 'marketing'
-			 WHERE m.list_id = $1
+			 -- status='active' because that is the population a campaign actually sends to
+			 -- (campaigns.go snapshots the same filter). Counting unsubscribed members here
+			 -- would report consent for people no campaign will ever contact.
+			 WHERE m.list_id = $1 AND m.status = 'active'
 			 GROUP BY ch.channel ORDER BY ch.channel`, listID)
 		if err != nil {
 			respondErrLog(w, 500, "Could not read consent for this segment", err)
@@ -418,7 +421,8 @@ func segmentRecordConsent(db *core.DB) http.HandlerFunc {
 			SELECT DISTINCT m.party_id
 			  FROM contact_list_members m
 			  JOIN app.parties p ON p.party_id = m.party_id
-			 WHERE m.list_id = $1 AND m.party_id IS NOT NULL`, listID)
+			 WHERE m.list_id = $1 AND m.party_id IS NOT NULL
+			   AND m.status = 'active'`, listID)
 		if err != nil {
 			respondErrLog(w, 500, "Could not read the segment's members", err)
 			return
