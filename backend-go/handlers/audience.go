@@ -202,21 +202,68 @@ func campaignSendVerdict(ctx context.Context, db *core.DB, purpose, channel, lis
 	if partyID == 0 {
 		return prospectMarketingVerdict(listBasis)
 	}
+
+	// A KNOWN CUSTOMER. Their own answer is read first, because it outranks anything
+	// recorded about an audience they happen to sit in.
 	rows, err := db.PGQuery(ctx, `
-		SELECT EXISTS (
-		  SELECT 1 FROM app.party_contact_consent
-		   WHERE party_id = $1 AND channel = $2 AND purpose = $3 AND state = 'granted'
-		     AND (expires_at IS NULL OR expires_at > NOW())
-		) AS granted`, partyID, channel, purpose)
+		SELECT state, (expires_at IS NULL OR expires_at > NOW()) AS live
+		  FROM app.party_contact_consent
+		 WHERE party_id = $1 AND channel = $2 AND purpose = $3`, partyID, channel, purpose)
 	if err != nil {
 		// Fail CLOSED for marketing. A database blip must not become an unconsented
 		// offer, and the send is retryable — the message is not recallable.
 		return false, "could not confirm marketing consent"
 	}
-	if len(rows) == 0 || rows[0]["granted"] != true {
-		return false, "no marketing consent on " + channel
+	for _, row := range rows {
+		switch str(row["state"]) {
+		case "withdrawn":
+			// Absolute, and never overridable by a basis recorded against a list: a
+			// person who opted out has answered for themselves.
+			return false, "customer withdrew marketing consent for " + channel
+		case "granted":
+			if row["live"] == true {
+				return true, ""
+			}
+			return false, "marketing consent for " + channel + " has expired"
+		}
 	}
-	return true, ""
+
+	// This customer has never been asked either way, so the basis recorded on the
+	// list decides.
+	//
+	// It HAD to, because the previous behaviour was incoherent: listBasis was simply
+	// ignored on this branch, so a bureau-sourced stranger could be marketed to on a
+	// recorded legitimate_interest while an active customer of ten years could not —
+	// even though an existing relationship is the stronger of the two bases. The only
+	// route to your own customers was a per-party row for every single one, which is
+	// why marketing consent sat at zero and every campaign reported that it would
+	// send nothing.
+	//
+	// This does not invent consent. It requires somebody to have recorded a lawful
+	// basis against the audience, with their name and a note on it, and the
+	// suppression check above plus the withdrawal check here still refuse regardless.
+	return customerMarketingVerdict(listBasis)
+}
+
+// customerMarketingVerdict reads the list's recorded basis for someone who already
+// IS a customer and has expressed no preference of their own. Same vocabulary as
+// the prospect case, different wording, because "the list says so" means something
+// different about a person you already have a relationship with.
+func customerMarketingVerdict(listBasis string) (ok bool, reason string) {
+	switch strings.TrimSpace(listBasis) {
+	case "opt_in_collected":
+		return true, "customer: list records a collected opt-in"
+	case "legitimate_interest":
+		return true, "customer: the existing relationship is recorded as the basis"
+	case "third_party_asserted":
+		return true, "customer: consent asserted by the list's source, not collected by us"
+	case "not_for_marketing":
+		return false, "list is marked not for marketing"
+	default:
+		return false, "no marketing consent recorded for this customer and the contact " +
+			"list has no recorded basis either — record consent for the segment, or set a " +
+			"marketing basis on the list"
+	}
 }
 
 // Exclusion reasons, in the order they are tested. Order is part of the contract:

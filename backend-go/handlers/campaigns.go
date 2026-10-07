@@ -807,19 +807,34 @@ func preflightConsentBlocked(ctx context.Context, db *core.DB, listID, channel, 
 			                WHERE c.party_id=m.party_id AND c.channel=$2
 			                  AND c.purpose='servicing' AND c.state='withdrawn')`, listID, channel)
 	}
-	// Marketing: a known customer needs a granted, unexpired row of their own; a
-	// prospect is governed by the basis recorded on the list.
+	// Marketing. This mirrors campaignSendVerdict case for case, deliberately: an
+	// estimate that disagrees with the sender is worse than no estimate, because it
+	// gets believed. A customer's own answer wins; with nothing on file, the basis
+	// recorded on the list decides, exactly as it does for a prospect.
 	prospectsAllowed, _ := prospectMarketingVerdict(listBasis)
+	customersAllowed, _ := customerMarketingVerdict(listBasis)
 	return count(`
 		SELECT COUNT(*) AS n FROM contact_list_members m
 		 WHERE m.list_id=$1 AND m.status='active' AND `+addr+` IS NOT NULL
 		   AND (
-		     (m.party_id IS NOT NULL AND NOT EXISTS (
-		         SELECT 1 FROM app.party_contact_consent c
-		          WHERE c.party_id=m.party_id AND c.channel=$2 AND c.purpose='marketing'
-		            AND c.state='granted' AND (c.expires_at IS NULL OR c.expires_at > NOW())))
-		     OR (m.party_id IS NULL AND $3)
-		   )`, listID, channel, !prospectsAllowed)
+		     (m.party_id IS NOT NULL AND CASE
+		        WHEN EXISTS (SELECT 1 FROM app.party_contact_consent c
+		                      WHERE c.party_id=m.party_id AND c.channel=$2
+		                        AND c.purpose='marketing' AND c.state='withdrawn')
+		             THEN TRUE          -- opted out: blocked whatever the list says
+		        WHEN EXISTS (SELECT 1 FROM app.party_contact_consent c
+		                      WHERE c.party_id=m.party_id AND c.channel=$2
+		                        AND c.purpose='marketing' AND c.state='granted'
+		                        AND (c.expires_at IS NULL OR c.expires_at > NOW()))
+		             THEN FALSE         -- a live grant of their own
+		        WHEN EXISTS (SELECT 1 FROM app.party_contact_consent c
+		                      WHERE c.party_id=m.party_id AND c.channel=$2
+		                        AND c.purpose='marketing' AND c.state='granted')
+		             THEN TRUE          -- granted once, now expired
+		        ELSE $3                 -- never asked: the list's basis decides
+		      END)
+		     OR (m.party_id IS NULL AND $4)
+		   )`, listID, channel, !customersAllowed, !prospectsAllowed)
 }
 
 func campaignPreflight(db *core.DB) http.HandlerFunc {
