@@ -153,7 +153,11 @@ export default function CashFlowStatement() {
 
       {(byActivity.get('unclassified')?.length ?? 0) > 0 && (
         <div style={{ marginTop: SP[4] }}>
-          <SectionCard title="Unclassified" subtitle={`${fmtKoboExact(unclassifiedTotal)} — generic GL accounts not yet mapped to an activity; see footnote`}>
+          <SectionCard
+            title="Unclassified"
+            subtitle={`${fmtKoboExact(unclassifiedTotal)} — generic GL accounts not yet mapped to an activity; see footnote`}
+            style={{ borderLeft: `3px solid ${RED}` }}
+          >
             <DataTable cols={cols} rows={byActivity.get('unclassified') ?? []} keyFn={(r, i) => `u-${i}`} onRowClick={openDrill} emptyText="Nothing unclassified" />
           </SectionCard>
         </div>
