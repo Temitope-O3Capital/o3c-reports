@@ -343,6 +343,7 @@ const SECTIONS: Section[] = [
           // Transaction-derived, not the GL book above — a narrower view, kept for
           // whoever still wants it, but no longer labelled "Income Statement".
           { label: 'Revenue & Expense Detail', to: '/finance/income' },
+          { label: 'Fee Income Capture',       to: '/finance/fee-income' },
           { label: 'Treasury',                 to: '/finance/treasury' },
           { label: 'Transactions',             to: '/finance/transactions' },
           { label: 'Fixed Deposits',           to: '/deposits' },
@@ -547,7 +548,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income', '/finance/treasury': 'income', '/finance/commissions': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',
   '/finance/balance-sheet': 'income', '/finance/income-statement-by-branch': 'income', '/finance/cash-flow': 'income',
-  '/finance/revenue-breakdown': 'income', '/finance/blink-report': 'income',
+  '/finance/revenue-breakdown': 'income', '/finance/blink-report': 'income', '/finance/fee-income': 'income',
   // Compliance
   '/compliance': 'watch_list', '/compliance/my-dashboard': ['watch_list', 'audit_findings', 'compliance_checklists', 'compliance_all'],
   '/compliance/credit-audit-trail': 'audit_trail',

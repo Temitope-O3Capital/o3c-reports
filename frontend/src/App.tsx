@@ -224,6 +224,7 @@ const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
 const FinanceRevenueBreakdown = lazy(() => import('./pages/finance/RevenueBreakdown'))
 const FinanceBlinkReport = lazy(() => import('./pages/finance/BlinkReport'))
+const FinanceFeeIncomeCapture = lazy(() => import('./pages/finance/FeeIncomeCapture'))
 const FinanceIncomeStatementByBranch = lazy(() => import('./pages/finance/IncomeStatementByBranch'))
 const FinanceBalanceSheet = lazy(() => import('./pages/finance/BalanceSheet'))
 const FinanceCashFlow     = lazy(() => import('./pages/finance/CashFlowStatement'))
@@ -1253,6 +1254,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/revenue-breakdown"  element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceRevenueBreakdown /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/blink-report"       element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBlinkReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/fee-income"         element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceFeeIncomeCapture /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income-statement-by-branch" element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncomeStatementByBranch /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/balance-sheet"      element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBalanceSheet /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/cash-flow"          element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCashFlow /></PageErrorBoundary></RequireAccess>} />
