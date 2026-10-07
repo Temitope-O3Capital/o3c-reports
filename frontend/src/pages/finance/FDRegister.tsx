@@ -188,6 +188,7 @@ const thBase: CSSProperties = {
   color: 'var(--txt2)', textTransform: 'uppercase', fontFamily: INTER,
   letterSpacing: '0.6px', whiteSpace: 'nowrap', userSelect: 'none',
   borderBottom: '1px solid var(--bdr)', textAlign: 'left',
+  background: 'var(--th-bg)',
 }
 const tdBase: CSSProperties = {
   padding: '12px 14px', fontSize: 13.5, color: 'var(--txt)',
@@ -229,7 +230,11 @@ function SortHeader({ col, sortKey, sortDir, onSort }: {
     <th
       scope="col"
       aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
-      style={{ ...thBase, width: col.width, textAlign: col.align ?? 'left', color: active ? 'var(--txt)' : 'var(--txt2)' }}
+      style={{
+        ...thBase, width: col.width, textAlign: col.align ?? 'left',
+        color: active ? 'var(--accent)' : 'var(--txt2)',
+        ...(active ? { background: 'var(--accent-soft)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : {}),
+      }}
     >
       {col.sortable ? (
         <button

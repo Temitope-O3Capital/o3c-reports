@@ -95,25 +95,56 @@ func RegisterFinance(r chi.Router, db *core.DB) {
      equity would be a guess wearing an accounting label.
 */
 
+// branchDisplayName maps the UI's lowercase branch param to the display-form branch
+// name already baked into app.financial_position_by_branch / app.income_statement_by_branch
+// ('Lagos'/'Abuja') — NOT Udara's raw branch_name, which those views translate themselves.
+// An empty branch means no filter (consolidated / whole-company).
+func branchDisplayName(v string) string {
+	switch v {
+	case "lagos":
+		return "Lagos"
+	case "abuja":
+		return "Abuja"
+	default:
+		return ""
+	}
+}
+
 func finPosition(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		branch := branchDisplayName(qstr(r, "branch"))
 
-		lines, err := db.PGQuery(ctx, `
-			SELECT currency, side, line, gl_code, amount_kobo, items
-			  FROM app.financial_position
-			 ORDER BY currency, side, sort`)
+		var lines []map[string]any
+		var err error
+		if branch == "" {
+			lines, err = db.PGQuery(ctx, `
+				SELECT currency, side, line, gl_code, amount_kobo, items
+				  FROM app.financial_position
+				 ORDER BY currency, side, sort`)
+		} else {
+			// Branch-split book: same sources, grouped by app.financial_position_by_branch
+			// (migration 339), which also carries an 'Equity' side (the frozen 2026-01-01
+			// opening balance) that the whole-company view above does not expose.
+			lines, err = db.PGQuery(ctx, `
+				SELECT currency, side, line, gl_code, amount_kobo, items
+				  FROM app.financial_position_by_branch
+				 WHERE branch = $1
+				 ORDER BY currency, side, sort`, branch)
+		}
 		if err != nil {
 			respondErrLog(w, 500, "Financial position query failed", err)
 			return
 		}
 
-		// Totals per currency, assets and liabilities kept apart.
+		// Totals per currency, assets/liabilities/equity kept apart — the by-branch view
+		// adds an 'Equity' side the switch below must not silently fold into Liabilities.
 		type ccy struct {
-			Currency    string `json:"currency"`
-			AssetsKobo  int64  `json:"assets_kobo"`
-			LiabsKobo   int64  `json:"liabilities_kobo"`
-			NetPosition int64  `json:"net_position_kobo"`
+			Currency      string `json:"currency"`
+			AssetsKobo    int64  `json:"assets_kobo"`
+			LiabsKobo     int64  `json:"liabilities_kobo"`
+			OpeningEquity int64  `json:"opening_equity_kobo"`
+			NetPosition   int64  `json:"net_position_kobo"`
 		}
 		order := []string{}
 		byCcy := map[string]*ccy{}
@@ -123,9 +154,12 @@ func finPosition(db *core.DB) http.HandlerFunc {
 				byCcy[c] = &ccy{Currency: c}
 				order = append(order, c)
 			}
-			if str(l["side"]) == "Asset" {
+			switch str(l["side"]) {
+			case "Asset":
 				byCcy[c].AssetsKobo += toInt64(l["amount_kobo"])
-			} else {
+			case "Equity":
+				byCcy[c].OpeningEquity += toInt64(l["amount_kobo"])
+			default: // "Liability"
 				byCcy[c].LiabsKobo += toInt64(l["amount_kobo"])
 			}
 		}
@@ -133,6 +167,23 @@ func finPosition(db *core.DB) http.HandlerFunc {
 		for _, c := range order {
 			byCcy[c].NetPosition = byCcy[c].AssetsKobo - byCcy[c].LiabsKobo
 			totals = append(totals, *byCcy[c])
+		}
+
+		// Retained earnings since the GL's own coverage floor (2026-07-01) — the income
+		// statement view's income minus expense, same branch filter. Added alongside the
+		// frozen opening equity as an IMPLIED equity figure for the Balance Sheet page,
+		// not folded into net_position_kobo above (which stays the plain assets-minus-
+		// liabilities figure every other finance page already reads). Jan-Jun 2026 has no
+		// GL feed at all (Udara's own ceiling), so this is explicitly partial-period, not
+		// a true full-year retained earnings — the frontend must say so, not just render it.
+		var retainedEarningsKobo int64
+		if branch != "" {
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT COALESCE(SUM(CASE WHEN statement = 'income' THEN amount_kobo ELSE -amount_kobo END), 0) AS n
+				  FROM app.income_statement_by_branch
+				 WHERE branch = $1`, branch); len(rows) > 0 {
+				retainedEarningsKobo = toInt64(rows[0]["n"])
+			}
 		}
 
 		// How stale each source is, so a stalled feed shows as a date rather than
@@ -155,11 +206,14 @@ func finPosition(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"lines":       lines,
-			"totals":      totals,
-			"as_of":       asOf,
-			"gl_entries":  glEntries,
-			"gl_accounts": glAccounts,
+			"lines":                   lines,
+			"totals":                  totals,
+			"branch":                  branch,
+			"retained_earnings_kobo":  retainedEarningsKobo,
+			"retained_earnings_since": glPostingsCoverageStart,
+			"as_of":                   asOf,
+			"gl_entries":              glEntries,
+			"gl_accounts":             glAccounts,
 			"basis": "Assets and liabilities from the live books of record (cbs_loans, " +
 				"cbs_fixed_deposits, app.card_balances), not from the general ledger. " +
 				"Amounts are in each line's own currency and are never summed across currencies — " +

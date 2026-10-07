@@ -225,6 +225,8 @@ const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
 const FinanceRevenueBreakdown = lazy(() => import('./pages/finance/RevenueBreakdown'))
 const FinanceBlinkReport = lazy(() => import('./pages/finance/BlinkReport'))
 const FinanceIncomeStatementByBranch = lazy(() => import('./pages/finance/IncomeStatementByBranch'))
+const FinanceBalanceSheet = lazy(() => import('./pages/finance/BalanceSheet'))
+const FinanceCashFlow     = lazy(() => import('./pages/finance/CashFlowStatement'))
 const FinanceTxns         = lazy(() => import('./pages/finance/Transactions'))
 const FinanceIncome       = lazy(() => import('./pages/finance/Income'))
 const FinanceFixedDeposits = lazy(() => import('./pages/finance/FixedDeposits'))
@@ -1243,6 +1245,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/finance/revenue-breakdown"  element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceRevenueBreakdown /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/blink-report"       element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBlinkReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income-statement-by-branch" element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncomeStatementByBranch /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/balance-sheet"      element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBalanceSheet /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/cash-flow"          element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCashFlow /></PageErrorBoundary></RequireAccess>} />
                   {/* Retired: finance My Dashboard folded into Overview + End of Day */}
                   <Route path="/finance/my-dashboard"       element={<Navigate to="/finance" replace />} />
                   <Route path="/finance/transactions"       element={<RequireAccess page="transactions" user={user}><PageErrorBoundary><FinanceTxns /></PageErrorBoundary></RequireAccess>} />

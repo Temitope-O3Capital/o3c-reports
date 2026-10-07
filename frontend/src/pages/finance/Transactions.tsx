@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, Pagination } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmt, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -60,24 +60,6 @@ const COLS: TableCol<TxnRow>[] = [
   { key: 'account_balance', label: 'Balance ₦', align: 'right',
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.account_balance != null ? fmt(r.account_balance) : '—'}</span> },
 ]
-
-function PageBtn({ children, active, disabled, onClick, icon }: {
-  children?: React.ReactNode; active?: boolean; disabled?: boolean
-  onClick?: () => void; icon?: string
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled} style={{
-      width: 28, height: 28, borderRadius: RADIUS.sm,
-      border: active ? 'none' : '1.5px solid var(--input-bdr)',
-      background: active ? RED : 'transparent',
-      color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-      fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
-    }}>
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
-    </button>
-  )
-}
 
 const PAGE_SIZE = 50
 
@@ -154,8 +136,6 @@ export default function FinanceTransactions() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
-  const showStart = total === 0 ? 0 : offset + 1
-  const showEnd = Math.min(offset + PAGE_SIZE, total)
   const kpiLoading = loading && !kpis
   const periodLabel = `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}`
 
@@ -219,25 +199,8 @@ export default function FinanceTransactions() {
 
         <DataTable cols={COLS} rows={rows} keyFn={(r, i) => i} loading={loading} emptyText="No transactions found" />
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} 18px`, borderTop: '1px solid var(--bdr)' }}>
-          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-            {total === 0 ? 'No transactions' : `Showing ${showStart.toLocaleString()}–${showEnd.toLocaleString()} of ${total.toLocaleString()}`}
-          </span>
-          {totalPages > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
-              <PageBtn icon="chevron_left" disabled={offset === 0} onClick={() => load(Math.max(0, offset - PAGE_SIZE))} />
-              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                let pg: number
-                if (totalPages <= 7) pg = i + 1
-                else if (currentPage <= 4) pg = i + 1
-                else if (currentPage >= totalPages - 3) pg = totalPages - 6 + i
-                else pg = currentPage - 3 + i
-                return <PageBtn key={pg} active={pg === currentPage} onClick={() => load((pg - 1) * PAGE_SIZE)}>{pg}</PageBtn>
-              })}
-              <PageBtn icon="chevron_right" disabled={currentPage >= totalPages} onClick={() => load(offset + PAGE_SIZE)} />
-            </div>
-          )}
-        </div>
+        <Pagination page={currentPage} pages={totalPages} total={total} pageSize={PAGE_SIZE}
+          onPage={p => load((p - 1) * PAGE_SIZE)} />
       </SectionCard>
     </Page>
   )

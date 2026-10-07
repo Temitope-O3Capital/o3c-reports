@@ -204,14 +204,14 @@ export default function Treasury() {
           as four assets. */}
       <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo">
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Assets</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: SP[4] }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
           <StatTile label="Loan Book" value={fmtKoboExact(loanBook)} color={NAVY} sub="outstanding principal" />
           <StatTile label="Loan Interest Receivable" value={fmtKoboExact(data?.loan_interest_kobo ?? 0)} color={BLUE} sub="earned on the loan book" />
           <StatTile label="NPL" value={fmtKoboExact(npl)} color={nplRatio > 5 ? RED : AMBER} sub={`${fmtPct(nplRatio)} of loan book`} />
         </div>
 
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Liabilities · owed to depositors</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[3] }}>
           <StatTile label="FD Book" value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)} color={AMBER} sub={`${fmtNum(data?.active_fds ?? 0)} active deposits`} />
           <StatTile label="Accrued FD Interest" value={fmtKoboExact(data?.fd_accrued_kobo ?? 0)} color={AMBER} sub="cost of funds owed · not income" />
           <StatTile
@@ -226,7 +226,7 @@ export default function Treasury() {
       {/* Linked from Settlements, which already owns posting/reconciliation — see this
           file's header comment. A read-only summary, not a second posting workflow. */}
       <SectionCard title="Posting & Reconciliation" subtitle="From the Settlements module" style={{ marginTop: SP[4] }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[3] }}>
           <StatTile
             label="Pending Manual Postings"
             value={fmtNum(data?.settlements?.pending_manual_postings ?? 0)}

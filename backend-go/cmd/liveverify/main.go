@@ -23,6 +23,7 @@ import (
 
 	"github.com/o3c/workspace/cbssync"
 	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/migrate"
 	"github.com/o3c/workspace/udara"
 )
 
@@ -199,6 +200,20 @@ func fieldSet(items []map[string]any) []string {
 	return out
 }
 
+func cfInt64(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	case string:
+		i, _ := strconv.ParseInt(n, 10, 64)
+		return i
+	default:
+		return 0
+	}
+}
+
 func str(m map[string]any, k string) string {
 	if v, ok := m[k]; ok && v != nil {
 		return fmt.Sprintf("%v", v)
@@ -227,6 +242,252 @@ func main() {
 		}
 		return env[k]
 	}
+	which := "all"
+	if len(os.Args) > 1 {
+		which = os.Args[1]
+	}
+
+	// DB-only commands — no Udara client needed, checked before the IsConfigured gate below.
+	if which == "glaccounts" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		rows, err := db.PGQuery(ctx, `
+			SELECT p.product_category, p.account_number, p.account_name,
+			       COUNT(*) FILTER (WHERE p.side = 'debit')  AS debit_postings,
+			       COUNT(*) FILTER (WHERE p.side = 'credit') AS credit_postings,
+			       SUM(p.amount_kobo) AS total_amount_kobo
+			  FROM cbs_gl_postings p
+			  LEFT JOIN gl_account_lines l ON l.account_number = p.account_number
+			 WHERE l.account_number IS NULL
+			 GROUP BY p.product_category, p.account_number, p.account_name
+			 ORDER BY p.product_category, total_amount_kobo DESC`)
+		if err != nil {
+			fmt.Println("query error:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("%-14s %-14s %-45s %10s %10s %18s\n", "category", "account_num", "account_name", "debits", "credits", "total_kobo")
+		for _, r := range rows {
+			fmt.Printf("%-14v %-14v %-45v %10v %10v %18v\n",
+				r["product_category"], r["account_number"], r["account_name"],
+				r["debit_postings"], r["credit_postings"], r["total_amount_kobo"])
+		}
+		fmt.Printf("\n%d accounts not yet classified in gl_account_lines\n", len(rows))
+		return
+	}
+
+	if which == "glaccounts2" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		rows, err := db.PGQuery(ctx, `
+			SELECT p.account_number, p.account_name,
+			       STRING_AGG(DISTINCT p.product_category, ',') AS categories,
+			       COUNT(DISTINCT p.cbs_loan_account) FILTER (WHERE p.cbs_loan_account IS NOT NULL) AS distinct_loan_accts,
+			       SUM(p.amount_kobo) AS total_amount_kobo,
+			       COUNT(*) AS postings
+			  FROM cbs_gl_postings p
+			  LEFT JOIN gl_account_lines l ON l.account_number = p.account_number
+			 WHERE l.account_number IS NULL
+			 GROUP BY p.account_number, p.account_name
+			HAVING COUNT(DISTINCT p.account_name) = 1  -- drop account_numbers that are really per-customer sub-ledgers (name varies... won't trigger here since grouped by name too; real filter is below)
+			 ORDER BY total_amount_kobo DESC
+			 LIMIT 400`)
+		if err != nil {
+			fmt.Println("query error:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("%-16s %-50s %-20s %8s %18s\n", "account_num", "account_name", "categories", "posts", "total_kobo")
+		for _, r := range rows {
+			fmt.Printf("%-16v %-50v %-20v %8v %18v\n", r["account_number"], r["account_name"], r["categories"], r["postings"], r["total_amount_kobo"])
+		}
+		return
+	}
+
+	if which == "applymigrations" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		if err := migrate.Apply(context.Background(), db, os.DirFS("migrations"), "."); err != nil {
+			fmt.Println("migrate error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("migrations applied OK")
+		return
+	}
+
+	if which == "cashflowcheck" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+
+		fmt.Println("--- cash_flow_statement_by_branch totals by activity ---")
+		rows, err := db.PGQuery(ctx, `
+			SELECT branch, activity, SUM(amount_kobo) AS total_kobo, SUM(postings) AS postings
+			  FROM app.cash_flow_statement_by_branch
+			 GROUP BY branch, activity
+			 ORDER BY branch, activity`)
+		if err != nil {
+			fmt.Println("query error:", err)
+			os.Exit(1)
+		}
+		var sumOIF int64
+		for _, r := range rows {
+			fmt.Printf("%-12v %-14v %18v  (%v postings)\n", r["branch"], r["activity"], r["total_kobo"], r["postings"])
+			if fmt.Sprint(r["activity"]) != "unclassified" {
+				sumOIF += cfInt64(r["total_kobo"])
+			}
+		}
+
+		fmt.Println("\n--- net movement on cash/internal accounts (should ~= sum of O+I+F above) ---")
+		rows2, _ := db.PGQuery(ctx, `
+			SELECT a.activity,
+			       SUM(CASE WHEN p.side='credit' THEN p.amount_kobo ELSE -p.amount_kobo END) AS net_kobo
+			  FROM cbs_gl_postings p
+			  JOIN gl_cash_flow_accounts a ON a.account_number = p.account_number
+			 WHERE p.financial_date >= DATE '2026-07-01' AND a.activity IN ('cash','internal')
+			 GROUP BY a.activity`)
+		var cashNet int64
+		for _, r := range rows2 {
+			fmt.Printf("%-14v %18v\n", r["activity"], r["net_kobo"])
+			if fmt.Sprint(r["activity"]) == "cash" {
+				cashNet = cfInt64(r["net_kobo"])
+			}
+		}
+		fmt.Printf("\nSum(Operating+Investing+Financing, unclassified excluded) = %d\n", sumOIF)
+		fmt.Printf("Net movement on 'cash' accounts                            = %d\n", cashNet)
+		fmt.Printf("Difference (should equal unclassified + internal, roughly)  = %d\n", sumOIF+cashNet)
+		return
+	}
+
+	if which == "rerun348" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		sql, err := os.ReadFile("migrations/348_cash_flow_statement.sql")
+		if err != nil {
+			fmt.Println("read error:", err)
+			os.Exit(1)
+		}
+		if _, err := db.PGExec(context.Background(), string(sql)); err != nil {
+			fmt.Println("exec error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("re-applied 348 OK")
+		return
+	}
+
+	if which == "unclassified" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		rows, err := db.PGQuery(ctx, `
+			SELECT p.product_category, p.account_number, p.account_name,
+			       COUNT(*) AS postings,
+			       SUM(CASE WHEN p.side='credit' THEN p.amount_kobo ELSE -p.amount_kobo END) AS net_kobo,
+			       COUNT(DISTINCT p.cbs_loan_account) FILTER (WHERE p.cbs_loan_account IS NOT NULL) AS distinct_loan_links
+			  FROM cbs_gl_postings p
+			  LEFT JOIN gl_account_lines l ON l.account_number = p.account_number
+			  LEFT JOIN gl_cash_flow_accounts a ON a.account_number = p.account_number
+			 WHERE p.financial_date >= DATE '2026-07-01'
+			   AND l.account_number IS NULL AND a.account_number IS NULL
+			   AND p.product_category NOT IN ('fixed_deposit','loan','withholding_tax')
+			 GROUP BY p.product_category, p.account_number, p.account_name
+			 ORDER BY ABS(SUM(CASE WHEN p.side='credit' THEN p.amount_kobo ELSE -p.amount_kobo END)) DESC
+			 LIMIT 60`)
+		if err != nil {
+			fmt.Println("query error:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("%-14s %-16s %-45s %8s %18s %6s\n", "category", "account_num", "account_name", "posts", "net_kobo", "loanlk")
+		for _, r := range rows {
+			fmt.Printf("%-14v %-16v %-45v %8v %18v %6v\n", r["product_category"], r["account_number"], r["account_name"], r["postings"], r["net_kobo"], r["distinct_loan_links"])
+		}
+		return
+	}
+
+	if which == "glpairs" {
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			fmt.Println("config error:", err)
+			os.Exit(1)
+		}
+		db, err := core.Open(cfg)
+		if err != nil {
+			fmt.Println("db open error:", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		rows, err := db.PGQuery(ctx, `
+			SELECT legs, COUNT(*) AS postings
+			  FROM (
+			    SELECT posting_reference,
+			           COUNT(*) FILTER (WHERE side='debit')  AS d,
+			           COUNT(*) FILTER (WHERE side='credit') AS c,
+			           COUNT(*) FILTER (WHERE side='debit') || 'd/' ||
+			           COUNT(*) FILTER (WHERE side='credit') || 'c' AS legs
+			      FROM cbs_gl_postings
+			     GROUP BY posting_reference
+			  ) x
+			 GROUP BY legs
+			 ORDER BY postings DESC
+			 LIMIT 20`)
+		if err != nil {
+			fmt.Println("query error:", err)
+			os.Exit(1)
+		}
+		for _, r := range rows {
+			fmt.Printf("%-10v %v\n", r["legs"], r["postings"])
+		}
+		return
+	}
+
 	c := udara.New(get("UDARA360_BASE_URL"), get("UDARA360_CLIENT_ID"), get("UDARA360_CLIENT_SECRET"))
 	if !c.IsConfigured() {
 		fmt.Println("NOT CONFIGURED")
@@ -234,11 +495,6 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-
-	which := "all"
-	if len(os.Args) > 1 {
-		which = os.Args[1]
-	}
 
 	if which == "runblinkfx" {
 		cfg, err := core.LoadConfig()

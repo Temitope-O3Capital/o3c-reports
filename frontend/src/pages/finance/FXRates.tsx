@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS, NUM } from '../../lib/design'
-import { Page, SectionCard, Spinner, DateFilter, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, Spinner, DateFilter, ErrBanner, DataTable, SegmentedToggle, Button } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { EArea } from '../../components/echarts'
 import { toast } from 'sonner'
 
@@ -37,6 +38,15 @@ const fmtTime = (iso: string) =>
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+
+const historyCols: TableCol<RateHistory>[] = [
+  { key: 'scraped_at', label: 'Date / Time', render: r => <span style={{ ...NUM, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTime(r.scraped_at)}</span> },
+  { key: 'currency', label: 'Currency', render: r => <span style={{ fontWeight: FW.semibold }}>{FLAG[r.currency]} {r.currency}</span> },
+  { key: 'buy', label: 'Buy (₦)', align: 'right', render: r => <span style={{ ...NUM, color: CCY_COLOR[r.currency] ?? GREEN }}>₦{fmt(Number(r.buy))}</span> },
+  { key: 'sell', label: 'Sell (₦)', align: 'right', render: r => <span style={{ ...NUM, color: NAVY }}>₦{fmt(Number(r.sell))}</span> },
+  { key: 'spread', label: 'Spread', align: 'right', sortable: false, render: r => <span style={NUM}>₦{fmt(Number(r.sell) - Number(r.buy))}</span> },
+  { key: 'source', label: 'Source', render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.source}</span> },
+]
 
 export default function FXRates() {
   const [latest,       setLatest]       = useState<RateLatest[]>([])
@@ -136,19 +146,9 @@ export default function FXRates() {
               {lastUpdatedLabel} · scrapes hourly
             </span>
           )}
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              height: 36, padding: '0 16px', borderRadius: RADIUS.md, border: 'none',
-              background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
-              cursor: refreshing ? 'not-allowed' : 'pointer', opacity: refreshing ? 0.65 : 1,
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>sync</span>
+          <Button onClick={handleRefresh} loading={refreshing} icon="sync">
             {refreshing ? 'Refreshing…' : 'Refresh Now'}
-          </button>
+          </Button>
         </div>
       }
     >
@@ -171,24 +171,8 @@ export default function FXRates() {
 
           {/* Toolbar */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3], marginBottom: SP[5], alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: 4, background: 'var(--th-bg)', padding: 4, borderRadius: RADIUS.lg }}>
-              {CURRENCIES.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setCurrency(c)}
-                  style={{
-                    padding: '5px 14px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
-                    fontSize: TEXT.sm, fontWeight: FW.semibold,
-                    background: currency === c ? 'var(--card)' : 'transparent',
-                    color:      currency === c ? CCY_COLOR[c] : 'var(--txt3)',
-                    boxShadow:  currency === c ? '0 1px 3px rgba(0,0,0,.10)' : 'none',
-                    transition: 'all .12s',
-                  }}
-                >
-                  {FLAG[c]} {c}
-                </button>
-              ))}
-            </div>
+            <SegmentedToggle value={currency} onChange={setCurrency}
+              options={CURRENCIES.map(c => ({ value: c, label: `${FLAG[c]} ${c}` }))} />
 
             <div style={{ marginLeft: 'auto' }}>
               <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
@@ -235,41 +219,8 @@ export default function FXRates() {
 
           {/* History table */}
           {!loadingHist && history.length > 0 && (
-            <div style={{ overflowX: 'auto', marginTop: SP[6], borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
-                <thead>
-                  <tr style={{ background: 'var(--th-bg)' }}>
-                    {['Date / Time', 'Currency', 'Buy (₦)', 'Sell (₦)', 'Spread', 'Source'].map(h => (
-                      <th key={h} style={{
-                        padding: '8px 12px', textAlign: 'left', fontWeight: FW.semibold,
-                        color: 'var(--txt3)', fontSize: TEXT.xs, textTransform: 'uppercase',
-                        letterSpacing: '.4px', whiteSpace: 'nowrap',
-                        borderBottom: '1px solid var(--bdr)',
-                      }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...history].reverse().map((r, i) => {
-                    const spread = Number(r.sell) - Number(r.buy)
-                    return (
-                      <tr
-                        key={i}
-                        style={{ borderBottom: '1px solid var(--bdr)' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                      >
-                        <td style={{ padding: '9px 12px', color: 'var(--txt2)', whiteSpace: 'nowrap', ...NUM }}>{fmtTime(r.scraped_at)}</td>
-                        <td style={{ padding: '9px 12px', fontWeight: FW.semibold, color: 'var(--txt)' }}>{FLAG[r.currency]} {r.currency}</td>
-                        <td style={{ padding: '9px 12px', color: CCY_COLOR[r.currency] ?? GREEN, ...NUM }}>₦{fmt(Number(r.buy))}</td>
-                        <td style={{ padding: '9px 12px', color: NAVY, ...NUM }}>₦{fmt(Number(r.sell))}</td>
-                        <td style={{ padding: '9px 12px', color: 'var(--txt2)', ...NUM }}>₦{fmt(spread)}</td>
-                        <td style={{ padding: '9px 12px', color: 'var(--txt3)', fontSize: TEXT.xs }}>{r.source}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div style={{ marginTop: SP[6], borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <DataTable cols={historyCols} rows={[...history].reverse()} keyFn={(_, i) => i} />
             </div>
           )}
 
@@ -372,20 +323,9 @@ function EmptyHistory({ onRefresh, refreshing }: { onRefresh: () => void; refres
         <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Rate History Yet</div>
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>Fetch rates to start building historical data</div>
       </div>
-      <button
-        onClick={onRefresh}
-        disabled={refreshing}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6, marginTop: SP[1],
-          padding: '7px 18px', borderRadius: RADIUS.md,
-          border: `1.5px solid ${NAVY}`, background: 'transparent',
-          color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold,
-          cursor: refreshing ? 'not-allowed' : 'pointer', opacity: refreshing ? 0.65 : 1,
-        }}
-      >
-        <span className="material-symbols-rounded" style={{ fontSize: 16 }}>sync</span>
+      <Button variant="secondary" onClick={onRefresh} loading={refreshing} icon="sync" style={{ marginTop: SP[1] }}>
         {refreshing ? 'Fetching…' : 'Fetch Now'}
-      </button>
+      </Button>
     </div>
   )
 }

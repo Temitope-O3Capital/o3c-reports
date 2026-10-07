@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, EmptyState } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, EmptyState, Input, Button } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import CommissionRatesModal from '../../components/CommissionRatesModal'
 import { EBar, EDonut } from '../../components/echarts'
@@ -111,29 +111,10 @@ export default function Commissions() {
       subtitle="Officer commission earned per period"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="month"
-            value={period}
-            onChange={e => setPeriod(e.target.value)}
-            aria-label="Commission period"
-            style={{
-              height: 34, padding: '0 10px', borderRadius: 8,
-              border: '1px solid var(--input-bdr)', background: 'var(--input-bg)',
-              color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold,
-            }}
-          />
-          <button
-            onClick={() => setRatesOpen(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              height: 34, padding: '0 13px', borderRadius: 8,
-              border: '1px solid var(--bdr)', background: 'var(--card)',
-              color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>percent</span>
+          <Input type="month" value={period} onChange={e => setPeriod(e.target.value)} aria-label="Commission period" />
+          <Button variant="secondary" icon="percent" onClick={() => setRatesOpen(true)}>
             Commission Rates
-          </button>
+          </Button>
         </div>
       }
     >

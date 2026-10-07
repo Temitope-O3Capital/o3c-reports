@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, EmptyState, Badge } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, EmptyState, Badge, Button, Select } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import StatTile from './StatTile'
 import { apiFetch, unwrap, unwrapList } from '../../lib/api'
@@ -122,18 +122,14 @@ export default function FinanceEOD() {
       subtitle={eod ? `As of ${fmtDate(eod.as_of)} · derived from live data (no upload)` : 'Daily position & movement report'}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button onClick={() => step(1)} disabled={idx < 0 || idx >= dates.length - 1} title="Older day"
-            style={navBtn(idx < 0 || idx >= dates.length - 1)}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>chevron_left</span>
-          </button>
-          <select value={asOf} onChange={e => setAsOf(e.target.value)}
-            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold }}>
+          <Button size="sm" variant="ghost" icon="chevron_left" aria-label="Older day" title="Older day"
+            onClick={() => step(1)} disabled={idx < 0 || idx >= dates.length - 1} />
+          <Select value={asOf} onChange={e => setAsOf(e.target.value)} wrapStyle={{ minWidth: 200 }}>
             {dates.length === 0 && asOf && <option value={asOf}>{fmtDate(asOf)}</option>}
             {dates.map(d => <option key={d.date} value={d.date}>{fmtDate(d.date)} · {fmtNum(d.txn_count)} txns</option>)}
-          </select>
-          <button onClick={() => step(-1)} disabled={idx <= 0} title="Newer day" style={navBtn(idx <= 0)}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>chevron_right</span>
-          </button>
+          </Select>
+          <Button size="sm" variant="ghost" icon="chevron_right" aria-label="Newer day" title="Newer day"
+            onClick={() => step(-1)} disabled={idx <= 0} />
         </div>
       }
     >
@@ -281,12 +277,4 @@ export default function FinanceEOD() {
       </div>
     </Page>
   )
-}
-
-function navBtn(disabled: boolean): React.CSSProperties {
-  return {
-    height: 32, width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)',
-    color: disabled ? 'var(--txt3)' : 'var(--txt)', cursor: disabled ? 'not-allowed' : 'pointer',
-  }
 }

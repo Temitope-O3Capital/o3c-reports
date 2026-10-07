@@ -241,63 +241,52 @@ export default function FinanceOverview() {
           capital or reserves source exists in this database, so assets minus
           liabilities is labelled as what it is and nothing is invented to make
           it balance. Currencies are never merged — there is no FX rate policy. */}
-      {(position?.lines?.length ?? 0) > 0 && (
+      {/* Financial Position used to render every line here — the full table now lives
+          on its own Balance Sheet page (Finance → Books of Accounts), branch-split and
+          reachable from the sidebar. This stays as a per-currency summary with a clear
+          way into the full book, same click-through pattern as Total Revenue above. */}
+      {(position?.totals?.length ?? 0) > 0 && (
         <SectionCard
           title="Financial Position"
-          subtitle={`Assets and liabilities from the live books of record · not the general ledger${position?.as_of?.cards ? ` · cards to ${fmtDate(position.as_of.cards)}` : ''}`}
+          subtitle={`Assets and liabilities from the live books of record${position?.as_of?.cards ? ` · cards to ${fmtDate(position.as_of.cards)}` : ''}`}
+          actions={
+            <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY }}>
+              Full Balance Sheet
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
+            </span>
+          }
           style={{ marginBottom: SP[4] }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(position?.totals?.length ?? 1, 1)},1fr)`, gap: SP[4] }}>
             {(position?.totals ?? []).map(t => {
               const sym = t.currency === 'USD' ? '$' : t.currency === 'NGN' ? '₦' : `${t.currency} `
               const money = (kobo: number) =>
                 `${sym}${(Number(kobo || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-              const lines = (position?.lines ?? []).filter(l => l.currency === t.currency)
               return (
-                <div key={t.currency}>
-                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                <div key={t.currency} onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', padding: SP[3], borderRadius: 10, border: '1px solid var(--bdr)' }}>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                     {t.currency}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
-                    {(['Asset', 'Liability'] as const).map(side => (
-                      <div key={side}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 5, borderBottom: `2px solid ${side === 'Asset' ? NAVY : AMBER}` }}>
-                          <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                            {side === 'Asset' ? 'Assets' : 'Liabilities'}
-                          </span>
-                          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
-                            {money(side === 'Asset' ? t.assets_kobo : t.liabilities_kobo)}
-                          </span>
-                        </div>
-                        {lines.filter(l => l.side === side).map(l => (
-                          <div key={l.line} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--bdr)' }}>
-                            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-                              {l.line}
-                              <span style={{ color: 'var(--txt3)', marginLeft: 5 }}>{l.gl_code} · {fmtNum(l.items)}</span>
-                            </span>
-                            <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt)' }}>{money(l.amount_kobo)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Assets</span>
+                    <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{money(t.assets_kobo)}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8, paddingTop: 7, borderTop: '1px solid var(--bdr)' }}>
-                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
-                      Net Position <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(assets − liabilities; not equity)</span>
-                    </span>
-                    <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: t.net_position_kobo >= 0 ? GREEN : RED }}>
-                      {money(t.net_position_kobo)}
-                    </span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Liabilities</span>
+                    <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{money(t.liabilities_kobo)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--bdr)' }}>
+                    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Net Position</span>
+                    <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: t.net_position_kobo >= 0 ? GREEN : RED }}>{money(t.net_position_kobo)}</span>
                   </div>
                 </div>
               )
             })}
           </div>
           <div style={{ marginTop: SP[3], fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.55 }}>
-            Drawn from the loan, deposit and card books, not from the general ledger, which holds
-            only {fmtNum(position?.gl_entries ?? 0)} workspace-originated postings. Each currency stands alone;
-            no exchange rate is applied. Net position is not equity: this database holds no capital or
-            reserves source, so none is shown.
+            Not from the general ledger, which holds only {fmtNum(position?.gl_entries ?? 0)} workspace-originated
+            postings. Each currency stands alone; no exchange rate is applied. Net position is not equity —
+            see the full Balance Sheet for the per-line breakdown, by branch.
           </div>
         </SectionCard>
       )}

@@ -302,15 +302,45 @@ const SECTIONS: Section[] = [
         icon: 'account_balance', label: 'Finance', to: '/finance',
         vis: ['finance_officer','finance_head'],
         subs: [
-          { label: 'Overview',          to: '/finance' },
-          { label: 'End of Day',        to: '/finance/eod' },
-          { label: 'Income Statement',  to: '/finance/income' },
-          { label: 'Treasury',          to: '/finance/treasury' },
-          { label: 'Transactions',      to: '/finance/transactions' },
-          { label: 'Fixed Deposits',    to: '/deposits' },
-          { label: 'FX Parallel Rates', to: '/finance/fx-rates' },
-          { label: 'Sales Commissions', to: '/finance/commissions' },
-          { label: 'Loan Approvals',    to: '/loans/approvals' },
+          { label: 'Overview', to: '/finance' },
+        ],
+      },
+      // The statutory books — each reads Udara's own GL (migrations 337/339/347 +
+      // the new cash-flow view), branch-split, 2026-07-01+ coverage. Split out from
+      // the old flat Finance menu because none of these three were reachable before:
+      // Balance Sheet and Cash Flow didn't exist as pages at all, and Income Statement
+      // (GL-based) had a working route with no sidebar entry pointing at it.
+      {
+        icon: 'menu_book', label: 'Books of Accounts', to: '/finance/balance-sheet',
+        vis: ['finance_officer','finance_head'],
+        subs: [
+          { label: 'Balance Sheet',       to: '/finance/balance-sheet' },
+          { label: 'Income Statement',    to: '/finance/income-statement-by-branch' },
+          { label: 'Cash Flow Statement', to: '/finance/cash-flow' },
+        ],
+      },
+      {
+        icon: 'payments', label: 'Revenue', to: '/finance/revenue-breakdown',
+        vis: ['finance_officer','finance_head'],
+        subs: [
+          { label: 'Revenue Breakdown', to: '/finance/revenue-breakdown' },
+          { label: 'Blink FX Report',   to: '/finance/blink-report' },
+        ],
+      },
+      {
+        icon: 'account_balance_wallet', label: 'Operations', to: '/finance/eod',
+        vis: ['finance_officer','finance_head'],
+        subs: [
+          { label: 'End of Day',               to: '/finance/eod' },
+          // Transaction-derived, not the GL book above — a narrower view, kept for
+          // whoever still wants it, but no longer labelled "Income Statement".
+          { label: 'Revenue & Expense Detail', to: '/finance/income' },
+          { label: 'Treasury',                 to: '/finance/treasury' },
+          { label: 'Transactions',             to: '/finance/transactions' },
+          { label: 'Fixed Deposits',           to: '/deposits' },
+          { label: 'FX Parallel Rates',        to: '/finance/fx-rates' },
+          { label: 'Sales Commissions',        to: '/finance/commissions' },
+          { label: 'Loan Approvals',           to: '/loans/approvals' },
         ],
       },
     ],
@@ -508,6 +538,8 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // Finance
   '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income', '/finance/treasury': 'income', '/finance/commissions': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',
+  '/finance/balance-sheet': 'income', '/finance/income-statement-by-branch': 'income', '/finance/cash-flow': 'income',
+  '/finance/revenue-breakdown': 'income', '/finance/blink-report': 'income',
   // Compliance
   '/compliance': 'watch_list', '/compliance/my-dashboard': ['watch_list', 'audit_findings', 'compliance_checklists', 'compliance_all'],
   '/compliance/credit-audit-trail': 'audit_trail',

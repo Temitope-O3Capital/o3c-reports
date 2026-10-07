@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { SectionCard, DataTable, ErrBanner, Badge, EmptyState } from '../../components/UI'
+import { SectionCard, DataTable, ErrBanner, Badge, EmptyState, Select, Input, Button } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete, unwrapList } from '../../lib/api'
 import { fmtDate, fmtCount } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { hasPage } from '../../hooks/useAuth'
 
 // Correcting the account officer on a Udara loan or deposit.
@@ -156,11 +156,9 @@ export default function OfficerCorrections() {
     {
       key: 'id', label: '', align: 'right', render: r => (
         canEdit ? (
-          <button onClick={() => remove(r)} disabled={busy} style={{
-            padding: '4px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold,
-            cursor: busy ? 'default' : 'pointer',
-          }}>Revert to Udara</button>
+          <Button size="xs" variant="ghost" onClick={() => remove(r)} disabled={busy} style={{ color: RED }}>
+            Revert to Udara
+          </Button>
         ) : null
       ),
     },
@@ -188,11 +186,6 @@ export default function OfficerCorrections() {
     { key: 'reason', label: 'Reason', render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.reason || '—'}</span> },
   ], [])
 
-  const inputStyle = {
-    height: 34, padding: '0 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)',
-    background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, width: '100%',
-  } as const
-
   return (
     <>
       <ErrBanner error={error} onRetry={load} />
@@ -213,44 +206,26 @@ export default function OfficerCorrections() {
         style={{ marginBottom: SP[4] }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 1fr', gap: SP[3], alignItems: 'end' }}>
-          <label style={{ display: 'block' }}>
-            <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 4 }}>Applies To</span>
-            <select value={scope} onChange={e => setScope(e.target.value as any)} style={inputStyle}>
-              <option value="fd">One Deposit</option>
-              <option value="loan">One Loan</option>
-              <option value="party">A Whole Customer</option>
-            </select>
-          </label>
-          <label style={{ display: 'block' }}>
-            <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 4 }}>
-              {scope === 'party' ? 'Customer ID (party)' : 'Account Number'}
-            </span>
-            <input value={scopeKey} onChange={e => setScopeKey(e.target.value)} style={inputStyle}
-              placeholder={scope === 'party' ? 'e.g. 7283' : 'e.g. 301000005114'} />
-          </label>
-          <label style={{ display: 'block' }}>
-            <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 4 }}>Correct Officer</span>
-            <select value={officerId} onChange={e => setOfficerId(e.target.value)} style={inputStyle}>
-              <option value="">Choose an officer…</option>
-              {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
-            </select>
-          </label>
+          <Select label="Applies To" value={scope} onChange={e => setScope(e.target.value as any)}>
+            <option value="fd">One Deposit</option>
+            <option value="loan">One Loan</option>
+            <option value="party">A Whole Customer</option>
+          </Select>
+          <Input label={scope === 'party' ? 'Customer ID (party)' : 'Account Number'}
+            value={scopeKey} onChange={e => setScopeKey(e.target.value)}
+            placeholder={scope === 'party' ? 'e.g. 7283' : 'e.g. 301000005114'} />
+          <Select label="Correct Officer" value={officerId} onChange={e => setOfficerId(e.target.value)}>
+            <option value="">Choose an officer…</option>
+            {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
+          </Select>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: SP[3], alignItems: 'end', marginTop: SP[3] }}>
-          <label style={{ display: 'block' }}>
-            {/* Required by the API, not just the form: this moves commission, and
-                "who changed it and why" has to be answerable a year later. */}
-            <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 4 }}>
-              Reason (required — this changes who is credited with the business)
-            </span>
-            <input value={reason} onChange={e => setReason(e.target.value)} style={inputStyle}
-              placeholder="e.g. Booked under the wrong officer at onboarding; confirmed with the branch" />
-          </label>
-          <button onClick={submit} disabled={!canSubmit} style={{
-            height: 34, borderRadius: RADIUS.md, border: 'none',
-            background: canSubmit ? NAVY : 'var(--bdr)', color: canSubmit ? '#fff' : 'var(--txt3)',
-            fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: canSubmit ? 'pointer' : 'default',
-          }}>{busy ? 'Saving…' : 'Save Correction'}</button>
+          {/* Required by the API, not just the form: this moves commission, and
+              "who changed it and why" has to be answerable a year later. */}
+          <Input label="Reason (required — this changes who is credited with the business)"
+            value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="e.g. Booked under the wrong officer at onboarding; confirmed with the branch" />
+          <Button onClick={submit} disabled={!canSubmit} loading={busy}>Save Correction</Button>
         </div>
       </SectionCard>}
 
