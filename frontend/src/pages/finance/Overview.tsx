@@ -174,6 +174,12 @@ export default function FinanceOverview() {
     [byChannel],
   )
 
+  // Sparkline feeds for the three revenue KPI cards — same monthly buckets the
+  // "Revenue by Month" chart already uses, just one number per month per metric.
+  const totalRevenueTrend = monthly.map(m => m.card_interest_ngn + m.loan_interest_ngn + m.fee_ngn + m.penalty_ngn)
+  const interestTrend = monthly.map(m => m.card_interest_ngn + m.loan_interest_ngn)
+  const feeTrend = monthly.map(m => m.fee_ngn)
+
   return (
     <Page title="Finance" subtitle={totals ? `${fmt(totals.total_ngn)} revenue · ${fmtNum(totals.txn_count)} income events this period` : 'Revenue, treasury & movement overview'}
       loading={loading && !income}
@@ -196,21 +202,21 @@ export default function FinanceOverview() {
       <ErrBanner error={error} onRetry={() => load()} />
 
       {/* Primary KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         {/* Total Revenue is the one card in this strip with a drill-down behind it — the
-            Revenue Breakdown page, branch-as-columns, straight from Udara's own GL. Wrapped
-            rather than adding an onClick to the shared KpiCard, which nothing else needs. */}
-        <div onClick={() => navigate('/finance/revenue-breakdown')} style={{ cursor: 'pointer' }}
-          title="Click for a breakdown of what makes up Total Revenue">
-          <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} icon="trending_up" accent={GREEN}
-            change={pctChange(totals?.total_ngn ?? 0, prev?.total_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
-        </div>
+            Revenue Breakdown page, branch-as-columns, straight from Udara's own GL. */}
+        <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} icon="trending_up" accent={GREEN}
+          change={pctChange(totals?.total_ngn ?? 0, prev?.total_ngn ?? 0)} changePeriod="vs prev period" loading={loading}
+          onClick={() => navigate('/finance/revenue-breakdown')} title="Click for a breakdown of what makes up Total Revenue" index={0}
+          numericValue={totals?.total_ngn ?? 0} formatValue={fmt} trend={totalRevenueTrend} />
         <KpiCard label="Interest Income" value={fmt(totals?.interest_ngn ?? 0)} icon="account_balance" accent={BLUE}
-          change={pctChange(totals?.interest_ngn ?? 0, prev?.interest_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
+          change={pctChange(totals?.interest_ngn ?? 0, prev?.interest_ngn ?? 0)} changePeriod="vs prev period" loading={loading}
+          index={1} numericValue={totals?.interest_ngn ?? 0} formatValue={fmt} trend={interestTrend} />
         <KpiCard label="Fee Income" value={fmt(totals?.fee_ngn ?? 0)} icon="receipt_long" accent={PURPLE}
-          change={pctChange(totals?.fee_ngn ?? 0, prev?.fee_ngn ?? 0)} changePeriod="vs prev period" loading={loading} />
+          change={pctChange(totals?.fee_ngn ?? 0, prev?.fee_ngn ?? 0)} changePeriod="vs prev period" loading={loading}
+          index={2} numericValue={totals?.fee_ngn ?? 0} formatValue={fmt} trend={feeTrend} />
         <KpiCard label="Net Flow (30d)" value={fmt(treasury?.net_flow_ngn ?? 0)} icon="water_drop"
-          accent={(treasury?.net_flow_ngn ?? 0) >= 0 ? GREEN : RED} loading={loading} />
+          accent={(treasury?.net_flow_ngn ?? 0) >= 0 ? GREEN : RED} loading={loading} index={3} />
       </div>
 
       {/* Secondary KPI strip — balance-sheet positions, NOT period income.
@@ -224,11 +230,11 @@ export default function FinanceOverview() {
       <p style={{ margin: `0 0 ${SP[2]}`, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         Balance Sheet Position · Not Period Income
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} icon="savings" accent={AMBER} loading={loading} />
-        <KpiCard label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} icon="account_balance_wallet" accent={NAVY} loading={loading} />
-        <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} sub={`${fmtKoboExact(npl)} of book`} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} />
-        <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
+        <KpiCard label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} icon="savings" accent={AMBER} loading={loading} index={4} />
+        <KpiCard label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} icon="account_balance_wallet" accent={NAVY} loading={loading} index={5} />
+        <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} sub={`${fmtKoboExact(npl)} of book`} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} index={6} />
+        <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} index={7} />
       </div>
 
       {/* Financial position.
@@ -257,7 +263,7 @@ export default function FinanceOverview() {
           }
           style={{ marginBottom: SP[4] }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(position?.totals?.length ?? 1, 1)},1fr)`, gap: SP[4] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[4] }}>
             {(position?.totals ?? []).map(t => {
               const sym = t.currency === 'USD' ? '$' : t.currency === 'NGN' ? '₦' : `${t.currency} `
               const money = (kobo: number) =>
@@ -292,7 +298,7 @@ export default function FinanceOverview() {
       )}
 
       {/* Revenue by month + revenue by product */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         <SectionCard title="Revenue by Month" subtitle="Card interest · loan interest · fees · penalty. Stacks to Total Revenue">
           {loading ? <Sk h={220} /> : monthly.length === 0 ? (
             <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No income in this period</div>

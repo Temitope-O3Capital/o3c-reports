@@ -4,6 +4,7 @@ import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, SP, RADIUS, SHADOW, TRANS
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
 import { humanLabel, STATUS_LABELS } from '../lib/labels'
 import { useIsMobile } from '../hooks/useMediaQuery'
+import { useCountUp } from '../hooks/useCountUp'
 import { PageSkeleton } from './Skeleton'
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -134,16 +135,68 @@ interface KpiCardProps {
   icon?: string
   accent?: string
   loading?: boolean
+  /** Makes the whole card a button: cursor + hover lift. Replaces the ad-hoc
+   * wrapper-div-with-onClick pattern several pages used to hand-roll around this
+   * component. */
+  onClick?: () => void
+  title?: string
+  /** Position in a KPI row (0-based). When set, the card's entrance fades in with a
+   * small per-card delay instead of the whole row popping in as one flat block. */
+  index?: number
+  /** Paired with `formatValue`: animates from the previous number to this one on
+   * change instead of snapping straight to `value`. Omit either and the card falls
+   * back to rendering the static `value` exactly as before. */
+  numericValue?: number
+  formatValue?: (n: number) => string
+  /** Recent values, oldest first. Renders a small inline trend line under the
+   * number when there are at least 2 points. */
+  trend?: number[]
 }
 
-export function KpiCard({ label, value, sub, change, changePeriod, icon, accent = NAVY, loading }: KpiCardProps) {
-  const positive = (change ?? 0) >= 0
+function Sparkline({ points, color }: { points: number[]; color: string }) {
+  const w = 60, h = 18, pad = 2
+  const min = Math.min(...points), max = Math.max(...points)
+  const span = max - min
+  const xs = points.map((_, i) => pad + (i * (w - pad * 2)) / (points.length - 1))
+  const ys = points.map(p => span === 0 ? h / 2 : h - pad - ((p - min) / span) * (h - pad * 2))
+  const d = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
   return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--card-bdr)',
-      boxShadow: 'var(--card-shadow)', borderRadius: 12, padding: '16px 18px',
-      display: 'flex', flexDirection: 'column', gap: 6,
-    }}>
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block', marginTop: 4 }}>
+      <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.55} />
+    </svg>
+  )
+}
+
+export function KpiCard({
+  label, value, sub, change, changePeriod, icon, accent = NAVY, loading,
+  onClick, title, index, numericValue, formatValue, trend,
+}: KpiCardProps) {
+  const positive = (change ?? 0) >= 0
+  const [hover, setHover] = useState(false)
+  // Hooks run unconditionally regardless of whether count-up props were passed.
+  const animated = useCountUp(numericValue ?? 0)
+  const displayValue = numericValue !== undefined && formatValue ? formatValue(animated) : value
+  const clickable = !!onClick
+  return (
+    <div
+      onClick={onClick}
+      title={title}
+      onMouseEnter={() => clickable && setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e => (e.key === 'Enter' || e.key === ' ') && onClick!()) : undefined}
+      style={{
+        background: 'var(--card)', border: '1px solid var(--card-bdr)',
+        boxShadow: hover ? 'var(--shadow-lg)' : 'var(--card-shadow)', borderRadius: 12, padding: '16px 18px',
+        display: 'flex', flexDirection: 'column', gap: 6,
+        cursor: clickable ? 'pointer' : undefined,
+        transform: hover ? 'translateY(-2px)' : 'translateY(0)',
+        transition: 'box-shadow var(--transition), transform var(--transition)',
+        animation: index !== undefined ? 'pageFadeIn var(--dur-enter) var(--ease) backwards' : undefined,
+        animationDelay: index !== undefined ? `${Math.min(index, 8) * 40}ms` : undefined,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
           {label}
@@ -161,7 +214,7 @@ export function KpiCard({ label, value, sub, change, changePeriod, icon, accent 
 
       {loading ? <Sk h={28} w="60%" /> : (
         <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
-          {value}
+          {displayValue}
         </div>
       )}
 
@@ -184,6 +237,8 @@ export function KpiCard({ label, value, sub, change, changePeriod, icon, accent 
           )}
         </div>
       )}
+
+      {!loading && trend && trend.length >= 2 && <Sparkline points={trend} color={accent} />}
     </div>
   )
 }

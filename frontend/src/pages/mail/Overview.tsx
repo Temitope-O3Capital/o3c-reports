@@ -77,20 +77,17 @@ export default function MailOverview() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 16 }}>
-        <div onClick={() => navigate('/mail/inbox')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Inbox" value={fmtNum(c?.inbox_total ?? 0)} icon="inbox" accent={BLUE}
-            sub={c?.inbox_unread ? `${c.inbox_unread} unread` : 'All read'} loading={loading} />
-        </div>
-        <div onClick={() => navigate('/mail/sent')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Sent" value={fmtNum(c?.sent_total ?? 0)} icon="send" accent={NAVY}
-            sub="Messages you sent" loading={loading} />
-        </div>
-        <div onClick={() => navigate('/mail/drafts')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Drafts" value={fmtNum(c?.drafts_total ?? 0)} icon="draft" accent={AMBER}
-            sub="Saved, not sent" loading={loading} />
-        </div>
+        <KpiCard label="Inbox" value={fmtNum(c?.inbox_total ?? 0)} icon="inbox" accent={BLUE}
+          sub={c?.inbox_unread ? `${c.inbox_unread} unread` : 'All read'} loading={loading}
+          onClick={() => navigate('/mail/inbox')} index={0} />
+        <KpiCard label="Sent" value={fmtNum(c?.sent_total ?? 0)} icon="send" accent={NAVY}
+          sub="Messages you sent" loading={loading}
+          onClick={() => navigate('/mail/sent')} index={1} />
+        <KpiCard label="Drafts" value={fmtNum(c?.drafts_total ?? 0)} icon="draft" accent={AMBER}
+          sub="Saved, not sent" loading={loading}
+          onClick={() => navigate('/mail/drafts')} index={2} />
         <KpiCard label="Delivery Rate" value={p ? pct(p.delivery_rate) : '—'} icon="mark_email_read" accent={GREEN}
-          sub={p ? `${fmtNum(p.delivered)} delivered` : undefined} loading={loading} />
+          sub={p ? `${fmtNum(p.delivered)} delivered` : undefined} loading={loading} index={3} />
       </div>
 
       {/* Charts row */}

@@ -4,6 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, unwrap, unwrapList } from '../../lib/api'
 import { fmtKoboExact, fmtNum, fmtDate, fmtDatetime, fmtPct, today } from '../../lib/fmt'
 import { GREEN, RED, AMBER, PURPLE, TEXT, FW, SP } from '../../lib/design'
+import { toast } from 'sonner'
 
 // Blink's finance report — funding, the BlueSalt fee split, and the FX pipeline
 // (accumulated foreign currency awaiting sale). Separate from BlinkCard.tsx, which
@@ -70,8 +71,9 @@ export default function BlinkReport() {
     try {
       const res = await apiFetch('/api/finance/blink-fx-events?status=pending')
       setPending(unwrapList<FXEvent>(res))
-    } catch {
+    } catch (e: any) {
       setPending([])
+      setError(e?.message ?? 'Failed to load pending events')
     } finally {
       setPendingLoading(false)
     }
@@ -88,9 +90,10 @@ export default function BlinkReport() {
       const res = await apiFetch('/api/finance/blink-fx-events/sale', { method: 'POST', body: JSON.stringify(body) })
       setSaleResult(unwrap(res))
       setSaleForm({ currency: saleForm.currency, fx_amount: '', rate: '' })
+      toast.success('Sale recorded')
       load()
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to record sale')
+      toast.error(e?.message ?? 'Failed to record sale')
     } finally {
       setSaleBusy(false)
     }
@@ -111,9 +114,10 @@ export default function BlinkReport() {
         notes: eventForm.notes || undefined,
       })
       setEventForm({ ...eventForm, fx_amount: '', rate: '', notes: '' })
+      toast.success('Event recorded')
       loadPending()
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to record the event')
+      toast.error(e?.message ?? 'Failed to record the event')
     } finally {
       setEventBusy(false)
     }
@@ -123,10 +127,11 @@ export default function BlinkReport() {
     setActingId(id)
     try {
       await apiPut(`/api/finance/blink-fx-events/${id}/approve`, {})
+      toast.success('Event approved')
       loadPending()
       load()
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to approve')
+      toast.error(e?.message ?? 'Failed to approve')
     } finally {
       setActingId(null)
     }
@@ -135,9 +140,10 @@ export default function BlinkReport() {
     setActingId(id)
     try {
       await apiPut(`/api/finance/blink-fx-events/${id}/reject`, {})
+      toast.success('Event rejected')
       loadPending()
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to reject')
+      toast.error(e?.message ?? 'Failed to reject')
     } finally {
       setActingId(null)
     }

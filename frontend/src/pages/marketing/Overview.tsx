@@ -62,20 +62,17 @@ export default function MarketingOverview() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-        <div onClick={() => navigate('/campaigns')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Campaigns" value={fmtNum(c?.total ?? 0)} icon="campaign" accent={NAVY}
-            sub={c ? `${c.active} active · ${c.scheduled} scheduled` : undefined} loading={loading} />
-        </div>
-        <div onClick={() => navigate('/campaigns/lists')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Contacts Reached" value={fmtNum(aud?.contacts ?? 0)} icon="groups" accent={BLUE}
-            sub={aud ? `${aud.lists} lists · ${aud.segments} segments` : undefined} loading={loading} />
-        </div>
-        <div onClick={() => navigate('/campaigns/templates')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Templates" value={fmtNum(data?.templates_total ?? 0)} icon="dashboard_customize" accent={AMBER}
-            sub={(data?.templates ?? []).map(t => `${t.count} ${t.channel}`).join(' · ') || 'None yet'} loading={loading} />
-        </div>
+        <KpiCard label="Campaigns" value={fmtNum(c?.total ?? 0)} icon="campaign" accent={NAVY}
+          sub={c ? `${c.active} active · ${c.scheduled} scheduled` : undefined} loading={loading}
+          onClick={() => navigate('/campaigns')} index={0} />
+        <KpiCard label="Contacts Reached" value={fmtNum(aud?.contacts ?? 0)} icon="groups" accent={BLUE}
+          sub={aud ? `${aud.lists} lists · ${aud.segments} segments` : undefined} loading={loading}
+          onClick={() => navigate('/campaigns/lists')} index={1} />
+        <KpiCard label="Templates" value={fmtNum(data?.templates_total ?? 0)} icon="dashboard_customize" accent={AMBER}
+          sub={(data?.templates ?? []).map(t => `${t.count} ${t.channel}`).join(' · ') || 'None yet'} loading={loading}
+          onClick={() => navigate('/campaigns/templates')} index={2} />
         <KpiCard label="30-Day Open Rate" value={p30 ? pct(p30.open_rate) : '—'} icon="drafts" accent={GREEN}
-          sub={p30 ? `${fmtNum(p30.sent)} sent (30d)` : undefined} loading={loading} />
+          sub={p30 ? `${fmtNum(p30.sent)} sent (30d)` : undefined} loading={loading} index={3} />
       </div>
 
       {/* Charts + status */}

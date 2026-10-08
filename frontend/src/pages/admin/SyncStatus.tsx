@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
+import { useCountUp } from '../../hooks/useCountUp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -160,22 +161,6 @@ function WorkerCard({ w, now, onRun, busy, flash, idx }: { w: Worker; now: numbe
       </div>
     </div>
   )
-}
-
-// count-up hook for the fleet numbers
-function useCountUp(target: number, ms = 600): number {
-  const [v, setV] = useState(target)
-  const from = useRef(target)
-  useEffect(() => {
-    const start = from.current; const t0 = performance.now(); let raf = 0
-    const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / ms)
-      setV(Math.round(start + (target - start) * (1 - Math.pow(1 - k, 3))))
-      if (k < 1) raf = requestAnimationFrame(step); else from.current = target
-    }
-    raf = requestAnimationFrame(step); return () => cancelAnimationFrame(raf)
-  }, [target, ms])
-  return v
 }
 
 function FleetNum({ value, color }: { value: number; color: string }) {

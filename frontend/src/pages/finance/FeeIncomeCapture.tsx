@@ -4,6 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, unwrapList } from '../../lib/api'
 import { fmtKoboExact, fmtDate, today } from '../../lib/fmt'
 import { TEXT, SP } from '../../lib/design'
+import { toast } from 'sonner'
 
 // Manual fee capture — card joining/membership/reissue/maintenance fees and loan
 // management/other fees have no reliable upstream source (migration 341's header: only
@@ -55,8 +56,9 @@ export default function FeeIncomeCapture() {
     try {
       const res = await apiFetch('/api/finance/fee-income')
       setCardFees(unwrapList<CardFee>(res))
-    } catch {
+    } catch (e: any) {
       setCardFees([])
+      setError(e?.message ?? 'Failed to load card fees')
     } finally {
       setCardLoading(false)
     }
@@ -65,7 +67,6 @@ export default function FeeIncomeCapture() {
   async function submitCardFee() {
     if (!cardForm.account_number || !cardForm.amount_kobo || Number(cardForm.amount_kobo) <= 0) return
     setCardBusy(true)
-    setError(null)
     try {
       await apiPost('/api/finance/fee-income', {
         fee_date: cardForm.fee_date, fee_type: cardForm.fee_type, account_number: cardForm.account_number,
@@ -74,9 +75,10 @@ export default function FeeIncomeCapture() {
         branch_name: cardForm.branch_name || undefined,
       })
       setCardForm({ ...cardForm, account_number: '', cif: '', amount_kobo: '', ref: '' })
+      toast.success('Card fee recorded')
       loadCardFees()
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to record the card fee')
+      toast.error(e?.message ?? 'Failed to record the card fee')
     } finally {
       setCardBusy(false)
     }
@@ -86,9 +88,10 @@ export default function FeeIncomeCapture() {
     setCardActingId(id)
     try {
       await apiPut(`/api/finance/fee-income/${id}/${action}`, {})
+      toast.success(action === 'approve' ? 'Card fee approved' : 'Card fee rejected')
       loadCardFees()
     } catch (e: any) {
-      setError(e?.message ?? `Failed to ${action} the entry`)
+      toast.error(e?.message ?? `Failed to ${action} the entry`)
     } finally {
       setCardActingId(null)
     }
@@ -106,8 +109,9 @@ export default function FeeIncomeCapture() {
     try {
       const res = await apiFetch('/api/finance/loan-fee-income')
       setLoanFees(unwrapList<LoanFee>(res))
-    } catch {
+    } catch (e: any) {
       setLoanFees([])
+      setError(e?.message ?? 'Failed to load loan fees')
     } finally {
       setLoanLoading(false)
     }
@@ -116,16 +120,16 @@ export default function FeeIncomeCapture() {
   async function submitLoanFee() {
     if (!loanForm.loan_account || !loanForm.amount_kobo || Number(loanForm.amount_kobo) <= 0) return
     setLoanBusy(true)
-    setError(null)
     try {
       await apiPost('/api/finance/loan-fee-income', {
         fee_date: loanForm.fee_date, fee_type: loanForm.fee_type, loan_account: loanForm.loan_account,
         amount_kobo: Math.round(Number(loanForm.amount_kobo) * 100), currency: loanForm.currency, ref: loanForm.ref || undefined,
       })
       setLoanForm({ ...loanForm, loan_account: '', amount_kobo: '', ref: '' })
+      toast.success('Loan fee recorded')
       loadLoanFees()
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to record the loan fee')
+      toast.error(e?.message ?? 'Failed to record the loan fee')
     } finally {
       setLoanBusy(false)
     }
@@ -135,9 +139,10 @@ export default function FeeIncomeCapture() {
     setLoanActingId(id)
     try {
       await apiPut(`/api/finance/loan-fee-income/${id}/${action}`, {})
+      toast.success(action === 'approve' ? 'Loan fee approved' : 'Loan fee rejected')
       loadLoanFees()
     } catch (e: any) {
-      setError(e?.message ?? `Failed to ${action} the entry`)
+      toast.error(e?.message ?? `Failed to ${action} the entry`)
     } finally {
       setLoanActingId(null)
     }
