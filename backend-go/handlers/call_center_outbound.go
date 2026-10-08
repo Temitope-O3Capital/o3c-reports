@@ -2495,6 +2495,66 @@ const ccLeadStatusRankSQL = `CASE status
 	                           ELSE 5
 	                         END`
 
+// ccReadyExpr is the single definition of "ready to dial", used by both the queue's
+// bucket filter and its summary chip so the count beside the tab cannot drift from
+// the rows beneath it.
+//
+// A due call-back is always ready — the customer named a time, so neither the
+// cooldown nor the exhausted-number rule should hold it back. A future call-back is
+// still cooling from the call that set it, so it stays out. Cold dials are the usual
+// "never called, or rested past the cooldown, and not exhausted" set.
+//
+// AND A NUMBER THE VIEWER HAS DIALLED BUT NOT YET WRITTEN UP STAYS READY. That is
+// the fix for a contact vanishing mid-call. Dialling writes no call row —
+// zohoInitiateCall deliberately leaves that to the Zoho Desk sync, which backfills
+// it a MEASURED ~24 seconds later (average over 7,085 calls across three days). The
+// sync runs ccStampQueueForPhone, which stamps last_called_at, and the cooldown
+// clause then excludes the contact. So about half a minute after an agent clicks
+// dial — while she is still talking to the person — the row dropped out of her queue
+// and every row below shifted up. An unanswered dial could do it twice over, by
+// pushing attempts to the exhausted threshold.
+//
+// That is not cosmetic. This module is built on dial -> log -> advance (handleAdvance
+// in Queue.tsx), and the contact she has to write up is precisely the one that
+// disappeared. With the log form matching candidates by phone number, losing your
+// place is how a call gets written against the wrong person. Measured on live data:
+// 18 contacts over three days had an un-written-up call by their own assigned agent
+// and had already been dropped from that agent's ready list.
+//
+// So a contact leaves on the WRITE-UP, not on the dial. "Written up" uses the same
+// test as the rest of the module — notes or disposition present on the CALL row —
+// rather than disposition_code on the contact, which holds the last disposition EVER
+// and would read a contact dispositioned last week as finished for today's attempt.
+// It self-clears the moment she logs, which is exactly when handleAdvance moves her
+// on. Twelve hours keeps it to the shift rather than letting it accumulate.
+//
+// norm_phone() on both sides rather than the inline regexp, because
+// idx_helpdesk_calls_normphone and idx_cc_contacts_normphone are both built on it.
+// The length guard is required: norm_phone returns an EMPTY STRING rather than
+// NULL for an unusable number, so one blank number would otherwise match every
+// other blank number.
+//
+// viewerID of 0 means no identified viewer, and the clause is omitted — never
+// rendered as "agent_id = 0", which would match nothing and read as deliberate.
+func ccReadyExpr(cooldownDays, exhaustedAttempts int, viewerID int64) string {
+	expr := fmt.Sprintf("(callback_at IS NOT NULL AND callback_at <= NOW())"+
+		" OR (callback_at IS NULL"+
+		"     AND (last_called_at IS NULL OR last_called_at <= NOW() - INTERVAL '%d days')"+
+		"     AND NOT (attempts >= %d AND connects = 0))", cooldownDays, exhaustedAttempts)
+	if viewerID > 0 {
+		expr += fmt.Sprintf(
+			" OR EXISTS (SELECT 1 FROM helpdesk_calls hc"+
+				" WHERE norm_phone(hc.customer_phone) = norm_phone(call_center_contacts.phone)"+
+				"   AND length(norm_phone(call_center_contacts.phone)) = 10"+
+				"   AND hc.agent_id = %d"+
+				"   AND hc.started_at > NOW() - INTERVAL '12 hours'"+
+				"   AND hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL"+
+				"   AND COALESCE(NULLIF(TRIM(hc.notes),''), NULLIF(TRIM(hc.disposition),'')) IS NULL)",
+			viewerID)
+	}
+	return expr
+}
+
 func ccListQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		priority := qstr(r, "priority")
@@ -2600,19 +2660,20 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		// reason the purpose tabs drop the purpose filter. "ready" is what an agent
 		// should actually dial: never called or rested past the cooldown, and not a
 		// number that has already swallowed ccExhaustedAttempts tries without one answer.
+		// ONE definition of "ready" (see ccReadyExpr), shared by the bucket filter below
+		// and the summary chip further down. It used to be written out twice, so any
+		// change to the rule had to be made in both or the count beside the tab stopped
+		// matching the rows underneath it.
+		var viewerID int64
+		if user != nil {
+			viewerID = user.ID
+		}
+		readyExpr := ccReadyExpr(cooldown, ccExhaustedAttempts, viewerID)
+
 		bucketCond := ""
 		switch bucket {
 		case "ready":
-			// A due call-back is always ready — the customer named a time, so neither the
-			// cooldown nor the exhausted-number rule should hold it back. A future
-			// call-back is still cooling from the call that set it, so it stays out. Cold
-			// dials are the usual "never called, or rested, and not exhausted" set.
-			// (Call-backs float to the top via the ORDER BY, and also carry their own
-			// disposition filter + the due-now popup — so they need no separate tile.)
-			bucketCond = fmt.Sprintf(" AND ((callback_at IS NOT NULL AND callback_at <= NOW())"+
-				" OR (callback_at IS NULL"+
-				"     AND (last_called_at IS NULL OR last_called_at <= NOW() - INTERVAL '%d days')"+
-				"     AND NOT (attempts >= %d AND connects = 0)))", cooldown, ccExhaustedAttempts)
+			bucketCond = " AND (" + readyExpr + ")"
 		case "uncalled":
 			bucketCond = " AND attempts = 0"
 		case "cooling":
@@ -2632,22 +2693,21 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		summary := map[string]any{"total": 0, "uncalled": 0, "contacted": 0, "cooling": 0,
 			"exhausted": 0, "ready": 0, "callbacks": 0, "callbacks_due": 0,
 			"marketing": 0, "collections": 0, "support": 0}
-		if sr, _ := db.PGQuery(r.Context(),
-			fmt.Sprintf(`SELECT COUNT(*) AS total,
+		// readyExpr is concatenated AFTER the Sprintf, never into its format string: it
+		// is a built expression, and the day someone puts a LIKE '%x%' in it, having it
+		// inside a format string would silently corrupt the query.
+		summaryQ := fmt.Sprintf(`SELECT COUNT(*) AS total,
 			        COUNT(*) FILTER (WHERE attempts = 0)                  AS uncalled,
 			        COUNT(*) FILTER (WHERE attempts > 0)                  AS contacted,
 			        COUNT(*) FILTER (WHERE last_called_at > NOW() - INTERVAL '%d days') AS cooling,
-			        COUNT(*) FILTER (WHERE attempts >= %d AND connects = 0)             AS exhausted,
-			        COUNT(*) FILTER (WHERE (callback_at IS NOT NULL AND callback_at <= NOW())
-			                            OR (callback_at IS NULL
-			                              AND (last_called_at IS NULL
-			                                OR last_called_at <= NOW() - INTERVAL '%d days')
-			                              AND NOT (attempts >= %d AND connects = 0)))       AS ready,
-			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL AND callback_at <= NOW()) AS callbacks_due,
+			        COUNT(*) FILTER (WHERE attempts >= %d AND connects = 0)             AS exhausted,`,
+			cooldown, ccExhaustedAttempts) +
+			` COUNT(*) FILTER (WHERE ` + readyExpr + `) AS ready,` +
+			` COUNT(*) FILTER (WHERE callback_at IS NOT NULL AND callback_at <= NOW()) AS callbacks_due,
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL)       AS callbacks
 			 FROM call_center_contacts
-			 WHERE status = 'pending' AND `+ccNotOnDNCExpr("call_center_contacts.phone"),
-				cooldown, ccExhaustedAttempts, cooldown, ccExhaustedAttempts)+cond, args...); len(sr) > 0 {
+			 WHERE status = 'pending' AND ` + ccNotOnDNCExpr("call_center_contacts.phone") + cond
+		if sr, _ := db.PGQuery(r.Context(), summaryQ, args...); len(sr) > 0 {
 			summary = sr[0]
 		}
 		// Per-purpose backlog drops the purpose filter so the segmentation tabs always

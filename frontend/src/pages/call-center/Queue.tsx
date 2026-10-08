@@ -763,6 +763,21 @@ export default function CallCenterQueue() {
       if (seq !== loadSeq.current) return fresh // superseded — a newer load owns the view
       setItems(fresh)
       setSummary(res.summary ?? null)
+      // Keep the OPEN contact in step with the refreshed rows, and never yank it away.
+      //
+      // `selected` is a snapshot taken when the agent clicked, and nothing reconciled
+      // it afterwards. The queue reloads on every realtime call event and on every
+      // window focus (useLiveData defaults focus:true), so the panel could sit on
+      // stale counters — or on a contact that had already left the bucket, which is
+      // what happens about half a minute after a dial once the Desk sync stamps
+      // last_called_at. Adopt the fresher row when it is still there; when it is not,
+      // KEEP showing it rather than dropping an agent's work mid-call. The server-side
+      // ready rule now holds it anyway, so this is the belt to that braces — it also
+      // covers the other buckets and any active filter.
+      setSelected(prev => {
+        if (!prev) return prev
+        return fresh.find(c => c.id === prev.id) ?? prev
+      })
       return fresh
     } catch (e: any) {
       if (seq !== loadSeq.current) return []
