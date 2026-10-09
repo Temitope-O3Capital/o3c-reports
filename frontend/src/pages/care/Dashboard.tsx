@@ -1,7 +1,7 @@
 import { useLiveData } from '../../hooks/useRealtime'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SectionCard, Spinner, ErrBanner, StatusBadge } from '../../components/UI'
+import { SectionCard, Spinner, ErrBanner, StatusBadge, navigableProps } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
@@ -116,7 +116,7 @@ export default function CareDashboard() {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {d.recent.map((m, i) => (
               <div key={m.id}
-                onClick={() => navigate(`/care/inbox?mail=${m.id}`)}
+                {...navigableProps(() => navigate(`/care/inbox?mail=${m.id}`))}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 4px', borderBottom: i < d.recent.length - 1 ? '1px solid var(--bdr)' : 'none', cursor: 'pointer' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>

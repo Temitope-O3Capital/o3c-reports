@@ -2,7 +2,7 @@ import { useLiveData } from '../../hooks/useRealtime'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Page, SectionCard, KpiCard, Spinner, ErrBanner, Modal } from '../../components/UI'
+import { Page, SectionCard, KpiCard, Spinner, ErrBanner, Modal, navigableProps } from '../../components/UI'
 import { TeamCalendar } from './TeamCalendar'
 import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -198,7 +198,7 @@ export default function SalesSupervisor() {
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {data.unowned_leads.map(l => (
                 <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}
-                  onClick={() => navigate(`/sales/customers/${l.id}`)}>
+                  {...navigableProps(() => navigate(`/sales/customers/${l.id}`))}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.name ?? 'Unknown lead'}</div>
                     <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{l.lead_source}{l.phone ? ` · ${l.phone}` : ''}</div>

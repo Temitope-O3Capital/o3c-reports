@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EArea } from '../../components/echarts'
-import { Page, SectionCard, ErrBanner, Spinner, Modal } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, Modal, navigableProps } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
 import { fmtNum, fmtDate } from '../../lib/fmt'
@@ -297,7 +297,7 @@ export default function CallCenterMyDashboard() {
             {d.recent_tickets.map((t, i) => {
               const pc = PRIORITY_COLOR[t.priority?.toLowerCase()] ?? NAVY
               return (
-                <div key={t.id} onClick={() => navigate(`/helpdesk/${t.id}`)}
+                <div key={t.id} {...navigableProps(() => navigate(`/helpdesk/${t.id}`))}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 4px', borderBottom: i < d.recent_tickets.length - 1 ? '1px solid var(--bdr)' : 'none', cursor: 'pointer' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, Spinner, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, Spinner, ErrBanner, navigableProps } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, TEXT, FW, RADIUS } from '../../lib/design'
@@ -97,7 +97,7 @@ export default function CareOutbox() {
                   <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'capitalize', color: STATE_COLOR[row.send_state] || 'var(--txt2)', background: `${STATE_COLOR[row.send_state] || '#999'}14`, borderRadius: RADIUS.full, padding: '3px 10px', minWidth: 70, textAlign: 'center' }}>
                     {row.send_state}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/care/inbox?mail=${row.ticket_id}`)}>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} {...navigableProps(() => navigate(`/care/inbox?mail=${row.ticket_id}`))}>
                     <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {row.subject || '(no subject)'} <span style={{ color: 'var(--txt3)', fontWeight: FW.medium }}>· {row.ticket_ref}</span>
                     </div>

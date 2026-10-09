@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { EBar } from '../../components/echarts'
-import { Page, KpiCard, SectionCard, DataTable, Sk, DateFilter, Modal, Tabs } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, Sk, DateFilter, Modal, Tabs, navigableProps } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { SelectMenu } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -504,7 +504,7 @@ export default function SalesOverview() {
               {sources.slice(0, 7).map(s => {
                 const rate = s.conversion_rate_pct == null ? null : Number(s.conversion_rate_pct)
                 return (
-                  <div key={s.source} onClick={() => navigate(`/sales/leads?source=${s.source}`)} style={{ cursor: 'pointer' }}>
+                  <div key={s.source} {...navigableProps(() => navigate(`/sales/leads?source=${s.source}`))} style={{ cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: TEXT.sm, marginBottom: 4 }}>
                       <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{s.label}</span>
                       <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtNum(s.leads)}</span>
@@ -553,7 +553,7 @@ export default function SalesOverview() {
               {PRODUCT_LINES.map(pl => {
                 const m = mix[pl.line] ?? { count: 0, value_kobo: 0 }
                 return (
-                  <div key={pl.line} onClick={() => navigate(`/sales/leads?line=${pl.line}`)}
+                  <div key={pl.line} {...navigableProps(() => navigate(`/sales/leads?line=${pl.line}`))}
                     style={{ cursor: 'pointer', border: '1px solid var(--bdr)', borderLeft: `3px solid ${lineColor(pl.line)}`, borderRadius: RADIUS.lg, padding: '12px 14px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                       <span className="material-symbols-rounded" style={{ fontSize: 16, color: pl.color }}>{pl.icon}</span>

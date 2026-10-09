@@ -144,14 +144,47 @@ interface KpiCardProps {
    * :nth-child in CSS, so DOM order already does the right thing. Pass this only when
    * the visual order differs from the DOM order. */
   index?: number
-  /** Paired with `formatValue`: animates from the previous number to this one on
-   * change instead of snapping straight to `value`. Omit either and the card falls
-   * back to rendering the static `value` exactly as before. */
+  /** Paired with `formatValue`: animates from the previous number to this one on change.
+   * Only needed when the raw number cannot be recovered from `value` — a card that
+   * renders a plain formatted figure already counts up without these. */
   numericValue?: number
   formatValue?: (n: number) => string
   /** Recent values, oldest first. Renders a small inline trend line under the
    * number when there are at least 2 points. */
   trend?: number[]
+}
+
+function formatLike(n: number, decimals: number, grouped: boolean): string {
+  return n.toLocaleString('en-NG', {
+    minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: grouped,
+  })
+}
+
+/**
+ * Pulls a single animatable number out of an already-formatted value string, so a card
+ * counts up without its page having to pass the raw number.
+ *
+ * The safety is the round-trip: the parsed number is re-formatted and compared against
+ * the original string, and anything that does not reproduce byte-for-byte returns null
+ * and is rendered untouched. That is what makes this safe to switch on for every card in
+ * the app at once rather than auditing ~110 call sites — the worst case is a card that
+ * does not animate, never a card showing a different number than it was given.
+ *
+ * Strings with no digits ("—"), or with digits in more than one place ("12 of 34",
+ * "2026-10-09"), fail the single-group match and are left alone.
+ */
+function parseFormattedNumber(s: string):
+  { prefix: string; suffix: string; value: number; decimals: number; grouped: boolean } | null {
+  const m = /^(\D*)(\d[\d,]*(?:\.\d+)?)(\D*)$/.exec(s)
+  if (!m) return null
+  const [, prefix, numStr, suffix] = m
+  const value = Number(numStr.replace(/,/g, ''))
+  if (!isFinite(value)) return null
+  const dot = numStr.indexOf('.')
+  const decimals = dot === -1 ? 0 : numStr.length - dot - 1
+  const grouped = numStr.includes(',')
+  if (prefix + formatLike(value, decimals, grouped) + suffix !== s) return null
+  return { prefix, suffix, value, decimals, grouped }
 }
 
 function Sparkline({ points, color }: { points: number[]; color: string }) {
@@ -174,9 +207,17 @@ export function KpiCard({
 }: KpiCardProps) {
   const positive = (change ?? 0) >= 0
   const [hover, setHover] = useState(false)
-  // Hooks run unconditionally regardless of whether count-up props were passed.
-  const animated = useCountUp(numericValue ?? 0)
-  const displayValue = numericValue !== undefined && formatValue ? formatValue(animated) : value
+  // An explicit numericValue+formatValue wins; otherwise fall back to reading the number
+  // back out of the formatted string, which is what gives cards that pass neither a
+  // count-up for free. Hooks run unconditionally, so one call covers both paths.
+  const explicit = numericValue !== undefined && formatValue !== undefined
+  const parsed = !explicit && typeof value === 'string' ? parseFormattedNumber(value) : null
+  const animated = useCountUp(explicit ? numericValue! : parsed ? parsed.value : 0)
+  const displayValue = explicit
+    ? formatValue!(animated)
+    : parsed
+      ? parsed.prefix + formatLike(animated, parsed.decimals, parsed.grouped) + parsed.suffix
+      : value
   const clickable = !!onClick
   return (
     <div
@@ -246,6 +287,32 @@ export function KpiCard({
       {!loading && trend && trend.length >= 2 && <Sparkline points={trend} color={accent} />}
     </div>
   )
+}
+
+// ── Keyboard-operable rows ────────────────────────────────────────────────────
+
+/**
+ * Props for a div/row whose whole body navigates on click. Spread it in place of a bare
+ * `onClick` so the row is also reachable by Tab and fires on Enter/Space.
+ *
+ * An audit found ~24 of these across the app — list rows, drill-down tiles, table rows —
+ * and not one carried tabIndex or a key handler, so every one of them was mouse-only.
+ *
+ * Pass role: undefined for a `<tr>`: a table row re-labelled as a button loses its row
+ * semantics for a screen reader, and tabIndex alone is enough to make it operable.
+ */
+export function navigableProps(onClick: () => void, role: 'button' | undefined = 'button') {
+  return {
+    onClick,
+    role,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      // Only when the row itself has focus — otherwise Enter on a nested button would
+      // bubble up and navigate as well as doing whatever that button does.
+      if (e.target !== e.currentTarget) return
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() }
+    },
+  }
 }
 
 // ── Card link ─────────────────────────────────────────────────────────────────

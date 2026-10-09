@@ -2,7 +2,7 @@ import { useLiveData } from '../../hooks/useRealtime'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { SectionCard, Spinner, ErrBanner, ConfirmModal } from '../../components/UI'
+import { SectionCard, Spinner, ErrBanner, ConfirmModal, navigableProps } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, SP, TEXT, NUM } from '../../lib/design'
@@ -161,7 +161,7 @@ export default function CareSupervisor() {
                     const pColor = t.priority === 'urgent' || t.priority === 'high' ? RED : t.priority === 'medium' || t.priority === 'normal' ? AMBER : BLUE
                     return (
                       <div key={t.id}
-                        onClick={() => navigate(`/care/inbox?mail=${t.id}`)}
+                        {...navigableProps(() => navigate(`/care/inbox?mail=${t.id}`))}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 2px', borderBottom: i < d.unassigned_tickets.length - 1 ? '1px solid var(--bdr)' : 'none', cursor: 'pointer' }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>

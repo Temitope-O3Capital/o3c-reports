@@ -1,7 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, CardLink, DataTable, ErrBanner, Sk, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, DataTable, ErrBanner, Sk, DateFilter, navigableProps } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { EBar, EDonut } from '../../components/echarts'
 import { apiFetch, unwrap } from '../../lib/api'
@@ -266,7 +266,7 @@ export default function FinanceOverview() {
               const money = (kobo: number) =>
                 `${sym}${(Number(kobo || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
               return (
-                <div key={t.currency} onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', padding: SP[3], borderRadius: 10, border: '1px solid var(--bdr)' }}>
+                <div key={t.currency} {...navigableProps(() => navigate('/finance/balance-sheet'))} style={{ cursor: 'pointer', padding: SP[3], borderRadius: 10, border: '1px solid var(--bdr)' }}>
                   <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                     {t.currency}
                   </div>

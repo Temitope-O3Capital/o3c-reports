@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, Button, Input, Select, DateFilter } from '../../components/UI'
+import { Page, SectionCard, Button, Input, Select, DateFilter, navigableProps } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, BLUE, PURPLE, MONO, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -132,7 +132,7 @@ export default function CCStatements() {
                 {rows.map(s => (
                   <tr
                     key={s.id}
-                    onClick={() => navigate(`/statements/credit-cards/${s.id}`)}
+                    {...navigableProps(() => navigate(`/statements/credit-cards/${s.id}`), undefined)}
                     style={{ borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}

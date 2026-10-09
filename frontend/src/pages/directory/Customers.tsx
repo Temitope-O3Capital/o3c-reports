@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, KpiCard, Avatar, EmptyState, ExpandableFilterBar, Pagination } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, KpiCard, Avatar, EmptyState, ExpandableFilterBar, Pagination, navigableProps } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum } from '../../lib/fmt'
 import { NAVY, GREEN, BLUE, AMBER, PURPLE, RED, MONO, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -276,7 +276,7 @@ export default function CustomerDirectory() {
                   return (
                     <tr
                       key={r.cif}
-                      onClick={() => navigate(`${base}/${encodeURIComponent(r.cif)}`)}
+                      {...navigableProps(() => navigate(`${base}/${encodeURIComponent(r.cif)}`), undefined)}
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}

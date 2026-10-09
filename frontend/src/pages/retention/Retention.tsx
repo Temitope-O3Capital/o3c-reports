@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, KpiCard, EmptyState, Pagination } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, KpiCard, EmptyState, Pagination, navigableProps } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
 import { fmtNum } from '../../lib/fmt'
@@ -255,9 +255,11 @@ export default function Retention() {
                 {rows.map(r => {
                   const b = BUCKETS.find(x => x.key === r.bucket)
                   const t = TIERS.find(x => x.key === r.value_tier)
+                  // Only rows that lead somewhere take focus: a row with no CIF would
+                  // otherwise be a tab stop that does nothing when activated.
                   return (
                     <tr key={r.party_id}
-                      onClick={() => r.cif && navigate(`/customers/${r.cif}`)}
+                      {...(r.cif ? navigableProps(() => navigate(`/customers/${r.cif}`), undefined) : {})}
                       style={{ cursor: r.cif ? 'pointer' : 'default', borderBottom: '1px solid var(--bdr-soft, var(--bdr))' }}>
                       <td style={{ padding: '9px 12px' }}>
                         <div style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name || '—'}</div>

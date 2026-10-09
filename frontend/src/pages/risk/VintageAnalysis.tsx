@@ -1,7 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, KpiCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter } from '../../components/UI'
+import { Page, SectionCard, KpiCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter, navigableProps } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtPct, fmtNum, fmtKoboExact, fmtKobo, today } from '../../lib/fmt'
@@ -227,8 +227,8 @@ export default function VintageAnalysis() {
                       // The product filter travels with the drill-down, or the cohort page
                     // would describe every product in that month while the row clicked
                     // described one.
-                    onClick={() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`
-                      + (fProducts.size ? `?product=${encodeURIComponent([...fProducts].join(','))}` : ''))}
+                    {...navigableProps(() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`
+                      + (fProducts.size ? `?product=${encodeURIComponent([...fProducts].join(','))}` : '')), undefined)}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = isWorst ? 'rgba(192,0,0,.09)' : 'var(--row-hvr)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = rowBg}>
                       <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>

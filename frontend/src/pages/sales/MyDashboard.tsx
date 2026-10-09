@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { EArea, EBar } from '../../components/echarts'
-import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, navigableProps } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { MyDay } from './MyDay'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -245,7 +245,7 @@ export default function SalesMyDashboard() {
                 const m = dueMeta(f.next_action_at)
                 return (
                   <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)' }}>
-                    <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/sales/customers/${f.id}`)}>
+                    <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} {...navigableProps(() => navigate(`/sales/customers/${f.id}`))}>
                       <div style={{ fontWeight: FW.semibold, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name ?? 'Unknown lead'}</div>
                       <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{f.lead_stage === 'qualified' ? 'Interested' : humanLabel(f.lead_stage)}{f.phone ? ` · ${f.phone}` : ''}</div>
                     </div>
@@ -267,7 +267,7 @@ export default function SalesMyDashboard() {
               {data.recent_activity.map(a => (
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 18, color: NAVY, flexShrink: 0 }}>{actIcon(a.type)}</span>
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/sales/customers/${a.contact_id}`)}>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} {...navigableProps(() => navigate(`/sales/customers/${a.contact_id}`))}>
                     <div style={{ fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.subject || a.type}</div>
                     <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{a.contact_name ?? '—'}{a.outcome ? ` · ${a.outcome}` : ''}</div>
                   </div>

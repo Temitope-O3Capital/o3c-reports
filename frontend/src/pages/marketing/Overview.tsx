@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EBar } from '../../components/echarts'
-import { Page, KpiCard, SectionCard, CardLink, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, StatusBadge, EmptyState, Spinner, ErrBanner, navigableProps } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
 import { fmtNum, fmtDate } from '../../lib/fmt'
@@ -152,7 +152,7 @@ export default function MarketingOverview() {
         ) : (
           <div>
             {(data?.recent_campaigns ?? []).map(c => (
-              <div key={c.id} onClick={() => navigate(`/campaigns/${c.id}/report`)}
+              <div key={c.id} {...navigableProps(() => navigate(`/campaigns/${c.id}/report`))}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>

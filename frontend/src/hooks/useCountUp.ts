@@ -9,8 +9,15 @@ import { useEffect, useRef, useState } from 'react'
 // decimals — a 64.1% rate would have finished the animation reading 64%. Callers that want
 // a whole number round it themselves; callers with a formatter let the formatter decide.
 export function useCountUp(target: number, ms = 600): number {
-  const [v, setV] = useState(target)
-  const from = useRef(target)
+  // Counting starts from zero on first mount, not from the arriving value. Seeding the
+  // state with `target` meant start === target on mount, so a card that renders only once
+  // data has landed — which is most of them, since the page holds a skeleton until then —
+  // never animated at all. Seeded lazily so reduced-motion paints the final value on the
+  // very first frame rather than flashing a 0.
+  const prefersReduced = typeof window !== 'undefined'
+    && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  const [v, setV] = useState(() => (prefersReduced ? target : 0))
+  const from = useRef(prefersReduced ? target : 0)
   useEffect(() => {
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       from.current = target
