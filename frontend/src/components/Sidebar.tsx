@@ -286,7 +286,9 @@ const SECTIONS: Section[] = [
         // route redirects, so bookmarks still land somewhere useful.
         subs: [
           { label: 'My Work',      to: '/settlements/my-dashboard', vis: ['settlement_officer'] },
-          { label: 'Position',     to: '/settlements' },
+          // 'Overview', not 'Position': every other module's landing page is called
+          // Overview, and a reader scanning this menu for that word did not find it.
+          { label: 'Overview',     to: '/settlements' },
           { label: 'Reconcile',    to: '/settlements/workbench' },
           { label: 'Exceptions',   to: '/settlements/exceptions' },
           // Heads only — its controls reassign other people's work.
@@ -411,6 +413,12 @@ const SECTIONS: Section[] = [
             vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
                   'finance_head','compliance_head','cards_head','risk_head','call_center_head',
                   'care_head','bd_head','coo','cfo','cmo','md'] },
+          // The standing reports. Guarded on 'reports' like Customer Behaviour below,
+          // which keeps it to BI and admin per the 2026-08-17 decision. Several of
+          // these reports are departmental -- Collections Performance, Service
+          // Performance, Sales Pipeline -- and the heads who want them do NOT hold
+          // 'reports', so widening it is a policy call, not a sidebar edit.
+          { label: 'Report Library',     to: '/reports/library', vis: ['bi_analyst','bi_head'] },
           { label: 'Report Builder',     to: '/reports/builder',
             vis: ['bi_analyst','bi_head','sales_head','bd_head','collections_head','recovery_head',
                   'cards_head','finance_head','settlement_head','call_center_head','care_head',
@@ -572,6 +580,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // '/reports' itself is intentionally left ungated so the KPI audience (heads +
   // management, who lack the 'reports' page) can open the module; ReportsHome routes
   // them to a page they can access. The individual subs below still enforce pages.
+  '/reports/library': 'reports',
   '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': ['reports', 'report_builder'], '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/reports/merchant-names': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
   '/reports/management': ['reports', 'executive'],
   '/reports/card-credit': ['cards', 'reports', 'executive', 'sales'],

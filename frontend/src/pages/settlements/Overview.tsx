@@ -396,7 +396,7 @@ export default function SettlementPosition() {
 
   return (
     <Page
-      title="Settlement Position"
+      title="Settlement Overview"
       subtitle="CCS is the master ledger; Interswitch and Paystack are the payment providers"
       loading={loading && !d}
       skeletonKpis={4}

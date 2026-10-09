@@ -17,7 +17,7 @@ import { ELine } from '../../components/echarts'
   CCS is the master ledger. Interswitch and Paystack are providers whose activity
   has to roll up to it, and they arrive by completely different means: Interswitch
   as uploaded settlement reports, Paystack live from its API. This page is the drill
-  behind the Settlement Position summary.
+  behind the Settlement Overview summary.
 
   It replaces "Processor Reconciliation", which hand-rolled its own table styles,
   pager, filter pills and KPI cards instead of using the house components, and whose

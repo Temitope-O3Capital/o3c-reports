@@ -263,7 +263,7 @@ export default function SettlementMyDashboard() {
               onClick={() => navigate('/settlements/exceptions')} />
             <HeroButton icon="play_arrow" label="Reconcile"
               onClick={() => navigate('/settlements/workbench')} />
-            <HeroButton icon="insights" label="Position"
+            <HeroButton icon="insights" label="Overview"
               onClick={() => navigate('/settlements')} />
           </>
         }
