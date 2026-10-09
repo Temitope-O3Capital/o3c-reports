@@ -1,6 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle,
   Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard,
@@ -146,6 +147,7 @@ export default function CampaignsList() {
     setActionErr(null)
     try {
       await apiPost(`/api/campaigns/${id}/${action}`, {})
+      toast.success(`Campaign ${action === 'start' ? 'started' : action === 'pause' ? 'paused' : 'cancelled'}`)
       load()
     } catch (ex: any) { setActionErr(ex.message) }
   }
@@ -163,6 +165,7 @@ export default function CampaignsList() {
       if (isSMSType   && form.sms_body.trim())     body.sms_body      = form.sms_body.trim()
       if (isEmailType && form.email_subject.trim()) body.email_subject = form.email_subject.trim()
       const camp = await apiPost<{ id: number }>('/api/campaigns', body)
+      toast.success(`Campaign "${form.name.trim()}" created`)
       setShowCreate(false); setForm(BLANK)
       navigate(`/campaigns/${camp.id}/report`)
     } catch (ex: any) { setActionErr(ex.message) }

@@ -107,7 +107,7 @@ export default function CampaignTemplates() {
 
   async function doDelete() {
     if (!deleteTarget) return
-    try { await apiDelete(`/api/message-templates/${deleteTarget.id}`); setDeleteTarget(null); load() }
+    try { await apiDelete(`/api/message-templates/${deleteTarget.id}`); toast.success('Template deleted'); setDeleteTarget(null); load() }
     catch (ex: any) { setErr(ex.message) }
   }
 

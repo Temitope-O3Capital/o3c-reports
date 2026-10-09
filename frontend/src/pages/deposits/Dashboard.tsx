@@ -83,13 +83,15 @@ export default function DepositsDashboard() {
         <>
           {/* Headline KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-            <KpiCard label="Deposit Book" value={fmtKobo(kpis?.total_ledger_kobo ?? 0)} icon="savings" accent={NAVY} sub={`${fmtNum(kpis?.active_count ?? 0)} active`} />
+            <KpiCard label="Deposit Book" value={fmtKobo(kpis?.total_ledger_kobo ?? 0)} icon="savings" accent={NAVY} sub={`${fmtNum(kpis?.active_count ?? 0)} active`}
+              numericValue={Number(kpis?.total_ledger_kobo ?? 0)} formatValue={fmtKobo} trend={trend.map(r => Number(r.ledger_kobo))} />
             <KpiCard label="Accrued Interest" value={fmtKobo(kpis?.total_accrued_interest_kobo ?? 0)} icon="trending_up" accent={AMBER} />
             <KpiCard label="Weighted Avg Rate" value={`${(kpis?.weighted_avg_rate ?? 0).toFixed(2)}%`} icon="percent" accent={GREEN} sub={`${Math.round(kpis?.weighted_avg_tenor_days ?? 0)}d avg tenor`} />
             <KpiCard label="Annual Interest Expense" value={fmtKobo(kpis?.annualized_interest_expense_kobo ?? 0)} icon="account_balance_wallet" accent={RED} sub="cost of funds (run-rate)" />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-            <KpiCard label="Principal Book" value={fmtKobo(kpis?.total_principal_kobo ?? 0)} icon="account_balance" accent={BLUE} />
+            <KpiCard label="Principal Book" value={fmtKobo(kpis?.total_principal_kobo ?? 0)} icon="account_balance" accent={BLUE}
+              numericValue={Number(kpis?.total_principal_kobo ?? 0)} formatValue={fmtKobo} trend={trend.map(r => Number(r.principal_kobo))} />
             <KpiCard label="Unique Depositors" value={fmtNum(kpis?.unique_customers ?? 0)} icon="group" accent={PURPLE} />
             <KpiCard label="Maturing in 30d" value={fmtKobo(kpis?.maturing_30d_kobo ?? 0)} icon="event" accent={AMBER} sub={`${fmtNum(kpis?.maturing_30d_count ?? 0)} deposits`} />
             <KpiCard label="New This Month" value={fmtNum(kpis?.new_this_month_count ?? 0)} icon="add_circle" accent={GREEN} />

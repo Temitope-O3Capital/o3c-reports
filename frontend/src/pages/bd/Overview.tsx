@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EBar, EArea, EDonut } from '../../components/echarts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate, monthStart, today } from '../../lib/fmt'
@@ -320,11 +320,7 @@ export default function BDOverview() {
           title="Recent Leads"
           subtitle="Latest pipeline activity"
           padding={false}
-          actions={
-            <button onClick={() => navigate('/bd/pipeline')} style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              View All <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>arrow_forward</span>
-            </button>
-          }
+          actions={<CardLink label="View All" onClick={() => navigate('/bd/pipeline')} />}
         >
           <DataTable<Lead>
             cols={leadCols}

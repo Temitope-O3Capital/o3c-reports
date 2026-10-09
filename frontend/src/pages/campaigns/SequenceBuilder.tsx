@@ -63,6 +63,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
     const step_no = (steps[steps.length - 1]?.step_no ?? 0) + 1
     try {
       await apiPost(`/api/campaigns/${campaignId}/steps`, { step_no, channel: 'email', schedule_mode: 'offset', offset_days: steps.length })
+      toast.success('Step added')
       load()
     } catch (e: any) { toast.error(e.message) }
   }
@@ -76,12 +77,13 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
         schedule_mode: next.schedule_mode, offset_days: Number(next.offset_days) || 0,
         send_at: next.send_at || '', audience_filter: next.audience_filter || 'all',
       })
+      toast.success('Step saved')
     } catch (e: any) { toast.error(e.message); load() }
   }
 
   async function doDelete() {
     if (!delTarget) return
-    try { await apiDelete(`/api/campaigns/${campaignId}/steps/${delTarget.id}`); setDelTarget(null); load() }
+    try { await apiDelete(`/api/campaigns/${campaignId}/steps/${delTarget.id}`); toast.success('Step deleted'); setDelTarget(null); load() }
     catch (e: any) { toast.error(e.message) }
   }
 

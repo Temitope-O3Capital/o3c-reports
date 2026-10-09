@@ -681,7 +681,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
       })
       if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Upload failed' })); throw new Error(err.error ?? 'Upload failed') }
       await loadDocs()
-    } catch (e: any) { alert(e.message ?? 'Upload failed') }
+    } catch (e: any) { toast.error(e.message ?? 'Upload failed') }
     finally {
       setUploading(u => ({ ...u, [docType]: false }))
       const ref = fileRefs.current[docType]
@@ -693,7 +693,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
     if (!confirm(`Delete "${doc.file_name}"?`)) return
     setDeleting(d => ({ ...d, [doc.id]: true }))
     try { await apiDelete(`/api/los/documents/${doc.id}`); setDocs(ds => ds.filter(d => d.id !== doc.id)) }
-    catch (e: any) { alert(e.message ?? 'Delete failed') }
+    catch (e: any) { toast.error(e.message ?? 'Delete failed') }
     finally { setDeleting(d => ({ ...d, [doc.id]: false })) }
   }
 
@@ -899,6 +899,7 @@ function InternalThread({ appId, readOnly = false }: { appId: number; readOnly?:
         if (body.includes(`@${u.full_name}`)) mentionIds.push(u.id)
       })
       await apiPost(`/api/los/${appId}/messages`, { body: body.trim(), mention_ids: mentionIds })
+      toast.success('Message posted to the thread')
       setBody('')
       await loadMessages()
     } catch (e: any) { toast.error(e.message ?? 'Failed to send') }
@@ -1434,6 +1435,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           ? `You already started a resubmission of this application, ${d.reference}. Carry on from where you left it.`
           : `This is a new application, ${d.reference}, copied from the declined one with everything it held. Correct what needs correcting, then submit it, or save it as a draft.`,
       })
+      toast.success(d.existing ? 'Resubmission draft reopened' : 'Resubmission draft created')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not start a resubmission')
     } finally {

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, DateFilter, NameCell, ActionRow, ExpandableFilterBar, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
+import { toast } from 'sonner'
 import { hasPage } from '../../hooks/useAuth'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -187,6 +188,7 @@ export default function LOSQueue() {
       for (const id of assignIds) {
         await apiPut(`/api/los/${id}/assign`, { assign_to_user_id: assignTo })
       }
+      toast.success(assignIds.length === 1 ? 'Application assigned' : `${assignIds.length} applications assigned`)
       setAssignIds(null); setAssignTo(0); setBulkSel(new Set())
       await load(true)
     } catch (e: any) {

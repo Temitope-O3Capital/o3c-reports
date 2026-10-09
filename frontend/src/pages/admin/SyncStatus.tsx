@@ -165,7 +165,7 @@ function WorkerCard({ w, now, onRun, busy, flash, idx }: { w: Worker; now: numbe
 
 function FleetNum({ value, color }: { value: number; color: string }) {
   const v = useCountUp(value)
-  return <div style={{ ...NUM, fontSize: 34, fontWeight: FW.bold, color, marginTop: 4, lineHeight: 1 }}>{v}</div>
+  return <div style={{ ...NUM, fontSize: 34, fontWeight: FW.bold, color, marginTop: 4, lineHeight: 1 }}>{Math.round(v)}</div>
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────

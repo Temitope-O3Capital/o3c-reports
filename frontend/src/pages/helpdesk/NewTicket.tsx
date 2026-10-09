@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
+import { toast } from 'sonner'
 import { RED, NAVY, GREEN, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from '../../components/CustomerSearch'
 import { humanLabel } from '../../lib/labels'
@@ -382,6 +383,7 @@ export default function NewTicketForm({
       }
       const resp = await apiPost<{ ticket: { id: number } }>('/api/helpdesk/tickets', body)
       const newId = resp?.ticket?.id
+      toast.success(newId ? `Ticket #${newId} created` : 'Ticket created')
       if (newId) {
         onCreated(newId)
       } else {

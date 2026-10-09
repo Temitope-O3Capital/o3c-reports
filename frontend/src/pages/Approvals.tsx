@@ -132,6 +132,7 @@ export default function Approvals() {
     setBatchBusy(true)
     try {
       await apiPost('/api/approvals/batch', { action, notes: '', items: payload })
+      toast.success(action === 'approve' ? 'Selected items approved' : 'Selected items rejected')
       setSelected(new Set())
       load()
     } catch (e: any) { toast.error(e.message ?? 'Batch action failed') }

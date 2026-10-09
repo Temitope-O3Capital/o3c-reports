@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, KpiCard, EmptyState, Pagination } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtNum } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, RED, MONO, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
@@ -133,6 +134,7 @@ export default function Retention() {
     setSeeding(true); setErr(null)
     apiFetch<{ inserted: number }>('/api/retention/sync-queue', { method: 'POST' })
       .then(r => setSeeded(`${r.inserted} customer${r.inserted === 1 ? '' : 's'} added to the outbound queue`))
+      .then(() => toast.success('Win-back list sent to the outbound dialler'))
       .catch(e => setErr(e.message))
       .finally(() => setSeeding(false))
   }, [])

@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrapList } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 
@@ -132,6 +133,7 @@ export default function SettlementImport() {
       files.forEach(f => form.append('files', f))
       const r = await apiFetch<ImportResult>('/api/interswitch/import', { method: 'POST', body: form })
       setResult(r)
+      toast.success(files.length === 1 ? 'Settlement file imported' : `${files.length} settlement files imported`)
       setFiles([])
       loadHistory()
     } catch (e: any) { setError(e.message) }

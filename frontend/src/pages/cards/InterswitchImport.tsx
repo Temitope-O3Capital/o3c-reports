@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { toast } from 'sonner'
 import { Page, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
@@ -186,6 +187,7 @@ export default function InterswitchImport() {
       })
       setResult(r.data)
       setStage('done')
+      toast.success('Interswitch transactions imported')
     } catch (e: any) {
       setError(e.message)
       setStage('error')

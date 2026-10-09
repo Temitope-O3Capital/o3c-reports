@@ -111,8 +111,10 @@ export default function ExecCards() {
       {/* ── What it earned ─────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="Revenue (Interest + Fees)" value={fmtKobo(data.revenue_kobo)} icon="payments" accent={GREEN} />
-        <KpiCard label="Card Spend" value={fmtKobo(data.spend_kobo)} change={data.spend_change_pct} icon="shopping_bag" accent={NAVY} />
-        <KpiCard label="Repayments" value={fmtKobo(data.repayments_kobo)} icon="savings" accent={BLUE} />
+        <KpiCard label="Card Spend" value={fmtKobo(data.spend_kobo)} change={data.spend_change_pct} icon="shopping_bag" accent={NAVY}
+          numericValue={Number(data.spend_kobo)} formatValue={fmtKobo} trend={data.monthly_trend.map(m => Number(m.spend_kobo))} />
+        <KpiCard label="Repayments" value={fmtKobo(data.repayments_kobo)} icon="savings" accent={BLUE}
+          numericValue={Number(data.repayments_kobo)} formatValue={fmtKobo} trend={data.monthly_trend.map(m => Number(m.repayments_kobo))} />
         <KpiCard label="Active Cards" value={fmtNum(data.active_cards)} icon="credit_card" accent={AMBER} />
       </div>
 

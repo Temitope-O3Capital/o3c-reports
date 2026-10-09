@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { toast } from 'sonner'
 import { Page, SectionCard, KpiCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum } from '../../lib/fmt'
@@ -63,6 +64,7 @@ export default function CycleImport() {
       files.forEach(f => form.append('files', f))
       const r = await apiFetch<any>('/api/cards-credit/import', { method: 'POST', body: form })
       setResult(r?.data ?? r)
+      toast.success('Cycle data imported')
     } catch (e: any) { setError(e.message) }
     finally { setBusy(false) }
   }, [files])

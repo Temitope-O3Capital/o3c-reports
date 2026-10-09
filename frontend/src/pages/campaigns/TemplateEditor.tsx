@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { toast } from 'sonner'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { NAVY, BLUE, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import EmailBlockEditor, { blocksToHtml, parseEditorValue, type Block, type EmailSettings } from '../../components/EmailBlockEditor'
@@ -248,6 +249,7 @@ export default function CampaignTemplateEditor() {
       }
       if (form.id) await apiPut(`/api/message-templates/${form.id}`, body)
       else         await apiPost('/api/message-templates', body)
+      toast.success(form.id ? 'Template updated' : 'Template created')
       navigate('/campaigns/templates')
     } catch (ex: any) { setSaveErr(ex.message) }
     finally { setSaving(false) }

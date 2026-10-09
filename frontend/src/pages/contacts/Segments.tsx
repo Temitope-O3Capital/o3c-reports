@@ -213,7 +213,7 @@ export default function Segments() {
 
   async function doDelete() {
     if (!deleteTarget) return
-    try { await apiDelete(`/api/contact-lists/segments/${deleteTarget.id}`); setDeleteTarget(null); load() }
+    try { await apiDelete(`/api/contact-lists/segments/${deleteTarget.id}`); toast.success('Segment deleted'); setDeleteTarget(null); load() }
     catch (e: any) { setErr(e.message) }
   }
 

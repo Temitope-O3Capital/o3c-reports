@@ -122,6 +122,7 @@ function SendModal({ statement, onClose }: {
           email_body: body.trim() || undefined,
         }),
       })
+      toast.success('Statement emailed')
       setSentTo(trimEmail)
       setSentAt(new Date().toLocaleString('en-NG', {
         day: '2-digit', month: 'short', year: 'numeric',

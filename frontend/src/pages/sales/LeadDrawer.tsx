@@ -327,6 +327,7 @@ function TagEditor({ leadId, tags, onChanged }: {
     setBusy(true)
     try {
       await apiPost(`/api/sales/leads/${leadId}/tags`, { tag })
+      toast.success('Label added')
       setDraft(''); setAdding(false); onChanged()
     } catch (e: any) { toast.error(e?.message ?? 'Could not add that label') }
     finally { setBusy(false) }
@@ -336,6 +337,7 @@ function TagEditor({ leadId, tags, onChanged }: {
     setBusy(true)
     try {
       await apiFetch(`/api/sales/leads/${leadId}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' })
+      toast.success('Label removed')
       onChanged()
     } catch (e: any) { toast.error(e?.message ?? 'Could not remove that label') }
     finally { setBusy(false) }

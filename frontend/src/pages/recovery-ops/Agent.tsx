@@ -248,7 +248,7 @@ export default function RecoveryAgentDashboard() {
     setStatus(s)
     const uid = myUserId()
     if (!uid) return
-    try { await apiFetch(`/api/helpdesk/agents/${uid}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) }) }
+    try { await apiFetch(`/api/helpdesk/agents/${uid}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) }); toast.success('Status updated') }
     catch (e: any) { toast.error(e?.message || 'Could not update status') }
   }, [])
 

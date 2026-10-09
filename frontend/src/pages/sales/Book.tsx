@@ -7,6 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { SelectMenu } from '../../components/SelectMenu'
 import { apiFetch } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, n } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import NewApplicationModal from '../../components/NewApplicationModal'
@@ -150,6 +151,7 @@ export default function SalesBook() {
           }),
         },
       )
+      toast.success(assignTo === 'unassign' ? 'Customers unassigned' : 'Customers reassigned')
       setAssignOpen(false); setSelected(new Set())
       setAssignReason(''); setAssignTo('')
       await load()
@@ -181,6 +183,7 @@ export default function SalesBook() {
           }),
         },
       )
+      toast.success('Customer reassigned')
       setPartyRow(null); setPartyAssignTo(''); setPartyReason('')
       await load()
       const nCif = res.data?.assigned ?? 0

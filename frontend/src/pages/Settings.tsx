@@ -337,6 +337,7 @@ function TOTPSection() {
     try {
       const r = await apiPost<TOTPSetup>('/api/auth/totp/setup', {})
       setSetup(r); setStep('qr')
+      toast.success('Two-factor setup started')
     } catch (e: any) {
       toast.error(e.message ?? 'Failed to start setup')
     } finally { setLoading(false) }

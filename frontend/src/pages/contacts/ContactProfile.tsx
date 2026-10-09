@@ -1499,6 +1499,7 @@ function SensitiveValue({ customerKey, field, label, mask, mono, onRevealed }: {
       if (!d?.value) throw new Error('no value')
       setValue(d.value)
       onRevealed?.(d)
+      toast.success(`${label} revealed`)
     } catch {
       // A failed reveal discloses nothing — including a reveal refused because the
       // audit row could not be written, which is the intended behaviour.

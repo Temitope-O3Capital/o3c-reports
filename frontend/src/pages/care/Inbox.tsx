@@ -288,6 +288,7 @@ function MailThread({ ticketId, onReplied, onBack, onOpenTicket, isMobile }: { t
     setFlagBusy(true); setMenuOpen(false)
     try {
       await apiPost(`/api/helpdesk/tickets/${ticketId}/flag`, { flagged: !t.is_flagged })
+      toast.success(t.is_flagged ? 'Flag removed' : 'Mail flagged')
       load(); onReplied()
     } catch (e: any) { toast.error(e.message ?? 'Could not flag') }
     finally { setFlagBusy(false) }
@@ -297,6 +298,7 @@ function MailThread({ ticketId, onReplied, onBack, onOpenTicket, isMobile }: { t
     setMenuOpen(false)
     try {
       await apiPost(`/api/helpdesk/tickets/${ticketId}/subgroup`, { subgroup: sg })
+      toast.success(sg ? `Mail moved to ${sg}` : 'Mail moved to Unsorted')
       load(); onReplied()
     } catch (e: any) { toast.error(e.message ?? 'Could not set subgroup') }
   }

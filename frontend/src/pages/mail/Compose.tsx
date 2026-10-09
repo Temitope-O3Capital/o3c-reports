@@ -206,6 +206,7 @@ export default function MailCompose() {
       if (activeDraftId) payload.id = activeDraftId
       const saved = await apiPost<{ id: number }>('/api/mail/drafts', payload)
       if (saved?.id && !activeDraftId) setActiveDraftId(saved.id)
+      toast.success('Draft saved')
     } catch (ex: any) { setErr(ex.message) }
     finally { setSavingDraft(false) }
   }

@@ -4,6 +4,7 @@
  * template gallery, contentEditable rich text, image upload, mobile/desktop preview.
  */
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from 'react'
+import { toast } from 'sonner'
 import DOMPurify from 'dompurify'
 import { API, getCsrfToken } from '../lib/api'
 import { renderSample } from '../lib/personalize'
@@ -324,7 +325,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
             const file = e.target.files?.[0]; if (!file) return
             const fd = new FormData(); fd.append('image', file)
             try { const res = await fetch(`${API}/api/campaigns/upload-image`, { method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': getCsrfToken() }, body: fd }); if (!res.ok) throw new Error(`Upload failed (${res.status})`); onUpdate({ src: (await res.json()).url }) }
-            catch (err: any) { alert(err?.message || 'Upload failed') }
+            catch (err: any) { toast.error(err?.message || 'Upload failed') }
           }} />
         </label></PPField>
         <PPField label="Or Paste URL"><PPInp value={block.src || ''} placeholder="https://…" onChange={e => onUpdate({ src: e.target.value })} /></PPField>

@@ -149,12 +149,12 @@ export default function CareMailView() {
   async function toggleFlag() {
     if (!data) return
     setMenuOpen(false)
-    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/flag`, { flagged: !data.ticket.is_flagged }); load(true) }
+    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/flag`, { flagged: !data.ticket.is_flagged }); toast.success(data.ticket.is_flagged ? 'Flag removed' : 'Mail flagged'); load(true) }
     catch (e: any) { toast.error(e.message ?? 'Could not flag') }
   }
   async function changeSubgroup(sg: string) {
     setMenuOpen(false)
-    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/subgroup`, { subgroup: sg }); load(true) }
+    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/subgroup`, { subgroup: sg }); toast.success(sg ? `Mail moved to ${sg}` : 'Mail moved to Unsorted'); load(true) }
     catch (e: any) { toast.error(e.message ?? 'Could not set folder') }
   }
   async function requestDelete() {

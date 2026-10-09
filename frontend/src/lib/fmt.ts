@@ -26,6 +26,25 @@ export function fmtKoboExact(n: unknown): string {
   return fmtExact(raw / 100)
 }
 
+// The full figure, to the naira, with no kobo tail: ₦19,612,628,344.
+// Headline balances were split between an abbreviated form (₦19.61B, which hides the
+// precision) and an exact one (₦19,612,628,343.83, where the trailing 83 kobo is noise
+// on a number that size). This is the middle: nothing hidden, nothing spurious.
+export function fmtWhole(n: unknown): string {
+  if (n === null || n === undefined) return '—'
+  const x = Number(n)
+  if (!isFinite(x)) return '—'
+  // Sign outside the naira sign — "-₦1,447,246", not "₦-1,447,246" — matching fmt().
+  const sign = x < 0 ? '-' : ''
+  return sign + '₦' + Math.round(Math.abs(x)).toLocaleString('en-NG', { maximumFractionDigits: 0 })
+}
+
+export function fmtKoboWhole(n: unknown): string {
+  const raw = Number(n)
+  if (!isFinite(raw)) return '—'
+  return fmtWhole(raw / 100)
+}
+
 // Formats a minor-unit value (kobo for NGN, cents for USD) with exact precision.
 // Always shows 2 decimal places; never abbreviates.
 export function fmtCurrencyMinor(n: unknown, currency: string): string {

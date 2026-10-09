@@ -1,11 +1,11 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Sk, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, DataTable, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { EBar, EDonut } from '../../components/echarts'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmt, fmtKoboExact, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
+import { fmt, fmtKoboWhole, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, BLUE, AMBER, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // Finance Overview — a broad standalone dashboard over live sources: the
@@ -207,16 +207,16 @@ export default function FinanceOverview() {
             Revenue Breakdown page, branch-as-columns, straight from Udara's own GL. */}
         <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} icon="trending_up" accent={GREEN}
           change={pctChange(totals?.total_ngn ?? 0, prev?.total_ngn ?? 0)} changePeriod="vs prev period" loading={loading}
-          onClick={() => navigate('/finance/revenue-breakdown')} title="Click for a breakdown of what makes up Total Revenue" index={0}
+          onClick={() => navigate('/finance/revenue-breakdown')} title="Click for a breakdown of what makes up Total Revenue"
           numericValue={totals?.total_ngn ?? 0} formatValue={fmt} trend={totalRevenueTrend} />
         <KpiCard label="Interest Income" value={fmt(totals?.interest_ngn ?? 0)} icon="account_balance" accent={BLUE}
           change={pctChange(totals?.interest_ngn ?? 0, prev?.interest_ngn ?? 0)} changePeriod="vs prev period" loading={loading}
-          index={1} numericValue={totals?.interest_ngn ?? 0} formatValue={fmt} trend={interestTrend} />
+          numericValue={totals?.interest_ngn ?? 0} formatValue={fmt} trend={interestTrend} />
         <KpiCard label="Fee Income" value={fmt(totals?.fee_ngn ?? 0)} icon="receipt_long" accent={PURPLE}
           change={pctChange(totals?.fee_ngn ?? 0, prev?.fee_ngn ?? 0)} changePeriod="vs prev period" loading={loading}
-          index={2} numericValue={totals?.fee_ngn ?? 0} formatValue={fmt} trend={feeTrend} />
+          numericValue={totals?.fee_ngn ?? 0} formatValue={fmt} trend={feeTrend} />
         <KpiCard label="Net Flow (30d)" value={fmt(treasury?.net_flow_ngn ?? 0)} icon="water_drop"
-          accent={(treasury?.net_flow_ngn ?? 0) >= 0 ? GREEN : RED} loading={loading} index={3} />
+          accent={(treasury?.net_flow_ngn ?? 0) >= 0 ? GREEN : RED} loading={loading} />
       </div>
 
       {/* Secondary KPI strip — balance-sheet positions, NOT period income.
@@ -231,10 +231,10 @@ export default function FinanceOverview() {
         Balance Sheet Position · Not Period Income
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} icon="savings" accent={AMBER} loading={loading} index={4} />
-        <KpiCard label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} icon="account_balance_wallet" accent={NAVY} loading={loading} index={5} />
-        <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} sub={`${fmtKoboExact(npl)} of book`} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} index={6} />
-        <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} index={7} />
+        <KpiCard label="FD Book (Liability)" value={fmtKoboWhole(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} icon="savings" accent={AMBER} loading={loading} />
+        <KpiCard label="Loan Book (Asset)" value={fmtKoboWhole(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} icon="account_balance_wallet" accent={NAVY} loading={loading} />
+        <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} sub={`${fmtKoboWhole(npl)} of book`} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} />
+        <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboWhole(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} />
       </div>
 
       {/* Financial position.
@@ -256,10 +256,7 @@ export default function FinanceOverview() {
           title="Financial Position"
           subtitle={`Assets and liabilities from the live books of record${position?.as_of?.cards ? ` · cards to ${fmtDate(position.as_of.cards)}` : ''}`}
           actions={
-            <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--accent)' }}>
-              Full Balance Sheet
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
-            </span>
+            <CardLink label="Full Balance Sheet" onClick={() => navigate('/finance/balance-sheet')} />
           }
           style={{ marginBottom: SP[4] }}
         >

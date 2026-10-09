@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { toast } from 'sonner'
 import { Modal } from './UI'
 import { API, apiFetch, apiPost, unwrap } from '../lib/api'
 import { NAVY, RED, AMBER, TEXT, FW, RADIUS } from '../lib/design'
@@ -73,7 +74,7 @@ export function RecordingPlayer({ callId, autoPlay = true }: { callId: number; a
   const fetchLive = async () => {
     if (timer.current) window.clearTimeout(timer.current)
     setFetching(true); setPhase('checking'); setMessage('Pulling the recording from Zoho…')
-    try { await apiPost(`/api/helpdesk/calls/${callId}/fetch-recording`, {}) } catch { /* status re-check reports the outcome */ }
+    try { await apiPost(`/api/helpdesk/calls/${callId}/fetch-recording`, {}); toast.success('Recording requested from Zoho') } catch (e: any) { toast.error(e?.message ?? 'Could not pull the recording from Zoho') /* status re-check reports the outcome */ }
     setFetching(false)
     check()
   }

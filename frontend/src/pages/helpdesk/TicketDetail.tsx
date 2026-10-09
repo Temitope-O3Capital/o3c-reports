@@ -446,6 +446,8 @@ export default function TicketDetail() {
           })
           toast.success('Reply sent. Ticket reopened')
         } catch { /* reply already saved; status change is best-effort */ }
+      } else {
+        toast.success(replyNote ? 'Internal note added' : 'Reply sent')
       }
       setReplyText('')
       setReplyHtml('<p></p>')
@@ -481,6 +483,7 @@ export default function TicketDetail() {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus }),
       })
+      toast.success(`Ticket marked ${newStatus}`)
       await load()
     } catch (e: any) {
       setErr(e.message)

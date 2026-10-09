@@ -122,12 +122,15 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
             description="No card or account activity was recorded for the selected period. Widen the window or check that the transaction feed has delivered." />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-            <KpiCard label="Total Spend" value={fmtKobo(t?.spend_kobo ?? 0)} sub="money out" icon="payments" accent={RED} />
-            <KpiCard label="Money In" value={fmtKobo(t?.inflow_kobo ?? 0)} sub="repayments & loads" icon="savings" accent={GREEN} />
+            <KpiCard label="Total Spend" value={fmtKobo(t?.spend_kobo ?? 0)} sub="money out" icon="payments" accent={RED}
+              numericValue={Number(t?.spend_kobo ?? 0)} formatValue={fmtKobo} trend={monthly.map(m => m.spend)} />
+            <KpiCard label="Money In" value={fmtKobo(t?.inflow_kobo ?? 0)} sub="repayments & loads" icon="savings" accent={GREEN}
+              numericValue={Number(t?.inflow_kobo ?? 0)} formatValue={fmtKobo} trend={monthly.map(m => m.inflow)} />
             <KpiCard label="Avg Basket" value={fmtKobo(avgBasketKobo)} sub="per purchase" icon="shopping_cart" accent={PURPLE} />
             <KpiCard label="Spend / Card" value={fmtKobo(spendPerCardKobo)} sub={`${txnsPerCard.toFixed(1)} txns / active card`} icon="account_balance_wallet" accent={AMBER} />
             <KpiCard label="Transactions" value={fmtNum(t?.txns ?? 0)} sub={`${fmtNum(t?.merchants ?? 0)} merchants`} icon="receipt_long" accent={NAVY} />
-            <KpiCard label="Active Cards" value={fmtNum(t?.active_customers ?? 0)} sub="transacted in window" icon="credit_card" accent={BLUE} />
+            <KpiCard label="Active Cards" value={fmtNum(t?.active_customers ?? 0)} sub="transacted in window" icon="credit_card" accent={BLUE}
+              numericValue={Number(t?.active_customers ?? 0)} formatValue={fmtNum} trend={(b?.monthly ?? []).map(m => Number(m.active))} />
           </div>
         )}
       </SectionCard>

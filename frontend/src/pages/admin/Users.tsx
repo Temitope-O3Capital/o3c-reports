@@ -261,6 +261,7 @@ function InviteModal({ onClose, onSaved }: {
         '/api/admin/users', { method: 'POST', body: JSON.stringify({ ...form, extra_roles: extraRoles }) }
       )
       const pw = res.temp_password ?? res.temporary_password ?? '(check email)'
+      toast.success('User created')
       onSaved(pw, res.full_name)
       onClose()
     } catch (e: any) {
@@ -734,6 +735,7 @@ function ReinstateCodeModal({ user, onClose }: { user: User; onClose: () => void
       )
       setCode(res.code)
       setExpires(res.expires_at)
+      toast.success('Reinstatement code generated')
     } catch (e: any) {
       toast.error(e.message)
     } finally {

@@ -142,6 +142,7 @@ export default function CallCenterMyDashboard() {
     if (!id) return
     try {
       await apiFetch(`/api/helpdesk/agents/${id}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) })
+      toast.success(`Status set to ${s.replace('_', ' ')}`)
     } catch (e: any) { toast.error(e?.message || 'Could not update status') }
   }, [])
 

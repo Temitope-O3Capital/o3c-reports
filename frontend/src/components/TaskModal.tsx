@@ -123,6 +123,7 @@ export default function TaskModal() {
     setBusy(true)
     try {
       await apiPost(`/api/crm/tasks/${task.id}/comments`, { body: comment.trim() })
+      toast.success('Comment added')
       setComment('')
       const c = await apiFetch<Comment[]>(`/api/crm/tasks/${task.id}/comments`)
       setComments(Array.isArray(c) ? c : [])

@@ -571,6 +571,7 @@ export default function ContactLists() {
     try {
       const created = await apiPost<any>('/api/contact-lists', { name: name.trim(), description: desc.trim() || undefined })
       const row = created && typeof created === 'object' && 'data' in created ? created.data : created
+      toast.success(`Contact list "${name.trim()}" created`)
       setShowCreate(false); setName(''); setDesc('')
       await load()
       // Optionally jump straight into adding members (manual / CSV) via the drawer.
@@ -593,6 +594,7 @@ export default function ContactLists() {
         name: editName.trim(),
         description: editDesc.trim() || null,
       })
+      toast.success('Contact list updated')
       setEditTarget(null); load()
     } catch (ex: any) { setEditErr(ex.message) }
     finally { setEditSaving(false) }
@@ -602,6 +604,7 @@ export default function ContactLists() {
     if (!deleteTarget) return
     try {
       await apiDelete(`/api/contact-lists/${deleteTarget.id}`)
+      toast.success(`Contact list "${deleteTarget.name}" deleted`)
       setDeleteTarget(null); load()
     } catch (ex: any) { toast.error(ex.message) }
   }

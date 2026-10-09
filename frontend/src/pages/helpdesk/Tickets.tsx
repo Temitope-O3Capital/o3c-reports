@@ -197,7 +197,7 @@ function TicketPreview({ ticketId, onChanged, onFull }: { ticketId: number; onCh
   async function send() {
     if (!reply.trim()) return
     setSending(true)
-    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/messages`, { body_text: reply, is_internal_note: isNote }); setReply(''); setIsNote(false); await load(); onChanged() }
+    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/messages`, { body_text: reply, is_internal_note: isNote }); toast.success(isNote ? 'Internal note added' : 'Reply sent'); setReply(''); setIsNote(false); await load(); onChanged() }
     catch (e: any) { toast.error(e.message ?? 'Failed to send') } finally { setSending(false) }
   }
   async function resolve() {

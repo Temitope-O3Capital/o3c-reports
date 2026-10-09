@@ -140,8 +140,9 @@ interface KpiCardProps {
    * component. */
   onClick?: () => void
   title?: string
-  /** Position in a KPI row (0-based). When set, the card's entrance fades in with a
-   * small per-card delay instead of the whole row popping in as one flat block. */
+  /** Overrides the entrance-stagger position. Rarely needed: the stagger is driven by
+   * :nth-child in CSS, so DOM order already does the right thing. Pass this only when
+   * the visual order differs from the DOM order. */
   index?: number
   /** Paired with `formatValue`: animates from the previous number to this one on
    * change instead of snapping straight to `value`. Omit either and the card falls
@@ -179,6 +180,10 @@ export function KpiCard({
   const clickable = !!onClick
   return (
     <div
+      // .kpi-card carries the entrance animation and its per-position delay in CSS
+      // (index.css), keyed off :nth-child — so a KPI row staggers in wherever one is
+      // rendered, without all ~110 call sites having to pass anything.
+      className="kpi-card"
       onClick={onClick}
       title={title}
       onMouseEnter={() => clickable && setHover(true)}
@@ -193,7 +198,7 @@ export function KpiCard({
         cursor: clickable ? 'pointer' : undefined,
         transform: hover ? 'translateY(-2px)' : 'translateY(0)',
         transition: 'box-shadow var(--transition), transform var(--transition)',
-        animation: index !== undefined ? 'pageFadeIn var(--dur-enter) var(--ease) backwards' : undefined,
+        // Only when a caller needs an order the DOM doesn't give it; otherwise nth-child wins.
         animationDelay: index !== undefined ? `${Math.min(index, 8) * 40}ms` : undefined,
       }}
     >
@@ -243,6 +248,53 @@ export function KpiCard({
   )
 }
 
+// ── Card link ─────────────────────────────────────────────────────────────────
+
+/**
+ * The "see more" affordance that sits in a SectionCard's `actions` slot.
+ *
+ * Fourteen pages had hand-rolled this, two of them (finance/Overview and
+ * finance/Treasury) character-for-character identical. More to the point, every one
+ * of those was a <span onClick> or a bare <button> with no focus styling — reachable
+ * by mouse only. This is a real <button>, so it is tabbable, fires on Enter/Space,
+ * and shows a focus ring, without any of that being re-derived per page.
+ */
+export function CardLink({ label, onClick, icon = 'arrow_forward' }: {
+  label: string
+  onClick: () => void
+  /** Material symbol shown after the label; pass null for none. */
+  icon?: string | null
+}) {
+  const [hover, setHover] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        background: 'none', border: 'none', padding: '2px 4px', margin: '-2px -4px',
+        borderRadius: RADIUS.sm, cursor: 'pointer',
+        fontSize: TEXT.xs, fontWeight: FW.semibold, fontFamily: 'inherit',
+        color: 'var(--accent)',
+        textDecoration: hover ? 'underline' : 'none', textUnderlineOffset: 3,
+      }}
+    >
+      {label}
+      {icon && (
+        <span className="material-symbols-rounded" style={{
+          fontSize: 16,
+          // Nudges forward on hover: enough to read as "this goes somewhere", small
+          // enough not to reflow the row.
+          transform: hover ? 'translateX(2px)' : 'translateX(0)',
+          transition: 'transform var(--transition-fast)',
+        }}>{icon}</span>
+      )}
+    </button>
+  )
+}
+
 // ── Section card ──────────────────────────────────────────────────────────────
 
 interface SectionCardProps {
@@ -255,6 +307,9 @@ interface SectionCardProps {
   style?: CSSProperties
 }
 
+// Deliberately NOT given an onClick/hover-lift like KpiCard: an audit of all 645 usages
+// found zero section cards that are themselves navigation targets. What they actually
+// carry is a "see more" affordance in `actions` — that is what CardLink below is for.
 export function SectionCard({ title, subtitle, badge, actions, children, padding = true, style }: SectionCardProps) {
   return (
     <div style={{

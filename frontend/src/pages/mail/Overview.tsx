@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EArea, EDonut } from '../../components/echarts'
-import { Page, KpiCard, SectionCard, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
@@ -79,15 +79,15 @@ export default function MailOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 16 }}>
         <KpiCard label="Inbox" value={fmtNum(c?.inbox_total ?? 0)} icon="inbox" accent={BLUE}
           sub={c?.inbox_unread ? `${c.inbox_unread} unread` : 'All read'} loading={loading}
-          onClick={() => navigate('/mail/inbox')} index={0} />
+          onClick={() => navigate('/mail/inbox')} />
         <KpiCard label="Sent" value={fmtNum(c?.sent_total ?? 0)} icon="send" accent={NAVY}
           sub="Messages you sent" loading={loading}
-          onClick={() => navigate('/mail/sent')} index={1} />
+          onClick={() => navigate('/mail/sent')} />
         <KpiCard label="Drafts" value={fmtNum(c?.drafts_total ?? 0)} icon="draft" accent={AMBER}
           sub="Saved, not sent" loading={loading}
-          onClick={() => navigate('/mail/drafts')} index={2} />
+          onClick={() => navigate('/mail/drafts')} />
         <KpiCard label="Delivery Rate" value={p ? pct(p.delivery_rate) : '—'} icon="mark_email_read" accent={GREEN}
-          sub={p ? `${fmtNum(p.delivered)} delivered` : undefined} loading={loading} index={3} />
+          sub={p ? `${fmtNum(p.delivered)} delivered` : undefined} loading={loading} />
       </div>
 
       {/* Charts row */}
@@ -172,7 +172,7 @@ export default function MailOverview() {
       {/* Recent activity */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <SectionCard title="Recent Inbox" badge={c?.inbox_unread || undefined} padding={false}
-          actions={<button onClick={() => navigate('/mail/inbox')} style={linkBtn}>View All</button>}>
+          actions={<CardLink label="View All" onClick={() => navigate('/mail/inbox')} />}>
           <RecentList
             loading={loading}
             empty="No Inbound Messages"
@@ -185,7 +185,7 @@ export default function MailOverview() {
         </SectionCard>
 
         <SectionCard title="Recent Sent" padding={false}
-          actions={<button onClick={() => navigate('/mail/sent')} style={linkBtn}>View All</button>}>
+          actions={<CardLink label="View All" onClick={() => navigate('/mail/sent')} />}>
           <RecentList
             loading={loading}
             empty="No Sent Messages"
@@ -202,10 +202,6 @@ export default function MailOverview() {
 }
 
 // ── Recent-activity list ──────────────────────────────────────────────────────
-
-const linkBtn: React.CSSProperties = {
-  fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', fontWeight: FW.semibold,
-}
 
 interface RecentRow {
   id: number; onClick: () => void

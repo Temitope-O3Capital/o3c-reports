@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   Page, SectionCard, KpiCard, ErrBanner, DataTable, EmptyState, DateFilter,
   Button, Badge, StatusBadge, SegmentedToggle,
@@ -203,6 +204,7 @@ export default function InterswitchSettlement() {
       files.forEach(f => form.append('files', f))
       const r = await apiFetch<ImportResult>('/api/interswitch/import', { method: 'POST', body: form })
       setResult(r)
+      toast.success('Interswitch settlement imported')
       setFiles([])
       await load()
     } catch (e: unknown) {

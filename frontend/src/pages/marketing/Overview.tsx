@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EBar } from '../../components/echarts'
-import { Page, KpiCard, SectionCard, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
 import { fmtNum, fmtDate } from '../../lib/fmt'
@@ -64,15 +64,15 @@ export default function MarketingOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
         <KpiCard label="Campaigns" value={fmtNum(c?.total ?? 0)} icon="campaign" accent={NAVY}
           sub={c ? `${c.active} active · ${c.scheduled} scheduled` : undefined} loading={loading}
-          onClick={() => navigate('/campaigns')} index={0} />
+          onClick={() => navigate('/campaigns')} />
         <KpiCard label="Contacts Reached" value={fmtNum(aud?.contacts ?? 0)} icon="groups" accent={BLUE}
           sub={aud ? `${aud.lists} lists · ${aud.segments} segments` : undefined} loading={loading}
-          onClick={() => navigate('/campaigns/lists')} index={1} />
+          onClick={() => navigate('/campaigns/lists')} />
         <KpiCard label="Templates" value={fmtNum(data?.templates_total ?? 0)} icon="dashboard_customize" accent={AMBER}
           sub={(data?.templates ?? []).map(t => `${t.count} ${t.channel}`).join(' · ') || 'None yet'} loading={loading}
-          onClick={() => navigate('/campaigns/templates')} index={2} />
+          onClick={() => navigate('/campaigns/templates')} />
         <KpiCard label="30-Day Open Rate" value={p30 ? pct(p30.open_rate) : '—'} icon="drafts" accent={GREEN}
-          sub={p30 ? `${fmtNum(p30.sent)} sent (30d)` : undefined} loading={loading} index={3} />
+          sub={p30 ? `${fmtNum(p30.sent)} sent (30d)` : undefined} loading={loading} />
       </div>
 
       {/* Charts + status */}
@@ -144,7 +144,7 @@ export default function MarketingOverview() {
 
       {/* Recent campaigns */}
       <SectionCard title="Recent Campaigns" padding={false}
-        actions={<button onClick={() => navigate('/campaigns')} style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', fontWeight: FW.semibold }}>View All</button>}>
+        actions={<CardLink label="View All" onClick={() => navigate('/campaigns')} />}>
         {loading ? (
           <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
         ) : (data?.recent_campaigns ?? []).length === 0 ? (

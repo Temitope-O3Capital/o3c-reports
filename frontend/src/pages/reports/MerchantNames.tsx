@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, KpiCard, ErrBanner, Button, Input, Modal, Tabs, EmptyState, Spinner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 
@@ -68,6 +69,7 @@ export default function MerchantNames() {
     setBusy(name); setError(null)
     try {
       await apiPost(`/api/admin/merchant-aliases/${path}`, { clean_name: name })
+      toast.success(path === 'approve' ? 'Merchant name kept' : 'Merchant name rejected')
       await load(status, search)
     } catch (e: any) { setError(e?.message ?? 'That did not work') }
     finally { setBusy(null) }
@@ -77,6 +79,7 @@ export default function MerchantNames() {
     setSaving(true); setAddErr(null)
     try {
       await apiPost('/api/admin/merchant-aliases', { clean_name: addFrom, canonical: addTo })
+      toast.success('Merchant mapping saved')
       setAddOpen(false); setAddFrom(''); setAddTo('')
       await load(status, search)
     } catch (e: any) { setAddErr(e?.message ?? 'Could not save the mapping') }

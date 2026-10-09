@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { apiFetch, API } from '../lib/api'
 import { MONO, RED, BLUE, AMBER, GREEN } from '../lib/design'
 import { IcoBell } from '../lib/icons'
@@ -157,7 +158,8 @@ export default function NotificationBell() {
       await apiFetch('/api/notifications/read-all', { method: 'POST' })
       setItems(prev => prev.map(i => ({ ...i, read_at: i.read_at ?? new Date().toISOString() })))
       setUnread(0)
-    } catch {}
+      toast.success('All notifications marked read')
+    } catch (e: any) { toast.error(e?.message ?? 'Could not mark notifications read') }
   }
 
   function handleClick(n: Notification) {

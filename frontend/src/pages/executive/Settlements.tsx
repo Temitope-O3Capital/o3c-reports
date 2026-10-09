@@ -109,8 +109,10 @@ export default function ExecSettlements() {
         const costPct = moved > 0 ? (totalFees / moved) * 100 : 0
         return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Payouts Out" value={fmtKobo(data.payouts_kobo)} change={data.payouts_change_pct} icon="north_east" accent={NAVY} />
-        <KpiCard label="Collections In" value={fmtKobo(data.collections_kobo)} icon="south_west" accent={GREEN} />
+        <KpiCard label="Payouts Out" value={fmtKobo(data.payouts_kobo)} change={data.payouts_change_pct} icon="north_east" accent={NAVY}
+          numericValue={Number(data.payouts_kobo)} formatValue={fmtKobo} trend={data.daily_trend.map(d => Number(d.payouts_kobo))} />
+        <KpiCard label="Collections In" value={fmtKobo(data.collections_kobo)} icon="south_west" accent={GREEN}
+          numericValue={Number(data.collections_kobo)} formatValue={fmtKobo} trend={data.daily_trend.map(d => Number(d.collections_kobo))} />
         <KpiCard label="Net Flow" value={fmtKobo(Math.abs(data.net_flow_kobo))} sub={netOut ? 'net out' : 'net in'} icon="swap_vert" accent={netOut ? AMBER : GREEN} />
         <KpiCard label="Cost to Move Money" value={fmtKobo(totalFees)} sub={`${fmtPct(costPct)} of value moved`} icon="toll" accent={AMBER} />
         <KpiCard label="Payout Success" value={fmtPct(data.nip_success_rate_pct)} icon="check_circle" accent={data.nip_success_rate_pct >= 99 ? GREEN : AMBER} />

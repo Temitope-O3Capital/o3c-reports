@@ -4,6 +4,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import DOMPurify from 'dompurify'
 import { Page, SectionCard, ErrBanner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, BLUE, GREEN, AMBER, RED, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
@@ -167,6 +168,7 @@ export default function MailThreadDetail() {
     try {
       const cc = replyCc.split(',').map(s => s.trim()).filter(Boolean).map(e => ({ Email: e, Name: '' }))
       await apiPost(`/api/mail/messages/${id}/reply`, { text_body: replyBody, cc })
+      toast.success('Reply sent')
       setReplyBody('')
       setReplyCc('')
       setShowCc(false)

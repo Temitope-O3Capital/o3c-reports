@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, ErrBanner, EmptyState, Sk, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, CardLink, ErrBanner, EmptyState, Sk, DateFilter } from '../../components/UI'
 import { EArea, EBar } from '../../components/echarts'
 import StatTile from './StatTile'
 import { apiFetch, unwrap, unwrapList } from '../../lib/api'
-import { fmt, fmtKoboExact, fmtKobo, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
+import { fmt, fmtWhole, fmtKoboWhole, fmtKoboExact, fmtKobo, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, BLUE, TEXT, FW, SP } from '../../lib/design'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 // Treasury — the cash-flow & balance-sheet view for Finance. Naira figures come
 // from the transaction feed (net/inflow/outflow, flow_trend); kobo figures from
@@ -69,6 +70,7 @@ function daysAgo(n: number): string {
 
 export default function Treasury() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [data, setData] = useState<TreasuryData | null>(null)
   const [ladder, setLadder] = useState<MaturityBucket[]>([])
   const [loading, setLoading] = useState(true)
@@ -132,27 +134,35 @@ export default function Treasury() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* KPI strip — naira flow (from the feed) + book positions (from CBS, kobo) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="Net Flow" value={fmt(netFlow)} sub={flowPeriod} icon="trending_up" accent={netFlow >= 0 ? GREEN : RED} loading={loading} />
-        <KpiCard label="Inflow" value={fmt(data?.inflow_ngn ?? 0)} sub={flowPeriod} icon="south_east" accent={GREEN} loading={loading} />
-        <KpiCard label="Outflow" value={fmt(data?.outflow_ngn ?? 0)} sub={flowPeriod} icon="north_west" accent={RED} loading={loading} />
+      {/* KPI strip — naira flow (from the feed) + book positions (from CBS, kobo).
+          Fixed at three across rather than auto-fit: six cards packed as many-per-row
+          as would fit left a single orphan on the second row. Three-by-two is even. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
+        <KpiCard label="Net Flow" value={fmtWhole(netFlow)} sub={flowPeriod} icon="trending_up" accent={netFlow >= 0 ? GREEN : RED} loading={loading}
+          numericValue={netFlow} formatValue={fmtWhole} trend={(data?.flow_trend ?? []).map(p => Number(p.net_ngn))} />
+        <KpiCard label="Inflow" value={fmtWhole(data?.inflow_ngn ?? 0)} sub={flowPeriod} icon="south_east" accent={GREEN} loading={loading}
+          numericValue={Number(data?.inflow_ngn ?? 0)} formatValue={fmtWhole} trend={flowData.map(p => p.inflow_ngn)} />
+        <KpiCard label="Outflow" value={fmtWhole(data?.outflow_ngn ?? 0)} sub={flowPeriod} icon="north_west" accent={RED} loading={loading}
+          numericValue={Number(data?.outflow_ngn ?? 0)} formatValue={fmtWhole} trend={flowData.map(p => p.outflow_ngn)} />
         <KpiCard
           label="FD Liabilities"
-          value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)}
-          sub={`${fmtNum(data?.active_fds ?? 0)} active · ${fmtKoboExact(data?.fd_accrued_kobo ?? 0)} accrued`}
+          value={fmtKoboWhole(data?.fd_liabilities_kobo ?? 0)}
+          sub={`${fmtNum(data?.active_fds ?? 0)} active · ${fmtKoboWhole(data?.fd_accrued_kobo ?? 0)} accrued`}
           icon="savings"
           accent={BLUE}
           loading={loading}
+          numericValue={Number(data?.fd_liabilities_kobo ?? 0)} formatValue={fmtKoboWhole}
         />
-        <KpiCard label="Loan Book" value={fmtKoboExact(loanBook)} icon="account_balance" accent={NAVY} loading={loading} />
+        <KpiCard label="Loan Book" value={fmtKoboWhole(loanBook)} icon="account_balance" accent={NAVY} loading={loading}
+          numericValue={loanBook} formatValue={fmtKoboWhole} />
         <KpiCard
           label="NPL"
-          value={fmtKoboExact(npl)}
+          value={fmtKoboWhole(npl)}
           sub={`${fmtPct(nplRatio)} of book`}
           icon="warning"
           accent={nplRatio > 5 ? RED : AMBER}
           loading={loading}
+          numericValue={npl} formatValue={fmtKoboWhole}
         />
       </div>
 
@@ -205,12 +215,7 @@ export default function Treasury() {
           sitting them next to the loan book in the same neutral treatment read
           as four assets. */}
       <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo"
-        actions={
-          <span onClick={() => navigate('/finance/balance-sheet')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--accent)' }}>
-            Full Balance Sheet
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
-          </span>
-        }
+        actions={<CardLink label="Full Balance Sheet" onClick={() => navigate('/finance/balance-sheet')} />}
       >
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Assets</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[3], marginBottom: SP[4] }}>

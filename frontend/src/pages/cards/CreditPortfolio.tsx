@@ -1,5 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
@@ -35,6 +36,7 @@ const koboAxisFmt = (v: number) => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).
 const back = { label: 'Cards', to: '/cards' }
 
 export default function CreditCardPortfolio() {
+  const navigate = useNavigate()
   const [kpis, setKpis] = useState<CCKpis | null>(null)
   const [util, setUtil] = useState<UtilRow[]>([])
   const [interest, setInterest] = useState<TrendRow[]>([])
@@ -98,12 +100,15 @@ export default function CreditCardPortfolio() {
 
           {/* Headline KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-            <KpiCard label="Receivables" value={fmtKoboExact(kpis?.total_receivables_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} sub={`${fmtNum(kpis?.accounts ?? 0)} accounts`} />
+            <KpiCard label="Receivables" value={fmtKoboExact(kpis?.total_receivables_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} sub={`${fmtNum(kpis?.accounts ?? 0)} accounts`}
+              numericValue={kpis?.total_receivables_kobo ?? 0} formatValue={fmtKoboExact} trend={recv.map(r => Number(r.outstanding_kobo ?? 0))} />
             <KpiCard label="Utilization" value={`${(kpis?.utilization_pct ?? 0).toFixed(1)}%`} icon="donut_large" accent={BLUE} sub={`of ${fmtKoboExact(kpis?.total_credit_limit_kobo ?? 0)} limit`} />
-            <KpiCard label="Interest Income" value={fmtKoboExact(kpis?.interest_income_kobo ?? 0)} icon="trending_up" accent={GREEN} sub="this cycle" />
-            <a href="/cards/at-risk" style={{ textDecoration: 'none', display: 'block' }} title="View at-risk accounts">
-              <KpiCard label="Delinquency" value={`${(kpis?.delinquency_rate_pct ?? 0).toFixed(1)}%`} icon="warning" accent={RED} sub={`${fmtNum(kpis?.overdue_accounts ?? 0)} overdue · ${fmtNum(kpis?.over_limit_accounts ?? 0)} over-limit`} />
-            </a>
+            <KpiCard label="Interest Income" value={fmtKoboExact(kpis?.interest_income_kobo ?? 0)} icon="trending_up" accent={GREEN} sub="this cycle"
+              numericValue={kpis?.interest_income_kobo ?? 0} formatValue={fmtKoboExact} trend={interest.map(r => Number(r.interest_kobo ?? 0))} />
+            {/* Was a plain <a href>, which reloaded the whole SPA to reach an in-app route. */}
+            <KpiCard label="Delinquency" value={`${(kpis?.delinquency_rate_pct ?? 0).toFixed(1)}%`} icon="warning" accent={RED} sub={`${fmtNum(kpis?.overdue_accounts ?? 0)} overdue · ${fmtNum(kpis?.over_limit_accounts ?? 0)} over-limit`}
+              onClick={() => navigate('/cards/at-risk')} title="View at-risk accounts"
+              numericValue={kpis?.delinquency_rate_pct ?? 0} formatValue={n => `${n.toFixed(1)}%`} trend={recv.map(r => Number(r.overdue_kobo ?? 0))} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
             <KpiCard label="Min Payment Due" value={fmtKoboExact(kpis?.min_payment_due_kobo ?? 0)} icon="payments" accent={AMBER} />

@@ -179,20 +179,24 @@ export default function FinanceIncome() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip — revenue by stream with period-over-period deltas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total Revenue" value={fmt(totals?.total_ngn ?? 0)} sub={`${fmtNum(totals?.txn_count ?? 0)} txns`}
           change={pctChange(Number(totals?.total_ngn ?? 0), Number(prev?.total_ngn ?? 0))} changePeriod="vs prev period"
-          icon="payments" accent={GREEN} loading={loading} />
+          icon="payments" accent={GREEN} loading={loading}
+          numericValue={Number(totals?.total_ngn ?? 0)} formatValue={fmt} trend={trendData.map(t => Number(t.total_ngn ?? 0))} />
         <KpiCard label="Interest Income" value={fmt(totals?.interest_ngn ?? 0)}
           sub={`${fmt(totals?.card_interest_ngn ?? 0)} card · ${fmt(totals?.loan_interest_ngn ?? 0)} loan`}
           change={pctChange(Number(totals?.interest_ngn ?? 0), Number(prev?.interest_ngn ?? 0))} changePeriod="vs prev period"
-          icon="trending_up" accent={BLUE} loading={loading} />
+          icon="trending_up" accent={BLUE} loading={loading}
+          numericValue={Number(totals?.interest_ngn ?? 0)} formatValue={fmt} trend={trendData.map(t => Number(t.interest_ngn ?? 0))} />
         <KpiCard label="Fee Income" value={fmt(totals?.fee_ngn ?? 0)}
           change={pctChange(Number(totals?.fee_ngn ?? 0), Number(prev?.fee_ngn ?? 0))} changePeriod="vs prev period"
-          icon="receipt_long" accent={PURPLE} loading={loading} />
+          icon="receipt_long" accent={PURPLE} loading={loading}
+          numericValue={Number(totals?.fee_ngn ?? 0)} formatValue={fmt} trend={trendData.map(t => Number(t.fee_ngn ?? 0))} />
         <KpiCard label="Penalty Income" value={fmt(totals?.penalty_ngn ?? 0)}
           change={pctChange(Number(totals?.penalty_ngn ?? 0), Number(prev?.penalty_ngn ?? 0))} changePeriod="vs prev period"
-          icon="gavel" accent={AMBER} loading={loading} />
+          icon="gavel" accent={AMBER} loading={loading}
+          numericValue={Number(totals?.penalty_ngn ?? 0)} formatValue={fmt} trend={trendData.map(t => Number(t.penalty_ngn ?? 0))} />
       </div>
 
       {isEmpty ? (

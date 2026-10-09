@@ -264,6 +264,7 @@ export default function SalesLeads() {
           next_action_at: form.next_action_at || '',
         }),
       })
+      toast.success('Lead created')
       setNewOpen(false)
       setMoreOpen(false)
       setForm({
@@ -293,6 +294,7 @@ export default function SalesLeads() {
           method: 'POST', body: JSON.stringify({ reason: actionNote }),
         })
       }
+      toast.success(action === 'convert' ? 'Lead converted' : 'Lead disqualified')
       setActing(null); setActionCIF(''); setActionNote('')
       await load()
     } catch (e: any) {

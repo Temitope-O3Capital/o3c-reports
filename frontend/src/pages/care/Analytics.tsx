@@ -115,9 +115,12 @@ export default function CareAnalytics() {
         <>
           {/* KPI strip */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
-            <KpiCard label="Mails Received" value={fmtNum(s.received)} icon="inbox" accent={NAVY} sub={`last ${days} days`} />
-            <KpiCard label="Resolved" value={fmtNum(s.resolved)} icon="check_circle" accent={GREEN} sub={`${fmtPct1(s.resolution_rate)} of received`} />
-            <KpiCard label="Avg 1st Response" value={fmtMins(s.avg_first_response_mins)} icon="timer" accent={BLUE} sub="time to first reply" />
+            <KpiCard label="Mails Received" value={fmtNum(s.received)} icon="inbox" accent={NAVY} sub={`last ${days} days`}
+              numericValue={Number(s.received)} formatValue={fmtNum} trend={volumeData.map(v => v.received)} />
+            <KpiCard label="Resolved" value={fmtNum(s.resolved)} icon="check_circle" accent={GREEN} sub={`${fmtPct1(s.resolution_rate)} of received`}
+              numericValue={Number(s.resolved)} formatValue={fmtNum} trend={volumeData.map(v => v.resolved)} />
+            <KpiCard label="Avg 1st Response" value={fmtMins(s.avg_first_response_mins)} icon="timer" accent={BLUE} sub="time to first reply"
+              numericValue={s.avg_first_response_mins == null ? undefined : Number(s.avg_first_response_mins)} formatValue={fmtMins} trend={responseData.map(r => r.avg_first_mins)} />
             <KpiCard label="Avg Resolution" value={s.avg_resolution_hours == null ? '—' : `${Number(s.avg_resolution_hours).toFixed(1)}h`} icon="schedule" accent={AMBER} sub="open to resolved" />
             <KpiCard label="Open Backlog" value={fmtNum(s.open_backlog)} icon="pending_actions" accent={RED} sub="unresolved now" />
             <KpiCard label="CSAT" value={s.csat_avg == null ? '—' : Number(s.csat_avg).toFixed(2)} icon="sentiment_satisfied" accent={PURPLE} sub={`${fmtNum(s.csat_count)} rated`} />

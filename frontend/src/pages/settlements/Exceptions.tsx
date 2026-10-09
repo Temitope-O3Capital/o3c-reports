@@ -6,6 +6,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
@@ -263,6 +264,7 @@ export default function SettlementExceptions() {
       })
       setPostingDone(`${res.ref ?? 'Entry'} raised for ${postingFor.source_ref || `#${postingFor.id}`}`
         + ' — it needs a second person to approve it.')
+      toast.success('Correcting entry raised: it needs a second person to approve it')
       setPostingFor(null)
       setPostingNote('')
       await load()
@@ -281,6 +283,7 @@ export default function SettlementExceptions() {
         resolution_code: resolveCode,
         note: resolveNote,
       })
+      toast.success(`${selected.size} exception${selected.size === 1 ? '' : 's'} resolved`)
       setResolveOpen(false)
       setSelected(new Set())
       setResolveNote('')

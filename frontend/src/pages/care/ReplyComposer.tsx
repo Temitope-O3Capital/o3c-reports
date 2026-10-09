@@ -110,6 +110,7 @@ export default function ReplyComposer({ ticketId, customerName, customerEmail, c
         attachments: attachments.map(({ filename, content_type, content }) => ({ filename, content_type, content })),
       })
       setUndo({ msgId: Number(msg?.id) || 0, secs: HOLD_SECONDS })
+      toast.success('Reply queued to send')
       setReplyHtml('<p></p>')
       setAttachments([]); setCc(''); setBcc(''); setShowBcc(false); setOpen(false); setCannedOpen(false)
       onSent()

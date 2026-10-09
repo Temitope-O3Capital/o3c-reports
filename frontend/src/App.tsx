@@ -567,7 +567,10 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
       })
       setActed(a => ({ ...a, [key]: 'approved' }))
       setCount(c => Math.max(0, c - 1))
-    } catch {}
+      toast.success('Approved')
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Approve failed')
+    }
   }
 
   async function handleReject() {
@@ -582,7 +585,12 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
       })
       setActed(a => ({ ...a, [key]: 'rejected' }))
       setCount(c => Math.max(0, c - 1))
-    } catch {}
+      toast.success('Rejected')
+    } catch (e: any) {
+      // The modal closes either way below, so without this a failed rejection
+      // looked identical to a successful one.
+      toast.error(e?.message ?? 'Reject failed')
+    }
     setRejectLoading(false)
     setRejectTarget(null)
     setRejectReason('')

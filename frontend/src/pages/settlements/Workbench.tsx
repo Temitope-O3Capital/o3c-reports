@@ -5,6 +5,7 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
@@ -327,6 +328,7 @@ export default function Reconcile() {
         period_to: periodTo,
         supersede,
       })
+      toast.success('Reconciliation run started')
       setRunOpen(false)
       setOverlap(null)
       setSelectedId(res.run_id)
@@ -354,6 +356,7 @@ export default function Reconcile() {
     setSigning(true)
     try {
       await apiPost(`/api/recon/runs/${selectedId}/signoff`, { note: signNote })
+      toast.success('Run signed off')
       setSignOpen(false)
       setSignNote('')
       await load()
@@ -369,6 +372,7 @@ export default function Reconcile() {
     setSyncing(true)
     try {
       await apiPost('/api/paystack/sync', {})
+      toast.success('Paystack sync started')
       await load()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Sync failed to start')

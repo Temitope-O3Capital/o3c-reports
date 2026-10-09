@@ -271,6 +271,7 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
         disposition,
         notes,
       })
+      toast.success('Call logged')
       setNotes('')
       setDisposition('')
       onDone()
@@ -334,6 +335,7 @@ function RecordPTPTab({ assignmentId, onDone }: { assignmentId: number; onDone: 
         amount_kobo: kobo,
         promise_date: ptpDate,
       })
+      toast.success('Promise to pay recorded')
       setAmountNaira('')
       setPtpDate('')
       onDone()

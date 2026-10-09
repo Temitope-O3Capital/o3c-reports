@@ -214,6 +214,27 @@ input.srch-input:focus-visible { box-shadow: none !important; }
    popover inside the page position against the page instead of the window. */
 .page-fade { animation: pageFadeIn var(--dur-enter) var(--ease); }
 
+/* ── KPI card entrance stagger ────────────────────────────────────────────────
+   A row of KPI cards used to appear as one flat block. These rules give each card
+   in a row a slightly later start so the row reveals across, which reads as
+   deliberate rather than abrupt.
+
+   The delay comes from :nth-child rather than a prop, so every KpiCard in the app
+   gets it from DOM order alone — no call site passes anything. backwards fill keeps
+   a card invisible until its own delay elapses; without it they would all paint at
+   once and then restart, which flickers. --dur-enter is already 0ms under
+   prefers-reduced-motion, so this whole block self-disables there. */
+.kpi-card { animation: pageFadeIn var(--dur-enter) var(--ease) backwards; }
+.kpi-card:nth-child(1) { animation-delay: 0ms;   }
+.kpi-card:nth-child(2) { animation-delay: 40ms;  }
+.kpi-card:nth-child(3) { animation-delay: 80ms;  }
+.kpi-card:nth-child(4) { animation-delay: 120ms; }
+.kpi-card:nth-child(5) { animation-delay: 160ms; }
+.kpi-card:nth-child(6) { animation-delay: 200ms; }
+.kpi-card:nth-child(7) { animation-delay: 240ms; }
+/* Capped: past the eighth card the wait would be felt as lag, not rhythm. */
+.kpi-card:nth-child(n+8) { animation-delay: 280ms; }
+
 /* ── Skeleton pulse ───────────────────────────────────────────────────────── */
 @keyframes skPulse {
   0%, 100% { opacity: 1;    }

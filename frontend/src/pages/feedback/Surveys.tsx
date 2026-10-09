@@ -4,6 +4,7 @@ import { Page, SectionCard, KpiCard, DataTable, Modal, Button, Input, Textarea, 
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtNum, fmtDate } from '../../lib/fmt'
+import { toast } from 'sonner'
 import { NAVY, RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface SurveyRow {
@@ -96,6 +97,7 @@ export default function Surveys() {
       if (id && template && template.questions.length) {
         await apiPut(`/api/surveys/${id}/questions`, { questions: template.questions })
       }
+      toast.success('Survey created')
       setShowNew(false)
       setForm({ ...BLANK }); setTpl('blank')
       if (id) nav(`/feedback/surveys/${id}/edit`)
