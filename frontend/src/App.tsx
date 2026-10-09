@@ -50,6 +50,7 @@ const SettlementImport = lazy(() => import('./pages/settlements/SettlementImport
 const GrowthActivity  = lazy(() => import('./pages/growth/GrowthActivity'))
 const Retention       = lazy(() => import('./pages/retention/Retention'))
 const ReportsBuilder  = lazy(() => import('./pages/reports/ReportBuilder'))
+const ReportsLibrary  = lazy(() => import('./pages/reports/Library'))
 const ReportsManagement = lazy(() => import('./pages/reports/ManagementReports'))
 const ReportsEditor = lazy(() => import('./pages/reports/ReportEditor'))
 const ReportsCardCredit = lazy(() => import('./pages/reports/CardAttribution'))
@@ -1318,6 +1319,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                       product knowledge, not server administration. */}
                   <Route path="/reports/merchant-names" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><ReportsMerchantNames /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/builder" element={<RequireAccess page={['reports', 'report_builder']} user={user}><PageErrorBoundary><ReportsBuilder /></PageErrorBoundary></RequireAccess>} />
+                  {/* The standing reports. Fourteen endpoints existed with no page at all;}.$CR
+  .q{                      see pages/reports/Library.tsx for why that mattered. */}
+                  <Route path="/reports/library" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsLibrary /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/management" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsManagement /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/management/new" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsEditor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/management/:key" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsEditor /></PageErrorBoundary></RequireAccess>} />
