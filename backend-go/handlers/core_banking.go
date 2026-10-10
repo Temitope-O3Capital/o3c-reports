@@ -6,13 +6,63 @@ import (
 	"net/url"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/o3c/workspace/core"
 	"github.com/o3c/workspace/udara"
 )
 
 // RegisterCoreBanking mounts all Udara360 CBS proxy endpoints under /api/cbs.
-// Every endpoint requires an authenticated O3C session (enforced by the caller).
 // If the CBS client is not configured (missing credentials), endpoints return 503.
+//
+// AUTHORISATION. These endpoints reach the bank's core system through the Udara
+// proxy, and until now NONE of them was authorised. The subtree is mounted under
+// AuthMiddleware only — authentication, not permission — and neither the routes nor
+// the handlers consulted a page. So ANY authenticated staff member, a call-centre
+// agent or a BD officer included, could call POST /account/create-customer,
+// PUT /account/freeze, PUT /account/place-pnd or PUT /account/update-customer
+// against live customer accounts. 112 routes: 45 GET, 40 POST, 27 PUT. The comment
+// that used to sit here said "every endpoint requires an authenticated O3C session
+// (enforced by the caller)", which was true and also the whole problem: a session
+// is not a permission.
+//
+// MUTATIONS are now gated on "admin", matching the precedent already set for the
+// two genuinely dangerous writes in cbs_write.go (/write/loan, /write/fd). Checked
+// first that NOTHING in the frontend calls any of the 67 mutating endpoints — the
+// UI's only CBS traffic is /reports/* (already gated inside cbs_reports.go by its
+// own `read` middleware), /sync/status, and the customer statement — so this closes
+// an unused write surface onto the core banking system without breaking a workflow.
+// Note "admin" is a MODULE key and not a page key, so RequirePages("admin") is
+// satisfied only by HasPage's `Role == "admin"` short-circuit: deliberately the
+// narrowest gate available, and the same one cbs_write.go uses. When an operations
+// workflow genuinely needs freeze or PND, that earns its own catalog page rather
+// than widening this one.
+//
+// READS are deliberately left as they are. The widely-held ContactProfile — the
+// canonical customer page — plus Fixed Deposits and the Reports Library all consume
+// CBS reads, and "core-banking" is held by only a handful of finance and exec
+// roles. Gating reads here would break those pages for the people who use them
+// every day, which is a product decision with real blast radius rather than a
+// security fix, so it is raised separately instead of being slipped in here.
+//
+// A method-aware middleware rather than per-route .With(): the 112 routes live in
+// 16 nested r.Route groups that each shadow `r`, so a sub-router hoisted to this
+// scope would silently re-register every path at the wrong prefix.
+//
+// chi requires middleware to be declared before any route on the same mux, and
+// this router is shared with RegisterCBSSync/CBSReports/CBSWrite.
+// RegisterCoreBanking is called first at the mount, so this is in time; if that
+// order is ever changed chi panics at startup, which is loud rather than silent.
 func RegisterCoreBanking(r chi.Router, u *udara.Client) {
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			switch req.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				next.ServeHTTP(w, req)
+			default:
+				core.RequirePages("admin")(next).ServeHTTP(w, req)
+			}
+		})
+	})
+
 	r.Get("/status", cbsStatus(u))
 
 	// ── Account ──────────────────────────────────────────────────────────────
