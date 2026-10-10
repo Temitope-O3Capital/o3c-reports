@@ -7,6 +7,7 @@ import { fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 import { EArea, EBar, EDonut } from '../../components/echarts'
 import { humanLabel } from '../../lib/labels'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ function toN(v: any): number { return Number(v) || 0 }
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SalesReports() {
+  const isMobile = useIsMobile()
   const [kpis,     setKpis]     = useState<OverviewKPIs | null>(null)
   const [pipeline, setPipeline] = useState<PipelineReport[]>([])
   const [sources,  setSources]  = useState<SourceReport[]>([])
@@ -124,10 +126,12 @@ export default function SalesReports() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[5] }}>
-        <KpiCard label="Total Contacts" value={fmtNum(toN(kpis?.total_contacts))} loading={loading} />
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3], marginBottom: SP[5] }}>
+        <KpiCard label="Total Contacts" value={fmtNum(toN(kpis?.total_contacts))} loading={loading}
+          trend={trend.map(t => toN(t.new_contacts))} />
         <KpiCard label="Leads"          value={fmtNum(toN(kpis?.total_leads))}    loading={loading} />
-        <KpiCard label="Customers"      value={fmtNum(toN(kpis?.total_customers))} accent={GREEN} loading={loading} />
+        <KpiCard label="Customers"      value={fmtNum(toN(kpis?.total_customers))} accent={GREEN} loading={loading}
+          trend={trend.map(t => toN(t.converted))} />
         <KpiCard label="Deals"          value={fmtNum(toN(kpis?.total_deals))}    loading={loading} />
         <KpiCard label="Won Deals"      value={fmtNum(toN(kpis?.won_deals))}      accent={GREEN} loading={loading} />
         <KpiCard label="Open Tasks"     value={fmtNum(toN(kpis?.open_tasks))}     accent={toN(kpis?.overdue_tasks) > 0 ? AMBER : NAVY} loading={loading} />

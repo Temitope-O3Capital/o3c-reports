@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Modal, Spinner } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKoboExact, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
 import { type Tier, TIER_META, TIER_ORDER, TierBadge, PctBar } from '../../components/TierBadge'
 
@@ -117,7 +117,7 @@ export default function PaymentTiers() {
               key={t}
               label={`${m.label} · ${m.range}`}
               value={fmtNum(s?.loans ?? 0)}
-              sub={s ? `${fmtKoboExact(s.outstanding_kobo)} · ${fmtNum(s.delinquent)} delinquent` : undefined}
+              sub={s ? `${fmtKoboWhole(s.outstanding_kobo)} · ${fmtNum(s.delinquent)} delinquent` : undefined}
               accent={m.color}
               loading={loading && !summary.length}
             />

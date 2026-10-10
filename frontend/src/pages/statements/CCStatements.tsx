@@ -132,7 +132,7 @@ export default function CCStatements() {
                 {rows.map(s => (
                   <tr
                     key={s.id}
-                    {...navigableProps(() => navigate(`/statements/credit-cards/${s.id}`), undefined)}
+                    {...navigableProps(() => navigate(`/statements/credit-cards/${s.id}`), { row: true })}
                     style={{ borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}

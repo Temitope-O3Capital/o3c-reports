@@ -7,7 +7,8 @@ import FDRegister, { officerOf } from './FDRegister'
 import OfficerCorrections from './OfficerCorrections'
 import type { FDDeposit } from './FDRegister'
 import { apiFetch, unwrap, unwrapList } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtCount, fmtDate, fmtPct } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtCount, fmtDate, fmtPct } from '../../lib/fmt'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 
 // Fixed Deposits — a READ-ONLY view of the live CBS deposit register
@@ -163,6 +164,8 @@ export default function FixedDeposits() {
     }, { replace: true })
   }, [setParams])
 
+  const isMobile = useIsMobile()
+
   const [kpis, setKpis] = useState<FDKpis | null>(null)
   const [ladder, setLadder] = useState<LadderBucket[]>([])
   const [trend, setTrend] = useState<TrendPoint[]>([])
@@ -255,13 +258,17 @@ export default function FixedDeposits() {
       <ErrBanner error={error} onRetry={loadOverview} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="Book Size" value={fmtKoboExact(kpis?.total_principal_kobo ?? 0)} sub={`${fmtCount(kpis?.unique_customers ?? 0)} customers`} icon="savings" accent={NAVY} loading={loading} />
-        <KpiCard label="Active Deposits" value={fmtCount(kpis?.active_count ?? 0)} sub={`${fmtCount(kpis?.new_this_month_count ?? 0)} new this month`} icon="account_balance" accent={GREEN} loading={loading} />
-        <KpiCard label="Accrued Interest" value={fmtKoboExact(kpis?.total_accrued_interest_kobo ?? 0)} sub={`${fmtKoboExact(kpis?.annualized_interest_expense_kobo ?? 0)}/yr run-rate`} icon="trending_up" accent={BLUE} loading={loading} />
+      {/* Fixed at three across rather than six-in-a-row: whole-naira book figures need
+          the width, and three-by-two divides evenly with no orphan card. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
+        <KpiCard label="Book Size" value={fmtKoboWhole(kpis?.total_principal_kobo ?? 0)} sub={`${fmtCount(kpis?.unique_customers ?? 0)} customers`} icon="savings" accent={NAVY} loading={loading}
+          numericValue={Number(kpis?.total_principal_kobo ?? 0)} formatValue={fmtKoboWhole} trend={trend.map(p => Number(p.principal_kobo))} />
+        <KpiCard label="Active Deposits" value={fmtCount(kpis?.active_count ?? 0)} sub={`${fmtCount(kpis?.new_this_month_count ?? 0)} new this month`} icon="account_balance" accent={GREEN} loading={loading}
+          numericValue={Number(kpis?.active_count ?? 0)} formatValue={fmtCount} trend={trend.map(p => Number(p.active_count))} />
+        <KpiCard label="Accrued Interest" value={fmtKoboWhole(kpis?.total_accrued_interest_kobo ?? 0)} sub={`${fmtKoboWhole(kpis?.annualized_interest_expense_kobo ?? 0)}/yr run-rate`} icon="trending_up" accent={BLUE} loading={loading} />
         <KpiCard label="Avg Rate" value={fmtPct(kpis?.weighted_avg_rate ?? 0)} sub="principal-weighted" icon="percent" accent={PURPLE} loading={loading} />
         <KpiCard label="Avg Tenor" value={`${fmtCount(kpis?.weighted_avg_tenor_days ?? 0)} days`} sub="principal-weighted" icon="schedule" accent={AMBER} loading={loading} />
-        <KpiCard label="Maturing 30d" value={fmtKoboExact(kpis?.maturing_30d_kobo ?? 0)} sub={`${fmtCount(kpis?.maturing_30d_count ?? 0)} deposits`} icon="event_upcoming" accent={AMBER} loading={loading} />
+        <KpiCard label="Maturing 30d" value={fmtKoboWhole(kpis?.maturing_30d_kobo ?? 0)} sub={`${fmtCount(kpis?.maturing_30d_count ?? 0)} deposits`} icon="event_upcoming" accent={AMBER} loading={loading} />
       </div>
 
       <Tabs

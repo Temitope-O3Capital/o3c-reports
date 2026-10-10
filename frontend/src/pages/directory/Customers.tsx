@@ -276,7 +276,7 @@ export default function CustomerDirectory() {
                   return (
                     <tr
                       key={r.cif}
-                      {...navigableProps(() => navigate(`${base}/${encodeURIComponent(r.cif)}`), undefined)}
+                      {...navigableProps(() => navigate(`${base}/${encodeURIComponent(r.cif)}`), { row: true })}
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}

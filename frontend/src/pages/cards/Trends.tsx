@@ -169,6 +169,9 @@ export default function CardTrends() {
           value={fmtNum(kpis?.issued_mtd ?? 0)}
           loading={loading}
           sub={kpis ? `${fmtNum(kpis.total_issued)} total issued` : undefined}
+          numericValue={Number(kpis?.issued_mtd ?? 0)}
+          formatValue={fmtNum}
+          trend={issuance.map(r => Number(r.issued))}
         />
         <KpiCard
           label="Activation Rate"

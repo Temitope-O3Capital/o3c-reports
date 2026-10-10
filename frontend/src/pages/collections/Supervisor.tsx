@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { LiveBadge, relTime } from '../../components/MyWorkspace'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKoboExact, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -247,8 +247,8 @@ export default function CollectionsSupervisor() {
 
       {/* ── Team KPIs — a clean 4×2 grid so the eight tiles distribute evenly ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 18 }}>
-        <KpiCard label="Collected Today" value={loading && !d ? '—' : fmtKoboExact(collected)}
-          sub={target > 0 ? `${targetPct}% of ${fmtKoboExact(target)} target` : 'no target set today'}
+        <KpiCard label="Collected Today" value={loading && !d ? '—' : fmtKoboWhole(collected)}
+          sub={target > 0 ? `${targetPct}% of ${fmtKoboWhole(target)} target` : 'no target set today'}
           icon="payments" accent={GREEN} loading={loading && !d} />
         {/* These three are behavioural rates with no instrumentation behind them yet:
             collection_promises and collection_contacts are empty, so each resolves to 0

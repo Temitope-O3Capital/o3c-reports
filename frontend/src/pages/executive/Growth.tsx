@@ -6,6 +6,7 @@ import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
 import { Stat, ytick } from './shared'
 import { ECombo, EBar } from '../../components/echarts'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 interface ExecGrowth {
   registrations: { this_month: number; last_month: number; ytd: number; total: number }
@@ -33,6 +34,7 @@ export default function ExecGrowth() {
   const [data, setData] = useState<ExecGrowth | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -73,12 +75,14 @@ export default function ExecGrowth() {
     <Page title={title} back={back}>
 
       {/* ── Headline ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="New Registrations" value={fmtNum(reg.this_month)} change={regDelta ?? undefined} sub={`${fmtNum(reg.ytd)} YTD`} icon="person_add" accent={NAVY} />
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3], marginBottom: 14 }}>
+        <KpiCard label="New Registrations" value={fmtNum(reg.this_month)} change={regDelta ?? undefined} sub={`${fmtNum(reg.ytd)} YTD`} icon="person_add" accent={NAVY}
+          trend={data.trend.map(t => n(t.new_accounts))} />
         <KpiCard label="Active Customers" value={fmtNum(act.active)} sub="transacted ≤ 90d" icon="how_to_reg" accent={GREEN} />
         <KpiCard label="Dormant Rate" value={fmtPct(dormantRate)} sub={`${fmtNum(act.dormant)} dormant > 1yr`} icon="trending_down" accent={dormantRate > 40 ? RED : AMBER} />
         <KpiCard label="Transactions" value={fmtNum(txn.count_this)} change={txnDelta ?? undefined} sub="this month" icon="sync_alt" accent={BLUE} />
-        <KpiCard label="Card Spend" value={fmtKobo(txn.spend_kobo_this)} sub={`${fmtKobo(txn.inflow_kobo_this)} inflow`} icon="shopping_bag" accent="#7C3AED" />
+        <KpiCard label="Card Spend" value={fmtKobo(txn.spend_kobo_this)} sub={`${fmtKobo(txn.inflow_kobo_this)} inflow`} icon="shopping_bag" accent="#7C3AED"
+          trend={data.trend.map(t => n(t.spend_kobo))} />
         <KpiCard label="Total Customers" value={fmtNum(act.total)} sub="on the book" icon="groups" accent={NAVY} />
       </div>
 

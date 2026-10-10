@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { LiveBadge, relTime } from '../../components/MyWorkspace'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ───────────────────────────────────────────────────────────────────────
@@ -220,9 +220,9 @@ export default function RecoverySupervisor() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard label="Open Cases" value={loading && !d ? '—' : fmtNum(Number(d?.total_open_cases ?? 0))}
           sub="active recovery cases" icon="folder_open" accent={NAVY} loading={loading && !d} />
-        <KpiCard label="Total Outstanding" value={loading && !d ? '—' : fmtKoboExact(Number(d?.total_outstanding_kobo ?? 0))}
+        <KpiCard label="Total Outstanding" value={loading && !d ? '—' : fmtKoboWhole(Number(d?.total_outstanding_kobo ?? 0))}
           sub="balance under recovery" icon="account_balance_wallet" accent={RED} loading={loading && !d} />
-        <KpiCard label="Recovered" value={loading && !d ? '—' : fmtKoboExact(Number(d?.total_recovered_kobo ?? 0))}
+        <KpiCard label="Recovered" value={loading && !d ? '—' : fmtKoboWhole(Number(d?.total_recovered_kobo ?? 0))}
           sub="collected on recovery cases" icon="savings" accent={GREEN} loading={loading && !d} />
         <KpiCard label="Pending Write-Offs" value={loading && !d ? '—' : fmtNum(pendingWriteOffs)}
           sub="awaiting your decision" icon="request_quote" accent={pendingWriteOffs > 0 ? AMBER : GREEN} loading={loading && !d} />

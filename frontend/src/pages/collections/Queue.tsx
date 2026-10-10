@@ -17,7 +17,7 @@ import CallsPanel from '../../components/CallsPanel'
 import { COLLECTIONS_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
 import { BankLogo } from '../../components/BankLogo'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKoboExact, fmtExact, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtExact, fmtNum, fmtDate } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 import { humanLabel } from '../../lib/labels'
@@ -1194,7 +1194,7 @@ export default function CollectionsQueue() {
           <KpiCard label="Accounts in Queue" value={fmtNum(kpis.inQueue)} icon="account_balance" accent={NAVY} loading={loading} />
           <KpiCard label="Untouched Today"   value={fmtNum(kpis.untouched)}  sub="no contact yet today" icon="notifications_active" accent={AMBER} loading={loading} />
           <KpiCard label="Unassigned"        value={fmtNum(kpis.unassigned)} sub="awaiting an agent"    icon="person_off" accent={RED} loading={loading} />
-          <KpiCard label="Outstanding in View" value={fmtKoboExact(kpis.outstanding)} icon="payments" accent={GREEN} loading={loading} />
+          <KpiCard label="Outstanding in View" value={fmtKoboWhole(kpis.outstanding)} icon="payments" accent={GREEN} loading={loading} />
         </div>
 
         {/* ── Master / detail ────────────────────────────────────────────────── */}

@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { LedgerTree } from '../../components/finance/LedgerTree'
 import type { LedgerSection, LedgerLine, LedgerAccount } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtDate, fmtPct } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum, fmtDate, fmtPct } from '../../lib/fmt'
 import { GREEN, PURPLE, BLUE, AMBER, NAVY, TEXT, FW, SP } from '../../lib/design'
 
 // Total Revenue drill-down — what the finance meeting actually asked for: card interest
@@ -205,10 +205,10 @@ export default function RevenueBreakdown() {
       <ErrBanner error={error} onRetry={() => load()} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
-        <KpiCard label="Total Revenue" value={fmtKoboExact(totalRevenue)} icon="trending_up" accent={GREEN} loading={loading} />
-        <KpiCard label="Card Revenue" value={fmtKoboExact(cardRevenue)} icon="credit_card" accent={PURPLE} loading={loading} />
-        <KpiCard label="Loan Revenue" value={fmtKoboExact(loanRevenue)} icon="request_quote" accent={PURPLE} loading={loading} />
-        <KpiCard label="Investments & Other" value={fmtKoboExact(investmentOther)} icon="account_balance" accent={BLUE} loading={loading} />
+        <KpiCard label="Total Revenue" value={fmtKoboWhole(totalRevenue)} icon="trending_up" accent={GREEN} loading={loading} />
+        <KpiCard label="Card Revenue" value={fmtKoboWhole(cardRevenue)} icon="credit_card" accent={PURPLE} loading={loading} />
+        <KpiCard label="Loan Revenue" value={fmtKoboWhole(loanRevenue)} icon="request_quote" accent={PURPLE} loading={loading} />
+        <KpiCard label="Investments & Other" value={fmtKoboWhole(investmentOther)} icon="account_balance" accent={BLUE} loading={loading} />
       </div>
 
       <LedgerTree sections={sections} grandTotalLabel="Total Revenue" grandTotal={totalRevenue} fmtAmount={fmtKoboExact}

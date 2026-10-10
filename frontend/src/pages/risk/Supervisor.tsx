@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, NUM } from '../../lib/design'
 import { DpdBar } from '../../components/DpdBar'
 import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, dpdColor } from '../../lib/riskScale'
@@ -199,10 +199,10 @@ export default function RiskSupervisor() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[4] }}>
-        <KpiCard label="Active Book" value={s ? fmtKoboExact(s.total_book_kobo) : '—'} sub={s ? `${fmtNum(s.total_active_loans)} loans` : undefined} icon="account_balance_wallet" accent={NAVY} />
+        <KpiCard label="Active Book" value={s ? fmtKoboWhole(s.total_book_kobo) : '—'} sub={s ? `${fmtNum(s.total_active_loans)} loans` : undefined} icon="account_balance_wallet" accent={NAVY} />
         <KpiCard label="NPL Ratio" value={s ? fmtPct(s.npl_ratio_pct) : '—'} sub="DPD > 90" icon="trending_down" accent={nplRatio > 5 ? RED : nplRatio > 2 ? AMBER : GREEN} />
         <KpiCard label="PAR 30" value={s ? fmtPct(s.par30_rate_pct) : '—'} sub={s ? `${fmtNum(s.par30_loans)} loans` : undefined} icon="schedule" accent={N(s?.par30_rate_pct) > 10 ? RED : N(s?.par30_rate_pct) > 5 ? AMBER : GREEN} />
-        <KpiCard label="Arrears" value={s ? fmtKoboExact(s.total_arrears_kobo) : '—'} sub="behind schedule" icon="warning_amber" accent={N(s?.total_arrears_kobo) > 0 ? AMBER : GREEN} />
+        <KpiCard label="Arrears" value={s ? fmtKoboWhole(s.total_arrears_kobo) : '—'} sub="behind schedule" icon="warning_amber" accent={N(s?.total_arrears_kobo) > 0 ? AMBER : GREEN} />
         <KpiCard label="Avg Score" value={fmtScore(s?.avg_credit_score)} sub="active book · 0-100" icon="psychology" accent={scoreColor(s?.avg_credit_score)} />
         <KpiCard label="Top Obligor" value={topObligor ? fmtPct(topObligor.pct_of_total) : '—'} sub={topObligor ? topObligor.name : `limit ${limit}%`} icon="corporate_fare" accent={topObligor && N(topObligor.pct_of_total) > limit ? RED : NAVY} />
       </div>

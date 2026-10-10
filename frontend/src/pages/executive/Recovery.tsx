@@ -106,7 +106,8 @@ export default function ExecRecovery() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="Open Cases" value={fmtNum(data.open_cases)} icon="gavel" accent={NAVY} />
         <KpiCard label="In Recovery" value={fmtKobo(data.open_outstanding_kobo)} icon="account_balance_wallet" accent={AMBER} />
-        <KpiCard label="Recovered (Period)" value={fmtKobo(data.recovered_period_kobo)} icon="payments" accent={data.recovered_period_kobo > 0 ? GREEN : RED} />
+        <KpiCard label="Recovered (Period)" value={fmtKobo(data.recovered_period_kobo)} icon="payments" accent={data.recovered_period_kobo > 0 ? GREEN : RED}
+          trend={data.monthly_trend.map(m => Number(m.card_kobo) + Number(m.loan_kobo))} />
         <KpiCard label="Recovery Rate" value={fmtPct(data.recovery_rate_pct)} icon="target" accent={data.recovery_rate_pct >= 30 ? GREEN : AMBER} />
       </div>
 

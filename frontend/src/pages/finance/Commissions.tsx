@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import CommissionRatesModal from '../../components/CommissionRatesModal'
 import { EBar, EDonut } from '../../components/echarts'
 import { apiFetch, unwrapList } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP } from '../../lib/design'
 
 // Sales Commissions — Finance-owned view of what each sales officer earned in a
@@ -122,10 +122,10 @@ export default function Commissions() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="Total Commission" value={fmtKoboExact(totalCommission)} sub={`payable · ${period}`} icon="payments" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Commission" value={fmtKoboWhole(totalCommission)} sub={`payable · ${period}`} icon="payments" accent={GREEN} loading={loading} />
         <KpiCard label="Earning Officers" value={fmtNum(earners)} sub={`of ${fmtNum(rows.length)} on book`} icon="groups" accent={NAVY} loading={loading} />
-        <KpiCard label="Booked Value" value={fmtKoboExact(bookedKobo)} sub="loans + FD principal" icon="account_balance" accent={BLUE} loading={loading} />
-        <KpiCard label="Avg per Earner" value={fmtKoboExact(avgPerEarner)} sub="commission per earning officer" icon="functions" accent={AMBER} loading={loading} />
+        <KpiCard label="Booked Value" value={fmtKoboWhole(bookedKobo)} sub="loans + FD principal" icon="account_balance" accent={BLUE} loading={loading} />
+        <KpiCard label="Avg per Earner" value={fmtKoboWhole(avgPerEarner)} sub="commission per earning officer" icon="functions" accent={AMBER} loading={loading} />
       </div>
 
       {/* Top earners + Booked composition */}

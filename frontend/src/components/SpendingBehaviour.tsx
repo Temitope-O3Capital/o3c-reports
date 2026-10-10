@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { EBar } from './echarts'
 import { SectionCard, KpiCard, Sk, EmptyState } from './UI'
 import { apiFetch } from '../lib/api'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { fmtKobo, fmtNum, n } from '../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, RADIUS } from '../lib/design'
 import { mccName } from '../lib/mcc'
@@ -64,6 +65,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
   // way. Default to people (what "customers" means to a reader); toggle switches instantly
   // (both sets come in one response — no refetch).
   const [cohortUnit, setCohortUnit] = useState<'card' | 'person'>('person')
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     let cancelled = false
@@ -112,7 +114,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <SectionCard title={title} subtitle={subtitle ?? (span ? `Card & account activity · ${span}` : 'Card & account activity')}>
         {loading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
             {Array.from({ length: 6 }).map((_, i) => <Sk key={i} h={78} />)}
           </div>
         ) : err ? (
@@ -121,7 +123,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
           <EmptyState icon="receipt_long" title="No Transactions in This Window"
             description="No card or account activity was recorded for the selected period. Widen the window or check that the transaction feed has delivered." />
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
             <KpiCard label="Total Spend" value={fmtKobo(t?.spend_kobo ?? 0)} sub="money out" icon="payments" accent={RED}
               numericValue={Number(t?.spend_kobo ?? 0)} formatValue={fmtKobo} trend={monthly.map(m => m.spend)} />
             <KpiCard label="Money In" value={fmtKobo(t?.inflow_kobo ?? 0)} sub="repayments & loads" icon="savings" accent={GREEN}

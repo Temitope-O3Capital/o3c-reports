@@ -6,6 +6,7 @@ import { fmtDatetime, fmtDate, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, MONO, SORA, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { QAConfig, BAND_COLOR, qaBand } from '../../lib/qa'
 import { toast } from 'sonner'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 type Tab = 'dashboard' | 'evaluations' | 'coaching' | 'report' | 'settings'
 const num = (v: any) => Number(v ?? 0) || 0
@@ -17,6 +18,7 @@ function Pill({ text, color }: { text: string; color: string }) {
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard() {
+  const isMobile = useIsMobile()
   const [from, setFrom] = useState(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10))
   const [to, setTo] = useState(today())
   const [d, setD] = useState<any>(null)
@@ -41,10 +43,11 @@ function Dashboard() {
         <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
       </div>
       <ErrBanner error={err} onRetry={load} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3] }}>
         <KpiCard label="Evaluations" value={num(s.evaluations).toLocaleString()} icon="fact_check" accent={NAVY} loading={loading} sub={`${num(s.agents_evaluated)} agents`} />
         <KpiCard label="Coverage" value={`${num(s.coverage_pct)}%`} icon="donut_large" accent={num(s.coverage_pct) >= 5 ? GREEN : num(s.coverage_pct) >= 1 ? AMBER : RED} loading={loading} sub={`${num(s.evaluated_calls).toLocaleString()} of ${num(s.connected_calls).toLocaleString()} connected`} />
-        <KpiCard label="Avg QA Score" value={`${num(s.avg_score)}%`} icon="grade" accent={scoreColor(num(s.avg_score))} loading={loading} sub={qaBand(num(s.avg_score))} />
+        <KpiCard label="Avg QA Score" value={`${num(s.avg_score)}%`} icon="grade" accent={scoreColor(num(s.avg_score))} loading={loading} sub={qaBand(num(s.avg_score))}
+          trend={trend.map((t: { score: number }) => t.score)} />
         <KpiCard label="Pass Rate" value={`${passRate}%`} icon="check_circle" accent={GREEN} loading={loading} sub={`${num(s.passed)} passed`} />
         <KpiCard label="Failed" value={num(s.failed).toLocaleString()} icon="cancel" accent={RED} loading={loading} />
         <KpiCard label="Critical Errors" value={num(s.critical_errors).toLocaleString()} icon="report" accent={AMBER} loading={loading} />

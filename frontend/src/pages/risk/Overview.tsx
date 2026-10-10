@@ -6,7 +6,7 @@ import { Page, KpiCard, SectionCard, ErrBanner, Spinner, DataTable, ExpandableFi
 import type { TableCol } from '../../components/UI'
 import { DpdBar } from '../../components/DpdBar'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, NUM } from '../../lib/design'
 import { bandColor, bandLabel, scoreColor, fmtScore } from '../../lib/riskScale'
 
@@ -223,10 +223,10 @@ export default function RiskOverview() {
 
       {/* KPI grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
-        <KpiCard label="Active Book"    value={portfolioKPIs ? fmtKoboExact(portfolioKPIs.total_book_kobo) : '—'} sub={portfolioKPIs ? `${fmtNum(portfolioKPIs.total_active_loans)} loans` : undefined} icon="account_balance_wallet" accent={NAVY} />
+        <KpiCard label="Active Book"    value={portfolioKPIs ? fmtKoboWhole(portfolioKPIs.total_book_kobo) : '—'} sub={portfolioKPIs ? `${fmtNum(portfolioKPIs.total_active_loans)} loans` : undefined} icon="account_balance_wallet" accent={NAVY} />
         <KpiCard label="NPL Ratio"      value={portfolioKPIs ? fmtPct(portfolioKPIs.npl_ratio_pct) : '—'} sub="DPD > 90 days" icon="trending_down" accent={(portfolioKPIs?.npl_ratio_pct ?? 0) > 5 ? RED : (portfolioKPIs?.npl_ratio_pct ?? 0) > 2 ? AMBER : GREEN} />
         <KpiCard label="PAR 30"         value={portfolioKPIs ? fmtPct(portfolioKPIs.par30_rate_pct) : '—'} sub="DPD > 30 days" icon="schedule" accent={(portfolioKPIs?.par30_rate_pct ?? 0) > 10 ? RED : (portfolioKPIs?.par30_rate_pct ?? 0) > 5 ? AMBER : GREEN} />
-        <KpiCard label="Total Arrears"  value={portfolioKPIs ? fmtKoboExact(portfolioKPIs.total_arrears_kobo) : '—'} sub="behind schedule" icon="warning_amber" accent={(portfolioKPIs?.total_arrears_kobo ?? 0) > 0 ? AMBER : GREEN} />
+        <KpiCard label="Total Arrears"  value={portfolioKPIs ? fmtKoboWhole(portfolioKPIs.total_arrears_kobo) : '—'} sub="behind schedule" icon="warning_amber" accent={(portfolioKPIs?.total_arrears_kobo ?? 0) > 0 ? AMBER : GREEN} />
         {originationLive ? (
           <>
             <KpiCard label="Pending Review" value={String(reviewKPIs?.pending ?? '—')} sub="awaiting decision" icon="pending_actions" accent={(reviewKPIs?.pending ?? 0) > 0 ? AMBER : GREEN} />
@@ -237,7 +237,7 @@ export default function RiskOverview() {
           <>
             <KpiCard label="Pending Review"  value="n/a" sub="origination not live" icon="pending_actions" accent={NAVY} />
             <KpiCard label="Approval Rate"   value="n/a" sub="origination not live" icon="check_circle"    accent={NAVY} />
-            <KpiCard label="Top Exposure"    value={portfolioKPIs ? fmtKoboExact(portfolioKPIs.top_obligor_exposure_kobo) : '—'} sub={`largest single ${concLabel.toLowerCase()}`} icon="corporate_fare" accent={NAVY} />
+            <KpiCard label="Top Exposure"    value={portfolioKPIs ? fmtKoboWhole(portfolioKPIs.top_obligor_exposure_kobo) : '—'} sub={`largest single ${concLabel.toLowerCase()}`} icon="corporate_fare" accent={NAVY} />
           </>
         )}
         <KpiCard label="Avg Risk Score"  value={fmtScore(portfolioKPIs?.avg_credit_score)} sub="active book · 0-100" icon="psychology" accent={scoreColor(portfolioKPIs?.avg_credit_score)} />

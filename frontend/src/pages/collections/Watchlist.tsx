@@ -8,7 +8,7 @@ import {
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { CustomerSearch, cleanName } from '../../components/CustomerSearch'
-import { fmtDate, fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtDate, fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { idCaption } from '../../components/CreditFile'
 import { toast } from 'sonner'
@@ -444,7 +444,7 @@ export default function Watchlist() {
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 20 }}>
         <KpiCard label="Active Flags"         value={loading ? '—' : fmtNum(kpis.activeCount)}   icon="flag"            accent={RED}   loading={loading} />
-        <KpiCard label="At-Risk Value"        value={loading ? '—' : fmtKoboExact(kpis.atRiskKobo)}   icon="payments"        accent={NAVY}  loading={loading} />
+        <KpiCard label="At-Risk Value"        value={loading ? '—' : fmtKoboWhole(kpis.atRiskKobo)}   icon="payments"        accent={NAVY}  loading={loading} />
         <KpiCard label="Resolved This Month"  value={loading ? '—' : fmtNum(kpis.resolvedMonth)} icon="check_circle"    accent={GREEN} loading={loading} />
         <KpiCard label="Oldest Open Flag"     value={loading ? '—' : (kpis.oldestDays === null ? '—' : `${fmtNum(kpis.oldestDays)}d`)} icon="schedule" accent={AMBER} loading={loading} />
       </div>

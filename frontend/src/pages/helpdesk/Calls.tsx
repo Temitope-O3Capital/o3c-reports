@@ -674,7 +674,8 @@ export default function Calls() {
       {/* KPI strip — over the full filtered dataset, not the loaded page */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Calls"    value={kpis.total.toLocaleString()} icon="call" accent={NAVY} loading={loading}
-          sub={`${kpis.agents} agent${kpis.agents !== 1 ? 's' : ''}`} />
+          sub={`${kpis.agents} agent${kpis.agents !== 1 ? 's' : ''}`}
+          trend={(stats?.by_day ?? []).map(d => num(d.total))} />
         <KpiCard label="Connect Rate"   value={`${kpis.connectRate.toFixed(0)}%`} icon="check_circle" accent={GREEN} loading={loading}
           sub={`${kpis.connected.toLocaleString()} connected`} />
         <KpiCard label="No Answer"      value={`${kpis.missRate.toFixed(0)}%`} icon="call_missed" accent={RED} loading={loading}

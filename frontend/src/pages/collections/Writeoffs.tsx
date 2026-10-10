@@ -10,7 +10,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { LiveBadge } from '../../components/MyWorkspace'
 import { apiFetch, apiPut } from '../../lib/api'
 import { useFocusParam } from '../../hooks/useFocusParam'
-import { fmtKoboExact, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum, today, monthStart } from '../../lib/fmt'
 import { RED, DARKRED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // A write-off is raised from the recovery case, then travels the HOP → COO → CFO
@@ -219,7 +219,7 @@ function ApprovalsPane() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
         <KpiCard label="Total Write-Offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
-        <KpiCard label="Total Amount NGN" value={kpis ? fmtKoboExact(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Total Amount NGN" value={kpis ? fmtKoboWhole(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
         {/* A rate needs something to divide by. The endpoint returns a literal 0 when the
             denominator is empty, and .toFixed(1) dressed that up as a measured "0.0%" in
             green — with recovery_write_off_approvals empty, that is every single render.

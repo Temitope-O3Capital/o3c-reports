@@ -10,7 +10,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { LiveBadge } from '../../components/MyWorkspace'
 import { apiFetch, apiPut } from '../../lib/api'
 import { useFocusParam } from '../../hooks/useFocusParam'
-import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
 
@@ -358,7 +358,7 @@ export default function RecoveryPaymentApprovals() {
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px,1fr))', gap: 14, marginBottom: SP[4] }}>
         <KpiCard label="Pending Payments" value={fmtNum(rows.length)} icon="pending_actions" accent={AMBER} loading={loading} />
-        <KpiCard label="Total Pending Value" value={fmtKoboExact(totalPendingKobo)} icon="payments" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Pending Value" value={fmtKoboWhole(totalPendingKobo)} icon="payments" accent={GREEN} loading={loading} />
         <KpiCard label="Oldest Waiting" value={rows.length ? `${oldestDays}d` : '—'} sub="since logged" icon="hourglass_top" accent={oldestDays > 3 ? RED : BLUE} loading={loading} />
         <KpiCard label="Channels" value={fmtNum(distinctChannels.size)} icon="account_tree" accent={PURPLE} loading={loading} />
       </div>

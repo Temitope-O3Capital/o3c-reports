@@ -298,13 +298,16 @@ export function KpiCard({
  * An audit found ~24 of these across the app — list rows, drill-down tiles, table rows —
  * and not one carried tabIndex or a key handler, so every one of them was mouse-only.
  *
- * Pass role: undefined for a `<tr>`: a table row re-labelled as a button loses its row
+ * Pass `{ row: true }` for a `<tr>`: a table row re-labelled as a button loses its row
  * semantics for a screen reader, and tabIndex alone is enough to make it operable.
+ * (An options object rather than an optional `role` argument, because a default
+ * parameter also fires on an explicitly-passed `undefined` — so `role = 'button'`
+ * silently re-applied itself to every table row that asked for no role at all.)
  */
-export function navigableProps(onClick: () => void, role: 'button' | undefined = 'button') {
+export function navigableProps(onClick: () => void, opts?: { row?: boolean }) {
   return {
     onClick,
-    role,
+    role: opts?.row ? undefined : 'button',
     tabIndex: 0,
     onKeyDown: (e: React.KeyboardEvent) => {
       // Only when the row itself has focus — otherwise Enter on a nested button would

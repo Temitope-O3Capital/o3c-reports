@@ -13,6 +13,7 @@ import { fmtNum, fmtPct, today } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 import { humanLabel } from '../../lib/labels'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ function Ago({ since }: { since: Date | null }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Supervisor() {
+  const isMobile = useIsMobile()
   const [sup, setSup]     = useState<SupervisorData | null>(null)
   const [cs, setCs]       = useState<CallStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -256,7 +258,7 @@ export default function Supervisor() {
       <ErrBanner error={err} onRetry={() => load()} />
 
       {/* Team KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Calls Today"   value={fmtNum(calls)}       icon="call"        accent={NAVY} />
         <KpiCard label="Connect Rate"  value={fmtPct(connRate * 100)} icon="call_made" accent={connRate >= 0.4 ? GREEN : connRate >= 0.2 ? AMBER : RED} />
         <KpiCard label="Missed"        value={fmtNum(missed)}      icon="call_missed" accent={missed > connected ? RED : AMBER} sub={`${fmtNum(noAnswer)} outbound no-answer`} />

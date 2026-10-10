@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Spinner, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, NUM } from '../../lib/design'
 import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, RISK_BANDS, BAND_COLOR, BAND_LABEL, dpdColor, dpdLabel, DPD_BUCKETS } from '../../lib/riskScale'
 import { subsForLine } from '../../lib/products'
@@ -474,13 +474,13 @@ export default function RiskPortfolio() {
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total Loans"       value={fmtNum(summary?.total_loans ?? 0)}           loading={!summary} />
-        <KpiCard label="Outstanding"       value={fmtKoboExact(summary?.total_outstanding_kobo ?? 0)} loading={!summary} />
+        <KpiCard label="Outstanding"       value={fmtKoboWhole(summary?.total_outstanding_kobo ?? 0)} loading={!summary} />
         <KpiCard label="Current"           value={fmtNum(summary?.current_count ?? 0)}          loading={!summary} sub="no overdue" />
         <KpiCard label="PAR 1–90"          value={fmtNum((summary?.dpd_1_30 ?? 0) + (summary?.dpd_31_60 ?? 0) + (summary?.dpd_61_90 ?? 0))} loading={!summary} sub="DPD 1–90 accounts" />
         {/* Count and value now describe the SAME set of loans. The value underneath was
             summed over every delinquent loan (DPD > 0) while the count above it was
             DPD > 90, so this tile overstated NPL exposure several-fold. */}
-        <KpiCard label="Non-Performing"    value={fmtNum(summary?.npl_count ?? 0)}              loading={!summary} sub={summary ? fmtKoboExact(summary.npl_outstanding_kobo) : undefined} accent={RED} />
+        <KpiCard label="Non-Performing"    value={fmtNum(summary?.npl_count ?? 0)}              loading={!summary} sub={summary ? fmtKoboWhole(summary.npl_outstanding_kobo) : undefined} accent={RED} />
       </div>
 
       <SectionCard title="Active Loan Book" badge={total} padding={false}>

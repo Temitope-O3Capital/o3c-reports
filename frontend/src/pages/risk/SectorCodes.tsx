@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, KpiCard } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, INTER, NUM } from '../../lib/design'
 import { hasPage } from '../../hooks/useAuth'
 
@@ -141,7 +141,7 @@ export default function SectorCodes() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Registered Codes" value={String(rows.length)} sub="Seen on the book or added here" icon="format_list_numbered" accent={NAVY} />
         <KpiCard label="Named"            value={String(mappedCount)} sub={`${rows.length - mappedCount} outstanding`} icon="label" accent={mappedCount === rows.length ? GREEN : AMBER} />
-        <KpiCard label="Unnamed Exposure" value={fmtKoboExact(unmappedExposure)} sub="Active book behind unnamed codes" icon="help" accent={unmappedExposure > 0 ? AMBER : GREEN} />
+        <KpiCard label="Unnamed Exposure" value={fmtKoboWhole(unmappedExposure)} sub="Active book behind unnamed codes" icon="help" accent={unmappedExposure > 0 ? AMBER : GREEN} />
       </div>
 
       <SectionCard

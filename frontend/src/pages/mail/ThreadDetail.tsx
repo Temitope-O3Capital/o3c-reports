@@ -167,8 +167,9 @@ export default function MailThreadDetail() {
     setSending(true); setSendErr(null)
     try {
       const cc = replyCc.split(',').map(s => s.trim()).filter(Boolean).map(e => ({ Email: e, Name: '' }))
+      // No success toast: the reply form is replaced in place by a "Reply sent
+      // successfully" panel, so a toast would say the same thing twice.
       await apiPost(`/api/mail/messages/${id}/reply`, { text_body: replyBody, cc })
-      toast.success('Reply sent')
       setReplyBody('')
       setReplyCc('')
       setShowCc(false)

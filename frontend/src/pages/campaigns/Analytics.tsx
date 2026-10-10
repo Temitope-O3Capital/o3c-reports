@@ -8,6 +8,7 @@ import { fmtNum, fmtPct } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { FunnelChart, type FunnelStep } from '../marketing/FunnelChart'
 import { EBar, EDonut } from '../../components/echarts'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ function ChannelTag({ channel }: { channel: string }) {
 // ── Performance tab body (mounted inside the Marketing Analytics hub) ────────────
 
 export default function CampaignPerformance() {
+  const isMobile = useIsMobile()
   const navigate = useNavigate()
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
@@ -177,9 +179,10 @@ export default function CampaignPerformance() {
       )}
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[5] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard label="Campaigns"     value={fmtNum(toN(s?.total_campaigns))} icon="campaign"      loading={loading} />
-        <KpiCard label="Total Sent"    value={fmtNum(toN(s?.total_sent))}      icon="send"          loading={loading} />
+        <KpiCard label="Total Sent"    value={fmtNum(toN(s?.total_sent))}      icon="send"          loading={loading}
+          trend={monthlyData.map(m => toN(m.email) + toN(m.sms) + toN(m.whatsapp))} />
         <KpiCard label="Delivered"     value={fmtPct(toN(s?.avg_delivery_rate))} icon="mark_email_read" accent={GREEN} sub={`${fmtNum(toN(s?.total_delivered))} mails`} loading={loading} />
         <KpiCard label="Avg Open Rate" value={fmtPct(toN(s?.avg_open_rate))}   icon="drafts"        accent={BLUE}  loading={loading} />
         <KpiCard label="Avg CTR"       value={fmtPct(toN(s?.avg_click_rate))}  icon="ads_click"     accent={NAVY}  loading={loading} />

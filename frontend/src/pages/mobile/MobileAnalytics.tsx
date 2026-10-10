@@ -428,12 +428,15 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Installs" value={fmtNum(totals?.installs ?? 0)} icon="download" accent={NAVY} loading={loading}
-          change={previous ? pctChange(totals?.installs ?? 0, previous.installs) : undefined} sub="vs prev period" />
+          change={previous ? pctChange(totals?.installs ?? 0, previous.installs) : undefined} sub="vs prev period"
+          trend={series.map(s => Number(s.installs))} />
         <KpiCard label="Sessions" value={fmtNum(totals?.sessions ?? 0)} icon="ads_click" accent={BLUE} loading={loading}
-          change={previous ? pctChange(totals?.sessions ?? 0, previous.sessions) : undefined} sub="vs prev period" />
+          change={previous ? pctChange(totals?.sessions ?? 0, previous.sessions) : undefined} sub="vs prev period"
+          trend={series.map(s => Number(s.sessions))} />
         <KpiCard label="Loyal Users" value={fmtNum(totals?.loyal_users ?? 0)} icon="loyalty" accent={GREEN} loading={loading}
           change={previous ? pctChange(totals?.loyal_users ?? 0, previous.loyal_users) : undefined}
-          sub={isOk(overallLoyalRate) ? `${fmtM(overallLoyalRate, fmtPct)} of installs` : 'vs prev period'} />
+          sub={isOk(overallLoyalRate) ? `${fmtM(overallLoyalRate, fmtPct)} of installs` : 'vs prev period'}
+          trend={series.map(s => Number(s.loyal_users))} />
         <KpiCard label="Paid Sources" value={fmtNum(totals?.paid_sources ?? 0)} icon="hub" accent={PURPLE} loading={loading} />
         <KpiCard label="Ad Spend (USD)" value={hasSpend ? usd(totalCost) : '—'} icon="payments" accent={AMBER} loading={loading}
           sub={hasSpend ? 'vs prev period' : undefined} />

@@ -6,6 +6,7 @@ import { apiFetch, unwrap } from '../../lib/api'
 import { fmtDate, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, BLUE, PURPLE, NUM, MONO, FW, SP, TEXT } from '../../lib/design'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 const num = (v: any) => Number(v ?? 0) || 0
 function fmtDur(s: number | null | undefined) {
@@ -35,6 +36,7 @@ const PURPOSE_LABEL: Record<string, { label: string; color: string }> = {
 }
 
 export default function PerformancePanel() {
+  const isMobile = useIsMobile()
   const [from, setFrom] = useState(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10))
   const [to, setTo] = useState(today())
   const [d, setD] = useState<Stats | null>(null)
@@ -79,9 +81,11 @@ export default function PerformancePanel() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3] }}>
-        <KpiCard label="Total Calls"     value={total.toLocaleString()} icon="call" accent={NAVY} loading={loading} sub={`${num(s.agents)} agents`} />
-        <KpiCard label="Connect Rate"    value={`${connectRate}%`} icon="check_circle" accent={GREEN} loading={loading} sub={`${num(s.connected).toLocaleString()} connected`} />
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3] }}>
+        <KpiCard label="Total Calls"     value={total.toLocaleString()} icon="call" accent={NAVY} loading={loading} sub={`${num(s.agents)} agents`}
+          trend={trend.map(t => t.calls)} />
+        <KpiCard label="Connect Rate"    value={`${connectRate}%`} icon="check_circle" accent={GREEN} loading={loading} sub={`${num(s.connected).toLocaleString()} connected`}
+          trend={trend.map(t => t.rate)} />
         <KpiCard label="No Answer"       value={`${missRate}%`} icon="call_missed" accent={RED} loading={loading} sub={`${num(s.missed).toLocaleString()} missed`} />
         <KpiCard label="Avg Talk"        value={fmtDur(num(s.avg_duration_sec))} icon="timer" accent={BLUE} loading={loading} sub="per connected call" />
         <KpiCard label="Outbound Share"  value={`${outShare}%`} icon="call_made" accent={PURPLE} loading={loading} sub={`${num(s.outbound).toLocaleString()} out · ${num(s.inbound).toLocaleString()} in`} />

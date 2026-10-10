@@ -5,7 +5,7 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { EBar } from '../../components/echarts'
 
@@ -342,17 +342,17 @@ export default function InterswitchReport() {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
         gap: SP[3], marginBottom: SP[6],
       }}>
-        <KpiCard label="Total Transaction Value" value={fmtKoboExact(totals?.total_kobo)}
+        <KpiCard label="Total Transaction Value" value={fmtKoboWhole(totals?.total_kobo)}
           sub={`${PERIOD_NAME[period] ?? period} ${year} · ${fmtNum(totals?.months_n)} months`}
           icon="payments" accent={NAVY} loading={loading && !data} />
-        <KpiCard label="Monthly Average" value={fmtKoboExact(totals?.avg_monthly_kobo)}
+        <KpiCard label="Monthly Average" value={fmtKoboWhole(totals?.avg_monthly_kobo)}
           sub="across the period" icon="timeline" accent={BLUE} loading={loading && !data} />
         <KpiCard label="Leading Channel" value={topChannel?.label ?? '—'}
-          sub={topChannel ? `${fmtKoboExact(topChannel.total_kobo)} · ${Number(topChannel.pct).toFixed(2)}%` : 'no data'}
+          sub={topChannel ? `${fmtKoboWhole(topChannel.total_kobo)} · ${Number(topChannel.pct).toFixed(2)}%` : 'no data'}
           icon="leaderboard" accent={topChannel ? (CH_COLOR[topChannel.key] ?? PURPLE) : NAVY}
           loading={loading && !data} />
         <KpiCard label="Strongest Month" value={peakMonth?.month ?? '—'}
-          sub={peakMonth ? fmtKoboExact(peakMonth.total) : 'no data'}
+          sub={peakMonth ? fmtKoboWhole(peakMonth.total) : 'no data'}
           icon="trending_up" accent={GREEN} loading={loading && !data} />
       </div>
 

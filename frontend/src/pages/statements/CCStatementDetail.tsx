@@ -122,7 +122,8 @@ function SendModal({ statement, onClose }: {
           email_body: body.trim() || undefined,
         }),
       })
-      toast.success('Statement emailed')
+      // No success toast: this swaps the whole view for a "Statement Delivered"
+      // confirmation, so a toast would just repeat it.
       setSentTo(trimEmail)
       setSentAt(new Date().toLocaleString('en-NG', {
         day: '2-digit', month: 'short', year: 'numeric',

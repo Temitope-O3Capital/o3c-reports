@@ -7,6 +7,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, TEXT, FW, SP, RADIUS, NUM, INTER } from '../../lib/design'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { toast } from 'sonner'
 
 // Arrears Reminders — what the nightly run would send, and the switch that makes it real.
@@ -121,6 +122,7 @@ export default function ArrearsReminders() {
   const [goLive, setGoLive] = useState(false)
   const [confirm, setConfirm] = useState('')
   const [saving, setSaving] = useState(false)
+  const isMobile = useIsMobile()
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setError(null)
@@ -350,7 +352,7 @@ export default function ArrearsReminders() {
       {/* The book, and the policy applied to it. The floor's effect is stated rather
           than silently applied: 242 facilities holding N14,942 between them are excluded
           by design, and anyone judging this should see that number. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: SP[3], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Chaseable Arrears" icon="account_balance" accent={NAVY}
           value={status.eligible_book ? fmtKobo(status.eligible_book.outstanding_kobo) : '—'}
           sub={status.eligible_book ? `${fmtNum(status.eligible_book.facilities)} facilities · ${fmtNum(status.eligible_book.people ?? 0)} people` : undefined} />

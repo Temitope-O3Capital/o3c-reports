@@ -264,7 +264,8 @@ export default function SettlementExceptions() {
       })
       setPostingDone(`${res.ref ?? 'Entry'} raised for ${postingFor.source_ref || `#${postingFor.id}`}`
         + ' — it needs a second person to approve it.')
-      toast.success('Correcting entry raised: it needs a second person to approve it')
+      // No success toast: postingDone above renders a role="status" panel carrying the
+      // entry reference and an "Open Postings" action — strictly more than a toast.
       setPostingFor(null)
       setPostingNote('')
       await load()

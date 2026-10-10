@@ -228,7 +228,7 @@ export default function VintageAnalysis() {
                     // would describe every product in that month while the row clicked
                     // described one.
                     {...navigableProps(() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`
-                      + (fProducts.size ? `?product=${encodeURIComponent([...fProducts].join(','))}` : '')), undefined)}
+                      + (fProducts.size ? `?product=${encodeURIComponent([...fProducts].join(','))}` : '')), { row: true })}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = isWorst ? 'rgba(192,0,0,.09)' : 'var(--row-hvr)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = rowBg}>
                       <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>

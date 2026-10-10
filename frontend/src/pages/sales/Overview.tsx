@@ -418,7 +418,8 @@ export default function SalesOverview() {
         <KpiCard label="New Customers" value={summary ? fmtNum(summary.period_customers) : '—'}
           sub={summary && summary.prev_period_customers > 0 ? `${fmtNum(summary.prev_period_customers)} prior period` : 'in selected period'}
           change={num(summary?.period_customers_change_pct)}
-          icon="person_add" accent={GREEN} loading={loading} />
+          icon="person_add" accent={GREEN} loading={loading}
+          trend={acq.map(p => Number(p.customers))} />
         <KpiCard label="New Leads" value={summary ? fmtNum(summary.period_leads) : '—'}
           sub={summary && summary.prev_period_leads > 0 ? `${fmtNum(summary.prev_period_leads)} prior period` : 'in selected period'}
           change={num(summary?.period_leads_change_pct)}

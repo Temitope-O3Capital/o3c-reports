@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { LedgerTree } from '../../components/finance/LedgerTree'
 import type { LedgerSection } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmtKoboExact, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtDate } from '../../lib/fmt'
 import { GREEN, RED, NAVY, PURPLE, TEXT, FW, SP } from '../../lib/design'
 
 // Cash Flow Statement — did not exist anywhere in this system before migration 348.
@@ -149,11 +149,11 @@ export default function CashFlowStatement() {
       <ErrBanner error={error} onRetry={() => load()} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
-        <KpiCard label="Net Change in Cash" value={fmtKoboExact(netChange)}
+        <KpiCard label="Net Change in Cash" value={fmtKoboWhole(netChange)}
           icon={netChange >= 0 ? 'trending_up' : 'trending_down'} accent={netChange >= 0 ? GREEN : RED} loading={loading} />
-        <KpiCard label="Operating" value={fmtKoboExact(totalByActivity.get('operating') ?? 0)} icon="sync_alt" accent={NAVY} loading={loading} />
-        <KpiCard label="Investing" value={fmtKoboExact(totalByActivity.get('investing') ?? 0)} icon="trending_up" accent={PURPLE} loading={loading} />
-        <KpiCard label="Financing" value={fmtKoboExact(totalByActivity.get('financing') ?? 0)} icon="account_balance" accent={GREEN} loading={loading} />
+        <KpiCard label="Operating" value={fmtKoboWhole(totalByActivity.get('operating') ?? 0)} icon="sync_alt" accent={NAVY} loading={loading} />
+        <KpiCard label="Investing" value={fmtKoboWhole(totalByActivity.get('investing') ?? 0)} icon="trending_up" accent={PURPLE} loading={loading} />
+        <KpiCard label="Financing" value={fmtKoboWhole(totalByActivity.get('financing') ?? 0)} icon="account_balance" accent={GREEN} loading={loading} />
       </div>
 
       <LedgerTree sections={sections} grandTotalLabel="Net Change in Cash" grandTotal={netChange} fmtAmount={fmtKoboExact}

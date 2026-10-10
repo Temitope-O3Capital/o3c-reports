@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { LedgerTree } from '../../components/finance/LedgerTree'
 import type { LedgerSection, LedgerLine, LedgerAccount } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmtKoboExact, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtDate } from '../../lib/fmt'
 import { GREEN, RED, NAVY, TEXT, FW, SP } from '../../lib/design'
 
 // Real Income Statement, branch-split, from Udara's own GL (migration 342's
@@ -158,9 +158,9 @@ export default function IncomeStatementByBranch() {
       <ErrBanner error={error} onRetry={() => load()} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
-        <KpiCard label="Total Income" value={fmtKoboExact(totalIncome)} icon="trending_up" accent={GREEN} loading={loading} />
-        <KpiCard label="Total Expense" value={fmtKoboExact(totalExpense)} icon="trending_down" accent={NAVY} loading={loading} />
-        <KpiCard label="Net" value={fmtKoboExact(net)} icon={net >= 0 ? 'add_circle' : 'remove_circle'}
+        <KpiCard label="Total Income" value={fmtKoboWhole(totalIncome)} icon="trending_up" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Expense" value={fmtKoboWhole(totalExpense)} icon="trending_down" accent={NAVY} loading={loading} />
+        <KpiCard label="Net" value={fmtKoboWhole(net)} icon={net >= 0 ? 'add_circle' : 'remove_circle'}
           accent={net >= 0 ? GREEN : RED} loading={loading} />
       </div>
 

@@ -9,7 +9,7 @@ import {
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { CustomerSearch, cleanName } from '../../components/CustomerSearch'
-import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
 import { BLUE, GREEN, RED, NAVY, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -565,7 +565,7 @@ export default function RepaymentPlans() {
         <KpiCard label="Active Plans" value={kpis ? fmtNum(kpis.active) : '—'} icon="schedule" accent={BLUE} loading={kpiLoading} />
         <KpiCard label="On Track" value={kpis ? fmtNum(kpis.on_track) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Behind" value={kpis ? fmtNum(kpis.behind) : '—'} icon="warning" accent={AMBER} loading={kpiLoading} />
-        <KpiCard label="Monthly Due ₦" value={kpis ? fmtKoboExact(kpis.monthly_due_kobo) : '—'} icon="payments" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Monthly Due ₦" value={kpis ? fmtKoboWhole(kpis.monthly_due_kobo) : '—'} icon="payments" accent={NAVY} loading={kpiLoading} />
       </div>
 
       <SectionCard title="Plans" badge={rows.length} padding={false}>

@@ -133,8 +133,9 @@ export default function Retention() {
     )) return
     setSeeding(true); setErr(null)
     apiFetch<{ inserted: number }>('/api/retention/sync-queue', { method: 'POST' })
+      // No success toast: setSeeded already states the count and where to work it next,
+      // which is more use than a toast repeating the headline.
       .then(r => setSeeded(`${r.inserted} customer${r.inserted === 1 ? '' : 's'} added to the outbound queue`))
-      .then(() => toast.success('Win-back list sent to the outbound dialler'))
       .catch(e => setErr(e.message))
       .finally(() => setSeeding(false))
   }, [])
@@ -259,7 +260,7 @@ export default function Retention() {
                   // otherwise be a tab stop that does nothing when activated.
                   return (
                     <tr key={r.party_id}
-                      {...(r.cif ? navigableProps(() => navigate(`/customers/${r.cif}`), undefined) : {})}
+                      {...(r.cif ? navigableProps(() => navigate(`/customers/${r.cif}`), { row: true }) : {})}
                       style={{ cursor: r.cif ? 'pointer' : 'default', borderBottom: '1px solid var(--bdr-soft, var(--bdr))' }}>
                       <td style={{ padding: '9px 12px' }}>
                         <div style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name || '—'}</div>

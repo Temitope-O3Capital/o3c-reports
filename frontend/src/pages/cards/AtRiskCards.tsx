@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, BLUE, AMBER, GREEN, RED, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface Summary {
@@ -85,9 +85,9 @@ export default function AtRiskCards() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="At-Risk Accounts" value={fmtNum(summary?.at_risk_accounts ?? 0)} icon="warning" accent={RED} />
-        <KpiCard label="Over Limit" value={fmtNum(summary?.over_limit_accounts ?? 0)} icon="trending_up" accent={AMBER} sub={summary ? `${fmtKoboExact(summary.over_limit_excess_kobo)} excess` : undefined} />
+        <KpiCard label="Over Limit" value={fmtNum(summary?.over_limit_accounts ?? 0)} icon="trending_up" accent={AMBER} sub={summary ? `${fmtKoboWhole(summary.over_limit_excess_kobo)} excess` : undefined} />
         <KpiCard label="Overdue Accounts" value={fmtNum(summary?.overdue_accounts ?? 0)} icon="schedule" accent={RED} />
-        <KpiCard label="Overdue Exposure" value={fmtKoboExact(summary?.overdue_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} />
+        <KpiCard label="Overdue Exposure" value={fmtKoboWhole(summary?.overdue_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} />
       </div>
 
       <SectionCard title="Accounts" badge={rows.length} padding={false}>

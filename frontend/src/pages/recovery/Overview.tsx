@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtPct, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtPct, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, BLUE, PURPLE, AMBER, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { CHART, CHART_SERIES } from '../../components/charts'
 import { EBar } from '../../components/echarts'
@@ -233,7 +233,7 @@ export default function RecoveryOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="Opening Portfolio"
-          value={fmtKoboExact(kpis?.total_handoff_kobo)}
+          value={fmtKoboWhole(kpis?.total_handoff_kobo)}
           sub="balance handed to recovery"
           icon="account_balance"
           accent={NAVY}
@@ -241,7 +241,7 @@ export default function RecoveryOverview() {
         />
         <KpiCard
           label="Total in Recovery"
-          value={fmtKoboExact(kpis?.total_in_recovery_kobo)}
+          value={fmtKoboWhole(kpis?.total_in_recovery_kobo)}
           sub="outstanding, net of recovered"
           icon="gavel"
           accent={AMBER}
@@ -249,11 +249,12 @@ export default function RecoveryOverview() {
         />
         <KpiCard
           label="Recovered (Period)"
-          value={fmtKoboExact(kpis?.recovered_mtd_kobo)}
+          value={fmtKoboWhole(kpis?.recovered_mtd_kobo)}
           sub="collected in selected range"
           icon="payments"
           accent={GREEN}
           loading={kpiLoading}
+          trend={trend.map(p => Number(p.card_kobo) + Number(p.loan_kobo))}
         />
         <KpiCard
           label="Success Rate"

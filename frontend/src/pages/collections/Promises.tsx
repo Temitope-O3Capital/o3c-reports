@@ -9,7 +9,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { AMBER, GREEN, RED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -247,7 +247,7 @@ export default function CollectionsPromises() {
         <KpiCard label="Total Promises" value={kpis ? fmtNum(kpis.total) : '—'} icon="handshake" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Kept" value={kpis ? fmtNum(kpis.kept) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Broken" value={kpis ? fmtNum(kpis.broken) : '—'} icon="cancel" accent={RED} loading={kpiLoading} />
-        <KpiCard label="Amount Promised ₦" value={kpis ? fmtKoboExact(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Amount Promised ₦" value={kpis ? fmtKoboWhole(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
       </div>
 
       <SectionCard title="Promises" badge={rows.length} padding={false}>

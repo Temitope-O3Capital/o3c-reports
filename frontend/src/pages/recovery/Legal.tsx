@@ -4,7 +4,7 @@ import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, Sp
 import type { FilterGroupDef } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
 import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 import { hasPage } from '../../hooks/useAuth'
@@ -505,7 +505,7 @@ export default function RecoveryLegal() {
         <KpiCard label="Total Cases" value={kpis ? fmtNum(kpis.total_cases) : '—'} icon="gavel" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Active" value={kpis ? fmtNum(kpis.active) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
         <KpiCard label="Won" value={kpis ? fmtNum(kpis.won) : '—'} icon="verified" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Debt Recovered" value={kpis ? fmtKoboExact(kpis.total_debt_recovered_kobo) : '—'} icon="savings" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Debt Recovered" value={kpis ? fmtKoboWhole(kpis.total_debt_recovered_kobo) : '—'} icon="savings" accent={BLUE} loading={kpiLoading} />
       </div>
 
       <SectionCard

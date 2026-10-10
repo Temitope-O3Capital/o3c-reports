@@ -5,7 +5,7 @@ import { useDebouncedValue } from '../../hooks/useDebounce'
 import { Page, SectionCard, Tabs, DataTable, KpiCard, ErrBanner, Spinner, Modal, ExpandableFilterBar, NameCell } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface DueRow {
@@ -220,8 +220,8 @@ export default function CollectionsDueSchedule() {
       <ErrBanner error={error} onRetry={() => (tab === 'week' ? loadDue() : loadOverdue())} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: SP[4] }}>
-        <KpiCard label={kpiLabel} value={fmtNum(dueRows?.length ?? 0)} sub={fmtKoboExact(dueTotal)} icon="event_upcoming" accent={NAVY} loading={dueRows === null} />
-        <KpiCard label="Overdue" value={fmtNum(overdue?.length ?? 0)} sub={fmtKoboExact(overdueTotal)} icon="running_with_errors" accent={RED} loading={overdue === null} />
+        <KpiCard label={kpiLabel} value={fmtNum(dueRows?.length ?? 0)} sub={fmtKoboWhole(dueTotal)} icon="event_upcoming" accent={NAVY} loading={dueRows === null} />
+        <KpiCard label="Overdue" value={fmtNum(overdue?.length ?? 0)} sub={fmtKoboWhole(overdueTotal)} icon="running_with_errors" accent={RED} loading={overdue === null} />
       </div>
 
       <div style={{ marginBottom: SP[3] }}>

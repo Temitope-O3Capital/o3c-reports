@@ -9,7 +9,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { TierBadge, PctBar } from '../../components/TierBadge'
 import { isInternalId, idCaption } from '../../components/CreditFile'
@@ -365,10 +365,10 @@ export default function CollectionsPortfolio() {
 
   const kpiStrip = [
     { label: 'Delinquent Accounts', value: fmtNum(kpis?.delinquent_accounts ?? 0), icon: 'groups', accent: NAVY, sub: `${fmtNum(kpis?.total_accounts ?? 0)} in book` },
-    { label: 'Total Outstanding',   value: fmtKoboExact(kpis?.total_outstanding_kobo ?? 0), icon: 'account_balance_wallet', accent: NAVY },
-    { label: 'PAR 30',              value: fmtKoboExact(kpis?.par30_kobo ?? 0), icon: 'trending_up', accent: AMBER,     sub: parShare(kpis?.par30_kobo) },
-    { label: 'PAR 60',              value: fmtKoboExact(kpis?.par60_kobo ?? 0), icon: 'warning',     accent: '#EA580C', sub: parShare(kpis?.par60_kobo) },
-    { label: 'PAR 90+ (Recovery)',  value: fmtKoboExact(kpis?.par90_kobo ?? 0), icon: 'gavel',       accent: RED,       sub: parShare(kpis?.par90_kobo) },
+    { label: 'Total Outstanding',   value: fmtKoboWhole(kpis?.total_outstanding_kobo ?? 0), icon: 'account_balance_wallet', accent: NAVY },
+    { label: 'PAR 30',              value: fmtKoboWhole(kpis?.par30_kobo ?? 0), icon: 'trending_up', accent: AMBER,     sub: parShare(kpis?.par30_kobo) },
+    { label: 'PAR 60',              value: fmtKoboWhole(kpis?.par60_kobo ?? 0), icon: 'warning',     accent: '#EA580C', sub: parShare(kpis?.par60_kobo) },
+    { label: 'PAR 90+ (Recovery)',  value: fmtKoboWhole(kpis?.par90_kobo ?? 0), icon: 'gavel',       accent: RED,       sub: parShare(kpis?.par90_kobo) },
   ]
 
   return (

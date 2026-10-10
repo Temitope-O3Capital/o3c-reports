@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { LedgerTree } from '../../components/finance/LedgerTree'
 import type { LedgerSection } from '../../components/finance/LedgerTree'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmtKoboExact, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtDate } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, TEXT, FW, SP } from '../../lib/design'
 
 // Balance Sheet — promoted out of the "Financial Position" section that used to sit
@@ -172,12 +172,12 @@ export default function BalanceSheet() {
       <ErrBanner error={error} onRetry={() => load()} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
-        <KpiCard label="Total Assets" value={fmtKoboExact(primary?.assets_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} loading={loading} />
-        <KpiCard label="Total Liabilities" value={fmtKoboExact(primary?.liabilities_kobo ?? 0)} icon="savings" accent={AMBER} loading={loading} />
-        <KpiCard label="Net Position" value={fmtKoboExact(primary?.net_position_kobo ?? 0)}
+        <KpiCard label="Total Assets" value={fmtKoboWhole(primary?.assets_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} loading={loading} />
+        <KpiCard label="Total Liabilities" value={fmtKoboWhole(primary?.liabilities_kobo ?? 0)} icon="savings" accent={AMBER} loading={loading} />
+        <KpiCard label="Net Position" value={fmtKoboWhole(primary?.net_position_kobo ?? 0)}
           sub="assets − liabilities; not equity" icon={((primary?.net_position_kobo ?? 0) >= 0) ? 'trending_up' : 'trending_down'}
           accent={(primary?.net_position_kobo ?? 0) >= 0 ? GREEN : RED} loading={loading} />
-        <KpiCard label="Implied Equity" value={fmtKoboExact(impliedEquity)}
+        <KpiCard label="Implied Equity" value={fmtKoboWhole(impliedEquity)}
           sub={`opening (2026-01-01) + retained earnings since ${data?.retained_earnings_since ?? '2026-07-01'}`}
           icon="account_balance" accent={GREEN} loading={loading} />
       </div>

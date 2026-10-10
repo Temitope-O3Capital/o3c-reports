@@ -112,12 +112,14 @@ export default function MobileAppDashboard() {
           value={fmtNum(s?.active_users)}
           icon="person"
           loading={loading}
+          trend={trend.map(t => Number(t.active_users))}
         />
         <KpiCard
           label="Transactions"
           value={fmtNum(s?.txn_count)}
           icon="receipt_long"
           loading={loading}
+          trend={trend.map(t => Number(t.txn_count))}
         />
         <KpiCard
           label="Total Volume"

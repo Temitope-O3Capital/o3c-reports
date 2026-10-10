@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ErrBanner, DataTable } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, DARKRED, AMBER, GREEN, BLUE, INTER, NUM } from '../../lib/design'
 import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, dpdColor, dpdLabel, DPD_BUCKETS } from '../../lib/riskScale'
 import { EArea, EChart, baseTooltip, tipCard, axisVal, CHART_FONT } from '../../components/echarts'
@@ -254,7 +254,7 @@ export default function VintageDetail() {
         />
         <KpiCard
           label="Active Book"
-          value={loading ? '…' : fmtKoboExact(detail?.active_book_kobo ?? 0)}
+          value={loading ? '…' : fmtKoboWhole(detail?.active_book_kobo ?? 0)}
           loading={false}
           accent={NAVY}
           icon="account_balance_wallet"

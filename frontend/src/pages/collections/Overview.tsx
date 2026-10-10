@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
+import { fmtKoboExact, fmtKoboWhole, fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, DARKRED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP } from '../../lib/design'
 import { EArea, EBar } from '../../components/echarts'
 
@@ -167,7 +167,7 @@ export default function CollectionsOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="PAR30 Total"
-          value={fmtKoboExact(kpis?.par30_kobo)}
+          value={fmtKoboWhole(kpis?.par30_kobo)}
           sub="31+ days past due"
           icon="warning_amber"
           accent={AMBER}
@@ -175,7 +175,7 @@ export default function CollectionsOverview() {
         />
         <KpiCard
           label="PAR90 Total"
-          value={fmtKoboExact(kpis?.par90_kobo)}
+          value={fmtKoboWhole(kpis?.par90_kobo)}
           sub="90+ days past due"
           icon="error_outline"
           accent={RED}
@@ -183,7 +183,7 @@ export default function CollectionsOverview() {
         />
         <KpiCard
           label="Collected (Period)"
-          value={fmtKoboExact(collectedMTD)}
+          value={fmtKoboWhole(collectedMTD)}
           sub={`${fmtNum(kpis?.collected_count ?? 0)} payments`}
           icon="payments"
           accent={BLUE}

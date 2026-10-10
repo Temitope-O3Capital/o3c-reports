@@ -206,7 +206,8 @@ export default function BDOverview() {
 
       {/* ── KPI strip ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
-        <KpiCard label="Total Leads"     value={fmtNum(totalLeads)}     icon="contacts"              accent={NAVY}  loading={loading} />
+        <KpiCard label="Total Leads"     value={fmtNum(totalLeads)}     icon="contacts"              accent={NAVY}  loading={loading}
+          trend={monthlyTrend.map(m => Number(m.leads))} />
         <KpiCard label="Hot Leads"       value={fmtNum(hotLeads)}       icon="local_fire_department" accent={RED}   loading={loading} />
         <KpiCard label="Won Deals"       value={fmtNum(wonCount)}       icon="handshake"             accent={GREEN} loading={loading} />
         <KpiCard label="Pipeline Value"  value={fmtKobo(pipelineValue)} icon="attach_money"          accent={AMBER} loading={loading} />

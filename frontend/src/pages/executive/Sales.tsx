@@ -97,11 +97,14 @@ export default function ExecSales() {
     <Page title={title} back={back} actions={actions}>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Accounts Opened" value={fmtNum(data.new_accounts)} change={data.acquisition_change_pct} icon="person_add" accent={NAVY} />
+        <KpiCard label="Accounts Opened" value={fmtNum(data.new_accounts)} change={data.acquisition_change_pct} icon="person_add" accent={NAVY}
+          trend={data.acquisition_trend.map(t => Number(t.accounts))} />
         <KpiCard label="Cards Issued" value={fmtNum(data.cards_opened)} sub={`${fmtNum(data.credit_cards_opened)} credit`} icon="credit_card" accent={PURPLE} />
         <KpiCard label="Credit Card Book" value={fmtKobo(data.credit_book_kobo)} icon="account_balance_wallet" accent={RED} />
-        <KpiCard label="Deposits Placed" value={fmtNum(data.new_deposits)} sub={fmtKobo(data.new_deposit_value_kobo)} icon="savings" accent={GREEN} />
-        <KpiCard label="Loans Booked" value={fmtNum(data.conversions_mtd)} icon="request_quote" accent={BLUE} />
+        <KpiCard label="Deposits Placed" value={fmtNum(data.new_deposits)} sub={fmtKobo(data.new_deposit_value_kobo)} icon="savings" accent={GREEN}
+          trend={data.acquisition_trend.map(t => Number(t.deposits))} />
+        <KpiCard label="Loans Booked" value={fmtNum(data.conversions_mtd)} icon="request_quote" accent={BLUE}
+          trend={data.acquisition_trend.map(t => Number(t.loans))} />
       </div>
 
       {/* ── Lead pipeline: campaign → call centre → sales ─────────────────── */}
