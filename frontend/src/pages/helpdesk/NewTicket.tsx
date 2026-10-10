@@ -92,7 +92,7 @@ function DynamicFields({
             <option value="">— Select —</option>
             <option value="Chargeback">Chargeback</option>
             <option value="Unauthorised">Unauthorised</option>
-            <option value="Double charge">Double charge</option>
+            <option value="Double charge">Double Charge</option>
           </select>
         </Field>
       </div>

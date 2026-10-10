@@ -74,9 +74,9 @@ const SOURCE_TO_INGEST: Record<string, string> = {
 
 const OVERDUE_STATE: Record<string, { c: string; label: string }> = {
   stale: { c: RED, label: 'Overdue' },
-  never: { c: RED, label: 'Never uploaded' },
+  never: { c: RED, label: 'Never Uploaded' },
   warn: { c: AMBER, label: 'Due' },
-  ok: { c: GREEN, label: 'Up to date' },
+  ok: { c: GREEN, label: 'Up to Date' },
 }
 
 function ageWords(sec: number | null): string {

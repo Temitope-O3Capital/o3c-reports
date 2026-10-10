@@ -252,10 +252,10 @@ export default function SettlementMyDashboard() {
         subline={subline}
         ring={{ value: mine > 0 ? Math.max(mine - mineAging, 0) : 0, max: Math.max(mine, 1), unit: 'on time' }}
         stats={[
-          { label: 'Assigned to me', value: fmtNum(mine) },
-          { label: 'My value at risk', value: mine > 0 ? fmtKobo(d?.my_exceptions_value_kobo) : '—' },
+          { label: 'Assigned to Me', value: fmtNum(mine) },
+          { label: 'My Value at Risk', value: mine > 0 ? fmtKobo(d?.my_exceptions_value_kobo) : '—' },
           { label: 'Unclaimed', value: fmtNum(unassigned), color: unassigned > 0 ? '#FCD34D' : undefined },
-          { label: 'Last run matched', value: lastRun ? `${lastRate.toFixed(1)}%` : '—' },
+          { label: 'Last Run Matched', value: lastRun ? `${lastRate.toFixed(1)}%` : '—' },
         ]}
         actions={
           <>

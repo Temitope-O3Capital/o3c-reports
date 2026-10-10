@@ -362,7 +362,7 @@ export default function CRMTasks() {
                 ariaLabel="Whose follow-ups" style={{ width: 140 }}
                 options={[
                   { value: 'my',   label: 'Mine' },
-                  { value: 'team', label: 'My team' },
+                  { value: 'team', label: 'My Team' },
                   { value: 'all',  label: 'Everyone' },
                 ]} />
             )}
