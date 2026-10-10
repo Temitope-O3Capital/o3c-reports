@@ -204,7 +204,7 @@ export default function MerchantNames() {
         </p>
       </SectionCard>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a mapping" width={560}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a Mapping" width={560}
         footer={
           <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
@@ -217,7 +217,7 @@ export default function MerchantNames() {
             prefix of the full one. Names are cleaned the same way the feed's are (upper case, LIMITED → LTD)
             before being stored.
           </p>
-          <Input label="This spelling" placeholder="e.g. PAYCOM NIGERIA LIMIT" value={addFrom} onChange={e => setAddFrom(e.target.value)} />
+          <Input label="This Spelling" placeholder="e.g. PAYCOM NIGERIA LIMIT" value={addFrom} onChange={e => setAddFrom(e.target.value)} />
           <Input label="Counts as" placeholder="e.g. PAYCOM NIGERIA LTD" value={addTo} onChange={e => setAddTo(e.target.value)} />
           {addErr && <div style={{ fontSize: TEXT.sm, color: RED, fontFamily: INTER }}>{addErr}</div>}
         </div>

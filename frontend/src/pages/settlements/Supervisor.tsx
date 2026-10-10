@@ -496,7 +496,7 @@ export default function SettlementSupervisor() {
           </div>
         </Field>
 
-        <Field label="How many items"
+        <Field label="How Many Items"
           hint={`${fmtNum(unassigned?.n)} are unclaimed. Each officer gets about ${
             picked.size > 0 ? fmtNum(Math.ceil((Number(shareCount) || 0) / picked.size)) : '—'} items.`}>
           <Select value={shareCount} onChange={e => setShareCount(e.target.value)}>

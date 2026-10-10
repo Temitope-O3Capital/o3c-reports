@@ -2712,14 +2712,14 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                     {/* Metrics grid */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))", gap: 12 }}>
                       <MetricCard label="DSCR" value={statement.dscr != null ? pct(statement.dscr) : "—"} />
-                      <MetricCard label="Savings rate" value={statement.savings_rate != null ? pct(statement.savings_rate) : "—"} />
-                      <MetricCard label="Gambling ratio" value={statement.gambling_ratio != null ? pct(statement.gambling_ratio) : "—"} valueColor={statement.gambling_ratio != null && statement.gambling_ratio > 0.05 ? "var(--bad)" : undefined} />
+                      <MetricCard label="Savings Rate" value={statement.savings_rate != null ? pct(statement.savings_rate) : "—"} />
+                      <MetricCard label="Gambling Ratio" value={statement.gambling_ratio != null ? pct(statement.gambling_ratio) : "—"} valueColor={statement.gambling_ratio != null && statement.gambling_ratio > 0.05 ? "var(--bad)" : undefined} />
                       <MetricCard
                         label="Transactions"
                         value={statement.aggregate_source === "periculum" && !statement.transaction_count ? "—" : statement.transaction_count != null ? String(statement.transaction_count) : "—"}
                         sub={statement.aggregate_source === "periculum" && !statement.transaction_count ? "Periculum reports totals only, no transaction list" : undefined}
                       />
-                      <MetricCard label="Months of data" value={statement.months_of_data != null ? String(statement.months_of_data) : "—"} />
+                      <MetricCard label="Months of Data" value={statement.months_of_data != null ? String(statement.months_of_data) : "—"} />
                       <MetricCard label="Bounces / mo" value={statement.bounce_count_per_month != null ? statement.bounce_count_per_month.toFixed(1) : "—"} valueColor={statement.bounce_count_per_month != null && statement.bounce_count_per_month >= 1 ? "var(--warn)" : undefined} />
                     </div>
 

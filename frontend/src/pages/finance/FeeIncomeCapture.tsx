@@ -191,14 +191,14 @@ export default function FeeIncomeCapture() {
             {CARD_FEE_TYPES.map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
           </Select>
           <Input label="Account Number" value={cardForm.account_number} onChange={e => setCardForm({ ...cardForm, account_number: e.target.value })} wrapStyle={{ width: 180 }} />
-          <Input label="CIF (optional)" value={cardForm.cif} onChange={e => setCardForm({ ...cardForm, cif: e.target.value })} wrapStyle={{ width: 140 }} />
+          <Input label="CIF (Optional)" value={cardForm.cif} onChange={e => setCardForm({ ...cardForm, cif: e.target.value })} wrapStyle={{ width: 140 }} />
           <Input label="Amount (₦)" type="number" value={cardForm.amount_kobo} onChange={e => setCardForm({ ...cardForm, amount_kobo: e.target.value })} wrapStyle={{ width: 140 }} />
           <Select label="Branch" value={cardForm.branch_name} onChange={e => setCardForm({ ...cardForm, branch_name: e.target.value })} wrapStyle={{ width: 150 }}>
             <option value="">Unspecified</option>
             <option value="Head Office Branch">Lagos</option>
             <option value="Abuja Branch">Abuja</option>
           </Select>
-          <Input label="Reference (optional)" value={cardForm.ref} onChange={e => setCardForm({ ...cardForm, ref: e.target.value })} wrapStyle={{ width: 180 }} />
+          <Input label="Reference (Optional)" value={cardForm.ref} onChange={e => setCardForm({ ...cardForm, ref: e.target.value })} wrapStyle={{ width: 180 }} />
           <Button onClick={submitCardFee} loading={cardBusy} style={{ marginTop: 22 }}>Record Fee</Button>
         </div>
         <DataTable cols={cardCols} rows={cardFees} keyFn={r => r.id} loading={cardLoading} emptyText="No card fees recorded yet" />
@@ -213,7 +213,7 @@ export default function FeeIncomeCapture() {
             </Select>
             <Input label="Loan Account" value={loanForm.loan_account} onChange={e => setLoanForm({ ...loanForm, loan_account: e.target.value })} wrapStyle={{ width: 180 }} />
             <Input label="Amount (₦)" type="number" value={loanForm.amount_kobo} onChange={e => setLoanForm({ ...loanForm, amount_kobo: e.target.value })} wrapStyle={{ width: 140 }} />
-            <Input label="Reference (optional)" value={loanForm.ref} onChange={e => setLoanForm({ ...loanForm, ref: e.target.value })} wrapStyle={{ width: 180 }} />
+            <Input label="Reference (Optional)" value={loanForm.ref} onChange={e => setLoanForm({ ...loanForm, ref: e.target.value })} wrapStyle={{ width: 180 }} />
             <Button onClick={submitLoanFee} loading={loanBusy} style={{ marginTop: 22 }}>Record Fee</Button>
           </div>
           <DataTable cols={loanCols} rows={loanFees} keyFn={r => r.id} loading={loanLoading} emptyText="No loan fees recorded yet" />

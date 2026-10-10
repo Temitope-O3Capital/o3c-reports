@@ -168,8 +168,8 @@ export function TeamCalendar() {
             padding: `${SP[3]} ${SP[4]}`, borderBottom: '1px solid var(--bdr)',
           }}>
             <Legend color={GREEN} label="Worked" count={totals.worked} />
-            <Legend color="var(--bdr)" label="Nothing logged" count={totals.silent} />
-            {totals.noted > 0 && <Legend color={BLUE} label="With a note" count={totals.noted} />}
+            <Legend color="var(--bdr)" label="Nothing Logged" count={totals.silent} />
+            {totals.noted > 0 && <Legend color={BLUE} label="With a Note" count={totals.noted} />}
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               Weekdays up to today only
             </span>

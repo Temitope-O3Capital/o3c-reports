@@ -284,12 +284,12 @@ function InterswitchPanel({ from, to }: { from: string; to: string }) {
         }
       >
         <div style={{ display: 'flex', gap: SP[6], flexWrap: 'wrap', marginBottom: SP[4] }}>
-          <Stat label="Interswitch transactions" value={fmtNum(isw?.txn_count)}
+          <Stat label="Interswitch Transactions" value={fmtNum(isw?.txn_count)}
             sub={`${fmtNum(isw?.days_with_data)} days covered`} />
-          <Stat label="Matched to a CCS record" value={fmtNum(tie?.matched)} tone={GREEN} />
-          <Stat label="Unmatched, master present" value={fmtNum(Math.max(n(tie?.comparable) - n(tie?.matched), 0))}
+          <Stat label="Matched to a CCS Record" value={fmtNum(tie?.matched)} tone={GREEN} />
+          <Stat label="Unmatched, Master Present" value={fmtNum(Math.max(n(tie?.comparable) - n(tie?.matched), 0))}
             tone={RED} sub="real breaks" />
-          <Stat label="On days CCS does not cover" value={fmtNum(gap)}
+          <Stat label="On Days CCS Does Not Cover" value={fmtNum(gap)}
             tone="#5B7A94" sub="feed gap, not a break" />
         </div>
 

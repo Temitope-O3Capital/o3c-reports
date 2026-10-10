@@ -593,7 +593,7 @@ export default function Reconcile() {
               )}
             </SectionCard>
 
-            <SectionCard title="What did not match"
+            <SectionCard title="What Did Not Match"
               subtitle="Split so a feed gap never sits in the same total as a real break">
               <ExceptionMix rows={detail?.exceptions ?? []} />
             </SectionCard>

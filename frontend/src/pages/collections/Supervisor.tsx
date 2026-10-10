@@ -295,7 +295,7 @@ export default function CollectionsSupervisor() {
               /collections/writeoff-requests, which App.tsx redirects straight back to
               /collections/writeoffs. A tile that always reads zero and links to a redirect
               is furniture. Recovery write-offs below is the live approval queue. */}
-          <ApprovalCard icon="gavel" label="Recovery write-offs" count={woApvCount} value={woApvValue} accent={RED}
+          <ApprovalCard icon="gavel" label="Recovery Write-Offs" count={woApvCount} value={woApvValue} accent={RED}
             onReview={() => navigate('/collections/writeoffs')} />
         </div>
       </SectionCard>

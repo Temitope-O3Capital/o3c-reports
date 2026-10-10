@@ -457,8 +457,8 @@ function SegmentConsent({ segment, onClose, onSaved }: {
       ) : (
         <div style={{ display: 'grid', gap: SP[4] }}>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: TEXT.xs }}>
-            <QFact label="In the list" value={fmtNum(members)} />
-            <QFact label="Known customers" value={fmtNum(known)} tone={known ? GREEN : undefined}
+            <QFact label="In the List" value={fmtNum(members)} />
+            <QFact label="Known Customers" value={fmtNum(known)} tone={known ? GREEN : undefined}
               note="consent is a per-person record" />
             <QFact label="Prospects" value={fmtNum(prospects)} tone={prospects ? AMBER : undefined}
               note="governed by the list basis below" />

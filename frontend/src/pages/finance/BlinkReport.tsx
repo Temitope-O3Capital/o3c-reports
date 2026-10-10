@@ -233,7 +233,7 @@ export default function BlinkReport() {
           <Input label="Amount Sold" type="number" value={saleForm.fx_amount}
             onChange={e => setSaleForm({ ...saleForm, fx_amount: e.target.value })}
             wrapStyle={{ width: 160 }} />
-          <Input label="Realized Rate (optional)" type="number" value={saleForm.rate}
+          <Input label="Realized Rate (Optional)" type="number" value={saleForm.rate}
             onChange={e => setSaleForm({ ...saleForm, rate: e.target.value })}
             placeholder="auto from parallel market" wrapStyle={{ width: 220 }} />
           <Button onClick={recordSale} loading={saleBusy} style={{ marginTop: 22 }}>Record Sale</Button>
@@ -270,7 +270,7 @@ export default function BlinkReport() {
             </Select>
             <Input label="FX Amount" type="number" value={eventForm.fx_amount}
               onChange={e => setEventForm({ ...eventForm, fx_amount: e.target.value })} wrapStyle={{ width: 140 }} />
-            <Input label="Rate (NGN per unit)" type="number" value={eventForm.rate}
+            <Input label="Rate (NGN per Unit)" type="number" value={eventForm.rate}
               onChange={e => setEventForm({ ...eventForm, rate: e.target.value })} wrapStyle={{ width: 160 }} />
             <Input label="Occurred" type="date" value={eventForm.occurred_at}
               onChange={e => setEventForm({ ...eventForm, occurred_at: e.target.value })} wrapStyle={{ width: 160 }} />
@@ -279,7 +279,7 @@ export default function BlinkReport() {
               <option value="Head Office Branch">Lagos</option>
               <option value="Abuja Branch">Abuja</option>
             </Select>
-            <Input label="Notes (optional)" value={eventForm.notes}
+            <Input label="Notes (Optional)" value={eventForm.notes}
               onChange={e => setEventForm({ ...eventForm, notes: e.target.value })} wrapStyle={{ width: 220 }} />
             <Button onClick={recordEvent} loading={eventBusy} style={{ marginTop: 22 }}>Submit for Approval</Button>
           </div>

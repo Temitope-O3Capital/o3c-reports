@@ -261,7 +261,7 @@ function DailyReport({ report, activityCount, onSaved }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <Textarea label="Anything the entries do not show?" value={summary} onChange={e => setSummary(e.target.value)}
           rows={2} placeholder="e.g. Ikeja branch flooded, lost the afternoon. Dangote HR want a presentation for 40 staff." />
-        <Textarea label="What is next? (Optional)" value={plan} onChange={e => setPlan(e.target.value)}
+        <Textarea label="What Is Next? (Optional)" value={plan} onChange={e => setPlan(e.target.value)}
           rows={2} placeholder="e.g. Prepare the Dangote deck, call back Mr Adeyemi on Monday." />
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           {/* One button. "Save Draft" and "Submit Day" drew a distinction that no longer
