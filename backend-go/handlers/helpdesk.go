@@ -746,7 +746,7 @@ func hdCareDistribute(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		caller := core.UserFromCtx(ctx)
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil || (!callerHasRole(caller, "call_center_head") && caller.Role != "admin") {
 			respondErr(w, 403, "insufficient role")
 			return
 		}
@@ -1850,7 +1850,7 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 		}
 		// Heads/admin can (re)assign any ticket; a regular agent may only act on
 		// tickets currently assigned to them (matches the detail-panel transfer).
-		priv := caller.Role == "call_center_head" || caller.Role == "admin"
+		priv := callerHasRole(caller, "call_center_head") || caller.Role == "admin"
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 			AgentID   *int64  `json:"agent_id"`
@@ -2066,7 +2066,7 @@ func hdDistributeUnassigned(ctx context.Context, db *core.DB, limit int, actorID
 func hdDistributeTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := core.UserFromCtx(r.Context())
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil || (!callerHasRole(caller, "call_center_head") && caller.Role != "admin") {
 			respondErr(w, 403, "insufficient role")
 			return
 		}
@@ -2095,7 +2095,7 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 			return
 		}
 		// Agents may close their own tickets; heads/admin may close any.
-		priv := caller.Role == "call_center_head" || caller.Role == "admin"
+		priv := callerHasRole(caller, "call_center_head") || caller.Role == "admin"
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 		}
@@ -2141,7 +2141,7 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "insufficient role")
 			return
 		}
-		priv := caller.Role == "call_center_head" || caller.Role == "admin"
+		priv := callerHasRole(caller, "call_center_head") || caller.Role == "admin"
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 			Priority  string  `json:"priority"`
@@ -6704,7 +6704,7 @@ func hdKBApprove(db *core.DB) http.HandlerFunc {
 			respondErr(w, 401, "Unauthorized")
 			return
 		}
-		if user.Role != "compliance_officer" && user.Role != "compliance_head" && user.Role != "admin" {
+		if !callerHasRole(user, "compliance_officer", "compliance_head") && user.Role != "admin" {
 			respondErr(w, 403, "Only compliance officers can approve KB articles")
 			return
 		}
@@ -6861,7 +6861,7 @@ func hdCCSettings(db *core.DB) http.HandlerFunc {
 func hdSetCCSettings(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := core.UserFromCtx(r.Context())
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil || (!callerHasRole(caller, "call_center_head") && caller.Role != "admin") {
 			respondErr(w, 403, "Only supervisors can change call center settings")
 			return
 		}
@@ -6907,7 +6907,7 @@ func hdSetAgentStatus(db *core.DB) http.HandlerFunc {
 			return
 		}
 		callerIDStr := fmt.Sprintf("%d", caller.ID)
-		if callerIDStr != id && caller.Role != "call_center_head" && caller.Role != "admin" {
+		if callerIDStr != id && !callerHasRole(caller, "call_center_head") && caller.Role != "admin" {
 			respondErr(w, 403, "forbidden")
 			return
 		}

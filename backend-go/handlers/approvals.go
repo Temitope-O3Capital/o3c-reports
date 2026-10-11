@@ -253,7 +253,7 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		if user.Role == "internal_control_head" || user.Role == "compliance_head" {
+		if callerHasRole(user, "internal_control_head", "compliance_head") {
 			rows, err := db.PGQuery(ctx, `
 				SELECT
 					f.id,
@@ -353,7 +353,7 @@ func approvalsSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		// Compliance count
-		if user.Role == "internal_control_head" || user.Role == "compliance_head" {
+		if callerHasRole(user, "internal_control_head", "compliance_head") {
 			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM audit_findings WHERE status='open'`); err == nil && len(rows) > 0 {
 				summary["compliance"] = toInt64(rows[0]["c"])
 			}

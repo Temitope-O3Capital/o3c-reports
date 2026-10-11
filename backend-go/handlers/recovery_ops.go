@@ -1006,7 +1006,7 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, fmt.Sprintf("Payment is already '%s' and cannot be advanced", currentStatus))
 			return
 		}
-		if user.Role != prog.required && user.Role != "admin" {
+		if !callerHasRole(user, prog.required) && user.Role != "admin" {
 			respondErr(w, 403, fmt.Sprintf("This approval stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}
@@ -1150,7 +1150,7 @@ func recoveryOpsRejectPayment(db *core.DB) http.HandlerFunc {
 			return
 		}
 		// Only the approver whose stage it is (or admin) can reject it.
-		if user.Role != prog.required && user.Role != "admin" {
+		if !callerHasRole(user, prog.required) && user.Role != "admin" {
 			respondErr(w, 403, fmt.Sprintf("This stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}
@@ -1427,7 +1427,7 @@ func recoveryOpsReversePayment(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
-		if user.Role != "coo" && user.Role != "admin" {
+		if !callerHasRole(user, "coo") && user.Role != "admin" {
 			respondErr(w, 403, "Only the COO or an administrator can reverse a posted payment")
 			return
 		}
@@ -1710,7 +1710,7 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 		}
 		// The stage's designated approver acts; admin is the break-glass override so a
 		// single approver being unavailable can't freeze the whole chain.
-		if user.Role != prog.required && user.Role != "admin" {
+		if !callerHasRole(user, prog.required) && user.Role != "admin" {
 			respondErr(w, 403, fmt.Sprintf("This approval stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}
@@ -1853,7 +1853,7 @@ func recoveryOpsRejectWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 		// Only the stage's designated approver may decline it — same gate as approve.
-		if user.Role != prog.required && user.Role != "admin" {
+		if !callerHasRole(user, prog.required) && user.Role != "admin" {
 			respondErr(w, 403, fmt.Sprintf("This stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}

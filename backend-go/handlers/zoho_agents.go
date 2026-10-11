@@ -241,7 +241,7 @@ func zohoMapAgent(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		caller := core.UserFromCtx(ctx)
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil || (!callerHasRole(caller, "call_center_head") && caller.Role != "admin") {
 			respondErr(w, 403, "insufficient role")
 			return
 		}

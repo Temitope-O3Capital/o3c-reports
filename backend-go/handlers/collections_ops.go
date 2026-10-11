@@ -595,7 +595,7 @@ func collectionsOpsApprovePayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, fmt.Sprintf("Payment is already '%s' and cannot be advanced", cur))
 			return
 		}
-		if user.Role != prog.required && user.Role != "admin" {
+		if !callerHasRole(user, prog.required) && user.Role != "admin" {
 			respondErr(w, 403, fmt.Sprintf("This approval stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}
@@ -688,7 +688,7 @@ func collectionsOpsRejectPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Payment is already finalised")
 			return
 		}
-		if user.Role != prog.required && user.Role != "admin" {
+		if !callerHasRole(user, prog.required) && user.Role != "admin" {
 			respondErr(w, 403, fmt.Sprintf("This stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}

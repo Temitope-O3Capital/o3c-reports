@@ -611,7 +611,7 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 func listAccounts(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		isHead := user.Role == "sales_head" || user.Role == "head_sales"
+		isHead := callerHasRole(user, "sales_head", "head_sales")
 
 		where := "c.status = 'customer'"
 		args := []any{}

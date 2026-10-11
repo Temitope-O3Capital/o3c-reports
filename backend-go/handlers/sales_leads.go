@@ -1472,7 +1472,7 @@ func claimLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Lead not found")
 			return
 		}
-		isHead := core.IsManagement(user.Role) || user.Role == "sales_head"
+		isHead := core.IsManagement(user.Role) || callerHasRole(user, "sales_head")
 		if owner.Valid && owner.Int64 != user.ID && !isHead {
 			respondErr(w, 409, "This lead is already owned by another officer")
 			return
