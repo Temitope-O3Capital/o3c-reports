@@ -499,7 +499,7 @@ export default function CCStatementDetail() {
         </div>
 
         {filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: SP[8], color: 'var(--txt3)', fontSize: TEXT.base }}>No transactions</div>
+          <div style={{ textAlign: 'center', padding: SP[8], color: 'var(--txt3)', fontSize: TEXT.base }}>No Transactions</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
