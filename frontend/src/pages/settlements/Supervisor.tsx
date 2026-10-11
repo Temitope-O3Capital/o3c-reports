@@ -345,7 +345,7 @@ export default function SettlementSupervisor() {
           cols={officerCols} rows={officers} keyFn={o => o.user_id}
           loading={loading && !d} skeletonRows={3}
           emptyText={
-            <EmptyState icon="group_off" title="No settlement officers"
+            <EmptyState icon="group_off" title="No Settlement Officers"
               description="Nobody holds the settlement_officer or settlement_head role, so there is nobody to assign work to." />
           }
         />
@@ -356,7 +356,7 @@ export default function SettlementSupervisor() {
         <SectionCard title="How Old the Queue Is"
           subtitle="Actionable breaks only — a feed gap that is 90 days old is not a desk 90 days behind">
           {agingSorted.length === 0 ? (
-            <EmptyState icon="schedule" title="Nothing outstanding" />
+            <EmptyState icon="schedule" title="Nothing Outstanding" />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
               {(() => {
@@ -394,7 +394,7 @@ export default function SettlementSupervisor() {
         <SectionCard title="Why Things Are Open"
           subtitle="The feed gap is listed, and kept out of every desk figure above">
           {(d?.by_reason ?? []).length === 0 ? (
-            <EmptyState icon="rule" title="Nothing open" />
+            <EmptyState icon="rule" title="Nothing Open" />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {(d?.by_reason ?? []).map(rr => (
@@ -421,7 +421,7 @@ export default function SettlementSupervisor() {
       <SectionCard title="Closures per Day" style={{ marginBottom: SP[4] }}
         subtitle="The last fortnight. Backlog says how much there is; this says whether it is shrinking">
         {(d?.throughput ?? []).length === 0 ? (
-          <EmptyState icon="show_chart" title="No closure history" />
+          <EmptyState icon="show_chart" title="No Closure History" />
         ) : (
           <EBar
             data={(d?.throughput ?? []).map(t => ({ ...t, label: fmtDate(t.day) }))}

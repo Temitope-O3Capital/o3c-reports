@@ -141,7 +141,7 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
       {loading && !lead ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}><Spinner size={26} /></div>
       ) : !lead ? (
-        <EmptyState icon="person_off" title="Lead not found"
+        <EmptyState icon="person_off" title="Lead Not Found"
           description="It may have been converted, disqualified or transferred out of your queue." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>

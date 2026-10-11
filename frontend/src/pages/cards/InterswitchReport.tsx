@@ -375,7 +375,7 @@ export default function InterswitchReport() {
             <DataTable
               cols={monthCols} rows={monthRows} keyFn={m => m.month}
               loading={loading && !data} skeletonRows={6}
-              emptyText={<EmptyState icon="event_busy" title="No months in this period" />}
+              emptyText={<EmptyState icon="event_busy" title="No Months in This Period" />}
             />
             {/* Totals row, rendered outside the table so sorting can never move it
                 away from the bottom. */}
@@ -421,7 +421,7 @@ export default function InterswitchReport() {
             <DataTable
               cols={channelCols} rows={channels} keyFn={c => c.key}
               loading={loading && !data} skeletonRows={4}
-              emptyText={<EmptyState icon="category" title="No channel data" />}
+              emptyText={<EmptyState icon="category" title="No Channel Data" />}
             />
             {totals && (
               <div style={{

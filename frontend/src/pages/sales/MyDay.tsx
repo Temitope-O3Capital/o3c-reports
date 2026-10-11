@@ -146,7 +146,7 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
 
           {/* What happened, latest first */}
           {activities.length === 0 ? (
-            <EmptyState icon="event_note" title="Nothing logged yet today"
+            <EmptyState icon="event_note" title="Nothing Logged Yet Today"
               description="Record a visit, a call or a meeting as it happens — it takes a few seconds and it is what your day looks like to your head."
               action={{ label: 'Log Activity', icon: 'add', onClick: () => setLogOpen(true) }} />
           ) : (

@@ -306,7 +306,7 @@ export default function SettlementMyDashboard() {
           onRowClick={e => navigate(`/settlements/exceptions?run_id=${e.run_id}`)}
           loading={loading && !d} skeletonRows={5}
           emptyText={
-            <EmptyState icon="assignment_turned_in" title="Nothing assigned to you"
+            <EmptyState icon="assignment_turned_in" title="Nothing Assigned to You"
               description={unassigned > 0
                 ? `${fmtNum(unassigned)} break(s) in the team queue have no owner. Claim some to get started.`
                 : 'Your queue is clear.'}

@@ -448,7 +448,7 @@ export default function SettlementPosition() {
         gap: SP[3], marginBottom: SP[6],
       }}>
         {feeds.length === 0 && !loading
-          ? <EmptyState icon="database" title="No feed information"
+          ? <EmptyState icon="database" title="No Feed Information"
               description="The period returned no coverage data for any source." />
           : feeds.map(f => <FeedTile key={f.src} feed={f} periodDays={periodDays} />)}
       </div>
@@ -533,7 +533,7 @@ export default function SettlementPosition() {
             }>
             <DataTable cols={chCols} rows={rows} keyFn={r => r.key}
               loading={loading && !d} skeletonRows={4}
-              emptyText={<EmptyState icon="category" title="No channel activity" />} />
+              emptyText={<EmptyState icon="category" title="No Channel Activity" />} />
             <div style={{
               display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap',
               padding: '12px 18px', borderTop: '2px solid var(--bdr)',
@@ -568,7 +568,7 @@ export default function SettlementPosition() {
         <DataTable
           cols={routeCols} rows={routeRows} keyFn={r => r.route}
           loading={loading && !d} skeletonRows={5}
-          emptyText={<EmptyState icon="inbox" title="No CCS activity in this period"
+          emptyText={<EmptyState icon="inbox" title="No CCS Activity in This Period"
             description="The master ledger has no transactions for these dates." />}
         />
       </SectionCard>
@@ -592,7 +592,7 @@ export default function SettlementPosition() {
           <DataTable
             cols={iswCols} rows={iswRows} keyFn={r => r.channel}
             loading={loading && !d} skeletonRows={4}
-            emptyText={<EmptyState icon="credit_card" title="No Interswitch settlement loaded"
+            emptyText={<EmptyState icon="credit_card" title="No Interswitch Settlement Loaded"
               description="No uploaded report covers these dates." />}
           />
         </SectionCard>
@@ -614,7 +614,7 @@ export default function SettlementPosition() {
           <DataTable
             cols={psCols} rows={psRows} keyFn={r => r.channel}
             loading={loading && !d} skeletonRows={4}
-            emptyText={<EmptyState icon="smartphone" title="No Paystack activity"
+            emptyText={<EmptyState icon="smartphone" title="No Paystack Activity"
               description="No funding attempts fall in these dates." />}
           />
         </SectionCard>

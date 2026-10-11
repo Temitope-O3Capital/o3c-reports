@@ -237,7 +237,7 @@ export default function Retention() {
         </div>
 
         {loading ? <Spinner /> : rows.length === 0 ? (
-          <EmptyState icon="group_off" title="Nobody matches" description="Widen the filters, or pick another stage of the clock." />
+          <EmptyState icon="group_off" title="Nobody Matches" description="Widen the filters, or pick another stage of the clock." />
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>

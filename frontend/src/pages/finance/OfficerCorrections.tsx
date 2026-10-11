@@ -231,7 +231,7 @@ export default function OfficerCorrections() {
 
       <SectionCard title="Corrections in Force" subtitle="Removing one restores the officer Udara names" padding={false} style={{ marginBottom: SP[4] }}>
         {!loading && rows.length === 0 ? (
-          <EmptyState icon="how_to_reg" title="No corrections recorded"
+          <EmptyState icon="how_to_reg" title="No Corrections Recorded"
             description="Every loan and deposit is currently attributed to the officer Udara names on the record." />
         ) : (
           <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No corrections recorded" />

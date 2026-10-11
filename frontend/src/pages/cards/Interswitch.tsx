@@ -529,7 +529,7 @@ export default function InterswitchSettlement() {
           keyFn={r => `${r.report_family}-${r.session}`}
           loading={loading && !d} skeletonRows={6}
           emptyText={
-            <EmptyState icon="upload_file" title="No settlement loaded for this period"
+            <EmptyState icon="upload_file" title="No Settlement Loaded for This Period"
               description="Interswitch has no API — pull the CSV from their portal and upload it."
               action={{ label: 'Upload CSV', icon: 'upload_file', onClick: focusUpload }} />
           }
@@ -553,7 +553,7 @@ export default function InterswitchSettlement() {
           cols={histCols} rows={history} keyFn={h => h.id}
           loading={loading && !history.length} skeletonRows={5} pageSize={10}
           emptyText={
-            <EmptyState icon="history" title="Nothing uploaded yet"
+            <EmptyState icon="history" title="Nothing Uploaded Yet"
               description="No Interswitch settlement file has been loaded through this page."
               action={{ label: 'Upload CSV', icon: 'upload_file', onClick: focusUpload }} />
           }

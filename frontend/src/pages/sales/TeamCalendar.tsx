@@ -156,7 +156,7 @@ export function TeamCalendar() {
         <div style={{ display: 'flex', justifyContent: 'center', padding: '50px 0' }}><Spinner size={24} /></div>
       ) : officers.length === 0 ? (
         <div style={{ padding: SP[4] }}>
-          <EmptyState icon="groups" title="No officers to show"
+          <EmptyState icon="groups" title="No Officers to Show"
             description="You are not set as head of a team yet, so there is no floor to display. Teams are set up on the Teams page." />
         </div>
       ) : (

@@ -118,7 +118,7 @@ export default function MailOverview() {
           {loading ? (
             <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>
           ) : donut.length === 0 ? (
-            <EmptyState icon="donut_large" title="No data" description="Status mix appears here." />
+            <EmptyState icon="donut_large" title="No Data" description="Status mix appears here." />
           ) : (
             <>
               <EDonut

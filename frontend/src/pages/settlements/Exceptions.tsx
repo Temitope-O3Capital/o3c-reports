@@ -561,7 +561,7 @@ export default function SettlementExceptions() {
               searchPlaceholder="Search reference or counterparty…"
               pageSize={25}
               loading={loading && !failures.length} skeletonRows={8}
-              emptyText={<EmptyState icon="task_alt" title="No failures"
+              emptyText={<EmptyState icon="task_alt" title="No Failures"
                 description="Every Paystack attempt in range succeeded." />}
             />
           </SectionCard>

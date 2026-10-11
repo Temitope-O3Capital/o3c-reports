@@ -205,7 +205,7 @@ function CallFlow({ call, legs, loading }: { call: InboundCall; legs: RingLeg[] 
         <FlowStep color={BLUE} title={<>On the line for {fmtWait(call.wait_sec)}</>}
           detail={<span style={{ color: 'var(--txt3)' }}>Per-agent ring detail isn't available for this call.</span>} />
       ) : (
-        <FlowStep color="var(--txt3)" title="No ring detail captured" />
+        <FlowStep color="var(--txt3)" title="No Ring Detail Captured" />
       )}
 
       {/* 3. Outcome */}

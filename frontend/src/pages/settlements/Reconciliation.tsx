@@ -837,7 +837,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
           {loadingFlow && !flowData ? (
             <div style={{ height: 260 }} />
           ) : series.length === 0 ? (
-            <EmptyState icon="show_chart" title="No movement in this period"
+            <EmptyState icon="show_chart" title="No Movement in This Period"
               description="Nothing came in, went out or settled on these dates." />
           ) : (
             <ELine
@@ -855,7 +855,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
           subtitle="Where customers abandon or fail — completion is the share of attempts that succeeded">
           <DataTable cols={funnelCols} rows={funnel} keyFn={r => r.channel}
             loading={loadingFunnel && !funnelData} skeletonRows={5}
-            emptyText={<EmptyState icon="filter_alt" title="No funding attempts"
+            emptyText={<EmptyState icon="filter_alt" title="No Funding Attempts"
               description="No customer tried to fund a wallet in this period." />} />
         </SectionCard>
       </div>
@@ -879,7 +879,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
         }>
         <DataTable cols={txnCols} rows={txnData?.data ?? []} keyFn={(t, i) => t.reference || i}
           loading={loadingTxns} skeletonRows={8}
-          emptyText={<EmptyState icon="receipt_long" title="No transactions"
+          emptyText={<EmptyState icon="receipt_long" title="No Transactions"
             description="No funding attempts fall in this period." />} />
         <Pagination page={txnPage} pages={Math.max(1, Math.ceil(n(txnData?.meta?.total) / PER_PAGE))}
           total={n(txnData?.meta?.total)} pageSize={PER_PAGE} onPage={setTxnPage} />
@@ -894,7 +894,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
         subtitle={`Net amounts Paystack disbursed to the O3 account · ${fmtDate(from)} – ${fmtDate(to)}`}>
         <DataTable cols={settleCols} rows={settleData?.data ?? []} keyFn={(s, i) => s.id || i}
           loading={loadingSett} skeletonRows={8}
-          emptyText={<EmptyState icon="account_balance" title="No settlements"
+          emptyText={<EmptyState icon="account_balance" title="No Settlements"
             description="Paystack disbursed nothing in this period." />} />
         <Pagination page={settlePage} pages={Math.max(1, Math.ceil(n(settleData?.meta?.total) / PER_PAGE))}
           total={n(settleData?.meta?.total)} pageSize={PER_PAGE} onPage={setSettlePage} />
@@ -921,7 +921,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
         <DataTable cols={xfrCols} rows={xfrData?.data ?? []}
           keyFn={(t, i) => String(t.reference ?? i)}
           loading={loadingXfr} skeletonRows={8}
-          emptyText={<EmptyState icon="send" title="No transfers"
+          emptyText={<EmptyState icon="send" title="No Transfers"
             description="Nothing left the wallet in this period." />} />
         <Pagination page={xfrPage} pages={Math.max(1, Math.ceil(n(xfrData?.meta?.total) / PER_PAGE))}
           total={n(xfrData?.meta?.total)} pageSize={PER_PAGE} onPage={setXfrPage} />
@@ -969,7 +969,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
           }>
           <DataTable cols={ledgerCols} rows={filteredLedger} keyFn={(r, i) => i}
             loading={loadingLedger} skeletonRows={8}
-            emptyText={<EmptyState icon="price_change" title="No ledger entries"
+            emptyText={<EmptyState icon="price_change" title="No Ledger Entries"
               description="Nothing moved against the wallet on this page." />} />
           <Pagination page={ledgerPage} pages={Math.max(1, Math.ceil(n(ledgerData?.meta?.total) / PER_PAGE))}
             total={n(ledgerData?.meta?.total)} pageSize={PER_PAGE} onPage={setLedgerPage} />
@@ -985,7 +985,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
         subtitle={`Transactions reversed back to customers · ${fmtNum(n(refundData?.meta?.total))} total`}>
         <DataTable cols={refundCols} rows={(refundData?.data ?? []) as Record<string, unknown>[]}
           keyFn={(r, i) => String(r.id ?? i)} loading={loadingRef} skeletonRows={6}
-          emptyText={<EmptyState icon="undo" title="No refunds"
+          emptyText={<EmptyState icon="undo" title="No Refunds"
             description="Nothing has been refunded to a customer." />} />
         <Pagination page={refundPage} pages={Math.max(1, Math.ceil(n(refundData?.meta?.total) / PER_PAGE))}
           total={n(refundData?.meta?.total)} pageSize={PER_PAGE} onPage={setRefundPage} />
@@ -1000,7 +1000,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
         subtitle="Transactions disputed by customers or their issuing banks">
         <DataTable cols={disputeCols} rows={(disputeData?.data ?? []) as Record<string, unknown>[]}
           keyFn={(d, i) => String(d.id ?? i)} loading={loadingDisp} skeletonRows={6}
-          emptyText={<EmptyState icon="gavel" title="No disputes"
+          emptyText={<EmptyState icon="gavel" title="No Disputes"
             description="No transaction has been disputed." />} />
         <Pagination page={disputePage} pages={Math.max(1, Math.ceil(n(disputeData?.meta?.total) / PER_PAGE))}
           total={n(disputeData?.meta?.total)} pageSize={PER_PAGE} onPage={setDisputePage} />

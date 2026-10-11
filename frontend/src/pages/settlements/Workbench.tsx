@@ -200,7 +200,7 @@ function ExceptionMix({ rows }: { rows: ReasonRow[] }) {
   }, [rows])
 
   if (!grouped.length) {
-    return <EmptyState icon="check_circle" title="Nothing unmatched"
+    return <EmptyState icon="check_circle" title="Nothing Unmatched"
       description="Every source row in this run found exactly one counterpart." />
   }
 
@@ -615,7 +615,7 @@ export default function Reconcile() {
           onRowClick={r => setSelectedId(r.id)}
           rowStyle={r => r.id === selectedId ? { background: 'var(--row-sel)' } : undefined}
           loading={loading && !runs.length} skeletonRows={4} pageSize={10}
-          emptyText={<EmptyState icon="history" title="No runs yet"
+          emptyText={<EmptyState icon="history" title="No Runs Yet"
             description="Reconciliation runs will appear here once one has been started." />}
         />
       </SectionCard>
@@ -640,7 +640,7 @@ export default function Reconcile() {
           cols={logCols} rows={logRows}
           keyFn={(a, i) => `${a.activity}-${a.id ?? i}-${a.started_at}`}
           loading={loading && !activity} skeletonRows={6} pageSize={15}
-          emptyText={<EmptyState icon="history" title="Nothing recorded"
+          emptyText={<EmptyState icon="history" title="Nothing Recorded"
             description="No activity of this kind has been logged." />}
         />
       </SectionCard>
