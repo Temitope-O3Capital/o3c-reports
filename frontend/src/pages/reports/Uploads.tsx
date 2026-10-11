@@ -217,7 +217,7 @@ export default function ReportsUploads() {
       <div style={{ height: SP[5] }} />
 
       <SectionCard title="Upload History" subtitle="Every ingest across modules" badge={ledger.length || undefined} padding={false}>
-        <DataTable cols={LEDGER_COLS} rows={ledger} keyFn={(r, i) => r.id ?? i} loading={loading} emptyText="No uploads recorded yet" pageSize={25} />
+        <DataTable cols={LEDGER_COLS} rows={ledger} keyFn={(r, i) => r.id ?? i} loading={loading} emptyText="No Uploads Recorded Yet" pageSize={25} />
       </SectionCard>
     </Page>
   )

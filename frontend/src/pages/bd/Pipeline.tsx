@@ -817,7 +817,7 @@ export default function BDPipeline() {
             rows={pageRows}
             loading={loading}
             skeletonRows={8}
-            emptyText="No leads match the current filters"
+            emptyText="No Leads Match the Current Filters"
             keyFn={r => r.id}
             onRowClick={r => setDetailLead(r)}
             selectable

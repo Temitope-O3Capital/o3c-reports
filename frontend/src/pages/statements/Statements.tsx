@@ -614,7 +614,7 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
           </button>
         }
       >
-        <DataTable cols={RUN_COLS} rows={runs} keyFn={r => r.id} loading={loadingRuns} emptyText="No bulk runs yet" />
+        <DataTable cols={RUN_COLS} rows={runs} keyFn={r => r.id} loading={loadingRuns} emptyText="No Bulk Runs Yet" />
       </SectionCard>
 
     </div>
@@ -714,7 +714,7 @@ function HistoryTab() {
         </div>
       </div>
       <ErrBanner error={error} onRetry={load} />
-      <DataTable cols={COLS} rows={filtered} keyFn={r => r.id} loading={loading} emptyText="No statements sent yet" />
+      <DataTable cols={COLS} rows={filtered} keyFn={r => r.id} loading={loading} emptyText="No Statements Sent Yet" />
     </SectionCard>
   )
 }

@@ -320,7 +320,7 @@ export default function SalesMyDashboard() {
           searchKeys={['company_name', 'contact_name', 'stage']}
           searchPlaceholder="Search leads…"
           pageSize={10}
-          emptyText="No leads found"
+          emptyText="No Leads Found"
         />
       </SectionCard>
 

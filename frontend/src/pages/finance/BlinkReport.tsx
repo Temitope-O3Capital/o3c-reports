@@ -291,7 +291,7 @@ export default function BlinkReport() {
 
       <div style={{ marginTop: SP[4] }}>
         <SectionCard title="Pending Events" subtitle="Not yet counted in any figure above until approved" badge={pending.length || undefined}>
-          <DataTable cols={pendingCols} rows={pending} keyFn={r => r.id} loading={pendingLoading} emptyText="Nothing pending" />
+          <DataTable cols={pendingCols} rows={pending} keyFn={r => r.id} loading={pendingLoading} emptyText="Nothing Pending" />
         </SectionCard>
       </div>
 

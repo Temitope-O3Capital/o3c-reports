@@ -281,7 +281,7 @@ export default function SalesBookCustomer() {
       </div>
 
       <SectionCard title="Cards" badge={accounts.length} padding={false}>
-        <DataTable cols={ACCOUNT_COLS} rows={accounts} keyFn={r => r.account_no} emptyText="No cards on this customer" />
+        <DataTable cols={ACCOUNT_COLS} rows={accounts} keyFn={r => r.account_no} emptyText="No Cards on This Customer" />
       </SectionCard>
 
       <div style={{ height: SP[4] }} />
@@ -301,7 +301,7 @@ export default function SalesBookCustomer() {
           rows={apps}
           keyFn={r => r.id}
           onRowClick={r => navigate(`/sales/applications/${r.id}`)}
-          emptyText="Nothing raised for this customer yet"
+          emptyText="Nothing Raised for This Customer Yet"
         />
       </SectionCard>
 
@@ -309,7 +309,7 @@ export default function SalesBookCustomer() {
           across every card they hold. Context for the officer's next conversation. */}
       <div style={{ height: SP[4] }} />
       <SectionCard title="Recent Calls" badge={recentCalls.length} padding={false}>
-        <DataTable cols={CALL_COLS} rows={recentCalls} keyFn={r => r.id} emptyText="No calls logged for this customer" />
+        <DataTable cols={CALL_COLS} rows={recentCalls} keyFn={r => r.id} emptyText="No Calls Logged for This Customer" />
       </SectionCard>
 
       {/* Support history is context, not the officer's queue — hence last, and only
@@ -318,7 +318,7 @@ export default function SalesBookCustomer() {
         <>
           <div style={{ height: SP[4] }} />
           <SectionCard title="Support History" badge={tickets.length} padding={false}>
-            <DataTable cols={TICKET_COLS} rows={tickets} keyFn={r => r.id} emptyText="No tickets" />
+            <DataTable cols={TICKET_COLS} rows={tickets} keyFn={r => r.id} emptyText="No Tickets" />
           </SectionCard>
         </>
       )}

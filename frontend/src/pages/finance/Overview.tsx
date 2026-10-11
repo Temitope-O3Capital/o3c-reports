@@ -376,7 +376,7 @@ export default function FinanceOverview() {
 
       {/* Recent transactions */}
       <SectionCard title="Recent Transactions" subtitle="Latest movements on the feed" padding={false}>
-        <DataTable cols={TXN_COLS} rows={txns} keyFn={(r, i) => i} loading={loading} emptyText="No transactions" />
+        <DataTable cols={TXN_COLS} rows={txns} keyFn={(r, i) => i} loading={loading} emptyText="No Transactions" />
       </SectionCard>
     </Page>
   )

@@ -227,7 +227,7 @@ export default function CohortDetail() {
               cols={COLS}
               rows={detail.data}
               keyFn={r => r.id}
-              emptyText="No accounts in this cohort"
+              emptyText="No Accounts in This Cohort"
               searchKeys={['applicant_name', 'reference', 'employer', 'product_type']}
               searchPlaceholder="Filter accounts…"
               pageSize={25}

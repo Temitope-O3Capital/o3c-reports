@@ -142,7 +142,7 @@ export default function BIMyDashboard() {
           keyFn={(r) => `${r.report_name}-${r.frequency}-${r.hour}`}
           onRowClick={goSchedules}
           pageSize={8}
-          emptyText="No active schedules"
+          emptyText="No Active Schedules"
         />
       </SectionCard>
 
@@ -154,7 +154,7 @@ export default function BIMyDashboard() {
           keyFn={(r) => `${r.report_name}-${r.last_run_at}`}
           onRowClick={goSchedules}
           pageSize={8}
-          emptyText="No deliveries yet"
+          emptyText="No Deliveries Yet"
         />
       </SectionCard>
     </Page>

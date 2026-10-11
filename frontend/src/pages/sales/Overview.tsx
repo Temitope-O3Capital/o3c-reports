@@ -634,7 +634,7 @@ export default function SalesOverview() {
           rows={officers}
           loading={loading}
           skeletonRows={4}
-          emptyText="No sales officers are provisioned yet"
+          emptyText="No Sales Officers Are Provisioned Yet"
           keyFn={r => r.id}
           onRowClick={r => navigate(`/sales/book?officer_id=${r.id}`)}
         />

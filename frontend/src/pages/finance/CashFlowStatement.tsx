@@ -157,7 +157,7 @@ export default function CashFlowStatement() {
       </div>
 
       <LedgerTree sections={sections} grandTotalLabel="Net Change in Cash" grandTotal={netChange} fmtAmount={fmtKoboExact}
-        loading={loading && !data} emptyText="No activity in this period" />
+        loading={loading && !data} emptyText="No Activity in This Period" />
 
       <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[4], lineHeight: 1.55 }}>{data?.basis}</p>
 
@@ -169,7 +169,7 @@ export default function CashFlowStatement() {
               {drill.branch} · {fmtKoboExact(drill.amount_kobo)} net across {drill.postings} postings
             </p>
             <DataTable cols={entryCols} rows={entries ?? []} keyFn={(r, i) => r.id ?? i} loading={entriesLoading}
-              emptyText="No entries found for this line" />
+              emptyText="No Entries Found for This Line" />
           </>
         )}
       </Modal>

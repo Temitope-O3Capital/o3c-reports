@@ -197,7 +197,7 @@ export default function FinanceTransactions() {
           placeholder="Search description, account, merchant…"
         />
 
-        <DataTable cols={COLS} rows={rows} keyFn={(r, i) => i} loading={loading} emptyText="No transactions found" />
+        <DataTable cols={COLS} rows={rows} keyFn={(r, i) => i} loading={loading} emptyText="No Transactions Found" />
 
         <Pagination page={currentPage} pages={totalPages} total={total} pageSize={PAGE_SIZE}
           onPage={p => load((p - 1) * PAGE_SIZE)} />

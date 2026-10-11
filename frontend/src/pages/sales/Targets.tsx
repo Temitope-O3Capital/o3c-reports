@@ -546,7 +546,7 @@ export default function SalesTargets() {
             cols={COLS}
             rows={filteredBoard}
             keyFn={r => r.user_id}
-            emptyText="No targets set for this period"
+            emptyText="No Targets Set for This Period"
             selectable
             selectedIds={bulkSel}
             onSelect={setBulkSel}

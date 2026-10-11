@@ -675,7 +675,7 @@ export default function ManualPostings() {
           rows={rows}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No manual postings found"
+          emptyText="No Manual Postings Found"
           pageSize={20}
           selectable
           selectedIds={sel}

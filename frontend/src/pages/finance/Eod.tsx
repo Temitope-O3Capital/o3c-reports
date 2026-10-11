@@ -188,10 +188,10 @@ export default function FinanceEOD() {
       {/* Movement breakdowns */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
         <SectionCard title="Movement by Channel" padding={false}>
-          <DataTable cols={CHANNEL_COLS} rows={eod?.by_channel ?? []} keyFn={(r, i) => r.channel ?? i} loading={loading} emptyText="No movement on this day" />
+          <DataTable cols={CHANNEL_COLS} rows={eod?.by_channel ?? []} keyFn={(r, i) => r.channel ?? i} loading={loading} emptyText="No Movement on This Day" />
         </SectionCard>
         <SectionCard title="Movement by Product" padding={false}>
-          <DataTable cols={PRODUCT_COLS} rows={eod?.by_product ?? []} keyFn={(r, i) => r.product_name ?? i} loading={loading} emptyText="No movement on this day" pageSize={8} />
+          <DataTable cols={PRODUCT_COLS} rows={eod?.by_product ?? []} keyFn={(r, i) => r.product_name ?? i} loading={loading} emptyText="No Movement on This Day" pageSize={8} />
         </SectionCard>
       </div>
 

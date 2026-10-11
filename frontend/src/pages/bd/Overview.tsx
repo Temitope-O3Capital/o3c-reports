@@ -328,7 +328,7 @@ export default function BDOverview() {
             rows={recentLeads}
             loading={loading}
             skeletonRows={5}
-            emptyText="No leads yet"
+            emptyText="No Leads Yet"
             keyFn={r => r.id}
             onRowClick={() => navigate('/bd/pipeline')}
             searchKeys={['company_name', 'contact_name', 'stage']}
@@ -341,7 +341,7 @@ export default function BDOverview() {
             cols={empCols}
             rows={topEmpl}
             keyFn={r => r.id}
-            emptyText="No employer data"
+            emptyText="No Employer Data"
             skeletonRows={loading ? 5 : 0}
           />
         </SectionCard>

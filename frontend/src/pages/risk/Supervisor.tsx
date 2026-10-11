@@ -333,7 +333,7 @@ export default function RiskSupervisor() {
             click opened an unrelated person, and two loans of one product dropped a row. */}
         <DataTable cols={watchCols} rows={watchlist} keyFn={r => r.reference || `${r.cif}:${r.product}:${r.dpd}`}
           onRowClick={r => navigate(`/operations/risk/portfolio?search=${encodeURIComponent(r.reference || r.name)}`)}
-          pageSize={10} emptyText="Nothing past due" />
+          pageSize={10} emptyText="Nothing Past Due" />
       </SectionCard>
 
       {/* Team review throughput — only when origination is live */}

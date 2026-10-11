@@ -274,7 +274,7 @@ export default function FinanceIncome() {
                 rows={productRows}
                 keyFn={(r, i) => r.product_name ?? i}
                 loading={loading}
-                emptyText="No product revenue in this period"
+                emptyText="No Product Revenue in This Period"
                 pageSize={12}
               />
             </SectionCard>

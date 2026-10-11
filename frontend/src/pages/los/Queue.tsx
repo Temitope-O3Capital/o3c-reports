@@ -425,7 +425,7 @@ export default function LOSQueue() {
           loading={loading}
           skeletonRows={8}
           onRowClick={r => navigate(`/sales/applications/${r.id}`)}
-          emptyText="No applications found"
+          emptyText="No Applications Found"
           selectable
           selectedIds={bulkSel}
           onSelect={setBulkSel}

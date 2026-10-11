@@ -487,7 +487,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
               return <span style={{ ...NUM }}>{fmtNum(r.loyal_users)} <span style={{ fontSize: TEXT.xs, color: rate >= 40 ? GREEN : AMBER }}>({fmtPct(rate)})</span></span>
             }},
           ] as TableCol<PlatformRow>[]}
-          rows={byPlat} keyFn={r => r.platform} emptyText="No platform data yet"
+          rows={byPlat} keyFn={r => r.platform} emptyText="No Platform Data Yet"
         />
       </SectionCard>
     </>
@@ -527,7 +527,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
         </SectionCard>
       </div>
       <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source, ranked by installs. “—” means the figure cannot be computed — hover it for the reason" badge={srcRows.length} padding={false}>
-        <DataTable cols={scoreCols('source')} rows={srcRows} keyFn={r => r.key} emptyText="No source data yet" />
+        <DataTable cols={scoreCols('source')} rows={srcRows} keyFn={r => r.key} emptyText="No Source Data Yet" />
       </SectionCard>
     </>
   )
@@ -575,7 +575,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
         )}
       </SectionCard>
       <SectionCard title="Country Detail" subtitle="Installs, engagement & quality by country. No state/region in the AppsFlyer feed" badge={geo.length} padding={false}>
-        <DataTable cols={GEO_COLS} rows={geo} keyFn={r => r.country} emptyText="No country data yet" />
+        <DataTable cols={GEO_COLS} rows={geo} keyFn={r => r.country} emptyText="No Country Data Yet" />
       </SectionCard>
     </>
   )
@@ -652,7 +652,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
             )},
             { key: 'fromOpen', label: 'From First Open', align: 'right', render: (r: typeof funnelSteps[number]) => <MCell m={r.fromOpen} f={fmtPct} /> },
           ] as TableCol<typeof funnelSteps[number]>[]}
-          rows={funnelSteps} keyFn={r => r.name} emptyText="No funnel data yet"
+          rows={funnelSteps} keyFn={r => r.name} emptyText="No Funnel Data Yet"
         />
       </SectionCard>
     </>
@@ -666,7 +666,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
         {campaignChart.length === 0 ? <EmptyNote text="No campaign data yet: installs are direct/organic in this window." /> : installsBar(campaignChart)}
       </SectionCard>
       <SectionCard title="Campaign Scorecard" subtitle="Efficiency & quality per campaign. Ranked by installs" badge={campRows.length} padding={false}>
-        <DataTable cols={scoreCols('campaign')} rows={campRows} keyFn={r => `${r.key}|${r.media_source}`} emptyText="No campaign data yet" />
+        <DataTable cols={scoreCols('campaign')} rows={campRows} keyFn={r => `${r.key}|${r.media_source}`} emptyText="No Campaign Data Yet" />
       </SectionCard>
     </>
   )

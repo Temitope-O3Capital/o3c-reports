@@ -238,11 +238,11 @@ export default function Attribution() {
           )}
 
           <SectionCard title="Campaign Attribution" subtitle="Conversions & originated value per campaign" badge={campaigns.length} padding={false} style={{ marginBottom: 14 }}>
-            <DataTable cols={CAMP_COLS} rows={campaigns} keyFn={r => r.campaign_id} emptyText="No campaign data yet" />
+            <DataTable cols={CAMP_COLS} rows={campaigns} keyFn={r => r.campaign_id} emptyText="No Campaign Data Yet" />
           </SectionCard>
 
           <SectionCard title="By Lead Source" subtitle="Applications & disbursement by acquisition source" badge={leadSources.length} padding={false}>
-            <DataTable cols={LS_COLS} rows={leadSources} keyFn={r => r.lead_source} emptyText="No lead source data yet" />
+            <DataTable cols={LS_COLS} rows={leadSources} keyFn={r => r.lead_source} emptyText="No Lead Source Data Yet" />
           </SectionCard>
         </>
       )}

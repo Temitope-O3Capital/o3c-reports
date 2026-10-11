@@ -234,13 +234,13 @@ export default function OfficerCorrections() {
           <EmptyState icon="how_to_reg" title="No Corrections Recorded"
             description="Every loan and deposit is currently attributed to the officer Udara names on the record." />
         ) : (
-          <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No corrections recorded" />
+          <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No Corrections Recorded" />
         )}
       </SectionCard>
 
       <SectionCard title="Correction History" subtitle="Every change and reversal, most recent first" padding={false}>
         <DataTable cols={HIST_COLS} rows={history} keyFn={r => r.id} loading={loading}
-          emptyText="No corrections have been made yet" pageSize={10} />
+          emptyText="No Corrections Have Been Made Yet" pageSize={10} />
       </SectionCard>
     </>
   )

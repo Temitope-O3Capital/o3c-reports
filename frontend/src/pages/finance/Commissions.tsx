@@ -192,7 +192,7 @@ export default function Commissions() {
           rows={sorted}
           keyFn={r => r.user_id}
           loading={loading}
-          emptyText="No commission recorded for this period"
+          emptyText="No Commission Recorded for This Period"
           pageSize={20}
         />
       </SectionCard>

@@ -312,7 +312,7 @@ export default function FixedDeposits() {
           )}
 
           <SectionCard title="Book by Product" subtitle="Active deposits split by FD product" padding={false}>
-            <DataTable cols={PRODUCT_COLS} rows={byProduct} keyFn={(r, i) => r.product ?? i} loading={loading} emptyText="No products in the deposit book" pageSize={10} />
+            <DataTable cols={PRODUCT_COLS} rows={byProduct} keyFn={(r, i) => r.product ?? i} loading={loading} emptyText="No Products in the Deposit Book" pageSize={10} />
           </SectionCard>
         </>
       )}
@@ -350,7 +350,7 @@ export default function FixedDeposits() {
             rows={accrual}
             keyFn={(r, i) => r.id ?? i}
             loading={accrualLoading}
-            emptyText="No accruing deposits"
+            emptyText="No Accruing Deposits"
             searchKeys={['customer_name']}
             searchPlaceholder="Search customer…"
             pageSize={15}

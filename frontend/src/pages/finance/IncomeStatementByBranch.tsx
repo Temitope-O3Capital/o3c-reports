@@ -175,7 +175,7 @@ export default function IncomeStatementByBranch() {
               {drill.branch} · {fmtKoboExact(drill.amount_kobo)} across {drill.postings} postings
             </p>
             <DataTable cols={entryCols} rows={entries ?? []} keyFn={(r, i) => r.id ?? i} loading={entriesLoading}
-              emptyText="No entries found for this line" />
+              emptyText="No Entries Found for This Line" />
           </>
         )}
       </Modal>

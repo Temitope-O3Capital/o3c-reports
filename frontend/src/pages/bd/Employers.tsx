@@ -825,7 +825,7 @@ export default function Employers() {
           rows={pageRows}
           loading={loading}
           skeletonRows={8}
-          emptyText="No employers registered yet"
+          emptyText="No Employers Registered Yet"
           keyFn={r => r.id}
           onRowClick={r => setDetailRow(r)}
           selectable

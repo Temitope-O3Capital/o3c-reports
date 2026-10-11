@@ -212,7 +212,7 @@ export default function RevenueBreakdown() {
       </div>
 
       <LedgerTree sections={sections} grandTotalLabel="Total Revenue" grandTotal={totalRevenue} fmtAmount={fmtKoboExact}
-        loading={loading && !data} emptyText="No revenue lines in this period" />
+        loading={loading && !data} emptyText="No Revenue Lines in This Period" />
 
       <div style={{ marginTop: SP[4] }}>
         <SectionCard title="Blink" subtitle="Standalone FX service — funding, fee split, and realized FX gain/loss">
@@ -244,7 +244,7 @@ export default function RevenueBreakdown() {
               {fmtKoboExact(drill.amount)} across {drill.postings} postings
             </p>
             <DataTable cols={entryCols} rows={entries ?? []} keyFn={(r, i) => r.id ?? i} loading={entriesLoading}
-              emptyText="No entries found for this line" />
+              emptyText="No Entries Found for This Line" />
           </>
         )}
       </Modal>

@@ -194,7 +194,7 @@ export default function SettlementImport() {
       <div style={{ height: SP[5] }} />
 
       <SectionCard title="Import History" subtitle="Recent settlement imports" padding={false}>
-        <DataTable cols={HISTORY_COLS} rows={history} keyFn={(r, i) => r.id ?? i} loading={histLoading} emptyText="No imports yet" pageSize={15} />
+        <DataTable cols={HISTORY_COLS} rows={history} keyFn={(r, i) => r.id ?? i} loading={histLoading} emptyText="No Imports Yet" pageSize={15} />
       </SectionCard>
     </Page>
   )

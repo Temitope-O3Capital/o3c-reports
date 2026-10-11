@@ -201,7 +201,7 @@ export default function FeeIncomeCapture() {
           <Input label="Reference (Optional)" value={cardForm.ref} onChange={e => setCardForm({ ...cardForm, ref: e.target.value })} wrapStyle={{ width: 180 }} />
           <Button onClick={submitCardFee} loading={cardBusy} style={{ marginTop: 22 }}>Record Fee</Button>
         </div>
-        <DataTable cols={cardCols} rows={cardFees} keyFn={r => r.id} loading={cardLoading} emptyText="No card fees recorded yet" />
+        <DataTable cols={cardCols} rows={cardFees} keyFn={r => r.id} loading={cardLoading} emptyText="No Card Fees Recorded Yet" />
       </SectionCard>
 
       <div style={{ marginTop: SP[4] }}>
@@ -216,7 +216,7 @@ export default function FeeIncomeCapture() {
             <Input label="Reference (Optional)" value={loanForm.ref} onChange={e => setLoanForm({ ...loanForm, ref: e.target.value })} wrapStyle={{ width: 180 }} />
             <Button onClick={submitLoanFee} loading={loanBusy} style={{ marginTop: 22 }}>Record Fee</Button>
           </div>
-          <DataTable cols={loanCols} rows={loanFees} keyFn={r => r.id} loading={loanLoading} emptyText="No loan fees recorded yet" />
+          <DataTable cols={loanCols} rows={loanFees} keyFn={r => r.id} loading={loanLoading} emptyText="No Loan Fees Recorded Yet" />
         </SectionCard>
       </div>
 

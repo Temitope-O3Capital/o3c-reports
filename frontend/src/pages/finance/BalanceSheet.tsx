@@ -218,7 +218,7 @@ export default function BalanceSheet() {
               {drill.currency} · {fmtKoboExact(drill.amount_kobo)} across {drill.items} items
             </p>
             <DataTable cols={entryColsFor(drill.line)} rows={entries ?? []} keyFn={(r, i) => i} loading={entriesLoading}
-              emptyText="No records found for this line" />
+              emptyText="No Records Found for This Line" />
           </>
         )}
       </Modal>
