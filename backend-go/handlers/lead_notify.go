@@ -135,6 +135,59 @@ func leadForwardFactsFor(ctx context.Context, db *core.DB, leadID int64) (leadFo
 	return f, true
 }
 
+// isTeamHeadUser reports whether this person heads an active sales team, so an alert can
+// tell a head and an officer different things about the same lead.
+func isTeamHeadUser(ctx context.Context, db *core.DB, userID int64) bool {
+	if userID == 0 {
+		return false
+	}
+	rows, err := db.PGQuery(ctx,
+		`SELECT 1 FROM app.sales_teams WHERE head_user_id = $1 AND is_active LIMIT 1`, userID)
+	return err == nil && len(rows) > 0
+}
+
+// notifyLeadHasNoLocation raises the one case the team router cannot resolve.
+//
+// EvtLeadNoLocation was defined, registered in the notification switchboard by migration
+// 356 so it shows on the settings screen, and never sent by anything. A qualified lead
+// with no state cannot be routed to an office, so it stays in the pool owned by nobody,
+// and nothing told anybody: it looked identical to a quiet afternoon. Seven were sitting
+// there when the pipeline was audited.
+//
+// It goes to the CALL CENTRE, not to Sales. Sales cannot fix it - they have no way to
+// find out where the customer lives - whereas the floor that just spoke to them can ring
+// back and ask. Grouped by day so a bad import is one alert rather than forty.
+func notifyLeadHasNoLocation(ctx context.Context, db *core.DB, contactID int64, name string) {
+	heads, err := db.PGQuery(ctx, `
+		SELECT id FROM app.o3c_users
+		 WHERE is_active AND deleted_at IS NULL
+		   AND (role = 'call_center_head'
+		     OR COALESCE(extra_roles, '[]'::jsonb) @> to_jsonb('call_center_head'::text))`)
+	if err != nil || len(heads) == 0 {
+		return
+	}
+	ids := []int64{}
+	for _, h := range heads {
+		if id := toInt64(h["id"]); id != 0 {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	NotifyUsers(ctx, db, ids, NotifPayload{
+		EventType: EvtLeadNoLocation,
+		Title:     "A Qualified Lead Has Nowhere to Visit",
+		Body: name + " was qualified and handed to Sales with no state recorded, so no " +
+			"office covers it and nobody can be sent. Add the location on the lead and it " +
+			"routes itself.",
+		ActionURL: fmt.Sprintf("/call-center/leads?open=%d", contactID),
+		EntityRef: fmt.Sprintf("crm_contact:%d", contactID),
+		GroupKey:  "cc:nolocation:" + nowDateKey(ctx, db),
+		Priority:  "high",
+	})
+}
+
 // where renders the location as a person would say it, and says so plainly when there
 // isn't one — a lead nobody can place is the thing a head most needs to notice.
 func (f leadForwardFacts) where() string {
@@ -167,11 +220,21 @@ func notifyLeadForwarded(ctx context.Context, db *core.DB, leadID int64, agentID
 
 	if f.OwnerID != 0 {
 		// Addressed to one person about one lead: ungrouped, so it emails every time.
+		//
+		// The wording distinguishes the two ways somebody comes to own a lead. A team
+		// head holds it on the team's behalf and is expected to share it out, so telling
+		// them to "plan the first visit" would be telling the wrong person to do the
+		// wrong thing; an officer who was given it directly is exactly who should.
+		title, action := "A Lead Was Forwarded to You", " Open it to plan the first visit."
+		if isTeamHeadUser(ctx, db, f.OwnerID) {
+			title = "A Lead Was Shared With Your Team"
+			action = " Share it out from Leads, or take it yourself."
+		}
 		Notify(ctx, db, NotifPayload{
 			EventType: EvtLeadForwarded,
 			UserID:    f.OwnerID,
-			Title:     "A Lead Was Forwarded to You",
-			Body:      body + " Open it to plan the first visit.",
+			Title:     title,
+			Body:      body + action,
 			ActionURL: fmt.Sprintf("/sales/leads/%d", f.ContactID),
 			EntityRef: fmt.Sprintf("crm_contact:%d", f.ContactID),
 			Priority:  "high",
