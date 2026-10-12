@@ -84,6 +84,11 @@ var reportDatasetPages = map[string][]string{
 	"campaign_contacts":    {"campaigns", "contact_lists", "message_templates"},
 	"campaign_events":      {"campaigns", "message_templates"},
 	"contact_list_members": {"contact_lists", "campaigns"},
+	// WhatsApp traffic reaches Care as well as Campaigns, because most of it is support:
+	// an agent answering a customer is the same ledger as a broadcast, and the team that
+	// needs "did my reply arrive" is Care. The body is not in the dataset, so this grants
+	// reach and delivery state, never the conversation.
+	"whatsapp_messages": {"campaigns", "message_templates", "helpdesk", "care"},
 	// Consent sits in two places on purpose. Marketing needs it to build an audience;
 	// Compliance needs it to answer why a customer was contacted. Neither is a guest.
 	"consent_register": {"campaigns", "contact_lists", "compliance_all"},

@@ -115,7 +115,7 @@ func SendToCustomer(ctx context.Context, db *core.DB, m CustomerMessage) string 
 	case "sms":
 		ok, provider = sendSMS(ctx, db, m.To, m.Body)
 	case "whatsapp":
-		ok, provider = sendWhatsAppCampaign(ctx, db, m.To, m.Body, "")
+		ok, provider = sendWhatsAppCampaign(ctx, db, m.To, m.Body, "", waSend{Kind: "notification", Purpose: m.Purpose, PartyID: m.PartyID})
 	case "email":
 		ok, provider = sendEmail(ctx, db, m.To, "", "", "", m.Subject, m.Body, m.Body, "")
 	default:

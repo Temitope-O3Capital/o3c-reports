@@ -21,26 +21,112 @@ import (
 
 const waAPIBase = "https://graph.facebook.com/v19.0"
 
+// waSend is who a message is from and what it is about — the context the transport
+// layer cannot infer and the ledger cannot do without.
+//
+// It is a parameter rather than something derived inside the sender because only the
+// caller knows. A care reply and a campaign blast are the same HTTP request to Meta and
+// completely different things to a cost report, a consent audit, or a policy review.
+type waSend struct {
+	// Kind must be one of the values migration 364 permits: care, campaign,
+	// notification, ad_reply, other. Note what is absent: there is no 'dunning'.
+	// Meta prohibits debt collection on the platform, WhatsApp was removed from the
+	// arrears sweep for that reason, and leaving the value out of the vocabulary is how
+	// that decision stays made.
+	Kind string
+	// Purpose is the lawful basis, matching app.party_contact_consent.purpose:
+	// 'servicing' or 'marketing'. Blank is recorded as NULL rather than guessed.
+	Purpose    string
+	PartyID    int64
+	TicketID   int64
+	CampaignID int64
+}
+
 // sendWhatsAppCampaign dispatches a campaign message: uses the template API when
 // templateName is set (required for proactive outbound), free-form text otherwise.
-func sendWhatsAppCampaign(ctx context.Context, db *core.DB, phone, body, templateName string) (bool, string) {
+func sendWhatsAppCampaign(ctx context.Context, db *core.DB, phone, body, templateName string, meta waSend) (bool, string) {
 	if templateName != "" {
-		return sendWhatsAppTemplate(ctx, db, phone, templateName, body)
+		return sendWhatsAppTemplate(ctx, db, phone, templateName, body, meta)
 	}
-	return sendWhatsApp(ctx, db, phone, body)
+	return sendWhatsApp(ctx, db, phone, body, meta)
+}
+
+// waLogMessage records one message in app.whatsapp_messages.
+//
+// EVERY SEND PASSES THROUGH HERE, including the ones that failed before Meta gave them
+// an id. That is deliberate: a send Meta rejected is the single most useful row in the
+// table, and the previous arrangement — where only campaign sends kept their wamid —
+// dropped it along with everything else.
+//
+// ON CONFLICT on the wamid, because status webhooks arrive repeatedly for one message
+// (sent, then delivered, then read) and each must update the row rather than add one.
+// Best-effort: a ledger write must never be the reason a customer did not get their
+// message, so an error here is logged and swallowed.
+func waLogMessage(ctx context.Context, db *core.DB, m waSend, direction, phone, msgType,
+	templateName, body, status, wamid, errText string) {
+
+	nullIf := func(s string) any {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return s
+	}
+	nullID := func(id int64) any {
+		if id == 0 {
+			return nil
+		}
+		return id
+	}
+	kind := m.Kind
+	if kind == "" {
+		kind = "other"
+	}
+
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO app.whatsapp_messages
+			(wamid, direction, phone, party_id, ticket_id, campaign_id,
+			 kind, purpose, msg_type, template_name, body, status, status_at, error_text)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),$13)
+		ON CONFLICT (wamid) DO UPDATE
+		   SET status = EXCLUDED.status, status_at = NOW(),
+		       error_text = COALESCE(EXCLUDED.error_text, app.whatsapp_messages.error_text)`,
+		nullIf(wamid), direction, phone, nullID(m.PartyID), nullID(m.TicketID), nullID(m.CampaignID),
+		kind, nullIf(m.Purpose), msgType, nullIf(templateName), nullIf(body), status,
+		nullIf(errText)); err != nil {
+		slog.Error("waLogMessage", "phone", phone, "status", status, "err", err)
+	}
+}
+
+// waWindowOpen answers whether a free-form (non-template) message may still be sent to
+// this number: Meta permits one only within 24 hours of the customer's last inbound
+// message, and requires an approved template outside it.
+//
+// It is worth asking BEFORE sending rather than discovering it from the API error,
+// because the failure arrives after the agent has pressed Send and believes the customer
+// was answered. A number we have never heard from has no open window, which is the
+// correct answer and also why the missing-row case returns false.
+func waWindowOpen(ctx context.Context, db *core.DB, phone string) bool {
+	rows, err := db.PGQuery(ctx,
+		`SELECT window_open FROM app.v_whatsapp_window WHERE phone = $1`, normalizeE164(phone))
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	return toBool(rows[0]["window_open"])
 }
 
 // sendWhatsAppTemplate sends via the Meta template messages API.
 // bodyText is passed as a single body parameter — the template must have exactly
 // one {{1}} body variable, or be a static template (parameters array is omitted).
-func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName, bodyText string) (ok bool, providerID string) {
+func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName, bodyText string, meta waSend) (ok bool, providerID string) {
 	phoneID := resolveCredKey(ctx, db, "WHATSAPP_PHONE_NUMBER_ID")
 	token := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
+	phone = normalizeE164(phone)
 	if phoneID == "" || token == "" {
 		slog.Warn("whatsapp template: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not configured")
+		waLogMessage(ctx, db, meta, "out", phone, "template", templateName, bodyText,
+			"failed", "", "not_configured")
 		return false, "not_configured"
 	}
-	phone = normalizeE164(phone)
 	components := []map[string]any{}
 	if bodyText != "" {
 		components = append(components, map[string]any{
@@ -65,33 +151,40 @@ func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName,
 	resp, err := httpPost(url, "application/json", "Bearer "+token, payload, 15*time.Second)
 	if err != nil {
 		slog.Error("whatsapp template: http error", "error", err)
+		waLogMessage(ctx, db, meta, "out", phone, "template", templateName, bodyText,
+			"failed", "", err.Error())
 		return false, err.Error()
 	}
 	defer resp.Body.Close()
 	var d map[string]any
 	json.NewDecoder(resp.Body).Decode(&d) //nolint:errcheck
 	if resp.StatusCode == 200 {
+		id := ""
 		if msgs, ok2 := d["messages"].([]any); ok2 && len(msgs) > 0 {
 			if m, ok3 := msgs[0].(map[string]any); ok3 {
-				return true, str(m["id"])
+				id = str(m["id"])
 			}
 		}
-		return true, ""
+		waLogMessage(ctx, db, meta, "out", phone, "template", templateName, bodyText,
+			"accepted", id, "")
+		return true, id
 	}
-	slog.Error("whatsapp template: api error", "status", resp.StatusCode, "template", templateName, "body", d)
-	return false, fmt.Sprintf("status %d", resp.StatusCode)
+	slog.Error("whatsapp template: api error", "status", resp.StatusCode, "body", d)
+	detail := fmt.Sprintf("status %d", resp.StatusCode)
+	waLogMessage(ctx, db, meta, "out", phone, "template", templateName, bodyText,
+		"failed", "", detail+" "+truncateStr(fmt.Sprint(d), 300))
+	return false, detail
 }
 
-// sendWhatsApp sends a text message via Meta Cloud API.
-// phone may be in local Nigerian format; it is normalised to E.164 internally.
-func sendWhatsApp(ctx context.Context, db *core.DB, phone, message string) (ok bool, providerID string) {
+func sendWhatsApp(ctx context.Context, db *core.DB, phone, message string, meta waSend) (ok bool, providerID string) {
 	phoneID := resolveCredKey(ctx, db, "WHATSAPP_PHONE_NUMBER_ID")
 	token := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
+	phone = normalizeE164(phone)
 	if phoneID == "" || token == "" {
 		slog.Warn("whatsapp: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not configured")
+		waLogMessage(ctx, db, meta, "out", phone, "text", "", message, "failed", "", "not_configured")
 		return false, "not_configured"
 	}
-	phone = normalizeE164(phone)
 	payload, _ := json.Marshal(map[string]any{
 		"messaging_product": "whatsapp",
 		"recipient_type":    "individual",
@@ -103,21 +196,27 @@ func sendWhatsApp(ctx context.Context, db *core.DB, phone, message string) (ok b
 	resp, err := httpPost(url, "application/json", "Bearer "+token, payload, 15*time.Second)
 	if err != nil {
 		slog.Error("whatsapp: http error", "error", err)
+		waLogMessage(ctx, db, meta, "out", phone, "text", "", message, "failed", "", err.Error())
 		return false, err.Error()
 	}
 	defer resp.Body.Close()
 	var d map[string]any
 	json.NewDecoder(resp.Body).Decode(&d) //nolint:errcheck
 	if resp.StatusCode == 200 {
+		id := ""
 		if msgs, ok2 := d["messages"].([]any); ok2 && len(msgs) > 0 {
 			if m, ok3 := msgs[0].(map[string]any); ok3 {
-				return true, str(m["id"])
+				id = str(m["id"])
 			}
 		}
-		return true, ""
+		waLogMessage(ctx, db, meta, "out", phone, "text", "", message, "accepted", id, "")
+		return true, id
 	}
 	slog.Error("whatsapp: api error", "status", resp.StatusCode, "body", d)
-	return false, fmt.Sprintf("status %d", resp.StatusCode)
+	detail := fmt.Sprintf("status %d", resp.StatusCode)
+	waLogMessage(ctx, db, meta, "out", phone, "text", "", message, "failed", "",
+		detail+" "+truncateStr(fmt.Sprint(d), 300))
+	return false, detail
 }
 
 // normalizeE164 converts a local Nigerian number to E.164 digits (no leading +).
@@ -218,6 +317,7 @@ func waInbound(db *core.DB) http.HandlerFunc {
 					m, _ := msg.(map[string]any)
 					fromPhone := str(m["from"])
 					msgType := str(m["type"])
+					wamid := str(m["id"])
 					text := ""
 					if msgType == "text" {
 						if t, ok := m["text"].(map[string]any); ok {
@@ -229,10 +329,37 @@ func waInbound(db *core.DB) http.HandlerFunc {
 					if fromPhone == "" || text == "" {
 						continue
 					}
+
+					// CLICK-TO-WHATSAPP ATTRIBUTION: captured here or never.
+					//
+					// Meta attaches ctwa_clid to the referral object of the FIRST inbound
+					// message after an ad click, and never again. It travels in no URL and
+					// appears in no later webhook. If this block does not record it, the ad
+					// that produced the customer is unknowable afterwards — which is exactly
+					// the implementation gap most advertisers are reported to have, and the
+					// reason a Status or Feed ad cannot otherwise be measured past the click.
+					clid, headline, refSrc := "", "", ""
+					if ref, ok := m["referral"].(map[string]any); ok {
+						clid = str(ref["ctwa_clid"])
+						headline = str(ref["headline"])
+						refSrc = str(ref["source_url"])
+					}
+
+					// A message carrying a referral is a reply to an ad, not a support
+					// request, and the distinction matters to both the cost report and
+					// whoever is judging the campaign.
+					kind := "care"
+					if clid != "" {
+						kind = "ad_reply"
+					}
+					waLogInbound(db, kind, fromPhone, msgType, text, wamid, clid, headline, refSrc)
 					go processWAMessage(db, fromPhone, senderName, text)
 				}
 
-				// Delivery status callbacks for outbound campaign messages
+				// Delivery status callbacks. These arrive for EVERY outbound message, not
+				// only campaign ones — which is why they now update the ledger as well as
+				// campaign_contacts: a care reply and a notification had no delivery state
+				// at all before, because nothing stored their wamid to match against.
 				statuses, _ := val["statuses"].([]any)
 				for _, statusEntry := range statuses {
 					s, _ := statusEntry.(map[string]any)
@@ -241,6 +368,14 @@ func waInbound(db *core.DB) http.HandlerFunc {
 					if msgID == "" {
 						continue
 					}
+					errCode, errText := "", ""
+					if errs, ok := s["errors"].([]any); ok && len(errs) > 0 {
+						if e, ok := errs[0].(map[string]any); ok {
+							errCode = str(e["code"])
+							errText = str(e["title"])
+						}
+					}
+					go waUpdateLedgerStatus(db, msgID, st, errCode, errText)
 					go processWADeliveryStatus(db, msgID, st)
 				}
 			}
@@ -323,4 +458,76 @@ func processWAMessage(db *core.DB, phone, name, text string) {
 
 	db.PGExec(ctx, //nolint:errcheck
 		`UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1`, ticketID)
+}
+
+// waLogInbound records a message the customer sent us, with whatever ad referral came
+// with it.
+//
+// Separate from waLogMessage because inbound rows differ in three ways that are easy to
+// get wrong if one function tries to do both: there is no lawful-basis purpose (a
+// customer writing to us needs none), the status is always 'received', and only inbound
+// can carry a ctwa_clid.
+//
+// Best-effort, like its outbound sibling: a ledger failure must never stop a customer's
+// message reaching an agent.
+func waLogInbound(db *core.DB, kind, phone, msgType, body, wamid, clid, headline, refSrc string) {
+	ctx := context.Background()
+	nullIf := func(s string) any {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return s
+	}
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO app.whatsapp_messages
+			(wamid, direction, phone, kind, msg_type, body, status, status_at,
+			 ctwa_clid, referral_headline, referral_source)
+		VALUES ($1,'in',$2,$3,$4,$5,'received',NOW(),$6,$7,$8)
+		ON CONFLICT (wamid) DO NOTHING`,
+		nullIf(wamid), normalizeE164(phone), kind, msgType, nullIf(body),
+		nullIf(clid), nullIf(headline), nullIf(refSrc)); err != nil {
+		slog.Error("waLogInbound", "phone", phone, "err", err)
+	}
+}
+
+// waUpdateLedgerStatus moves a message along its delivery lifecycle.
+//
+// WHY THE STATUS ONLY EVER GOES FORWARD. Meta does not guarantee webhook order, and a
+// 'sent' callback arriving after 'read' would otherwise walk the status backwards and
+// make a delivered message look unsent. The rank below is the lifecycle order, and a
+// lower-ranked status is ignored.
+//
+// This also keeps 'read' distinct from 'delivered', which the campaign-only path did not:
+// it treated them as the same case, discarding the one signal that tells a care agent the
+// customer actually saw the answer.
+func waUpdateLedgerStatus(db *core.DB, wamid, status, errCode, errText string) {
+	rank := map[string]int{"accepted": 1, "sent": 2, "delivered": 3, "read": 4, "failed": 5}
+	if rank[status] == 0 {
+		return // Not a status we model; ignore rather than write something meaningless.
+	}
+	ctx := context.Background()
+	nullIf := func(s string) any {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return s
+	}
+	if _, err := db.PGExec(ctx, `
+		UPDATE app.whatsapp_messages
+		   SET status     = $2,
+		       status_at  = NOW(),
+		       error_code = COALESCE($3, error_code),
+		       error_text = COALESCE($4, error_text)
+		 WHERE wamid = $1
+		   AND CASE status
+		         WHEN 'accepted'  THEN 1
+		         WHEN 'sent'      THEN 2
+		         WHEN 'delivered' THEN 3
+		         WHEN 'read'      THEN 4
+		         WHEN 'failed'    THEN 5
+		         ELSE 0
+		       END < $5`,
+		wamid, status, nullIf(errCode), nullIf(errText), rank[status]); err != nil {
+		slog.Error("waUpdateLedgerStatus", "wamid", wamid, "status", status, "err", err)
+	}
 }

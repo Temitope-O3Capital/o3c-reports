@@ -512,7 +512,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 					}
 					body := renderTemplate(str(camp["whatsapp_body"]), mergeData)
 					templateName := str(camp["whatsapp_template_name"])
-					ok, pid := sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, templateName)
+					ok, pid := sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, templateName, waSend{Kind: "campaign", Purpose: campaignPurpose, PartyID: toInt64(c["party_id"]), CampaignID: toInt64(campaignID)})
 					waStatus := "sent"
 					waCol := "whatsapp_sent"
 					if !ok {
@@ -2104,7 +2104,7 @@ func testSendCampaign(db *core.DB) http.HandlerFunc {
 		if isWhatsApp && body.ToWhatsApp != "" {
 			waBody := renderTemplate(str(camp["whatsapp_body"]), testData)
 			tplName := str(camp["whatsapp_template_name"])
-			ok, msg := sendWhatsAppCampaign(r.Context(), db, body.ToWhatsApp, waBody, tplName)
+			ok, msg := sendWhatsAppCampaign(r.Context(), db, body.ToWhatsApp, waBody, tplName, waSend{Kind: "campaign"})
 			if ok {
 				sent++
 			} else {

@@ -1226,7 +1226,7 @@ var exportDatasets = []exportDataset{
 		Label:     "App Acquisition (Daily)",
 		Module:    "Mobile",
 		Desc:      "Blink installs, sessions, loyal users and ad spend by day, platform, media source and campaign — from AppsFlyer.",
-		From:      "appsflyer_daily af",
+		From:      "app.appsflyer_daily af",
 		OrderBy:   "af.activity_date DESC, af.installs DESC",
 		KeyCol:    "af.id",
 		DateCol:   "af.activity_date",
@@ -1255,7 +1255,7 @@ var exportDatasets = []exportDataset{
 		Label:     "App Funnel Events",
 		Module:    "Mobile",
 		Desc:      "Blink in-app funnel events (first_open → registration → KYC → onboarding) by day, platform and media source — from AppsFlyer.",
-		From:      "appsflyer_events ae",
+		From:      "app.appsflyer_events ae",
 		OrderBy:   "ae.activity_date DESC, ae.unique_users DESC",
 		KeyCol:    "ae.id",
 		DateCol:   "ae.activity_date",
@@ -1381,6 +1381,69 @@ var exportDatasets = []exportDataset{
 			{Key: "event_type", Label: "Event", Kind: filterText, Expr: "ce.event_type = ?"},
 			{Key: "channel", Label: "Channel", Kind: filterText, Expr: "ce.channel = ?"},
 			{Key: "campaign_name", Label: "Campaign", Kind: filterText, Expr: "cm.name ILIKE '%' || ? || '%'"},
+		},
+	},
+	{
+		Key:    "whatsapp_messages",
+		Label:  "WhatsApp Messages",
+		Module: "Campaigns",
+		Desc: "Every WhatsApp message in both directions, with its delivery state and what " +
+			"sent it. This is the per-message cost and reach record: Meta bills per message " +
+			"delivered by category, so 'how many did we send, to whom, and did they arrive' " +
+			"is answered here and nowhere else.",
+		From: `app.whatsapp_messages wm
+		         LEFT JOIN app.parties pty ON pty.party_id = wm.party_id
+		         LEFT JOIN app.campaigns cmp ON cmp.id = wm.campaign_id
+		         LEFT JOIN app.helpdesk_tickets tkt ON tkt.id = wm.ticket_id`,
+		OrderBy:   "wm.created_at DESC",
+		KeyCol:    "wm.id",
+		DateCol:   "wm.created_at",
+		DateLabel: "Sent / Received",
+		Cols: []exportCol{
+			{Key: "created_at", Label: "Sent / Received", Type: colDateTime, Expr: "wm.created_at"},
+			{Key: "direction", Label: "Direction", Type: colText, Expr: "wm.direction"},
+			// The person first, the number second, and the number masked — the same rule
+			// the call log follows. A report about messaging is read by people who need to
+			// know WHO was contacted, and a full phone number in a spreadsheet is a
+			// liability the reader did not ask for.
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "pty.full_name"},
+			{Key: "phone_masked", Label: "Phone", Type: colText,
+				Expr: `CASE WHEN NULLIF(wm.phone,'') IS NULL THEN NULL
+				            ELSE '******' || RIGHT(wm.phone, 4) END`},
+			{Key: "kind", Label: "Sent By", Type: colText, Expr: "wm.kind"},
+			{Key: "purpose", Label: "Lawful Basis", Type: colText, Expr: "wm.purpose"},
+			{Key: "msg_type", Label: "Type", Type: colText, Expr: "wm.msg_type"},
+			{Key: "template_name", Label: "Template", Type: colText, Expr: "wm.template_name"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "wm.status"},
+			{Key: "status_at", Label: "Status At", Type: colDateTime, Expr: "wm.status_at"},
+			{Key: "error_code", Label: "Error Code", Type: colText, Expr: "wm.error_code"},
+			{Key: "error_text", Label: "Error", Type: colText, Expr: "wm.error_text"},
+			{Key: "campaign_name", Label: "Campaign", Type: colText, Expr: "cmp.name"},
+			{Key: "ticket_ref", Label: "Ticket", Type: colText, Expr: "tkt.ticket_ref"},
+			// AD ATTRIBUTION. ctwa_clid is how a Status or Feed ad is tied to the
+			// conversation it produced; Meta sends it once, on the first inbound message
+			// after the click. Exposed as a column because "which ads actually started
+			// conversations" is otherwise unanswerable.
+			{Key: "ctwa_clid", Label: "Ad Click ID", Type: colText, Expr: "wm.ctwa_clid"},
+			{Key: "referral_headline", Label: "Ad Headline", Type: colText, Expr: "wm.referral_headline"},
+			// The message body is NOT exposed. It is a customer conversation, the Care
+			// screens are where it belongs, and a dataset that ships it would put private
+			// support threads into every spreadsheet built on this.
+		},
+		Filters: []exportFilter{
+			{Key: "direction", Label: "Direction", Kind: filterSelect, Expr: "wm.direction = ?",
+				Options: []string{"in", "out"}},
+			{Key: "kind", Label: "Sent By", Kind: filterSelect, Expr: "wm.kind = ?",
+				Options: []string{"care", "campaign", "notification", "ad_reply", "other"}},
+			{Key: "purpose", Label: "Lawful Basis", Kind: filterSelect, Expr: "wm.purpose = ?",
+				Options: []string{"servicing", "marketing"}},
+			{Key: "status", Label: "Status", Kind: filterSelect, Expr: "wm.status = ?",
+				Options: []string{"accepted", "sent", "delivered", "read", "failed", "received"}},
+			{Key: "from_ads", Label: "From An Ad", Kind: filterSelect,
+				Expr: "(wm.ctwa_clid IS NOT NULL) = (? = 'true')",
+				Options: []string{"true", "false"}},
+			{Key: "campaign_name", Label: "Campaign", Kind: filterText,
+				Expr: "cmp.name ILIKE '%' || ? || '%'"},
 		},
 	},
 	{

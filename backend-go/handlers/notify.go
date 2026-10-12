@@ -318,7 +318,7 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 				msg += "\n\n" + p.ActionURL
 			}
 			go func() {
-				if ok, _ := sendWhatsApp(ctx, db, phone, msg); !ok {
+				if ok, _ := sendWhatsApp(ctx, db, phone, msg, waSend{Kind: "notification", Purpose: "servicing"}); !ok {
 					slog.Warn("notify: whatsapp failed", "event", p.EventType, "user", p.UserID)
 				}
 			}()

@@ -207,7 +207,7 @@ func careDispatchOneReply(ctx context.Context, db *core.DB, msgID int64) {
 	case channel == "sms" && customerPhone != "":
 		sendSMS(ctx, db, customerPhone, bodyText)
 	case channel == "whatsapp" && customerPhone != "":
-		sendWhatsApp(ctx, db, customerPhone, bodyText)
+		sendWhatsApp(ctx, db, customerPhone, bodyText, waSend{Kind: "care", Purpose: "servicing", TicketID: toInt64(ticket["id"])})
 	}
 
 	if failed != "" {

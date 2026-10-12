@@ -300,7 +300,7 @@ func dispatchStep(db *core.DB, campaignID, stepID int64) {
 				continue
 			}
 			body := renderTemplate(str(tpl["whatsapp_body"]), md)
-			ok, _ = sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, "")
+			ok, _ = sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, "", waSend{Kind: "campaign"})
 		}
 		if ok {
 			sent++
