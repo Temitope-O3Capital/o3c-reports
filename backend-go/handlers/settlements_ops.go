@@ -695,6 +695,10 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Create failed", err)
 			return
 		}
+		// Tell the approvers. This chain carried no notification of any kind, so an
+		// entry sat waiting for a second pair of eyes nobody knew was needed.
+		go notifyManualPostingRaised(context.WithoutCancel(r.Context()), db, rows[0]["id"], user.FullName)
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -748,6 +752,9 @@ func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Posting not found or not pending")
 			return
 		}
+		// The person who raised it is the one waiting on this answer.
+		go notifyManualPostingDecided(context.WithoutCancel(r.Context()), db, id, "approved", user.FullName, "")
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "approved"}) //nolint:errcheck
 	}
@@ -808,6 +815,11 @@ func soaManualPostingsPost(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+		// Only after the commit: this is the step that touches the ledger, and telling
+		// someone their entry posted when the transaction then failed would be worse
+		// than telling them nothing.
+		go notifyManualPostingDecided(context.WithoutCancel(r.Context()), db, mp["id"], "posted", user.FullName, "")
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "posted"}) //nolint:errcheck
 	}
@@ -835,6 +847,8 @@ func soaManualPostingsReturn(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Posting not found or not approved")
 			return
 		}
+		go notifyManualPostingDecided(context.WithoutCancel(r.Context()), db, id, "returned", user.FullName, b.Reason)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "returned"}) //nolint:errcheck
 	}
@@ -860,6 +874,8 @@ func soaManualPostingsReject(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Posting not found or not pending")
 			return
 		}
+		go notifyManualPostingDecided(context.WithoutCancel(r.Context()), db, id, "rejected", user.FullName, b.Reason)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "rejected"}) //nolint:errcheck
 	}
