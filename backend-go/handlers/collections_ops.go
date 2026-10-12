@@ -549,6 +549,12 @@ func collectionsOpsPendingPayments(db *core.DB) http.HandlerFunc {
 			LEFT JOIN app.customers c ON c.cif = cp.account_cif
 			LEFT JOIN o3c_users u ON u.id = cp.received_by
 			WHERE `+chainStatusClause(qstr(r, "status"), "cp")+`
+			  -- A receipt Udara has already posted is not waiting on anybody: the money
+			  -- is in the book of record, so approving it would record a sign-off for
+			  -- nothing and post the same money twice. Migration 368 marks those, and
+			  -- they leave the queue here rather than being approved or rejected,
+			  -- because neither is true of them. The rows stay in the ledger, flagged.
+			  AND cp.superseded_by_udara = false
 			ORDER BY cp.created_at DESC
 			LIMIT 300`)
 		if err != nil {
