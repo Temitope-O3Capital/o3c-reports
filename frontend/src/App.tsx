@@ -111,6 +111,11 @@ const SalesBook      = lazy(() => import('./pages/sales/Book'))
 const TaskModal      = lazy(() => import('./components/TaskModal'))
 const ScriptsDrawer  = lazy(() => import('./components/ScriptsDrawer'))
 const SalesLeads     = lazy(() => import('./pages/sales/Leads'))
+// The lead record is a page, not a drawer over the queue: it is what a notification
+// links to, and what an officer keeps open while they are on the phone.
+const SalesLeadPage  = lazy(() => import('./pages/sales/LeadPage'))
+// The officer's forward-looking diary. Team (Live) is the retrospective calendar.
+const SalesCalendar  = lazy(() => import('./pages/sales/Calendar'))
 const SalesTeams     = lazy(() => import('./pages/sales/Teams'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
@@ -739,7 +744,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
       <ConfirmModal
         open={!!rejectTarget}
-        title="Reject approval"
+        title="Reject Approval"
         body={rejectTarget ? `Rejecting: ${rejectTarget.title}` : ''}
         confirmLabel="Reject"
         danger
@@ -1079,6 +1084,13 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/book/:cif"     element={<RequireAccess page={['customer360','crm_contacts']} user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/accounts"      element={<Navigate to="/sales/book" replace />} />
                   <Route path="/sales/leads"         element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesLeads /></PageErrorBoundary></RequireAccess>} />
+                  {/* The lead record. Same gate as the queue it came from: anyone who
+                      may read the queue may read a lead in it, and every action inside
+                      re-checks ownership server-side. */}
+                  <Route path="/sales/leads/:id"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesLeadPage /></PageErrorBoundary></RequireAccess>} />
+                  {/* The officer's own diary. Gated on crm_contacts rather than
+                      sales_team: planning your own week is not a supervision act. */}
+                  <Route path="/sales/calendar"      element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesCalendar /></PageErrorBoundary></RequireAccess>} />
                   {/* Teams is a permission surface — moving an officer changes what a head
                       can see — so it gates on sales_team like Team (Live), not on the much
                       broader crm_contacts. */}
@@ -1437,7 +1449,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ background: 'var(--card)', borderRadius: 20, padding: 28, maxWidth: 340, width: '100%', margin: '0 16px', textAlign: 'center', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 36, color: 'var(--nav-dot)', display: 'block', marginBottom: 12 }}>timer</span>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 6 }}>Session expiring</h2>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 6 }}>Session Expiring</h2>
               <p style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 20, lineHeight: 1.5 }}>
                 25 minutes of inactivity. Move your mouse to stay signed in.
               </p>
