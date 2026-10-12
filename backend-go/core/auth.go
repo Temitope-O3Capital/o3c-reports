@@ -44,12 +44,41 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// RoleAdmin is the super-user role. Named because it is load-bearing in three
+// different places (the HasPage short-circuit, seesAllRoles in scope.go, and the
+// "only an admin may grant admin" guard in handlers/admin.go) and because it is the
+// one role that must never appear in extra_roles — see AllRoles.
+const RoleAdmin = "admin"
+
 // AllRoles returns the user's primary role plus any secondary (multi-team) roles.
+//
+// "admin" is NEVER honoured as a secondary role. It is dropped here rather than
+// only rejected at the write boundary, because this method is the single funnel
+// every role-derived decision passes through — HasPage's RolePages lookup,
+// CanSeeAllRows, and callerHasRole — so dropping it here makes the invariant hold
+// even for a hand-edited database row or a JWT issued before the rule existed.
+//
+// Why it matters: RolePages["admin"] is AllCatalogPages(), so before this, putting
+// "admin" in someone's extra_roles granted EVERY page and (via seesAllRoles in
+// scope.go) EVERY row, while the in-body `user.Role != "admin"` guards scattered
+// through handlers still refused them. A secondary role reads as a small, additive
+// grant in the user editor; this one silently made a full superuser with a few
+// inconsistent holes in it. Admin is a primary role or it is nothing.
+//
+// Primary admin is untouched: c.Role == "admin" still short-circuits HasPage.
 func (c *Claims) AllRoles() []string {
 	if len(c.ExtraRoles) == 0 {
 		return []string{c.Role}
 	}
-	return append([]string{c.Role}, c.ExtraRoles...)
+	out := make([]string, 0, len(c.ExtraRoles)+1)
+	out = append(out, c.Role)
+	for _, e := range c.ExtraRoles {
+		if e == RoleAdmin {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 type ctxKey struct{}
