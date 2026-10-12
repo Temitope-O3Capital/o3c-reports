@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { SectionCard, KpiCard, ErrBanner, Spinner, filterInputStyle } from '../../components/UI'
+import { SectionCard, KpiCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
 import { NAVY, AMBER, GREEN, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -44,9 +44,6 @@ interface Review {
   by_agent: ByAgent[]
 }
 
-const today = () => new Date().toISOString().slice(0, 10)
-const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10)
-
 // Thresholds for the rate, and they are judgements rather than measurements — stated here so
 // they can be argued with. 0.1% is where it sat when the vocabulary was healthy and three
 // missing outcomes had just been added; anything past 5% means an outcome is missing badly
@@ -58,9 +55,11 @@ function rateTone(pct: number | null): { color: string; verdict: string } {
   return { color: GREEN, verdict: 'Healthy — Other is a last resort, as intended' }
 }
 
-export default function OtherReviewPanel() {
-  const [from, setFrom] = useState(daysAgo(30))
-  const [to, setTo] = useState(today())
+// The dates come from the page. This panel is rendered only by call-center/Performance,
+// below PerformancePanel, and the two used to carry a date control each — a raw pair of
+// <input type="date"> here and the house DateFilter there, on one screen, disagreeing.
+// Performance.tsx now owns the range and draws the one picker.
+export default function OtherReviewPanel({ from, to }: { from: string; to: string }) {
   const [d, setD] = useState<Review | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -90,15 +89,6 @@ export default function OtherReviewPanel() {
       subtitle="Every call an agent could not describe from the list. Clusters here are the next named outcome."
       badge={d ? d.other_calls || undefined : undefined}
       style={{ marginTop: SP[4] }}
-      actions={
-        <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)}
-            style={{ ...filterInputStyle, height: 32 }} aria-label="From" />
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>to</span>
-          <input type="date" value={to} min={from} max={today()} onChange={e => setTo(e.target.value)}
-            style={{ ...filterInputStyle, height: 32 }} aria-label="To" />
-        </div>
-      }
     >
       <ErrBanner error={err} onRetry={load} />
 

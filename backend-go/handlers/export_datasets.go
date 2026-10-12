@@ -255,6 +255,22 @@ var exportDatasets = []exportDataset{
 			{Key: "txn_id", Label: "Txn ID", Type: colText, Expr: "t.txn_id"},
 			{Key: "txn_date", Label: "Txn Date", Type: colDate, Expr: "t.txn_date"},
 			{Key: "post_date", Label: "Post Date", Type: colDate, Expr: "t.post_date"},
+			// A NAME ON THE LARGEST EXPORT IN THE SYSTEM, which until now showed a bare
+			// CIF across 1,037,956 rows while the name was reachable on 99.93% of them.
+			//
+			// A correlated subquery, NOT a join, and the reason is worth keeping. Adding
+			// `LEFT JOIN app.customers` here looked right and I checked it first:
+			// app.customers holds 22,232 rows for 21,877 distinct CIFs, so a join can
+			// multiply rows on the one export where nobody would notice an inflated
+			// count. The 355 extra rows turn out to be blank-CIF rows and there are ZERO
+			// duplicate non-empty CIFs (uq_customers_cif is unique over them), so a join
+			// would in fact have been safe — but it is safe only by accident of today's
+			// data, whereas LIMIT 1 is safe by construction.
+			//
+			// Cost measured, because this runs over a 250,000-row cap: 300ms per 50,000
+			// rows, which is a single index probe each against customer_cif_idx.
+			{Key: "customer_name", Label: "Customer", Type: colText,
+				Expr: `(SELECT cu.full_name FROM app.customers cu WHERE cu.cif = t.cif LIMIT 1)`},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "t.cif"},
 			{Key: "account_no", Label: "Account No", Type: colText, Expr: "t.account_no"},
 			{Key: "description", Label: "Description", Type: colText, Expr: "t.description"},
@@ -303,6 +319,26 @@ var exportDatasets = []exportDataset{
 			{Key: "job_title", Label: "Job Title", Type: colText, Expr: "c.job_title"},
 			{Key: "account_status", Label: "Account Status", Type: colText, Expr: "c.account_status"},
 			{Key: "account_created", Label: "Account Created", Type: colDate, Expr: "c.account_created"},
+
+			// The audit found this dataset exposing 14 of 57 available columns. These
+			// five are the ones the table actually populates. The demographic columns
+			// are deliberately NOT added — occupation 74 of 22,227, employer 60, NIN
+			// 103, LGA 162, marital status 120, next of kin 95, PEP zero true — because
+			// adding them ships blank columns and makes an honestly thin report look
+			// neglected instead.
+			//
+			// NAIRA, NOT KOBO, and measured rather than assumed: getting this wrong is
+			// precisely the M1 defect that printed a NGN 5.9bn book as NGN 587.8bn. Both
+			// columns were compared against app.accounts.card_limit, which the card book
+			// already types colMoney — 10,862 of 17,416 rows identical, ZERO a factor of
+			// 100 apart. Same unit, therefore colMoney.
+			{Key: "current_dr_limit", Label: "Card Limit (NGN)", Type: colMoney, Expr: "c.current_dr_limit"},
+			{Key: "available_balance", Label: "Available Balance (NGN)", Type: colMoney, Expr: "c.available_balance"},
+			{Key: "last_seen", Label: "Last Seen", Type: colDateTime, Expr: "c.last_seen"},
+			{Key: "phone_2", Label: "Phone 2", Type: colText, Expr: "c.phone_2"},
+			// True on 5,041 customers (22.7%) — a contact-quality fact both Campaigns
+			// and Collections act on, and which no report could previously show.
+			{Key: "phone_was_fake", Label: "Phone Flagged As Fake", Type: colBool, Expr: "c.phone_was_fake"},
 		},
 		Filters: []exportFilter{
 			{Key: "state", Label: "State", Kind: filterText, Expr: "c.state ILIKE ?"},
@@ -351,11 +387,31 @@ var exportDatasets = []exportDataset{
 			// Stored as qualified_at; shown as Interested, the only way a lead gets there.
 			{Key: "qualified_at", Label: "Interested On", Type: colDateTime, Expr: "k.qualified_at"},
 			{Key: "converted_at", Label: "Converted", Type: colDateTime, Expr: "k.converted_at"},
+
+			// The campaign a contact came from, by NAME rather than by id — a campaign
+			// id in a spreadsheet cell is unreadable to the person running the campaign.
+			// 12,286 of 35,814 contacts carry one and the report could not show any of
+			// them, so no campaign's contribution to the pipeline was reportable at all.
+			{Key: "source_campaign", Label: "Source Campaign", Type: colText,
+				Expr: `(SELECT ca.name FROM app.campaigns ca WHERE ca.id = k.source_campaign_id)`},
+			// This is the report's own exclusion rule, and until now it could not be
+			// reproduced from the export: a reader had no way to tell which rows the
+			// pipeline figures had dropped as existing customers.
+			{Key: "already_customer", Label: "Already A Customer", Type: colBool, Expr: "k.already_customer"},
 		},
 		Filters: []exportFilter{
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "k.status = ?"},
 			{Key: "lead_stage", Label: "Lead Stage", Kind: filterText, Expr: "k.lead_stage = ?"},
 			{Key: "lead_source", Label: "Lead Source", Kind: filterText, Expr: "k.lead_source ILIKE '%' || ? || '%'"},
+			// `= (? = 'true')`, not `= ?::boolean`. The cast is what a boolean filter
+			// looks like it should be, and it throws 22P02 on any value that is not a
+			// boolean — which TestExportDatasetsRunLive proved immediately by probing
+			// every filter with "x". Comparing the parameter as TEXT cannot fail: a
+			// nonsense value simply matches nothing. This is the pattern every other
+			// boolean filter in this registry already uses, including two I added myself
+			// earlier in the same session and then failed to follow here.
+			{Key: "already_customer", Label: "Already A Customer", Kind: filterSelect,
+				Expr: "k.already_customer = (? = 'true')", Options: []string{"true", "false"}},
 		},
 	},
 
@@ -528,6 +584,20 @@ var exportDatasets = []exportDataset{
 			{Key: "resolution_note", Label: "Resolution Note", Type: colText, Expr: "re.resolution_note"},
 			{Key: "resolved_at", Label: "Resolved At", Type: colDateTime, Expr: "re.resolved_at"},
 			{Key: "created_at", Label: "Created", Type: colDateTime, Expr: "re.created_at"},
+
+			// 24,100 exceptions carry a detail string and nothing could show it.
+			{Key: "detail", Label: "Detail", Type: colText, Expr: "re.detail"},
+			// resolved_by is a user id, so it resolves to the person's name — an id in a
+			// report tells the reader nothing. 266 rows are set, which is every
+			// exception anyone has actually resolved.
+			{Key: "resolved_by_name", Label: "Resolved By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = re.resolved_by)`},
+			// assigned_to IS DELIBERATELY NOT EXPOSED. The audit asked for an owner
+			// column on these 12,629 live exceptions, and the column exists — but it is
+			// populated on ZERO rows of 24,566. Nothing assigns an exception to anyone
+			// today, so the column would be blank on every row and would read as "nobody
+			// is responsible" rather than "ownership is not captured". Exposing it is a
+			// one-line change the day something starts writing it.
 		},
 		Filters: []exportFilter{
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "re.status = ?"},
@@ -599,6 +669,34 @@ var exportDatasets = []exportDataset{
 			{Key: "resolution", Label: "Resolution", Type: colText, Expr: "hc.resolution"},
 			{Key: "ticket_ref", Label: "Linked Ticket", Type: colText, Expr: "hc.ticket_ref"},
 			{Key: "source_system", Label: "Source", Type: colText, Expr: "hc.source_system"},
+
+			// This is the most-exported report in the building — 17,431 rows a week —
+			// and it was showing 13 of 44 available columns, with no wait time, no
+			// abandonment, no recording, no agent notes and no campaign link.
+			//
+			// THESE ARE SPARSE, AND THAT IS STATED ON PURPOSE. Of 212,063 calls, wait
+			// and queue are set on 24,566 (11.6%), a recording filename on 19,299, notes
+			// on 9,577. I assumed that was a concept boundary — a queue wait only
+			// existing for inbound calls — and MEASURED IT TO BE FALSE: outbound calls
+			// carry a wait on 11.4% of rows and inbound on 16.8%. So it is not "NULL
+			// where it cannot apply", it is simply what the telephony provider sent.
+			// Read a blank as "not captured", never as zero.
+			{Key: "wait_sec", Label: "Wait (sec)", Type: colInt, Expr: "hc.wait_sec"},
+			{Key: "queue_name", Label: "Queue", Type: colText, Expr: "hc.queue_name"},
+			{Key: "hangup_cause", Label: "Hangup Cause", Type: colText, Expr: "hc.hangup_cause"},
+			// The filename only; there is no retrievable URL. recording_url and
+			// transcript are 0 of 212,063 and are deliberately not exposed — they look
+			// like the obvious additions and nothing writes them.
+			{Key: "recording_filename", Label: "Recording File", Type: colText, Expr: "hc.recording_filename"},
+			{Key: "notes", Label: "Agent Notes", Type: colText, Expr: "hc.notes"},
+			// 32 of 212,063 flagged. An abandonment rate of 0.015% is not credible for a
+			// call centre, so treat this as barely captured rather than as a measured
+			// near-zero — which is why it ships as a flag and not as a rate.
+			{Key: "abandoned", Label: "Abandoned", Type: colBool, Expr: "hc.abandoned"},
+			// The lead this call belongs to, where one is linked (42,399 rows). Kept as
+			// the id because it is a cross-reference the Sales floor acts on, in the
+			// same spirit as an account number.
+			{Key: "lead_id", Label: "Lead Ref", Type: colInt, Expr: "hc.lead_id"},
 		},
 		Filters: []exportFilter{
 			{Key: "direction", Label: "Direction", Kind: filterSelect, Expr: "hc.direction = ?",
@@ -620,6 +718,12 @@ var exportDatasets = []exportDataset{
 		DateLabel: "Cycle Date",
 		Cols: []exportCol{
 			{Key: "cycle_date", Label: "Cycle Date", Type: colDate, Expr: "cd.cycle_date"},
+			// Name first, then the account and the CIF. The account number stays because
+			// a statement cycle is acted on by account, and you cannot post against a
+			// name — but the reader should not have to look a human being up by id.
+			// Reachable on 99.7% of these 37,147 rows.
+			{Key: "customer_name", Label: "Customer", Type: colText,
+				Expr: `(SELECT cu.full_name FROM app.customers cu WHERE cu.cif = cd.cif LIMIT 1)`},
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "cd.account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "cd.cif"},
 			{Key: "product_code", Label: "Product Code", Type: colText, Expr: "cd.product_code"},
@@ -709,7 +813,22 @@ var exportDatasets = []exportDataset{
 			{Key: "bvn_masked", Label: "BVN (Masked)", Type: colText,
 				Expr: `CASE WHEN NULLIF(p.bvn,'') IS NULL THEN NULL
 				            ELSE '*******' || RIGHT(p.bvn, 4) END`},
-			{Key: "card_count", Label: "Cards Held", Type: colInt, Expr: "p.card_count"},
+			// "CARDS HELD" WAS NOT A COUNT OF CARDS. app.parties.card_count is set by
+			// assign_parties() to the number of app.customers ROWS in the party, so a
+			// borrower with one customer record and no card at all read "Cards Held 1".
+			// Measured today: 1,585 of 21,744 parties disagree with their real card
+			// count, 22,700 stated against 21,315 actual.
+			//
+			// Counted here from app.accounts, the actual card book, using the SAME
+			// expression Customer 360 already uses (cbs_reports.go, which documents this
+			// defect) so there is one definition of the fact rather than two that drift.
+			// The old number is kept under its honest name, because it is still useful —
+			// it is how many customer records were merged into the party.
+			{Key: "card_count", Label: "Cards Held", Type: colInt,
+				Expr: `(SELECT COUNT(*) FROM app.accounts a
+				          JOIN app.customers c ON c.cif = a.cif
+				         WHERE c.party_id = p.party_id)`},
+			{Key: "customer_records", Label: "Customer Records", Type: colInt, Expr: "COALESCE(p.card_count, 0)"},
 			{Key: "created_at", Label: "First Seen", Type: colDateTime, Expr: "p.created_at"},
 		},
 		Filters: []exportFilter{
@@ -863,11 +982,26 @@ var exportDatasets = []exportDataset{
 			{Key: "callback_at", Label: "Callback Due", Type: colDateTime, Expr: "cc.callback_at"},
 			{Key: "agent_name", Label: "Assigned To", Type: colText,
 				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = cc.assigned_to)`},
+
+			// ref is the contact's own reference, set on 10,115 of 15,213 rows, and was
+			// the one column a reader could use to tie a queue row back to the list it
+			// was loaded from. source says where the contact came from (1,645 rows).
+			{Key: "ref", Label: "Reference", Type: colText, Expr: "cc.ref"},
+			{Key: "source", Label: "Source", Type: colText, Expr: "cc.source"},
+			{Key: "next_payment_date", Label: "Next Payment Due", Type: colDate, Expr: "cc.next_payment_date"},
+			// disposition_code AND lead_id ARE DELIBERATELY LEFT OUT. The audit named
+			// both; measuring them is what settled it. disposition_code is set on 10
+			// rows of 15,213 (0.07%) and the dataset already carries last_disposition,
+			// which is populated and says the same thing in words. lead_id is set on 244
+			// rows (1.6%) and is an id, so it would add a mostly-blank column of numbers
+			// to a report that already names the customer. Both are one line each if
+			// something starts writing them.
 		},
 		Filters: []exportFilter{
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "cc.status = ?"},
 			{Key: "purpose", Label: "Purpose", Kind: filterText, Expr: "cc.purpose = ?"},
 			{Key: "priority", Label: "Priority", Kind: filterText, Expr: "cc.priority = ?"},
+			{Key: "source", Label: "Source", Kind: filterText, Expr: "cc.source = ?"},
 		},
 	},
 
@@ -935,7 +1069,32 @@ var exportDatasets = []exportDataset{
 		DateLabel: "Due Date",
 		Cols: []exportCol{
 			{Key: "loan_account", Label: "Loan Account", Type: colText, Expr: "s.loan_account_number"},
+			// THE BORROWER'S NAME, FROM THE ONLY PLACE IT CAN SAFELY COME FROM.
+			//
+			// This dataset is exactly where someone would reach for
+			// `JOIN app.customers ON customers.cif = s.cbs_customer_id`, and that join
+			// must never be written: of 300 Udara customer ids, 275 also exist as a card
+			// CIF and all 275 of 275 belong to a DIFFERENT PERSON. It would silently
+			// relabel 275 borrowers as strangers on a report about their own debt.
+			//
+			// app.cbs_customers is keyed on the same Udara id and resolves 212 of 212
+			// scheduled installments. The id stays, because a loan account is the thing
+			// Finance acts on and Udara ids appear on Udara's own screens.
+			{Key: "borrower_name", Label: "Borrower", Type: colText,
+				Expr: `(SELECT cu.name FROM app.cbs_customers cu WHERE cu.cbs_customer_id = s.cbs_customer_id)`},
 			{Key: "cif", Label: "Udara ID", Type: colText, Expr: "s.cbs_customer_id"},
+			// Product and officer come off the loan book, joined on the account number —
+			// loan_repayments keys on cbs_loan_account only, never application_id, which
+			// is the M6 defect. Both resolve 212 of 212.
+			//
+			// officer_name is NOT btrim-ed. app.cbs_officer_map was seeded with Udara's
+			// trailing spaces, and trimming one side of that comparison makes NGN 11bn
+			// of officer attribution vanish; this is a display column, so it is left
+			// exactly as the book holds it.
+			{Key: "product_name", Label: "Product", Type: colText,
+				Expr: `(SELECT l.product_name FROM app.cbs_loans l WHERE l.cbs_account_number = s.loan_account_number)`},
+			{Key: "officer_name", Label: "Account Officer", Type: colText,
+				Expr: `(SELECT l.officer_name FROM app.cbs_loans l WHERE l.cbs_account_number = s.loan_account_number)`},
 			{Key: "payment_date", Label: "Due Date", Type: colDate, Expr: "s.payment_date"},
 			{Key: "principal", Label: "Principal (NGN)", Type: colKobo, Expr: "s.principal_kobo"},
 			{Key: "interest", Label: "Interest (NGN)", Type: colKobo, Expr: "s.interest_kobo"},

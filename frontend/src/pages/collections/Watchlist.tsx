@@ -18,6 +18,10 @@ import { toast } from 'sonner'
 interface WatchlistEntry {
   id: number
   account_cif: string
+  // Resolved by the handler inside account_cif's OWN namespace (cbs_customers for a
+  // 'UD-' key, app.customers for a cards key) — null when nothing resolves, in which
+  // case the UI falls back to the namespace-labelled identifier.
+  customer_name: string | null
   scenario: string
   notes: string | null
   dpd_at_flag: number | null
@@ -229,8 +233,15 @@ function ResolveModal({ entry, onClose, onDone }: {
 
   const meta = entry ? scenarioMeta(entry.scenario) : null
 
+  // Title names the person where a name resolved, falling back to the namespace-labelled
+  // identifier — same rule as the list column.
   return (
-    <Modal open={!!entry} onClose={onClose} title={`Resolve · ${entry?.account_cif ?? ''}`} width={480}>
+    <Modal
+      open={!!entry}
+      onClose={onClose}
+      title={`Resolve · ${cleanName(entry?.customer_name ?? '') || idCaption(entry?.account_cif) || entry?.account_cif || ''}`}
+      width={480}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
         <ErrBanner error={resolveErr} />
         {meta && (
@@ -341,7 +352,10 @@ export default function Watchlist() {
     if (fStatuses.size && !fStatuses.has(e.status)) return false
     if (search.trim()) {
       const q = search.toLowerCase()
-      return (e.account_cif ?? '').toLowerCase().includes(q)
+      // Name first: the list was searchable by identifier only, so typing a customer's
+      // name — the one thing an officer actually remembers — matched nothing.
+      return (e.customer_name ?? '').toLowerCase().includes(q)
+        || (e.account_cif ?? '').toLowerCase().includes(q)
         || scenarioMeta(e.scenario).label.toLowerCase().includes(q)
         || (e.flagged_by_name ?? '').toLowerCase().includes(q)
         || (e.notes ?? '').toLowerCase().includes(q)
@@ -353,16 +367,33 @@ export default function Watchlist() {
 
   const cols: TableCol<WatchlistEntry>[] = useMemo(() => [
     {
-      // Not labelled "CIF": this column carries whichever namespace the row came from,
-      // and a Udara-sourced row is keyed 'UD-<udara id>'. CIF is a CARDS identifier, and
-      // 94% of the Udara ids that also exist as a CIF belong to a different person — so
-      // naming the namespace per row is the only safe rendering.
-      key: 'account_cif', label: 'Identifier',
-      render: r => (
-        <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY, fontSize: TEXT.sm }}>
-          {idCaption(r.account_cif) || r.account_cif}
-        </span>
-      ),
+      // The original rationale for an "Identifier" column still holds and is kept: this
+      // row carries whichever namespace it came from, a Udara-sourced row is keyed
+      // 'UD-<udara id>', CIF is a CARDS identifier, and 94% of the Udara ids that also
+      // exist as a CIF belong to a different person — so the id is still rendered with
+      // its namespace named per row, never as a bare "CIF".
+      //
+      // What changed is that the name now leads WHERE ONE RESOLVES. The handler resolves
+      // it inside the row's own namespace, so putting it in front crosses nothing; the
+      // namespace-labelled identifier drops to a caption underneath because it is still
+      // the key an officer acts on. Where no name resolves, the identifier leads exactly
+      // as it did before and nothing is asserted about who it is.
+      key: 'customer_name', label: 'Customer',
+      render: r => {
+        const name = cleanName(r.customer_name ?? '')
+        const ident = idCaption(r.account_cif) || r.account_cif
+        if (!name) {
+          return (
+            <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY, fontSize: TEXT.sm }}>{ident}</span>
+          )
+        }
+        return (
+          <div>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{name}</div>
+            <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{ident}</div>
+          </div>
+        )
+      },
     },
     {
       key: 'scenario', label: 'Reason',

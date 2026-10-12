@@ -18,6 +18,15 @@
 .rb-ctl-btn { max-width: 100%; padding-right: 10px; cursor: pointer; }
 .rb-ctl-btn b { max-width: 260px; overflow: hidden; font-weight: 500; text-overflow: ellipsis; }
 .rb-ctl-btn[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* Period group: the window select plus, for 'Custom Dates' only, the house date picker.
+   Two controls, one question. The select is the control that is SAVED — it holds a named
+   rolling window (last_30_days) which the server re-resolves at every scheduled send,
+   something a frozen pair of dates cannot express — so the picker is drawn as a branch
+   off it rather than a peer beside it: one flex item, so the toolbar can never wrap them
+   apart, plus a hairline rule and a caption marking the picker as subordinate. */
+.rb-period { display: inline-flex; align-items: center; gap: 8px; }
+.rb-period-sub { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding-left: 9px; border-left: 2px solid var(--bdr); }
+.rb-period-sub > small { color: var(--txt3); font-size: 11px; }
 /* Source picker: a fixed-height scrolling list with sticky module headings. */
 .rb-source-list { max-height: 340px; }
 .rb-source-list button { width: 100%; }

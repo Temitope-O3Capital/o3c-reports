@@ -346,6 +346,46 @@ function Settings({ config, onSaved }: { config: QAConfig | null; onSaved: () =>
   )
 }
 
+// ── Month picker ─────────────────────────────────────────────────────────────
+// A single month, dressed as the house date control.
+//
+// The Monthly Report asks for ONE month, and the house DateFilter is a range picker with
+// no single-month mode — it has `from`, `to` and an onChange of two dates, and its
+// presets all name ranges. Converting this to a DateFilter would mean faking a month as
+// the range 01→last-day and then reading the month back off the `from` end, which is a
+// worse control for the question (two clicks over two calendar grids to say "September",
+// and any range the user actually picks silently misrepresented as a month) and a lie in
+// the data model. So the native <input type="month"> stays, and only its appearance is
+// brought in line: same height, border weight, radius, type scale and calendar glyph as
+// the DateFilter trigger in components/UI.tsx, including the navy focus state.
+//
+// A single-month mode on DateFilter is the real fix. See the report for this change.
+function MonthPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [focus, setFocus] = useState(false)
+  return (
+    <label style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '4px 10px', borderRadius: 7,
+      border: `1.5px solid ${focus ? NAVY : 'var(--input-bdr)'}`,
+      background: focus ? 'rgba(14,40,65,0.04)' : 'var(--card)',
+      color: 'var(--txt)', cursor: 'pointer', whiteSpace: 'nowrap',
+      transition: 'border-color 120ms, background 120ms',
+    }}>
+      <span className="material-symbols-rounded" aria-hidden="true"
+        style={{ fontSize: 15, color: focus ? NAVY : 'var(--txt3)', transition: 'color 120ms' }}>calendar_month</span>
+      <input
+        type="month" value={value} aria-label="Month"
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
+        style={{
+          height: 22, border: 'none', background: 'transparent', color: 'var(--txt)',
+          fontSize: 12.5, fontWeight: FW.medium, padding: 0, cursor: 'pointer', outline: 'none',
+        }}
+      />
+    </label>
+  )
+}
+
 // ── Monthly report ───────────────────────────────────────────────────────────
 function MonthlyReport() {
   const now = new Date()
@@ -377,11 +417,7 @@ function MonthlyReport() {
 
   return (
     <SectionCard title="Monthly Report" subtitle="Per-month QA summary, exportable for records"
-      actions={
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ height: 32, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)' }} />
-          </div>
-      }>
+      actions={<MonthPicker value={month} onChange={setMonth} />}>
       {loading ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
         : evals === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No Evaluations in {month}</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>

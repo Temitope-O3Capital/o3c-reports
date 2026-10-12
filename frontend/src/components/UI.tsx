@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, useId, isValidElement, cloneElement } from 'react'
 import type { ReactNode, CSSProperties, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, SP, RADIUS, SHADOW, TRANSITION } from '../lib/design'
-import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
+import { today, todayLocal, monthStart, yearStart, fmtDate } from '../lib/fmt'
 import { humanLabel, STATUS_LABELS } from '../lib/labels'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { useCountUp } from '../hooks/useCountUp'
@@ -1885,16 +1885,22 @@ function _dfMonthLabel(ym: string) {
   const [y, m] = ym.split('-').map(Number)
   return new Date(y, m - 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' })
 }
+// Every preset below derives its dates from todayLocal() — the Africa/Lagos calendar
+// day — not from `new Date()`. See the note on today() in lib/fmt.ts: the Report
+// Builder's window select resolves its named windows in Lagos because that is where the
+// server resolves a scheduled send, and this picker sits beside it. Using the browser's
+// own day here made "Last 30 Days" and "last_30_days" name different ranges on any
+// machine outside UTC+1.
 function _dfRelDay(offset: number) {
-  const d = new Date(); d.setDate(d.getDate() + offset)
+  const d = todayLocal(); d.setDate(d.getDate() + offset)
   return _dfIso(d.getFullYear(), d.getMonth() + 1, d.getDate())
 }
 function _dfThisQuarter(): [string, string] {
-  const d = new Date(), y = d.getFullYear(), q = Math.floor(d.getMonth() / 3)
+  const d = todayLocal(), y = d.getFullYear(), q = Math.floor(d.getMonth() / 3)
   return [_dfIso(y, q * 3 + 1, 1), today()]
 }
 function _dfLastQuarter(): [string, string] {
-  const d = new Date()
+  const d = todayLocal()
   let y = d.getFullYear(), q = Math.floor(d.getMonth() / 3) - 1
   if (q < 0) { q = 3; y -= 1 }
   const sm = q * 3 + 1, em = sm + 2
@@ -1911,13 +1917,13 @@ const DF_PRESET_GROUPS: { label: string; get: () => [string, string] }[][] = [
   ],
   [
     { label: 'This Week', get: () => {
-      const d = new Date(), dow = d.getDay()
+      const d = todayLocal(), dow = d.getDay()
       const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1))
       return [_dfIso(mon.getFullYear(), mon.getMonth() + 1, mon.getDate()), today()]
     }},
     { label: 'This Month',   get: () => [monthStart(), today()] },
     { label: 'Last Month',   get: () => {
-      const d = new Date()
+      const d = todayLocal()
       const pm = d.getMonth() === 0 ? 12 : d.getMonth()
       const py = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear()
       return [_dfIso(py, pm, 1), _dfIso(py, pm, new Date(d.getFullYear(), d.getMonth(), 0).getDate())]
@@ -2026,7 +2032,7 @@ function DFMonthGrid({ ym, lo, hi, pendingStart, onDay, onHover }: {
 export function DateFilter({ from, to, onChange, align = 'left' }: {
   from: string; to: string; onChange: (f: string, t: string) => void; align?: 'left' | 'right'
 }) {
-  const now     = new Date()
+  const now     = todayLocal()
   // Anchor the calendar on the END of the range (the recent side). A page with a
   // wide default range (e.g. the Call Log's last 12 months) has `from` a year ago —
   // opening there landed the picker on empty months, so clicking a day selected a

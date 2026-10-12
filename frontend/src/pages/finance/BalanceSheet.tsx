@@ -55,8 +55,15 @@ const BRANCHES = [
 
 function entryColsFor(line: string): TableCol<Entry>[] {
   switch (line) {
+    // Every block leads with the customer, not the account key. These drill-downs are
+    // read by Finance to recognise WHO a balance belongs to; the account number / CIF
+    // stays on the row because it is the key needed to act on it, just not in front.
+    // The handler resolves each name in the namespace its own book is keyed in (loans
+    // via cbs_customer_id, cards via cif) and falls back to the id, so a row is never
+    // blank — see finPositionEntries for the measured coverage.
     case 'Loan Receivable':
       return [
+        { key: 'customer_name', label: 'Borrower' },
         { key: 'cbs_account_number', label: 'Account' },
         { key: 'product_name', label: 'Product' },
         { key: 'status', label: 'Status' },
@@ -65,8 +72,8 @@ function entryColsFor(line: string): TableCol<Entry>[] {
     case 'Fixed Deposit Principal':
     case 'Fixed Deposit Interest Payable':
       return [
-        { key: 'cbs_account_number', label: 'Account' },
         { key: 'customer_name', label: 'Customer' },
+        { key: 'cbs_account_number', label: 'Account' },
         { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKoboExact(r.principal_kobo ?? 0) },
         { key: 'accrued_interest_kobo', label: 'Accrued Interest', align: 'right', render: r => fmtKoboExact(r.accrued_interest_kobo ?? 0) },
         { key: 'maturity_date', label: 'Maturity', render: r => r.maturity_date ? fmtDate(r.maturity_date) : '—' },
@@ -74,6 +81,7 @@ function entryColsFor(line: string): TableCol<Entry>[] {
     case 'Card Receivable':
     case 'Card Customer Float':
       return [
+        { key: 'customer_name', label: 'Customer' },
         { key: 'account_no', label: 'Account' },
         { key: 'cif', label: 'CIF' },
         { key: 'product_name', label: 'Product' },

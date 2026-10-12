@@ -35,10 +35,23 @@ const PURPOSE_LABEL: Record<string, { label: string; color: string }> = {
   unspecified: { label: 'Support / Unspecified', color: GREEN },
 }
 
-export default function PerformancePanel() {
+// `range`, when supplied, makes this a controlled panel: the page above owns the dates
+// and draws the single date control. The call-centre Performance page does that, because
+// it renders this panel AND OtherReviewPanel, and two pickers asking the same question
+// on one screen is two answers to it. The helpdesk Supervisor tab renders this panel on
+// its own and passes nothing, so it keeps its own state and its own picker.
+export interface PanelRange {
+  from: string
+  to: string
+  onChange: (from: string, to: string) => void
+}
+
+export default function PerformancePanel({ range }: { range?: PanelRange }) {
   const isMobile = useIsMobile()
-  const [from, setFrom] = useState(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10))
-  const [to, setTo] = useState(today())
+  const [ownFrom, setOwnFrom] = useState(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10))
+  const [ownTo, setOwnTo] = useState(today())
+  const from = range ? range.from : ownFrom
+  const to   = range ? range.to   : ownTo
   const [d, setD] = useState<Stats | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -75,9 +88,11 @@ export default function PerformancePanel() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-      </div>
+      {!range && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <DateFilter from={from} to={to} onChange={(f, t) => { setOwnFrom(f); setOwnTo(t) }} />
+        </div>
+      )}
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPIs */}

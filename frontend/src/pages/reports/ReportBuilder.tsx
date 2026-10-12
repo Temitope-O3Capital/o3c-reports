@@ -347,16 +347,30 @@ export default function ReportBuilder() {
           <>
             <div className="rb-toolbar">
               <SourcePicker datasets={datasets} value={dsKey} onPick={pickDataset} />
+              {/* The window select STAYS, and so does the picker beside it. They are not
+                  a duplicate: the select saves a NAMED rolling window (last_30_days,
+                  this_quarter) that resolveWindow() — and resolveReportWindow() on the
+                  server — re-resolves at every scheduled send, so a saved report keeps
+                  moving with the calendar. Replacing it with a date range would freeze
+                  every schedule on the dates it was built. The picker only supplies the
+                  two dates the 'Custom Dates' window has no other way to get. They are
+                  grouped here so they read as one control with the picker clearly
+                  subordinate; both now resolve "today" in Lagos (see lib/fmt.ts). */}
               {ds?.date_label && (
-                <>
+                <div className="rb-period">
                   <label className="rb-ctl" htmlFor="rb-window">
                     <small>Period on {ds.date_label}</small>
                     <select id="rb-window" value={report.win} onChange={e => patch({ win: e.target.value })}>
                       {WINDOWS.map(w => <option key={w.k} value={w.k}>{w.label}</option>)}
                     </select>
                   </label>
-                  {report.win === 'custom' && <DateFilter from={report.from} to={report.to} onChange={(f, t) => patch({ from: f, to: t })} align="left" />}
-                </>
+                  {report.win === 'custom' && (
+                    <div className="rb-period-sub">
+                      <small>Dates</small>
+                      <DateFilter from={report.from} to={report.to} onChange={(f, t) => patch({ from: f, to: t })} align="left" />
+                    </div>
+                  )}
+                </div>
               )}
               {ds && (
                 <div className="rb-seg" role="group" aria-label="View">

@@ -20,6 +20,10 @@ interface PendingPayment {
   id: number
   case_id: number
   account_cif: string
+  // Resolved by the handler through recovery_cases.party_id -> app.parties (97.4% of
+  // these payments), NOT from recovery_cases.customer_name, which is 5.3% populated.
+  // Falls back to account_cif server-side, so it is never empty.
+  customer_name: string
   amount_kobo: number
   payment_date: string
   channel: string
@@ -103,7 +107,7 @@ function ReviewModal({
     <Modal
       open={payment !== null}
       onClose={() => { reset(); onClose() }}
-      title={`Review Recovery Payment: ${payment?.account_cif ?? ''}`}
+      title={`Review Recovery Payment: ${payment?.customer_name || payment?.account_cif || ''}`}
       width={480}
       footer={
         <div style={{ display: 'flex', gap: 8 }}>
@@ -142,6 +146,9 @@ function ReviewModal({
           {/* Payment summary */}
           <div style={{ background: 'var(--canvas)', borderRadius: RADIUS.md, padding: `${SP[3]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[
+              // The title now names the customer, so the account id moves in here — the
+              // approver still needs it to tie the payment to the right record.
+              ['Account', payment.account_cif],
               ['Case', `#${payment.case_id}`],
               ['Payment Date', fmtDate(payment.payment_date)],
               ['Channel', prettyChannel(payment.channel)],
@@ -280,7 +287,8 @@ export default function RecoveryPaymentApprovals() {
     if (fChannels.size && !fChannels.has(r.channel)) return false
     if (search) {
       const q = search.toLowerCase()
-      return r.account_cif.toLowerCase().includes(q)
+      return (r.customer_name ?? '').toLowerCase().includes(q)
+        || r.account_cif.toLowerCase().includes(q)
         || (r.reference ?? '').toLowerCase().includes(q)
         || r.channel.toLowerCase().includes(q)
     }
@@ -288,13 +296,22 @@ export default function RecoveryPaymentApprovals() {
   }), [rows, fChannels, search])
 
   const cols: TableCol<PendingPayment>[] = [
+    // Customer leads: an approver signing money off needs to know WHO is being credited.
+    // The CIF keeps its own column rather than becoming a caption — it is the id used to
+    // act on the case, so it stays directly readable and sortable.
+    {
+      key: 'customer_name', label: 'Customer',
+      render: r => (
+        <div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.customer_name || r.account_cif}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Case #{r.case_id}</div>
+        </div>
+      ),
+    },
     {
       key: 'account_cif', label: 'Account',
       render: r => (
-        <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.account_cif}</div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Case #{r.case_id}</div>
-        </div>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.account_cif}</span>
       ),
     },
     {

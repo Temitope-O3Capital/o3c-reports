@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { INTER, NUM, TEXT, FW, RADIUS } from '../../lib/design'
+import { INTER, NUM, TEXT, FW } from '../../lib/design'
 
 // Pieces every executive drilldown needs. Each of the seven pages had its own copy of
 // the period filter and the chart tooltip, which meant a fix to one of them reached one
@@ -14,23 +14,12 @@ export const PERIOD_OPTIONS: { id: Period; label: string }[] = [
   { id: 'ytd', label: 'YTD' },
 ]
 
-export function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Period) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--chip-bg)', borderRadius: RADIUS.md, padding: 3, border: '1px solid var(--bdr)' }}>
-      {PERIOD_OPTIONS.map(opt => (
-        <button key={opt.id} onClick={() => onChange(opt.id)} style={{
-          padding: '5px 14px', borderRadius: 7, border: 'none',
-          fontSize: TEXT.sm, fontWeight: period === opt.id ? FW.bold : FW.medium,
-          fontFamily: INTER, cursor: 'pointer',
-          background: period === opt.id ? 'var(--card)' : 'transparent',
-          color: period === opt.id ? 'var(--txt)' : 'var(--txt2)',
-          boxShadow: period === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 130ms',
-        }}>{opt.label}</button>
-      ))}
-    </div>
-  )
-}
+// PeriodFilter lived here and had no call sites at all — the seven executive drilldowns
+// each read `from`/`to` from the URL and draw the house DateFilter, so nothing has used
+// this pill row since. Deleted rather than left as a third date UI for someone to reach
+// for. `Period` and PERIOD_OPTIONS above are its last consumers' vocabulary and are also
+// unreferenced now; they are left in place as they describe the exec period keys, but
+// they can go the same way once that is confirmed.
 
 // A labelled figure with an optional qualifier underneath. The qualifier is where the
 // caveat goes — "as at 14 Jul", "of gross" — so a number is never stranded without the

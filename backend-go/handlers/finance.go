@@ -274,14 +274,23 @@ func finPositionEntries(db *core.DB) http.HandlerFunc {
 		case "Loan Receivable":
 			bw, args := "", []any{}
 			if udaraBranch != "" {
-				bw = "AND branch_name = $1"
+				bw = "AND l.branch_name = $1"
 				args = append(args, udaraBranch)
 			}
+			// Borrower name comes from app.cbs_customers.name keyed on cbs_customer_id —
+			// the CBS/Udara namespace the loan book itself is keyed in. It is NEVER
+			// resolved through app.customers.cif: measured on 300 Udara ids, 275 also
+			// exist as a card CIF and all 275 belong to a DIFFERENT person. This join
+			// covers 42/42 (100%) of the open book; the id stays as the fallback so a
+			// row can never render nameless.
 			rows, err = db.PGQuery(ctx, `
-				SELECT cbs_account_number, product_name, status, outstanding_principal_kobo, branch_name
-				  FROM cbs_loans
-				 WHERE status NOT IN ('Closed', 'Revoked') `+bw+`
-				 ORDER BY outstanding_principal_kobo DESC LIMIT 500`, args...)
+				SELECT l.cbs_account_number,
+				       COALESCE(NULLIF(btrim(k.name), ''), l.cbs_customer_id) AS customer_name,
+				       l.product_name, l.status, l.outstanding_principal_kobo, l.branch_name
+				  FROM cbs_loans l
+				  LEFT JOIN app.cbs_customers k ON k.cbs_customer_id = l.cbs_customer_id
+				 WHERE l.status NOT IN ('Closed', 'Revoked') `+bw+`
+				 ORDER BY l.outstanding_principal_kobo DESC LIMIT 500`, args...)
 		case "Fixed Deposit Principal", "Fixed Deposit Interest Payable":
 			bw, args := "", []any{}
 			if udaraBranch != "" {
@@ -320,9 +329,19 @@ func finPositionEntries(db *core.DB) http.HandlerFunc {
 				// can match a real office_location; return nothing rather than everything.
 				bw += " AND FALSE"
 			}
+			// Card holder name comes from app.customers.full_name keyed on cif — the CARDS
+			// namespace card_balances is keyed in. Never cbs_customers: that is keyed on
+			// the Udara customer id and the same string means a different person there.
+			// Coverage measured on the live book: 1,393/1,409 (98.9%) for Card Receivable
+			// and 4,888/4,903 (99.7%) for Card Customer Float, and the join is 1:1 (cif is
+			// unique in app.customers, so no row fans out). CIF is kept on the row because
+			// it is still the key an operator acts on.
 			rows, err = db.PGQuery(ctx, `
-				SELECT b.account_no, b.cif, b.product_name, b.currency, b.`+balCol+` AS amount_kobo, u.office_location
+				SELECT b.account_no, b.cif,
+				       COALESCE(NULLIF(btrim(c.full_name), ''), b.cif) AS customer_name,
+				       b.product_name, b.currency, b.`+balCol+` AS amount_kobo, u.office_location
 				  FROM app.card_balances b
+				  LEFT JOIN app.customers c ON c.cif = b.cif
 				  LEFT JOIN app.v_card_sale_officer o ON o.account_no = b.account_no
 				  LEFT JOIN o3c_users u ON u.id = o.officer_id
 				  `+bw+`

@@ -1263,14 +1263,41 @@ func collectionsWatchlistList(db *core.DB) http.HandlerFunc {
 		if status == "" {
 			status = "active"
 		}
+		// customer_name is resolved IN THE NAMESPACE THE ROW IS KEYED IN, never across
+		// namespaces. account_cif on this table carries whichever id the flag came from:
+		// a 'UD-<udara id>' key resolves against app.cbs_customers.name on
+		// cbs_customer_id, anything else is a cards-side key and resolves against
+		// app.customers (cif, or contact_id for the loan-only borrowers the customer
+		// typeahead emits a contact_id for). Crossing the two would name the wrong
+		// person — of 300 Udara ids, 275 also exist as a card CIF and all 275 belong to
+		// someone else, which is why the escalation guard below refuses as well.
+		//
+		// Coverage cannot be measured off live rows (collections_watchlist is empty), so
+		// it was measured over the universe of keys the Add form can emit: 20,871 of
+		// 20,903 (99.8%) resolve to a name. NULL is returned when nothing resolves and
+		// the UI falls back to the namespace-labelled identifier.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			    cw.id, cw.account_cif, cw.scenario, cw.notes,
 			    cw.dpd_at_flag, cw.outstanding_kobo, cw.status,
 			    cw.resolved_at, cw.resolution_notes, cw.created_at,
-			    u.full_name AS flagged_by_name
+			    u.full_name AS flagged_by_name,
+			    COALESCE(
+			        NULLIF(btrim(k.name), ''),
+			        NULLIF(btrim(cc.full_name), ''),
+			        NULLIF(btrim(cx.full_name), '')
+			    ) AS customer_name
 			FROM collections_watchlist cw
 			LEFT JOIN o3c_users u ON u.id = cw.flagged_by
+			LEFT JOIN app.cbs_customers k
+			       ON cw.account_cif LIKE '`+udaraCIFPrefix+`%'
+			      AND k.cbs_customer_id = substring(cw.account_cif FROM `+itoa(len(udaraCIFPrefix)+1)+`)
+			LEFT JOIN app.customers cc
+			       ON cw.account_cif NOT LIKE '`+udaraCIFPrefix+`%'
+			      AND cc.cif = cw.account_cif
+			LEFT JOIN app.customers cx
+			       ON cw.account_cif NOT LIKE '`+udaraCIFPrefix+`%'
+			      AND cx.contact_id = cw.account_cif
 			WHERE ($1 = 'all' OR cw.status = $1)
 			ORDER BY cw.created_at DESC
 			LIMIT 200`, status)

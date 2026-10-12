@@ -17,6 +17,11 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+// statementTxnLimit is how many transactions a statement shows. The query asks for one
+// more than this so the renderer can tell a full statement from a cut one — see
+// loadCustomerStatement.
+const statementTxnLimit = 500
+
 type customerStatementData struct {
 	CIF          string
 	DateFrom     string
@@ -24,7 +29,11 @@ type customerStatementData struct {
 	Account      core.Row
 	Products     []core.Row
 	Transactions []core.Row
-	Source       string
+	// True when the window held more than statementTxnLimit transactions, so the
+	// statement is showing the most recent 500 of more. Never left to the reader to
+	// infer: a statement that is quietly short is worse than one that says it is short.
+	Truncated bool
+	Source    string
 }
 
 type statementSendRequest struct {
@@ -572,15 +581,29 @@ func loadCustomerStatement(ctx context.Context, db *core.DB, cif, dateFrom, date
 	if len(acctRows) > 0 {
 		acct = acctRows[0]
 	}
+	// "Account Manager" USED TO BE SELECTED HERE AS A LITERAL NULL, and it was rendered
+	// as an em-dash in a table on a document emailed to customers — a column that
+	// promised every reader a named contact and gave nobody one, on every statement ever
+	// sent. It is removed rather than populated because the field does not exist to
+	// populate: no officer, manager, or relationship column exists on app.accounts,
+	// app.customers or app.parties (checked across all three). Loans have an officer via
+	// cbs_officer_map; cards have nobody. The honest fix for a column with no source is
+	// to stop printing it, and to add it back the day card relationships are captured.
 	prodRows, _, _ := db.DualQuery(ctx,
-		`SELECT product_name AS "Product Name", status AS "Account Status", name_on_card AS "Name On Card", NULL AS "Account Manager"
+		`SELECT product_name AS "Product Name", status AS "Account Status", name_on_card AS "Name On Card"
 		 FROM app.accounts WHERE cif=$1`,
 		cif)
+	// LIMIT 501 to answer a question 500 cannot: whether there is a 501st row. The
+	// statement used to cut at exactly 500 transactions and say nothing, so a customer
+	// disputing a charge could be reading a silently incomplete statement and have no
+	// way to know. The worst account in a recent 90-day window sat at 494 — close enough
+	// that this will happen. The extra row is dropped before rendering; only the fact of
+	// it survives, in Truncated.
 	txnRows, txnSrc, _ := db.DualQuery(ctx,
 		`SELECT txn_date AS "Transaction Date", amount AS "Amount", description AS "Description", merchant_name AS "Merchant_Name"
 		 FROM app.transactions
 		 WHERE cif=$1 AND txn_date::date BETWEEN $2 AND $3
-		 ORDER BY txn_date DESC LIMIT 500`,
+		 ORDER BY txn_date DESC LIMIT 501`,
 		cif, dateFrom, dateTo)
 	if prodRows == nil {
 		prodRows = []core.Row{}
@@ -588,7 +611,12 @@ func loadCustomerStatement(ctx context.Context, db *core.DB, cif, dateFrom, date
 	if txnRows == nil {
 		txnRows = []core.Row{}
 	}
-	return customerStatementData{CIF: cif, DateFrom: dateFrom, DateTo: dateTo, Account: acct, Products: prodRows, Transactions: txnRows, Source: pickSource([]string{acctSrc, txnSrc})}, nil
+	truncated := false
+	if len(txnRows) > statementTxnLimit {
+		truncated = true
+		txnRows = txnRows[:statementTxnLimit]
+	}
+	return customerStatementData{CIF: cif, DateFrom: dateFrom, DateTo: dateTo, Account: acct, Products: prodRows, Transactions: txnRows, Truncated: truncated, Source: pickSource([]string{acctSrc, txnSrc})}, nil
 }
 
 func eligibleStatementRecipients(ctx context.Context, db *core.DB, limit int) ([]core.Row, string, error) {
@@ -912,14 +940,24 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
 		pname := coalesce(getRowString(p, "Product_Name", "Product Name"), "Product")
 		status := coalesce(getRowString(p, "Account_Status", "Account Status"), "—")
 		nameOnCard := coalesce(getRowString(p, "Name_On_Card", "Name On Card"), "—")
-		manager := coalesce(getRowString(p, "Account_Manager", "Account Manager"), "—")
 		productRows.WriteString(fmt.Sprintf(
-			`<tr><td class="ds">%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			escapeHTML(pname), escapeHTML(status), escapeHTML(nameOnCard), escapeHTML(manager),
+			`<tr><td class="ds">%s</td><td>%s</td><td>%s</td></tr>`,
+			escapeHTML(pname), escapeHTML(status), escapeHTML(nameOnCard),
 		))
 	}
 
 	txnCount := len(data.Transactions)
+	// Said on the statement itself, not only in the API payload, because the person who
+	// needs to know is the customer reading it. Stated plainly and without apology: the
+	// statement is correct, it is just not the whole period.
+	truncNote := ""
+	if data.Truncated {
+		truncNote = fmt.Sprintf(
+			`<div style="margin-top:10px;padding:9px 11px;border-left:3px solid #9A6F1C;background:#F5ECDA;font-size:11.5px;line-height:1.5;color:#3A3A3A">`+
+				`This period contains more than %d transactions. The %d most recent are shown. `+
+				`Email care@o3cards.com for the full period.</div>`,
+			statementTxnLimit, statementTxnLimit)
+	}
 	hdrDiv := `<div class="hd"><div class="hd-l">` + logoSVG + `<div><div class="brand">O3 Capital<span class="brand-dot">.</span></div><div class="brand-tag">credible &middot; accessible &middot; reliable</div></div></div><div class="hd-r"><div class="stmt-type">Account Statement</div></div></div>`
 
 	return fmt.Sprintf(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>O3 Capital — %s</title><style>%s</style></head>
@@ -947,6 +985,7 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
   <thead><tr><th>Date</th><th>Description</th><th>Merchant</th><th class="r">Amount (₦)</th></tr></thead>
   <tbody>%s</tbody>
 </table>
+%s
 <div class="ft">
   <div class="ft-comp">Computer generated statement. No signature or stamp required.</div>
   <div class="ft-grid">
@@ -969,7 +1008,7 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
 		escapeHTML(name), escapeHTML(data.CIF),
 		emailAddr, phone, location,
 		buildProductsSection(data.Products),
-		txnCount, txnRows.String(),
+		txnCount, txnRows.String(), truncNote,
 		escapeHTML(genTime), escapeHTML(stmtRef), escapeHTML(data.DateFrom), escapeHTML(data.DateTo),
 	)
 }
@@ -983,15 +1022,14 @@ func buildProductsSection(products []core.Row) string {
 		pname := coalesce(getRowString(p, "Product_Name", "Product Name"), "Product")
 		status := coalesce(getRowString(p, "Account_Status", "Account Status"), "—")
 		nameOnCard := coalesce(getRowString(p, "Name_On_Card", "Name On Card"), "—")
-		manager := coalesce(getRowString(p, "Account_Manager", "Account Manager"), "—")
 		rows.WriteString(fmt.Sprintf(
-			`<tr><td class="ds">%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			escapeHTML(pname), escapeHTML(status), escapeHTML(nameOnCard), escapeHTML(manager),
+			`<tr><td class="ds">%s</td><td>%s</td><td>%s</td></tr>`,
+			escapeHTML(pname), escapeHTML(status), escapeHTML(nameOnCard),
 		))
 	}
 	return fmt.Sprintf(`<div class="th" style="margin-top:14px"><span class="th-lbl">Products</span></div>
 <table>
-  <thead><tr><th>Product</th><th>Status</th><th>Name on Card</th><th>Account Manager</th></tr></thead>
+  <thead><tr><th>Product</th><th>Status</th><th>Name on Card</th></tr></thead>
   <tbody>%s</tbody>
 </table>`, rows.String())
 }

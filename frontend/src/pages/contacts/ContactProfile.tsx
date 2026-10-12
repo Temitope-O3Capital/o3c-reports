@@ -1,7 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, Tabs, Pagination, Modal, filterInputStyle } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, Tabs, Pagination, Modal, DateFilter, filterInputStyle } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate, fmtDatetime, fmtKoboExact, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, TEXT, FW, SP, RADIUS, TRANSITION } from '../../lib/design'
@@ -928,8 +928,10 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
           <option value="internal">Internal</option>
           <option value="collection">Collection</option>
         </select>
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={filterInputStyle} title="From date" />
-        <input type="date" value={to}   onChange={e => setTo(e.target.value)}   style={filterInputStyle} title="To date" />
+        {/* One range control, not two bare date boxes. Empty from/to is "All Time" on
+            both sides — the picker's own Clear state — so the query params this sends
+            are unchanged: `from` and `to` are still omitted when blank. */}
+        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
         {filtered && (
           <button onClick={reset} style={{ padding: '7px 12px', background: 'transparent', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA }}>
             Clear Filters
@@ -2712,8 +2714,18 @@ function ConcessionsTab({ cif }: { cif: string }) {
 // money movement the card feed (app.transactions) never carries.
 function AccountStatementTab({ cif }: { cif: string }) {
   const iso = (dt: Date) => dt.toISOString().slice(0, 10)
-  const [from, setFrom] = useState(() => iso(new Date(Date.now() - 90 * 86400000)))
-  const [to, setTo]     = useState(() => iso(new Date()))
+  const defFrom = () => iso(new Date(Date.now() - 90 * 86400000))
+  const defTo   = () => iso(new Date())
+  const [from, setFrom] = useState(defFrom)
+  const [to, setTo]     = useState(defTo)
+  // "All Time" has no meaning here: cbsCustomerStatement rejects a blank or malformed
+  // date and silently serves the last 90 days, so a cleared picker would read "All Time"
+  // above a 90-day ledger. Clearing snaps back to that 90-day window instead, which is
+  // what the server would have done anyway — stated on the control rather than hidden.
+  const pickRange = (f: string, t: string) => {
+    if (!f || !t) { setFrom(defFrom()); setTo(defTo()); return }
+    setFrom(f); setTo(t)
+  }
   const [data, setData] = useState<{ accounts: { account: string; name: string }[]; postings: any[]; count: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]   = useState<string | null>(null)
@@ -2735,13 +2747,7 @@ function AccountStatementTab({ cif }: { cif: string }) {
     <SectionCard
       title="Core Banking Account Activity"
       subtitle="Live posting ledger from Udara. Disbursements, repayments, interest & fees"
-      actions={
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={filterInputStyle} />
-          <span style={{ color: 'var(--txt3)', fontSize: TEXT.xs }}>→</span>
-          <input type="date" value={to} min={from} onChange={e => setTo(e.target.value)} style={filterInputStyle} />
-        </div>
-      }
+      actions={<DateFilter from={from} to={to} onChange={pickRange} align="right" />}
     >
       {data?.accounts?.length ? (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>

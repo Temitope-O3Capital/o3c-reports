@@ -700,8 +700,12 @@ func reportCustomerStatement(db *core.DB) http.HandlerFunc {
 			"account":      statement.Account,
 			"products":     statement.Products,
 			"transactions": statement.Transactions,
-			"date_from":    dateFrom,
-			"date_to":      dateTo,
+			// A statement shows at most statementTxnLimit transactions. Saying so is the
+			// difference between a short statement and a wrong one.
+			"truncated": statement.Truncated,
+			"txn_limit": statementTxnLimit,
+			"date_from": dateFrom,
+			"date_to":   dateTo,
 		}, statement.Source)
 	}
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { Page, SectionCard, ErrBanner, Sk, Modal, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Sk, Modal, SegmentedToggle, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
 import { fmtKobo, fmtNum, n } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, NAVY, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -102,12 +102,27 @@ const KPI_DEFS: KPIDef[] = [
 // metric and store it in kobo (matching the value it is compared against).
 const FMT_BY_METRIC: Record<string, KPIFormat> = Object.fromEntries(KPI_DEFS.map(d => [d.metric, d.format]))
 
+// Neither control on this page is a date range, so neither becomes a DateFilter.
+//
+// `period` is a NAMED period the backend resolves itself (/api/reports/kpis?period=…),
+// and the KPI cards marked "now" are point-in-time regardless of it. `months` below is
+// trend DEPTH: /api/reports/kpi-history?months=N returns a pre-bucketed monthly series,
+// so there is no from/to to express. Both were hand-rolled <select>s with their own
+// inline styling; they are now the house SegmentedToggle, which is what the rest of the
+// product uses for a small set of mutually exclusive choices.
 const PERIOD_OPTIONS = [
   { value: 'this_month',   label: 'This Month' },
   { value: 'last_month',   label: 'Last Month' },
   { value: 'this_quarter', label: 'This Quarter' },
   { value: 'last_quarter', label: 'Last Quarter' },
   { value: 'this_year',    label: 'This Year' },
+]
+
+// Trend depth, in months.
+const DEPTH_OPTIONS = [
+  { value: '6',  label: '6 Months' },
+  { value: '12', label: '12 Months' },
+  { value: '24', label: '24 Months' },
 ]
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -369,13 +384,13 @@ export default function KPITracker() {
       subtitle="Headline performance against target · cards marked “now” are point-in-time and do not move with the period"
       loading={loading && history.length === 0}
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <select value={period} onChange={e => setPeriod(e.target.value)} style={{
-            height: 32, padding: '0 10px', border: '1px solid var(--input-bdr)',
-            borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)',
-          }}>
-            {PERIOD_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], maxWidth: '100%' }}>
+          {/* Five options is one more than SegmentedToggle is really drawn for, and it
+              does not wrap, so it scrolls sideways at phone width rather than pushing
+              the Targets button off the header. */}
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <SegmentedToggle<string> value={period} onChange={setPeriod} options={PERIOD_OPTIONS.map(p => ({ value: p.value, label: p.label }))} />
+          </div>
           {canEditTargets && (
             <button onClick={() => setTargetsOpen(true)} style={btnSecondary}>
               <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>flag</span>
@@ -435,12 +450,9 @@ export default function KPITracker() {
         title="Revenue & Acquisition"
         subtitle={`Last ${months} months: fee, interest and penalty income against new customers`}
         actions={
-          <select value={months} onChange={e => setMonths(Number(e.target.value))} style={{
-            height: 28, padding: '0 8px', border: '1px solid var(--input-bdr)',
-            borderRadius: RADIUS.sm, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)',
-          }}>
-            {[6, 12, 24].map(m => <option key={m} value={m}>{m} Months</option>)}
-          </select>
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <SegmentedToggle<string> value={String(months)} onChange={v => setMonths(Number(v))} options={DEPTH_OPTIONS} />
+          </div>
         }
       >
         {loading ? <Sk h={300} /> : history.length === 0 ? (

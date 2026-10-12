@@ -106,16 +106,48 @@ export function fmtPct(n: unknown, dec = 1): string {
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
 
-export function today(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+// ── "Today" is a Lagos date, everywhere ───────────────────────────────────────
+//
+// There were two disagreeing definitions of today. resolveWindow() in
+// pages/reports/builder/model.ts anchors the Report Builder's named windows to Lagos,
+// because the backend resolves a scheduled send there and a preview has to match what
+// the schedule will actually send. today() below was pure browser-local. On any machine
+// not set to UTC+1 the two resolved to different calendar days — and on the Report
+// Builder they sit side by side: the window select next to the house DateFilter, whose
+// presets call today().
+//
+// Fixed here, in today() itself, rather than behind a second Lagos-only helper used
+// only by the picker presets. A second "today" is exactly how this bug arrived; a third
+// would be the same mistake again. Every one of today()'s ~95 call sites wants the
+// Lagos day: they are date-range defaults, `max=` caps on date inputs, and capture-form
+// defaults, for a business that operates in one timezone against a server that stamps
+// in that timezone. On a machine already set to Lagos, nothing changes at all.
+//
+// Africa/Lagos through Intl is the approach already used for WAT in
+// pages/reports/management/shared.tsx, not a third one. Lagos is UTC+1 all year with no
+// daylight saving, so there is no offset arithmetic here to get wrong. The constant
+// belongs in this lib rather than in a page module; management/shared.tsx still carries
+// its own identical copy and should import this one.
+export const WAT = 'Africa/Lagos'
+
+// en-CA renders as YYYY-MM-DD, which is the wire format these dates are sent in.
+const watDayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: WAT })
+
+export function today(): string { return watDayFmt.format(new Date()) }
+
+// The Lagos calendar day, held as a LOCAL midnight so that ordinary local date
+// arithmetic — setDate(), getDay(), month lengths — operates on the right day. Use this
+// instead of `new Date()` anywhere a date is being derived from "now".
+export function todayLocal(): Date {
+  const [y, m, d] = today().split('-').map(Number)
+  return new Date(y, m - 1, d)
 }
 
-export function monthStart(d = new Date()): string {
+export function monthStart(d = todayLocal()): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-01`
 }
 
-export function yearStart(d = new Date()): string {
+export function yearStart(d = todayLocal()): string {
   return `${d.getFullYear()}-01-01`
 }
 
