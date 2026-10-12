@@ -52,14 +52,30 @@ import (
 // A reason must say what was MEASURED, not what is assumed. "No data yet" is not a
 // reason; "0 of 40,616 rows populated, no writer exists" is.
 var kpiZeroIsTheTruth = map[string]string{
-	"csat_score": "app.helpdesk_tickets.csat_score is NULL on all 40,616 rows (29,240 of " +
-		"them resolved) and no code path writes it. Either wire a CSAT writer or remove " +
-		"the tile — a permanently zero satisfaction score is worse than an absent one.",
+	// CORRECTED 2026-10-12. This entry used to read "no code path writes it", which was
+	// wrong, and a true-sounding wrong reason is worse than no reason: it closed the
+	// question. The writer exists and is complete — hdCSATSubmit on a public route, and
+	// all 40,789 tickets already carry a csat_token minted by the Zoho sync. Two
+	// measured reasons nothing arrives:
+	//
+	//  1. The survey email fires from ONE place, the in-app resolve endpoint, so every
+	//     Zoho-synced closure bypasses it: 46 CSAT emails ever sent against 29,240
+	//     tickets with resolved_at — 0.16%.
+	//  2. Those 46 could not have been answered anyway. The link is built from
+	//     settings.app_base_url = crm.o3cards.pri:8443, a private host no customer's
+	//     browser can resolve.
+	//
+	// So this is not "nobody built it". It was built, and pointed inwards.
+	"csat_score": "the CSAT writer EXISTS (hdCSATSubmit, public route; all 40,789 tickets " +
+		"carry a token) but the send fires only from the in-app resolve path — 46 emails " +
+		"against 29,240 resolved tickets — and the link uses the private host " +
+		"crm.o3cards.pri:8443, so no customer could answer one. Needs a public " +
+		"app_base_url and the send hooked to the Zoho close path; not a new writer.",
 
-	"collection_rate_pct": "reads app.collections_daily_kpi, which has 0 rows. The nightly " +
-		"rollup is healthy (23 runs, no error) and correctly produces nothing, because its " +
-		"inputs — collection_contacts and collection_promises — are themselves empty. The " +
-		"worker is not broken; the collections team is not logging contacts.",
+	// collection_rate_pct IS NO LONGER EXEMPT. It read zero because both producers
+	// divided by app.collections_daily_kpi, which has 0 rows; they now share
+	// collectionRateToDate, which measures 42.1% against real targets. Deleting the
+	// exemption is the point of the mechanism — the list is supposed to shrink.
 
 	"targets_set": "app.kpi_targets is empty. The write route is now mounted (see " +
 		"RegisterKPI in main.go), so this clears as soon as anyone sets a target. Delete " +

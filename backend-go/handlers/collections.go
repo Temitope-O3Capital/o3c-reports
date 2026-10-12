@@ -207,6 +207,69 @@ func debtorNameSQL(alias string) string {
 		alias + ".account_cif)"
 }
 
+// collectionRateToDate is THE collection rate, for every surface that shows one.
+//
+// It returns nil when there is no target to divide by, never 0.0 — a rate of zero means
+// "collected nothing", and an absent denominator means "cannot say". The tiles render
+// those differently and should.
+//
+// Three decisions, each measured, each previously got wrong somewhere:
+//
+//  1. NOT app.collections_daily_kpi. That table has 0 rows, and both callers used to
+//     read it. It is not abandoned — app.rebuild_collections_daily_kpi runs nightly as
+//     batch step 15 — but its day list comes from contacts ∪ promises ∪ payments, and
+//     collection_contacts and collection_promises are both empty; of 1,812 payments only
+//     9 land inside the 35-day rollup window and all 9 sit on assignments whose
+//     agent_user_id is NULL, which the function filters out. Correct code, empty window.
+//
+//  2. LIKE-FOR-LIKE. Only 259 of 1,677 assignments carry a target. Dividing ALL approved
+//     payments by those targets reads 58.8% against a true 42.1% — it credits the
+//     numerator with collections from 1,418 accounts the denominator excludes, and could
+//     pass 100% with nobody over-collecting. Both sides are restricted to assignments
+//     that carry a target.
+//
+//  3. TO DATE, not for a window. app.collection_assignments has no period column: a
+//     target is one amount per assignment, not a monthly figure. Windowing the payments
+//     while leaving the target whole is the same population mismatch moved from scope
+//     into time. The KPI tile used to scope this to the current month for exactly that
+//     reason-free reason, and read 0 regardless. Same choice as recovery_rate_pct.
+//
+// agentID 0 means the whole book; non-zero scopes to one agent's assignments, which is
+// what the collections agent's own tile needs.
+func collectionRateToDate(ctx context.Context, db *core.DB, agentID int64) any {
+	// THE PAYMENTS ARE PRE-AGGREGATED, AND THAT IS NOT A STYLE CHOICE. Joining
+	// collection_payments directly repeats the assignment row once per payment, so
+	// SUM(a.target_amount_kobo) counts the same target several times: measured, the
+	// denominator inflated from NGN 1.86bn to NGN 3.11bn and the rate read 25.2% instead
+	// of 42.1%. The first version of this helper did exactly that, and the non-zero tile
+	// test passed on it — a test that asks "is this zero?" cannot tell a right number
+	// from a wrong one. Collapse to one row per assignment first, then divide.
+	q := `SELECT COALESCE(SUM(p.collected), 0)          AS collected,
+	             COALESCE(SUM(a.target_amount_kobo), 0) AS target
+	        FROM app.collection_assignments a
+	        LEFT JOIN (
+	              SELECT assignment_id, SUM(amount_kobo) AS collected
+	                FROM app.collection_payments
+	               WHERE status = 'approved'
+	               GROUP BY assignment_id
+	        ) p ON p.assignment_id = a.id
+	       WHERE COALESCE(a.target_amount_kobo, 0) > 0`
+	args := []any{}
+	if agentID > 0 {
+		q += ` AND a.agent_user_id = $1`
+		args = append(args, agentID)
+	}
+	rows, err := db.PGQuery(ctx, q, args...)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	target := toFloat(rows[0]["target"])
+	if target <= 0 {
+		return nil
+	}
+	return round1(toFloat(rows[0]["collected"]) / target * 100)
+}
+
 // udaraBorrowerFor is the same test as udaraCrossedRows for a single id that some caller
 // is about to treat as a cards CIF. It returns the name of the Udara borrower that id
 // really belongs to when the id is namespace-crossed — a bare (un-prefixed) id carrying

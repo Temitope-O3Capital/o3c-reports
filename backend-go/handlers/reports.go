@@ -1078,19 +1078,11 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Collection rate
-		out["collection_rate_pct"] = 0.0
-		if rows, _ := db.PGQuery(ctx,
-			`SELECT COALESCE(SUM(amount_collected_kobo),0) AS collected,
-			        COALESCE(SUM(target_amount_kobo),0)    AS target
-			 FROM collections_daily_kpi
-			 WHERE kpi_date BETWEEN $1::date AND $2::date`,
-			dateFrom, dateTo); len(rows) > 0 {
-			target := toFloat(rows[0]["target"])
-			if target > 0 {
-				out["collection_rate_pct"] = round1(toFloat(rows[0]["collected"]) / target * 100)
-			}
-		}
+		// Collection rate, from the one definition every surface shares. It is a
+		// to-date, like-for-like figure and NOT scoped to dateFrom..dateTo — the reasons
+		// are on collectionRateToDate, along with what it used to read and why that was
+		// always 0. Keeping the key unchanged keeps the KPI Tracker's contract.
+		out["collection_rate_pct"] = collectionRateToDate(ctx, db, 0)
 
 		// Recovery rate: BY VALUE, AND AS STOCK. Two deliberate choices.
 		//

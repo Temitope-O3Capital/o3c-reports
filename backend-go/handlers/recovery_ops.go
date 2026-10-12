@@ -1776,9 +1776,30 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 				respondErr(w, 422, fmt.Sprintf("Write-off (₦%s) now exceeds the ₦%s still outstanding — the balance changed since the request; please revise it", fmtKoboStr(writeOffKobo), fmtKoboStr(netOutstanding)))
 				return
 			}
+			// write_off_status IS SET HERE, AND IT WAS NOT BEFORE. This is the live
+			// final-approval path: it recorded the amount, reduced the outstanding,
+			// closed the case and posted the GL journal (5200/1100) — everything except
+			// the one flag that says "this case was written off".
+			//
+			// The flag is what the CBN NPL return filters on (reports.go,
+			// write_off_status = 'approved'), so write-offs were invisible to reporting
+			// while being complete in the ledger. Measured before this change:
+			// write_off_status NULL on all 1,617 cases, while recovery_write_off_approvals
+			// held an approved row and the journal had been posted for it.
+			//
+			// It is set here rather than in collections_ops.go, which has two statements
+			// that DO set it (around lines 2031 and 2187) — neither has ever run. Two
+			// writers for one fact, and the live one omitted it: the usual shape of a
+			// column that is NULL in production and correct in the code you happen to
+			// read first.
+			//
+			// Only new approvals are affected. The single historical case is left alone:
+			// a backfill would need a migration, and the one real write-off in the system
+			// is still stuck at pending_hop, so there is nothing truthful to backfill to.
 			if _, caseErr := tx.ExecContext(ctx, `
 				UPDATE recovery_cases rc
 				SET write_off_amount_kobo = wa.amount_kobo,
+				    write_off_status      = 'approved',
 				    outstanding_kobo      = GREATEST(0, rc.outstanding_kobo - wa.amount_kobo),
 				    status = 'closed', closed_at = NOW(), updated_at = NOW()
 				FROM recovery_write_off_approvals wa

@@ -280,13 +280,20 @@ func kpiCollections(db *core.DB) http.HandlerFunc {
 		} else {
 			result["ptp_kept_rate"] = 0.0
 		}
-		target := toFloat(result["target_amount_kobo"])
-		collected := toFloat(result["amount_collected_kobo"])
-		if target > 0 {
-			result["collection_rate_pct"] = round1(collected / target * 100)
-		} else {
-			result["collection_rate_pct"] = 0.0
+		// The collection rate comes from the shared definition, not from the rollup row
+		// above. The SUMs in that query are over app.collections_daily_kpi, which has 0
+		// rows, so this tile read 0.0% unconditionally — and 0.0% is the one answer a
+		// collections team would never question.
+		//
+		// Two things change with it. The figure is now TO DATE rather than for the
+		// current month, because the target it divides by has no period (see
+		// collectionRateToDate); and it is nil rather than 0.0 when there is no target,
+		// so "collected nothing" and "cannot say" stop looking identical on the tile.
+		var rateAgent int64
+		if user.Role == "collections_agent" {
+			rateAgent = user.ID
 		}
+		result["collection_rate_pct"] = collectionRateToDate(ctx, db, rateAgent)
 
 		respond(w, result, "pg")
 	}

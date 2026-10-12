@@ -2266,6 +2266,207 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
   )
 }
 
+// ── MonthFilter ───────────────────────────────────────────────────────────────
+
+/*
+  The house control for a SINGLE calendar month, as DateFilter is for a range.
+
+  WHY NOT A MODE ON DateFilter. The audit called this "a single-month mode on
+  DateFilter", and that was the right diagnosis of the gap — the QA Hub's Monthly
+  Report tab was the one screen that could not move onto the house control, so it kept
+  a raw month input. But DateFilter is a range picker to its bones: a pending start, a
+  hover preview, a two-month grid, and fourteen presets that are all ranges. Threading
+  a "month" mode through those branches means every one of them grows a case where it
+  means nothing, and the range logic gets harder to read for a feature not using it.
+
+  A month is also a different VALUE, not a different presentation of the same one: the
+  caller wants 'YYYY-MM', because that is what the endpoint takes and what a monthly
+  report is keyed on. Flattening it into a from/to pair would make it the caller's job
+  to turn the pair back into a month, and would let a caller hand a half-month range to
+  something that can only mean a whole one.
+
+  So: a separate component, deliberately sharing DateFilter's trigger exactly — same
+  padding, border weight, radius, type scale, glyph, focus treatment and chevron — so
+  the two read as one family on screen. That is the opposite of PeriodFilter, deleted in
+  this same body of work: PeriodFilter was a SECOND way to pick a range, a true
+  duplicate, and it drifted. This is the one way to pick a month.
+
+  Lagos-anchored like everything else here: "this month" comes from todayLocal(), so a
+  browser in another timezone cannot disagree with the server about which month it is.
+  See the note on today() in src/lib/fmt.ts.
+*/
+
+// Written out rather than derived from toLocaleString, so the labels cannot change
+// under a different browser locale — this control is read by staff whose machines are
+// not uniformly configured, and a report header reading "Oct" on one desk and
+// something else on another is a support ticket.
+const MF_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MF_MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December']
+
+/** 'YYYY-MM' for the Lagos month containing d. */
+function _mfYM(d: Date) { return `${d.getFullYear()}-${_dfPad(d.getMonth() + 1)}` }
+
+const _mfNavBtn: CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: 24, height: 24, borderRadius: 6, border: '1px solid var(--bdr)',
+  background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer',
+}
+
+const _mfQuickBtn: CSSProperties = {
+  flex: 1, padding: '5px 0', borderRadius: 6, fontSize: 11.5, fontWeight: 500,
+  border: '1px solid var(--bdr)', background: 'var(--card)',
+  color: 'var(--txt2)', cursor: 'pointer',
+}
+
+export function MonthFilter({ value, onChange, max, align = 'left' }: {
+  /** The selected month as 'YYYY-MM'. */
+  value: string
+  onChange: (ym: string) => void
+  /**
+   * Latest selectable month, 'YYYY-MM'. Defaults to the current Lagos month, because
+   * every caller so far reports on a month that has at least started; a future month
+   * renders an empty report that looks like a broken one.
+   */
+  max?: string
+  align?: 'left' | 'right'
+}) {
+  const now   = todayLocal()
+  const maxYM = max ?? _mfYM(now)
+  const [open, setOpen] = useState(false)
+  const [year, setYear] = useState(() => Number((value || maxYM).slice(0, 4)))
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Reopen on the selected year rather than wherever the user last browsed to.
+  useEffect(() => {
+    if (open) setYear(Number((value || maxYM).slice(0, 4)))
+  }, [open, value, maxYM])
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selYear  = value ? Number(value.slice(0, 4)) : null
+  const selMonth = value ? Number(value.slice(5, 7)) : null
+  const maxYear  = Number(maxYM.slice(0, 4))
+  const maxMonth = Number(maxYM.slice(5, 7))
+
+  const label = value
+    ? `${MF_MONTHS_FULL[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)}`
+    : 'Pick a Month'
+
+  function pick(m: number) {
+    const ym = `${year}-${_dfPad(m)}`
+    if (ym > maxYM) return
+    onChange(ym)
+    setOpen(false)
+  }
+
+  const thisMonth = _mfYM(now)
+  const lastMonth = _mfYM(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={value ? `Month: ${label}` : 'Pick a month'}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '5px 10px', borderRadius: 7, fontSize: 12.5, fontWeight: 500,
+          border: `1.5px solid ${open ? NAVY : 'var(--input-bdr)'}`,
+          background: open ? 'rgba(14,40,65,0.04)' : 'var(--card)',
+          color: 'var(--txt)', cursor: 'pointer', whiteSpace: 'nowrap',
+          transition: 'border-color 120ms, background 120ms',
+        }}
+      >
+        <span className="material-symbols-rounded" aria-hidden="true"
+          style={{ fontSize: 15, color: open ? NAVY : 'var(--txt3)', transition: 'color 120ms' }}>calendar_month</span>
+        <span style={{ color: value ? 'var(--txt)' : 'var(--txt3)' }}>{label}</span>
+        <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 14, color: 'var(--txt3)' }}>
+          {open ? 'expand_less' : 'expand_more'}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Choose a month"
+          onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', zIndex: 60,
+            ...(align === 'right' ? { right: 0 } : { left: 0 }),
+            background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10,
+            boxShadow: '0 10px 30px -12px rgba(21,32,43,.35)', padding: 10, width: 236,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <button type="button" onClick={() => setYear(y => y - 1)} aria-label="Previous year" style={_mfNavBtn}>
+              <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 16 }}>chevron_left</span>
+            </button>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{year}</span>
+            <button
+              type="button"
+              onClick={() => setYear(y => y + 1)}
+              aria-label="Next year"
+              disabled={year >= maxYear}
+              style={{ ..._mfNavBtn, opacity: year >= maxYear ? 0.35 : 1, cursor: year >= maxYear ? 'not-allowed' : 'pointer' }}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 16 }}>chevron_right</span>
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+            {MF_MONTHS.map((m, i) => {
+              const monthNo  = i + 1
+              const selected = selYear === year && selMonth === monthNo
+              const future   = year > maxYear || (year === maxYear && monthNo > maxMonth)
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => pick(monthNo)}
+                  disabled={future}
+                  aria-current={selected ? 'true' : undefined}
+                  style={{
+                    padding: '7px 0', borderRadius: 6, fontSize: 12.5,
+                    fontWeight: selected ? 600 : 500,
+                    border: `1px solid ${selected ? NAVY : 'transparent'}`,
+                    background: selected ? 'rgba(14,40,65,0.07)' : 'transparent',
+                    color: future ? 'var(--txt3)' : 'var(--txt)',
+                    cursor: future ? 'not-allowed' : 'pointer',
+                    opacity: future ? 0.4 : 1,
+                  }}
+                >
+                  {m}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Two quick picks only: a monthly report is almost always the month that just
+              closed or the one running. */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 9, borderTop: '1px solid var(--bdr)', paddingTop: 9 }}>
+            <button type="button" onClick={() => { onChange(thisMonth); setOpen(false) }} style={_mfQuickBtn}>
+              This Month
+            </button>
+            <button type="button" onClick={() => { onChange(lastMonth); setOpen(false) }} style={_mfQuickBtn}>
+              Last Month
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Shared button styles ──────────────────────────────────────────────────────
 
 // ── Button style objects (kept for backwards compat with inline usage) ────────
