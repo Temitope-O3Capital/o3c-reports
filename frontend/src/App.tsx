@@ -254,6 +254,7 @@ const SettleSupervisor = lazy(() => import('./pages/settlements/Supervisor'))
 // the card ledger; the module adds the register, the odometer and the work done.
 const FleetOverview    = lazy(() => import('./pages/fleet/Overview'))
 const FleetCards       = lazy(() => import('./pages/fleet/Cards'))
+const FleetVehicle     = lazy(() => import('./pages/fleet/Vehicle'))
 
 // Call Center
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
@@ -1265,6 +1266,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                       grant since mapping is its entire purpose. */}
                   <Route path="/fleet"       element={<RequireAccess page="fleet" user={user}><PageErrorBoundary><FleetOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/fleet/cards" element={<RequireAccess page="fleet_admin" user={user}><PageErrorBoundary><FleetCards /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/fleet/vehicles/:id" element={<RequireAccess page="fleet" user={user}><PageErrorBoundary><FleetVehicle /></PageErrorBoundary></RequireAccess>} />
                   {/* Manual postings: functional, with a real approval chain, but the
                       table is empty — nobody has ever raised one. Kept reachable
                       rather than retired, because it works. */}
