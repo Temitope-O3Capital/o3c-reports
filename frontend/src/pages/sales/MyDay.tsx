@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtDate } from '../../lib/fmt'
 import { useLiveData } from '../../hooks/useRealtime'
+import { outcomeLabel, useOutcomes } from '../../lib/outcomes'
 
 // My Day — the officer's own record of what they did.
 //
@@ -77,17 +78,12 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
 
   // Outcome codes are stored, not labels — so the day would otherwise read
   // "answered_interested" back at the officer who chose "Answered — Interested".
-  // Loaded from the same endpoint the form picks from, so the two can never disagree.
-  const [dispLabels, setDispLabels] = useState<Record<string, string>>({})
-  useEffect(() => {
-    apiFetch<{ data: Record<string, { code: string; label: string }[]> }>('/api/sales/activity/dispositions')
-      .then(r => {
-        const m: Record<string, string> = {}
-        Object.values(r?.data ?? {}).forEach(list => list.forEach(d => { m[d.code] = d.label }))
-        setDispLabels(m)
-      })
-      .catch(() => { /* falls back to the raw code, which is still readable */ })
-  }, [])
+  //
+  // This used to fetch the catalogue here, which worked but only understood codes. The
+  // shared resolver also folds the historical label spellings and the duplicate codes
+  // onto one answer, so a day and the lead book can no longer name the same call two
+  // different things. One fetch per session rather than one per page.
+  useOutcomes()
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { visit: 0, call: 0, meeting: 0, note: 0 }
@@ -173,7 +169,7 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
                       {typeLabel(a.type)}
                       {a.location && <> · {a.location}</>}
                       {a.contact_name && <> · {a.contact_name}</>}
-                      {a.outcome && <> · {dispLabels[a.outcome] ?? a.outcome}</>}
+                      {a.outcome && <> · {outcomeLabel(a.outcome)}</>}
                     </div>
                     {a.body && (
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{a.body}</div>

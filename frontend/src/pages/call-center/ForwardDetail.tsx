@@ -5,6 +5,7 @@ import { apiFetch } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
 import { fmtDatetime, fmtKobo } from '../../lib/fmt'
 import { humanLabel } from '../../lib/labels'
+import { outcomeLabel, useOutcomes } from '../../lib/outcomes'
 import { leadStageLabel } from '../../lib/leadStages'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, INTER, NUM, FW, RADIUS, TEXT, SP } from '../../lib/design'
 
@@ -151,6 +152,9 @@ export default function CallCenterForwardDetail() {
   useEffect(() => { load() }, [load])
   // Live: the whole point of the page is watching a hand-off move while Sales works it.
   useLiveData(load, { topics: ['crm', 'activities', 'calls', 'cc_leads'] })
+  // One outcome vocabulary across both panels: the calls store a label and the sales
+  // activity stores a code, and this page is the one screen that shows them side by side.
+  useOutcomes()
 
   if (loading && !d) {
     return <Page title="Hand-off"><div style={{ padding: 48, textAlign: 'center' }}><Spinner /></div></Page>
@@ -313,7 +317,7 @@ export default function CallCenterForwardDetail() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
                     <OutcomePill outcome={c.outcome} />
                     {c.disposition && (
-                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY }}>{c.disposition}</span>
+                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY }}>{outcomeLabel(c.disposition)}</span>
                     )}
                     <span style={{ flex: 1 }} />
                     <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', ...NUM }}>
@@ -353,7 +357,7 @@ export default function CallCenterForwardDetail() {
                   {a.note && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>{a.note}</div>}
                   <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2 }}>
                     {a.officer_name || 'Unknown'}
-                    {a.disposition && ` · ${humanLabel(a.disposition)}`}
+                    {a.disposition && ` · ${outcomeLabel(a.disposition)}`}
                     {a.location && ` · ${a.location}`}
                   </div>
                 </div>

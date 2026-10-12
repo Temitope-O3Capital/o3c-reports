@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { outcomeLabel, useOutcomes } from "../../lib/outcomes"
 import { useSearchParams, Link } from 'react-router-dom'
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from 'react' 
@@ -73,8 +74,12 @@ interface Lead {
 // The agent's own disposition is the truth when there is one; otherwise label the
 // raw outcome the same way the call history does, so the two never disagree.
 function leadOutcomeLabel(lead: Lead): string {
+  // Through the shared resolver rather than straight out of the column. 777 rows say
+  // "Interested" and 4,162 say "Not Interested" — spellings the catalogue stopped
+  // using — so the lead book and the form the agent picked from disagreed about the
+  // same call.
   const d = lead.last_disposition?.trim()
-  if (d) return d
+  if (d) return outcomeLabel(d)
   if (!lead.last_outcome?.trim()) return ''
   return callOutcomeLabel(
     lead.last_outcome, lead.last_call_direction,
@@ -1671,6 +1676,7 @@ export default function CallCenterLeads() {
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(undefined, true), { topics: ['calls', 'crm', 'cc_leads'] })
+  useOutcomes()
 
   // Deep-link from the call-back popup: ?open=<leadId> selects that lead so the agent
   // lands straight on the call to make (its detail panel + log-call form).
