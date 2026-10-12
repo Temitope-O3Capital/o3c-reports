@@ -139,10 +139,19 @@ func perfCoverage(db *core.DB) http.HandlerFunc {
 			         COUNT(DISTINCT approved_by)
 			    FROM app.manual_postings
 			  UNION ALL
-			  SELECT 'Collections', 'collection_payments', 'approved_by + approved_at',
-			         COUNT(*), COUNT(approved_at),
-			         COUNT(*) FILTER (WHERE approved_at IS NOT NULL AND approved_by IS NOT NULL),
-			         COUNT(DISTINCT approved_by)
+			  -- Imported rows are excluded from the denominator. 1,801 of the 1,812
+			  -- receipts were loaded as historical fact (channel 'historical import'
+			  -- and 'crm_import'), carry no approver by design, and never entered the
+			  -- HOP -> COO chain — see migration 365. Counting them as unattributed
+			  -- work read as a missing writer when the truth is that no person
+			  -- approved them because none was meant to.
+			  SELECT 'Collections', 'collection_payments (logged, not imported)',
+			         'approved_by + approved_at',
+			         COUNT(*) FILTER (WHERE NOT is_imported),
+			         COUNT(approved_at) FILTER (WHERE NOT is_imported),
+			         COUNT(*) FILTER (WHERE NOT is_imported
+			                            AND approved_at IS NOT NULL AND approved_by IS NOT NULL),
+			         COUNT(DISTINCT approved_by) FILTER (WHERE NOT is_imported)
 			    FROM app.collection_payments
 			  UNION ALL
 			  SELECT 'Collections', 'collections_watchlist', 'resolved_by + resolved_at',
