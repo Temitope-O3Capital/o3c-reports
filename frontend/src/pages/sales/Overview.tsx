@@ -10,6 +10,7 @@ import { fmtKobo, fmtNum, fmtPct, fmtDate, fmtDatetime, n } from '../../lib/fmt'
 import { RED, GREEN, BLUE, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { PRODUCT_LINES, lineColor } from '../../lib/products'
 import { isSalesHead } from '../../hooks/useAuth'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The Sales Team Lead's dashboard.
 //
@@ -214,6 +215,8 @@ export default function SalesOverview() {
   }, [qs])
 
   useEffect(() => { load() }, [load])
+  // Live: the numbers move whenever the book or the work does.
+  useLiveData(load, { topics: ['crm', 'deals', 'activities'] })
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const noTeam = !loading && officers.length === 0

@@ -5,6 +5,7 @@ import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtDate } from '../../lib/fmt'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The team calendar — a month of the floor, one row per officer.
 //
@@ -102,6 +103,8 @@ export function TeamCalendar() {
     finally { setLoading(false) }
   }, [from, to])
   useEffect(() => { load() }, [load])
+  // Live: the point of the team view is watching the team work as they do it.
+  useLiveData(load, { topics: ['sales_visits', 'activities', 'tasks'] })
 
   // officer_id → day → cell, so the grid is O(1) per square instead of scanning.
   const byOfficer = useMemo(() => {

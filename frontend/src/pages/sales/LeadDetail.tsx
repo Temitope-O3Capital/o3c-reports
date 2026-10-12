@@ -9,6 +9,7 @@ import { humanLabel } from '../../lib/labels'
 import { LEAD_STAGES } from '../../lib/leadStages'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import SalesActivityModal from '../../components/SalesActivityModal'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The lead record, opened from the Leads queue.
 //
@@ -142,6 +143,8 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
     finally { setLoading(false) }
   }, [leadId])
   useEffect(() => { if (leadId) load() }, [leadId, load])
+  // Live: everything this record shows is one of these five.
+  useLiveData(load, { topics: ['crm', 'activities', 'tasks', 'deals', 'sales_visits'] })
 
   const refresh = () => { load(); onChanged() }
 

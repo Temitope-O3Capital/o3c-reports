@@ -17,6 +17,11 @@ const TOPICS = [
   // and a queue contact's disposition changing are their own tables, so they need
   // their own topics — the 'calls' event fires before the (async) status write lands.
   'cc_leads', 'cc_contacts',
+  // Sales activity and the visit diary: logging a call or visit, planning one and
+  // completing one is what a sales day is made of, and none of it pushed anywhere. The
+  // officer's day sheet, the team diary, a lead's timeline and Customer 360 all read
+  // these, and all four sat stale until something unrelated happened to fire.
+  'activities', 'sales_visits',
   // Management report sends: the Reports page shows a send start and finish live.
   'management_reports',
 ] as const

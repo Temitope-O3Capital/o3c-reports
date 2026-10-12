@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { PlanVisitModal } from './PlanVisitModal'
 import { NAVY, AMBER, PURPLE, BLUE, RED, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { fmtDate } from '../../lib/fmt'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The officer's planning calendar.
 //
@@ -127,6 +128,8 @@ export default function SalesCalendar() {
     } finally { setLoading(false) }
   }, [from, to, officerId])
   useEffect(() => { load() }, [load])
+  // Live: a supervisor dropping a visit into your week has to appear in it.
+  useLiveData(load, { topics: ['sales_visits', 'activities', 'tasks'] })
 
   // A head may look at their team's diaries; an officer only ever sees their own, so
   // the picker is simply absent for them rather than present and refused.

@@ -17,6 +17,7 @@ import { humanLabel } from '../../lib/labels'
 import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { PRODUCT_LINES, PRODUCT_SUBS, productLabel, lineOfCode, lineColor } from '../../lib/products'
 import { LEAD_STAGES, OPEN_LEAD_STAGES } from '../../lib/leadStages'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // Lead capture and the lead queue.
 //
@@ -237,6 +238,8 @@ export default function SalesLeads() {
   }, [query])
 
   useEffect(() => { load() }, [load])
+  // Live: the queue's own rows, and a teammate logging work on one of them.
+  useLiveData(load, { topics: ['crm', 'activities', 'sales_visits'] })
   useEffect(() => { setOffset(0) }, [stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq])
 
   // Assign a single lead to an officer (heads). Reuses the lead PATCH — no bespoke

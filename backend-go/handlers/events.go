@@ -81,6 +81,15 @@ var liveTopics = []struct{ Name, SQL string }{
 	// focus-refresh. Watch the tables themselves so those moves push too.
 	{"cc_leads", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM call_center_leads`},
 	{"cc_contacts", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM call_center_contacts`},
+	// Sales activity and the visit diary had no topic at all, so the thing a sales officer
+	// does most — log a call or visit, plan one, complete one — was the one thing no other
+	// screen ever saw: a supervisor watching the team diary, the officer’s own day sheet and
+	// the lead’s timeline all sat on yesterday until something unrelated happened to fire.
+	//
+	// app.activities is append-mostly and carries no updated_at, so the signature is MAX(id)
+	// plus the latest occurrence — an insert moves the id, a backdated log moves the date.
+	{"activities", `SELECT COALESCE(MAX(id),0)::text||':'||COALESCE(MAX(COALESCE(occurred_at, created_at))::text,'') FROM app.activities`},
+	{"sales_visits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM app.sales_visit_plans`},
 	// Management reports: a send starting or finishing, or recipients changing, pushes to
 	// the Reports page so a "Sending" badge turns to "Sent" without a refresh.
 	{"management_reports", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM management_reports)||'|'||(SELECT COUNT(*)||':'||COUNT(*) FILTER (WHERE status = 'running')||':'||COALESCE(MAX(COALESCE(finished_at, started_at))::text,'') FROM management_report_runs)`},
@@ -95,6 +104,79 @@ type eventHub struct {
 
 var hub = &eventHub{subs: map[chan string]struct{}{}}
 var hubOnce sync.Once
+
+// kick asks the poller to diff RIGHT NOW instead of waiting out its 4s tick.
+//
+// Capacity 1 with a non-blocking send is the whole debounce: a hundred writes in the
+// same instant leave exactly one pending diff, so a bulk import or a 40-lead
+// distribution costs the same as a single edit.
+var kick = make(chan struct{}, 1)
+
+// LiveAfterWrite makes the change-feed fire as soon as a write lands, from one place,
+// for every route in the app.
+//
+// The poller was the only thing that ever broadcast, so the floor on "when does the
+// screen catch up" was its 4s tick and the ceiling was a page's own 15s fallback poll.
+// That is what "I edited the name and had to refresh" actually was: the refetch after
+// the save was wired correctly and did run, but every OTHER open view — the supervisor
+// watching the same lead book, the agent's second tab, the dashboard behind it — sat on
+// stale rows until the next diff came round. Signalling here collapses that to the
+// ~150ms settle below.
+//
+// It hangs off the request method rather than off each handler deliberately: wiring a
+// broadcast into several hundred mutating handlers is several hundred chances to forget
+// one, and a forgotten one is invisible — the page just feels slow. A method check
+// cannot be forgotten.
+//
+// Only 2xx/3xx kicks. A rejected write changed nothing, and re-diffing every topic on a
+// storm of 401s or 422s would turn a bad client into a load generator.
+func LiveAfterWrite(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
+		sw := &statusSniffer{ResponseWriter: w, code: 200}
+		next.ServeHTTP(sw, r)
+		if sw.code >= 200 && sw.code < 400 {
+			select {
+			case kick <- struct{}{}:
+			default: // a diff is already pending — it will see this write too
+			}
+		}
+	})
+}
+
+// statusSniffer records the status code so LiveAfterWrite can ignore failed writes.
+// It forwards Flush and Unwrap so streaming responses and http.ResponseController
+// still work through it — the SSE handler itself is a GET and never wrapped, but a
+// future streaming POST would break silently without these.
+type statusSniffer struct {
+	http.ResponseWriter
+	code    int
+	written bool
+}
+
+func (s *statusSniffer) WriteHeader(code int) {
+	if !s.written {
+		s.code, s.written = code, true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusSniffer) Write(b []byte) (int, error) {
+	s.written = true // an implicit 200
+	return s.ResponseWriter.Write(b)
+}
+
+func (s *statusSniffer) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+func (s *statusSniffer) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
 
 func (h *eventHub) add() chan string {
 	ch := make(chan string, 32)
@@ -124,8 +206,13 @@ func (h *eventHub) broadcast(topic string) {
 	h.mu.Unlock()
 }
 
-// startEventPoller runs a single background goroutine that diffs every topic
-// every 4s and broadcasts changes. Query load is independent of client count.
+// startEventPoller runs a single background goroutine that diffs every topic and
+// broadcasts what changed. Query load is independent of client count.
+//
+// It wakes on either of two things: its own 4s tick, which catches changes this process
+// did not serve (a migration, a worker, a psql session, the other node), and a kick from
+// LiveAfterWrite the moment a write returns, which is what makes an edit by one person
+// appear on everyone else's screen immediately rather than up to 4s later.
 func startEventPoller(db *core.DB) {
 	hubOnce.Do(func() {
 		go func() {
@@ -136,9 +223,7 @@ func startEventPoller(db *core.DB) {
 					sig[t.Name] = s
 				}
 			}
-			tick := time.NewTicker(4 * time.Second)
-			defer tick.Stop()
-			for range tick.C {
+			diff := func() {
 				for _, t := range liveTopics {
 					s, ok := topicSig(ctx, db, t.SQL)
 					if !ok {
@@ -148,6 +233,27 @@ func startEventPoller(db *core.DB) {
 						sig[t.Name] = s
 						hub.broadcast(t.Name)
 					}
+				}
+			}
+			tick := time.NewTicker(4 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-tick.C:
+					diff()
+				case <-kick:
+					// Settle first. The handler has already replied, so its own
+					// transaction is committed, but plenty of writes finish work in a
+					// goroutine after that — syncLeadFromCall is the standing example,
+					// which is exactly why 'calls' firing before the lead status lands
+					// needed its own topic. Diffing instantly would read the table
+					// before the follow-up write and then not look again for 4s.
+					time.Sleep(150 * time.Millisecond)
+					diff()
+					// And again, once, for the slower async tail. Cheap: every topic
+					// signature is index-served, and an unchanged one broadcasts nothing.
+					time.Sleep(1200 * time.Millisecond)
+					diff()
 				}
 			}
 		}()

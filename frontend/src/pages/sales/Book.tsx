@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, n } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import NewApplicationModal from '../../components/NewApplicationModal'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The Account Officer's book.
 //
@@ -133,6 +134,8 @@ export default function SalesBook() {
   }, [query, officerFilter])
 
   useEffect(() => { load() }, [load])
+  // Live: a reassignment or a logged call changes who is here and what is due.
+  useLiveData(load, { topics: ['crm', 'activities'] })
   // Changing scope or search invalidates the current page position.
   useEffect(() => { setOffset(0); setSelected(new Set()) }, [officerFilter, dq])
 

@@ -8,6 +8,7 @@ import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtDate } from '../../lib/fmt'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // My Day — the officer's own record of what they did.
 //
@@ -71,6 +72,8 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
     finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
+  // Live: the day sheet is the activity log, read back.
+  useLiveData(load, { topics: ['activities', 'sales_visits', 'tasks', 'crm'] })
 
   // Outcome codes are stored, not labels — so the day would otherwise read
   // "answered_interested" back at the officer who chose "Answered — Interested".

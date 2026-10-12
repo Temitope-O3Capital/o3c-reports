@@ -327,6 +327,10 @@ func main() {
 	r.Use(apiVersionRewrite)
 	// 5A: Prometheus request metrics
 	r.Use(handlers.PrometheusMiddleware)
+	// A write anywhere pushes the change-feed immediately, so every other open view
+	// catches up in ~150ms instead of waiting out the poller’s 4s tick. Mounted here, at
+	// the top, so it covers every route rather than only the ones someone remembered.
+	r.Use(handlers.LiveAfterWrite)
 	// 5A: OTel HTTP tracing — injects trace-id into each request context and propagates W3C headers.
 	r.Use(func(next http.Handler) http.Handler {
 		return otelhttp.NewHandler(next, "o3c-api")

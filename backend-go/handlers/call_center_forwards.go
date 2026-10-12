@@ -284,13 +284,24 @@ func ccListForwards(db *core.DB) http.HandlerFunc {
 			       f.notes, f.forwarded_at, f.resolved_at, f.outcome,
 			       `+forwardStatusExpr+` AS status,
 			       c.lead_stage AS crm_stage, c.converted_cif, c.disqualify_reason,
-			       COALESCE(f.sales_owner_name, ow.full_name) AS sales_owner_name,
+			       -- Live owner first, the denormalised copy only as a fallback. The
+			       -- copy is written once, when a supervisor pre-assigns at forward
+			       -- time, and is never updated again — so preferring it meant a lead
+			       -- that had since been redistributed still showed the person who
+			       -- held it on day one.
+			       COALESCE(ow.full_name, f.sales_owner_name) AS sales_owner_name,
 			       la.full_name AS lead_agent_name,
 			       cc.name AS campaign_name, mc.name AS marketing_campaign_name
 			  FROM call_center_lead_forwards f
 			  LEFT JOIN crm_contacts c        ON c.id  = f.contact_id
 			  LEFT JOIN o3c_users fb          ON fb.id = f.forwarded_by
-			  LEFT JOIN o3c_users ow          ON ow.id = c.account_manager_id
+			  -- sales_owner_id, NOT account_manager_id. The owner of a LEAD and the
+			  -- account manager of a CUSTOMER are different columns for different
+			  -- stages of the same person, and account_manager_id is NULL on every
+			  -- contact that has ever been forwarded — 0 of 326 — so this join could
+			  -- never resolve. The tracker read "Unassigned" for 291 leads that had
+			  -- had an owner all along, including the 111 distributed this afternoon.
+			  LEFT JOIN o3c_users ow          ON ow.id = c.sales_owner_id
 			  LEFT JOIN call_center_leads l   ON l.id  = f.lead_id
 			  LEFT JOIN o3c_users la          ON la.id = l.assigned_to
 			  LEFT JOIN call_center_campaigns cc ON cc.id = f.cc_campaign_id
