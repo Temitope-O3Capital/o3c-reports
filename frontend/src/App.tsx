@@ -52,6 +52,8 @@ const Retention       = lazy(() => import('./pages/retention/Retention'))
 const ReportsBuilder  = lazy(() => import('./pages/reports/ReportBuilder'))
 const ReportsLibrary  = lazy(() => import('./pages/reports/Library'))
 const ReportsSQL      = lazy(() => import('./pages/reports/SQLConsole'))
+const ReportsDashboards = lazy(() => import('./pages/reports/Dashboards'))
+const ReportsDashboardView = lazy(() => import('./pages/reports/DashboardView'))
 const ReportsManagement = lazy(() => import('./pages/reports/ManagementReports'))
 const ReportsEditor = lazy(() => import('./pages/reports/ReportEditor'))
 const ReportsCardCredit = lazy(() => import('./pages/reports/CardAttribution'))
@@ -1394,6 +1396,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/reports/library" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsLibrary /></PageErrorBoundary></RequireAccess>} />
                   {/* Read-only SQL for BI. Every control is server-side; see bi_sql.go. */}
                   <Route path="/reports/sql" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsSQL /></PageErrorBoundary></RequireAccess>} />
+                  {/* Dashboards. The page gate is "reports" OR "report_builder"; each TILE is
+                      then checked against the viewer's own access to its source, so one shared
+                      dashboard shows a department head only the tiles they could have built. */}
+                  <Route path="/reports/dashboards" element={<RequireAccess page="report_builder" user={user}><PageErrorBoundary><ReportsDashboards /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/dashboards/:id" element={<RequireAccess page="report_builder" user={user}><PageErrorBoundary><ReportsDashboardView /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/management" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsManagement /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/management/new" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsEditor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/management/:key" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsEditor /></PageErrorBoundary></RequireAccess>} />

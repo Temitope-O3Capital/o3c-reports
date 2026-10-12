@@ -812,6 +812,13 @@ func main() {
 		r.Route("/api/bi-sql", func(r chi.Router) {
 			handlers.RegisterBISQL(r, db)
 		})
+		// Dashboards -- tiles over the saved reports and saved queries the two routes
+		// above produce. A tile never carries a query of its own: it points at a saved
+		// source, and handlers/dashboards.go re-checks the VIEWER against that source on
+		// every read, so sharing a dashboard cannot widen anybody else's data access.
+		r.Route("/api/dashboards", func(r chi.Router) {
+			handlers.RegisterDashboards(r, db)
+		})
 		// Customer Growth & Activity monitor — registrations, transaction activity
 		// and churn. Access is gated per-endpoint (management + operating teams).
 		r.Route("/api/growth", func(r chi.Router) {

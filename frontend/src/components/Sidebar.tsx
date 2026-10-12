@@ -447,6 +447,14 @@ const SECTIONS: Section[] = [
             vis: ['bi_analyst','bi_head','sales_head','bd_head','collections_head','recovery_head',
                   'cards_head','finance_head','settlement_head','call_center_head','care_head',
                   'risk_head','compliance_head','coo','cfo','cmo','md'] },
+          // Dashboards sit beside the Report Builder and carry the SAME audience, because
+          // a dashboard is tiles over the things the builder saves. A department head gets
+          // their own reports as tiles; a saved SQL tile is refused to them per tile, by
+          // handlers/dashboards.go, not by this list.
+          { label: 'Dashboards',         to: '/reports/dashboards',
+            vis: ['bi_analyst','bi_head','sales_head','bd_head','collections_head','recovery_head',
+                  'cards_head','finance_head','settlement_head','call_center_head','care_head',
+                  'risk_head','compliance_head','coo','cfo','cmo','md'] },
           { label: 'Customer Behaviour', to: '/reports/behaviour',    vis: ['bi_analyst','bi_head'] },
           { label: 'Data Management',    to: '/reports/uploads',      vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
           { label: 'Merchant Names',     to: '/reports/merchant-names', vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
@@ -630,6 +638,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // management, who lack the 'reports' page) can open the module; ReportsHome routes
   // them to a page they can access. The individual subs below still enforce pages.
   '/reports/library': 'reports', '/reports/sql': 'reports',
+  '/reports/dashboards': ['reports', 'report_builder'],
   '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': ['reports', 'report_builder'], '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/reports/merchant-names': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
   '/reports/management': ['reports', 'executive'],
   '/reports/card-credit': ['cards', 'reports', 'executive', 'sales'],
