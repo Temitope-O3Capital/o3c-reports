@@ -3949,13 +3949,25 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 	// names the customer and the town. Fire-and-forget like the rest of this function:
 	// the hand-off is already recorded, and an alert must never throw at an agent who
 	// has just put the phone down.
+	// The group key carries the DAY, and that is the whole point of it.
+	//
+	// It used to be the bare string "cc:forwarded". Email is suppressed on a grouped
+	// re-send — by design, so one busy afternoon does not send forty mails — but with a
+	// key that never changes, the suppression never lifts either. Measured 2026-10-12:
+	// Jennifer and Ikechukwu were each sitting on ONE unread digest with group_count =
+	// 162. They had been emailed once, about the first lead, and heard nothing about the
+	// following 161 while the badge quietly climbed.
+	//
+	// Dated, the digest collapses within a day and reopens the next, so each morning's
+	// first hand-off is mailed and the rest accumulate into it. That is the cadence the
+	// grouping was meant to produce.
 	go NotifyRoles(context.WithoutCancel(ctx), db, []string{"sales_head"}, NotifPayload{
 		EventType: EvtLeadForwarded,
 		Title:     "Lead Forwarded From the Call Centre",
 		Body:      "A call-centre agent qualified a lead. Assign it in the hand-off tracker.",
 		ActionURL: "/call-center/forwards",
 		EntityRef: fmt.Sprintf("cc_forward:lead:%d", leadID),
-		GroupKey:  "cc:forwarded",
+		GroupKey:  "cc:forwarded:" + nowDateKey(ctx, db),
 		Priority:  "high",
 	})
 	go notifyLeadForwarded(context.WithoutCancel(ctx), db, leadID, agentID)
