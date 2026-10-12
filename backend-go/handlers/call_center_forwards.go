@@ -183,6 +183,18 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 				contactID, *b.SalesOwnerID)
 		}
 
+		// Nobody picked an owner, so the lead goes to whichever of its hub's two teams
+		// is carrying least - the same routing the automatic path uses, because a lead
+		// should not land somewhere different depending on whether a button was pressed.
+		// A supervisor who DID pick an owner has already made this decision, and
+		// routeHandoffToTeam only ever fills a NULL owner, so this is a no-op for them.
+		if salesOwner == nil {
+			if head := routeHandoffToTeam(ctx, db, contactID); head != 0 {
+				status = "assigned"
+				salesOwner = head
+			}
+		}
+
 		var cif any
 		if v := strings.TrimSpace(str(lead["customer_cif"])); v != "" {
 			cif = v
@@ -411,26 +423,37 @@ func markForwardResolved(ctx context.Context, db *core.DB, contactID int64, stat
 // is driven by a call logged against the LEAD. Guarded to the open states so it can
 // neither reopen nor overwrite a hand-off Sales has already resolved, and is a no-op
 // for a lead that was never forwarded. Fire-and-forget, like the caller that drives it.
-func ccCloseForwardOnRefusal(ctx context.Context, db *core.DB, leadID int64, disposition string) {
+// byCustomer separates "they refused" from "we declined them". Both end the hand-off;
+// recording them as the same thing would have the ledger tell a sales officer the
+// customer walked away when in fact credit turned them down.
+func ccCloseForwardOnTerminalCall(ctx context.Context, db *core.DB, leadID int64, disposition string, byCustomer bool) {
 	reason := strings.TrimSpace(disposition)
 	if reason == "" {
-		reason = "Not Interested"
+		if byCustomer {
+			reason = "Not Interested"
+		} else {
+			reason = "Closed by the call centre"
+		}
+	}
+	lede := "Closed on a later call - "
+	if byCustomer {
+		lede = "Customer declined on a later call - "
 	}
 	res, err := db.PGExec(ctx,
 		`UPDATE call_center_lead_forwards
 		    SET status      = 'rejected',
-		        outcome     = 'Customer declined on a later call — ' || $2,
+		        outcome     = $3 || $2,
 		        updated_at  = NOW(),
 		        resolved_at = NOW()
 		  WHERE lead_id = $1
 		    AND status IN ('forwarded','accepted','assigned')`,
-		leadID, reason)
+		leadID, reason, lede)
 	if err != nil {
-		slog.Error("ccCloseForwardOnRefusal: close hand-off", "lead", leadID, "err", err)
+		slog.Error("ccCloseForwardOnTerminalCall: close hand-off", "lead", leadID, "err", err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		slog.Info("Sales hand-off closed: customer declined on a later call",
+		slog.Info("Sales hand-off closed by a terminal call",
 			"lead", leadID, "forwards", n, "disposition", reason)
 	}
 }

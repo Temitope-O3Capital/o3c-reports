@@ -4,6 +4,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtCount } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // Agent Matching — reconcile Zoho agents to workspace users. Zoho call/ticket
 // attribution is resolved through the durable crosswalk (zoho_agent_map); anything
@@ -75,6 +76,8 @@ export function AgentMatchingPanel() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  // Live: unmatched calls arrive from the dialler continuously.
+  useLiveData(load, { topics: ['calls', 'users'] })
 
   async function mapAgent(zohoAgentID: string, o3cUserID: number) {
     setSaving(zohoAgentID)

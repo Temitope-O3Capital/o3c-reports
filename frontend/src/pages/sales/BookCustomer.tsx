@@ -6,6 +6,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, n } from '../../lib/fmt'
 import { humanLabel } from '../../lib/labels'
 import { RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The account officer's view of one customer.
 //
@@ -127,6 +128,8 @@ export default function SalesBookCustomer() {
   }, [cif])
 
   useEffect(() => { load() }, [load])
+  // Live: a customer record moves when anyone logs against it.
+  useLiveData(load, { topics: ['crm', 'activities', 'deals'] })
 
   const c = profile?.customer
   const loans = profile?.loans ?? []

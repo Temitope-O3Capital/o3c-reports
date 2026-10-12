@@ -5,6 +5,7 @@ import { apiFetch } from '../../lib/api'
 import { PlanVisitModal, type PlanOfficer } from './PlanVisitModal'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import { NAVY, AMBER, PURPLE, BLUE, RED, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The week, as a strip — the diary where the work actually happens.
 //
@@ -94,6 +95,8 @@ export function DiaryWeek({ mode }: { mode: 'mine' | 'team' }) {
     } finally { setLoading(false) }
   }, [from, to, mode])
   useEffect(() => { load() }, [load])
+  // Live: a supervisor dropping a visit into the week has to appear in it.
+  useLiveData(load, { topics: ['sales_visits', 'activities'] })
 
   const byDay = useMemo(() => {
     const m = new Map<string, Plan[]>()

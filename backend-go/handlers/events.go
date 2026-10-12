@@ -90,6 +90,20 @@ var liveTopics = []struct{ Name, SQL string }{
 	// plus the latest occurrence — an insert moves the id, a backdated log moves the date.
 	{"activities", `SELECT COALESCE(MAX(id),0)::text||':'||COALESCE(MAX(COALESCE(occurred_at, created_at))::text,'') FROM app.activities`},
 	{"sales_visits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM app.sales_visit_plans`},
+	// The hand-off ledger itself. The Forwarded to Sales tracker and its detail page both
+	// read it, and it moves WITHOUT crm_contacts moving: markForwardResolved and
+	// ccCloseForwardOnTerminalCall touch only this table, so a hand-off being resolved,
+	// re-pitched or re-owned changed nothing any topic was watching. The tracker only
+	// caught up because an assignment happens to bump crm_contacts too - and a resolution
+	// does not.
+	//
+	// Signature over status as well as the timestamp: resolving a hand-off sets
+	// resolved_at and status, and a count-and-max-updated_at alone would miss a status
+	// correction that reused the same second.
+	{"cc_forwards", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'')
+	             ||':'||COUNT(*) FILTER (WHERE resolved_at IS NULL)
+	             ||':'||COALESCE(md5(string_agg(status, ',' ORDER BY id)),'-')
+	           FROM call_center_lead_forwards`},
 	// Management reports: a send starting or finishing, or recipients changing, pushes to
 	// the Reports page so a "Sending" badge turns to "Sent" without a refresh.
 	{"management_reports", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM management_reports)||'|'||(SELECT COUNT(*)||':'||COUNT(*) FILTER (WHERE status = 'running')||':'||COALESCE(MAX(COALESCE(finished_at, started_at))::text,'') FROM management_report_runs)`},

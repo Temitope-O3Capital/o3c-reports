@@ -110,7 +110,7 @@ export default function CallCenterForwards() {
 
   useEffect(() => { load() }, [load])
   // Live: an outcome moving is the whole subject of this page.
-  useLiveData(load, { topics: ['crm', 'cc_leads', 'activities'] })
+  useLiveData(load, { topics: ['crm', 'cc_leads', 'cc_forwards', 'activities'] })
   const nav = useNavigate()
 
   // The five buckets are mutually exclusive and add up to the backend's `total`. The

@@ -151,7 +151,7 @@ export default function CallCenterForwardDetail() {
 
   useEffect(() => { load() }, [load])
   // Live: the whole point of the page is watching a hand-off move while Sales works it.
-  useLiveData(load, { topics: ['crm', 'activities', 'calls', 'cc_leads'] })
+  useLiveData(load, { topics: ['crm', 'activities', 'calls', 'cc_leads', 'cc_forwards'] })
   // One outcome vocabulary across both panels: the calls store a label and the sales
   // activity stores a code, and this page is the one screen that shows them side by side.
   useOutcomes()

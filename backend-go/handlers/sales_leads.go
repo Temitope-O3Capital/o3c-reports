@@ -108,6 +108,9 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	r.With(access).Post("/leads/{id}/claim", claimLead(db))
 	// Hand a lead to another officer. Owner or head only; see transferLead.
 	r.With(access).Post("/leads/{id}/transfer", transferLead(db))
+	// Hand SEVERAL picked leads to one officer. The deliberate opposite of Distribute,
+	// which spreads a pool; see sales_lead_bulk_assign.go.
+	r.With(access).Post("/leads/assign", bulkAssignLeads(db))
 	r.With(access).Post("/leads/{id}/convert", convertLead(db))
 	r.With(access).Post("/leads/{id}/disqualify", disqualifyLead(db))
 	// Labels on a lead. Tag vocabulary is deliberately open — a rep invents the label

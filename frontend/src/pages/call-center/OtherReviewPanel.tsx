@@ -3,6 +3,7 @@ import { SectionCard, KpiCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
 import { NAVY, AMBER, GREEN, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // The "Other" review — the loop that keeps the escape hatch a backlog rather than a bin.
 //
@@ -80,6 +81,8 @@ export default function OtherReviewPanel({ from, to }: { from: string; to: strin
   }, [from, to])
 
   useEffect(() => { load() }, [load])
+  // Live: the review queue fills as agents log calls needing one.
+  useLiveData(load, { topics: ['calls'] })
 
   const tone = rateTone(d?.other_pct ?? 0)
 

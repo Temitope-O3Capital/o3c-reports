@@ -3453,6 +3453,36 @@ func leadDeclinedOnCall(outcome string, disposition *string) bool {
 	return ccDecliningDispositionCodes[ccDispositionCode(d)]
 }
 
+// leadEndsHandoffOnCall reports whether this call finishes Sales' involvement.
+//
+// A DIFFERENT QUESTION FROM leadDeclinedOnCall, and conflating the two cost 14
+// hand-offs. That predicate answers "may this overturn an earned 'interested'?", and its
+// own comment is right that "Not Eligible" needs no help there: it maps to 'closed',
+// which already outranks 'interested' on the lead board. But it was ALSO the trigger for
+// closing the hand-off to Sales, and for that the answer is different. Whether the
+// customer refused or we declined them, Sales is finished either way.
+//
+// Measured on 2026-10-12: 14 contacts sat at lead_stage 'disqualified' with the hand-off
+// still reading 'forwarded', every one of them moved by a call-centre call logging "Not
+// Eligible". The tracker rendered them as rejected, because forwardStatusExpr reads the
+// stage, so the gap was invisible on screen while resolved_at stayed NULL and they aged
+// as open hand-offs for ever.
+//
+// Terminal means terminal: 'closed' (our decline, or the business is finished), 'dnc'
+// (suppressed) and 'invalid' (the number is not theirs). 'no_answer', 'callback' and
+// 'not_ready' are not terminal and must not close anything - a lead Sales is working is
+// not finished because one dial went unanswered.
+func leadEndsHandoffOnCall(outcome string, disposition *string) bool {
+	if leadDeclinedOnCall(outcome, disposition) {
+		return true // they said no
+	}
+	switch leadStatusFromCall(outcome, disposition) {
+	case "closed", "dnc", "invalid":
+		return true // we said no, or there is nobody to sell to
+	}
+	return false
+}
+
 // advanceLeadStatus moves a lead to the status a call implies WITHOUT re-recording the
 // call (it is already in the ledger) — the light half of syncLeadFromCall used by the
 // phone-matched rescue below. Guarded to status='pending' so it only ever RESCUES a
@@ -3681,8 +3711,11 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 	// had already been auto-forwarded as "qualified by a call-centre call", so
 	// Sales went on working customers who had since said no. No-op when the lead
 	// was never forwarded, or when Sales has already resolved the hand-off.
-	if declined {
-		ccCloseForwardOnRefusal(ctx, db, leadID, dispo)
+	// ...and so does OUR decline, which is not the same test - see
+	// leadEndsHandoffOnCall. declined is still passed through, so the ledger can say
+	// which of the two happened rather than blaming the customer for our credit policy.
+	if leadEndsHandoffOnCall(outcome, disposition) {
+		ccCloseForwardOnTerminalCall(ctx, db, leadID, dispo, declined)
 	}
 
 	// Keep the lead-funnel table in step — canonical code + handle time, so connect
@@ -3938,6 +3971,15 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 		 WHERE id = $1`, contactID); err != nil {
 		slog.Error("recordCallHandoff: deliver to sales", "contact", contactID, "err", err)
 	}
+	// ...and onto one of the two teams that cover its state, before anything is
+	// announced, so the alert can name the head who actually has it rather than
+	// telling both of them about a lead in a pool belonging to nobody.
+	//
+	// This is the step that never existed: the lead was delivered to Sales and left
+	// unowned, so the pool refilled behind migration 317 as fast as it was dealt out.
+	// See routeHandoffToTeam for why it balances on the team book.
+	routeHandoffToTeam(ctx, db, contactID)
+
 	if _, err := db.PGExec(ctx,
 		`INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
 		 VALUES ($1,'forwarded_to_sales',$2,'qualified',$3,$4)`,

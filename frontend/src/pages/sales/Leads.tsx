@@ -242,6 +242,39 @@ export default function SalesLeads() {
   useLiveData(load, { topics: ['crm', 'activities', 'sales_visits'] })
   useEffect(() => { setOffset(0) }, [stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq])
 
+  // Picked leads, for handing a batch to one officer.
+  //
+  // The deliberate opposite of Distribute: that spreads a pool evenly, this is "these
+  // eleven are all in Ikeja, give them to Blessing". Before this the only way was the
+  // per-row Assign button, so a head moving a dozen leads did a dozen dialogs.
+  const [selIds, setSelIds] = useState<Set<string | number>>(new Set())
+  const [bulkOpen, setBulkOpen] = useState(false)
+
+  // One request for the whole batch. A partial assign is the worst outcome - the head
+  // cannot see which half moved - so the server does it in one transaction and reports
+  // how many of the picked leads it could actually move.
+  async function assignBatch(officerId: number) {
+    const ids = [...selIds].map(Number).filter(Boolean)
+    if (!ids.length) return
+    try {
+      const res = await apiFetch<{ assigned?: number; requested?: number; officer?: string; note?: string }>(
+        '/api/sales/leads/assign',
+        { method: 'POST', body: JSON.stringify({ lead_ids: ids, officer_id: officerId }) })
+      const did = res?.assigned ?? 0
+      if (did === 0) {
+        toast.error(res?.note ?? 'None of those leads could be assigned')
+      } else if (res?.requested && did < res.requested) {
+        // Said out loud rather than quietly succeeding: the rest were already closed,
+        // already theirs, or not this user’s to move.
+        toast.success(did + " of " + res.requested + " assigned to " + (res.officer ?? "that officer"))
+      } else {
+        toast.success(did + " lead" + (did === 1 ? "" : "s") + " assigned to " + (res?.officer ?? "that officer"))
+      }
+      setSelIds(new Set()); setBulkOpen(false)
+      await load()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not assign those leads') }
+  }
+
   // Assign a single lead to an officer (heads). Reuses the lead PATCH — no bespoke
   // endpoint needed — then refreshes so the owner column updates in place.
   async function assignTo(leadId: number, officerId: number) {
@@ -811,6 +844,15 @@ export default function SalesLeads() {
             emptyText="No leads match. Create one with New Lead"
             keyFn={r => r.id}
             onRowClick={r => navigate(`/sales/leads/${r.id}`)}
+            // Heads only: an officer picking leads has nobody to give them to.
+            selectable={isHead}
+            selectedIds={selIds}
+            onSelect={setSelIds}
+            bulkBar={isHead ? (
+              <Button size="sm" variant="primary" icon="person_add" onClick={() => setBulkOpen(true)}>
+                Assign {selIds.size} To…
+              </Button>
+            ) : undefined}
           />
           {total > PAGE_SIZE && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)' }}>
@@ -993,6 +1035,10 @@ export default function SalesLeads() {
       {assignLead && (
         <AssignModal lead={assignLead} officers={officers} onClose={() => setAssignLead(null)} onAssign={assignTo} />
       )}
+      {bulkOpen && (
+        <BulkAssignModal count={selIds.size} officers={officers}
+          onClose={() => setBulkOpen(false)} onAssign={assignBatch} />
+      )}
       <NewApplicationModal
         open={!!raiseLead}
         onClose={() => setRaiseLead(null)}
@@ -1002,6 +1048,37 @@ export default function SalesLeads() {
         onSaved={() => { setRaiseLead(null); load() }}
       />
     </Page>
+  )
+}
+
+// Assign every picked lead to one officer. Deliberately the same shape as AssignModal
+// below, so the batch and the single case do not look like two different features.
+function BulkAssignModal({ count, officers, onClose, onAssign }: {
+  count: number; officers: Officer[]; onClose: () => void; onAssign: (officerId: number) => void
+}) {
+  const [pick, setPick] = useState('')
+  const active = officers.filter(o => o.is_active)
+  return (
+    <Modal open onClose={onClose} title={`Assign ${count} Lead${count === 1 ? "" : "s"}`} width={420}
+      footer={(
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!pick} onClick={() => onAssign(Number(pick))}>
+            Assign
+          </Button>
+        </div>
+      )}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          All {count} selected lead{count === 1 ? "" : "s"} go to one officer. Leads that are
+          already theirs, already closed, or not yours to move are skipped and reported.
+        </div>
+        <Select label="Officer" value={pick} onChange={e => setPick(e.target.value)}>
+          <option value="">Choose an officer…</option>
+          {active.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
+        </Select>
+      </div>
+    </Modal>
   )
 }
 
@@ -1048,6 +1125,7 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
   const [preview, setPreview] = useState<{ officer_id: number; full_name: string; count: number }[] | null>(null)
   const [busy, setBusy]       = useState(false)
   const [teamScoped, setTeamScoped] = useState(false)
+  const [headInRoster, setHeadInRoster] = useState<number | null>(null)
   // Leads this head is personally sitting on, and whether to deal them out too.
   //
   // Migration 317 handed the unowned backlog to the four hub heads so a named person
@@ -1074,6 +1152,10 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
       if (mine.length > 0) {
         const ids = new Set<number>()
         mine.forEach((t: any) => (t.members ?? []).forEach((m: any) => ids.add(m.user_id)))
+        // A head may take a share of their own deal. Offered, never assumed: they are
+        // distributing because the work belongs to the team, so they start unticked and
+        // opt in. teamHeadOfficerIDs already permits it server-side.
+        if (meId) setHeadInRoster(meId)
         setPicked(ids); setTeamScoped(true)
       } else {
         setPicked(new Set(officers.filter(o => o.is_active).map(o => o.id)))
@@ -1095,8 +1177,12 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
   }, [])
 
   // When team-scoped, only show the head's own team members as options.
-  const options = teamScoped ? officers.filter(o => picked.has(o.id) || false) : officers.filter(o => o.is_active)
-  const eligible = teamScoped ? officers.filter(o => picked.has(o.id)) : officers.filter(o => o.is_active)
+  // The head belongs in the roster whether or not they are ticked, or they could never
+  // tick themselves - which is why a head who wanted a share had to transfer leads to
+  // themselves one at a time afterwards.
+  const inTeam = (o: Officer) => picked.has(o.id) || o.id === headInRoster
+  const options = teamScoped ? officers.filter(inTeam) : officers.filter(o => o.is_active)
+  const eligible = teamScoped ? officers.filter(inTeam) : officers.filter(o => o.is_active)
 
   function toggle(id: number) {
     setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })

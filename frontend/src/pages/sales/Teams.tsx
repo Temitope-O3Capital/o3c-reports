@@ -8,6 +8,7 @@ import { MGMT } from '../../lib/roles'
 import { NAVY, GREEN, RED, AMBER, PURPLE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtKobo } from '../../lib/fmt'
 import { humanLabel } from '../../lib/labels'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // Sales teams: the head→officers structure that scopes the Leads book.
 //
@@ -67,6 +68,8 @@ export default function SalesTeams() {
     finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
+  // Live: team membership and each member workload are both shown here.
+  useLiveData(load, { topics: ['users', 'crm'] })
 
   // Which team each officer sits on — used to warn before moving someone, and to grey
   // them out in the add-picker so nobody is silently taken off a colleague's team.

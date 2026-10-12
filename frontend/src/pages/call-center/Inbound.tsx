@@ -8,6 +8,7 @@ import { fmtCount, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 import { humanLabel } from '../../lib/labels'
+import { useLiveData } from '../../hooks/useRealtime'
 
 // Dial a number through the WebRTC softphone (CallWidget listens for 'o3c:dial').
 // This is what makes "Call back" work from the inbound list — the widget expands and
@@ -298,6 +299,8 @@ export default function CallCenterInbound() {
   }, [dateFrom, dateTo, statusFilter])
 
   useEffect(() => { load() }, [load])
+  // Live: an inbound call landing is the entire subject of the page.
+  useLiveData(load, { topics: ['calls', 'cc_contacts'] })
 
   async function queueCallbacks() {
     setQueueing(true)
