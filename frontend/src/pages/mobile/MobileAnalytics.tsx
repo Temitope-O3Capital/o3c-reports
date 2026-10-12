@@ -135,7 +135,7 @@ function derive(r: ScoreRaw): Scored {
 }
 
 function qualityTone(m: Measure): { label: string; color: string } {
-  if (!isOk(m)) return { label: 'No data', color: SLATE }
+  if (!isOk(m)) return { label: 'No Data', color: SLATE }
   if (m.value >= 40) return { label: 'High', color: GREEN }
   if (m.value >= 20) return { label: 'Medium', color: AMBER }
   return { label: 'Low', color: RED }

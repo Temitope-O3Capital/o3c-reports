@@ -295,7 +295,7 @@ export default function SQLConsole() {
                 cols={cols}
                 rows={res.rows}
                 pageSize={res.rows.length > 50 ? 50 : undefined}
-                emptyText={<EmptyState icon="inbox" title="No rows"
+                emptyText={<EmptyState icon="inbox" title="No Rows"
                   description="The query ran and matched nothing. That is an answer." />}
               />
               <div style={{
@@ -319,7 +319,7 @@ export default function SQLConsole() {
           )}
 
           {!res && !err && (
-            <SectionCard title="Nothing run yet">
+            <SectionCard title="Nothing Run Yet">
               <EmptyState icon="terminal" title="Write a query and press Ctrl+Enter"
                 description="The example above counts customers by state and how many hold a card." />
             </SectionCard>
@@ -367,7 +367,7 @@ export default function SQLConsole() {
               ))}
               {!saved.length && (
                 <div style={{ padding: SP[4] }}>
-                  <EmptyState icon="bookmark" title="No saved queries"
+                  <EmptyState icon="bookmark" title="No Saved Queries"
                     description="Save one and it is here next month. A shared query is visible to the other analysts, and editable only by you." />
                 </div>
               )}
@@ -384,7 +384,7 @@ export default function SQLConsole() {
           Click a table to insert its name. Credential columns are not listed — a console
           that suggests a column it will then refuse only teaches people to try.
         </p>
-        {!schema && <EmptyState icon="hourglass_top" title="Reading the schema" />}
+        {!schema && <EmptyState icon="hourglass_top" title="Reading the Schema" />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           {filteredSchema.map(t => (
             <div key={t.table} style={{
@@ -406,7 +406,7 @@ export default function SQLConsole() {
             </div>
           ))}
           {schema && !filteredSchema.length && (
-            <EmptyState icon="search_off" title="Nothing matches that" />
+            <EmptyState icon="search_off" title="Nothing Matches That" />
           )}
         </div>
       </Modal>
@@ -421,7 +421,7 @@ export default function SQLConsole() {
         }>
         <Input label="Name" value={saveName} onChange={e => setSaveName(e.target.value)}
           placeholder="Customers by state, with card penetration" />
-        <Input label="What it answers" value={saveDesc} onChange={e => setSaveDesc(e.target.value)}
+        <Input label="What It Answers" value={saveDesc} onChange={e => setSaveDesc(e.target.value)}
           hint="One line, so the next person knows whether to open it." />
         <label style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
           <input type="checkbox" id="bi-sql-share" checked={saveShared}

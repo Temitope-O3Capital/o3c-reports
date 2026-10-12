@@ -211,7 +211,7 @@ export default function SettlementMyDashboard() {
     { key: 'amount_kobo', label: 'Amount', align: 'right', width: 130, sortable: true,
       render: e => <span style={{ ...NUM, fontWeight: FW.medium }}>{fmtKobo(e.amount_kobo)}</span> },
     { key: 'reason', label: 'Reason', width: 175, render: e => <ReasonChip reason={e.reason} /> },
-    { key: 'detail', label: 'What the matcher found', render: e => (
+    { key: 'detail', label: 'What the Matcher Found', render: e => (
       <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{e.detail || '—'}</span>
     ) },
     { key: 'age_days', label: 'Age', align: 'right', width: 70, sortable: true,

@@ -221,7 +221,7 @@ export default function Retention() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3], alignItems: 'center', marginBottom: SP[4] }}>
           <select value={tier} onChange={e => setTier(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm }}>
-            <option value="">All value tiers</option>
+            <option value="">All Value Tiers</option>
             {TIERS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
           {[

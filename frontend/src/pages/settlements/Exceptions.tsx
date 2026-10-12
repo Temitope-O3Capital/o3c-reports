@@ -314,7 +314,7 @@ export default function SettlementExceptions() {
       render: e => Number(e.candidate_n) > 0
         ? <span style={NUM}>{fmtNum(e.candidate_n)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span> },
-    { key: 'detail', label: 'What the matcher found', render: e => (
+    { key: 'detail', label: 'What the Matcher Found', render: e => (
       <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{e.detail || '—'}</span>
     ) },
     { key: 'age_days', label: 'Age', align: 'right', sortable: true, width: 70,

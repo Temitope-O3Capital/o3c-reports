@@ -307,7 +307,7 @@ export default function ReportLibrary() {
               )}
 
               {loading && !payload && (
-                <SectionCard title="Running"><EmptyState icon="hourglass_top" title="Running the report"
+                <SectionCard title="Running"><EmptyState icon="hourglass_top" title="Running the Report"
                   description="Reading the book now." /></SectionCard>
               )}
 
@@ -318,7 +318,7 @@ export default function ReportLibrary() {
                     {blocks.map(([name, value]) => <Block key={name} name={name} value={value} />)}
                   </div>
                   {!blocks.length && !scalars.length && (
-                    <SectionCard title="Nothing to show">
+                    <SectionCard title="Nothing to Show">
                       <EmptyState icon="inbox" title="The report ran and returned nothing"
                         description="That is an answer, not a fault — try a wider date range." />
                     </SectionCard>
