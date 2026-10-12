@@ -112,6 +112,17 @@ var grandfatheredDuplicateMigrations = map[string]bool{
 	//
 	// Authorised by Temitope on 2026-10-12 after the alternative was explained.
 	"358": true,
+	// 364_every_open_lead_sits_with_someone_who_can_visit_it and
+	// 364_one_ledger_for_every_whatsapp_message, 2026-10-12. The same evening as 358
+	// and for the same reason: both were applied — 20:22:31 and 20:31:05, nine minutes
+	// apart — before either author saw this test go red, so renaming either one now
+	// makes the runner treat it as new and run it a second time.
+	//
+	// Two collisions in one evening is the signal worth reading here. This is not
+	// carelessness, it is several sessions picking the next free number from the same
+	// directory within minutes of each other. If it keeps happening, the fix is to
+	// stop numbering by hand, not to keep extending this list.
+	"364": true,
 }
 
 var migrationNumberRE = regexp.MustCompile(`^(\d+)_`)
