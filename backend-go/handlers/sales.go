@@ -31,7 +31,7 @@ import (
 // target and no team no longer appears here on that basis alone — putting them on a
 // team is the act that says they are on the floor, and it takes one click on Teams.
 const salesOfficerPredicate = `
-	u.role IN ('sales_officer','sales_head','head_sales','account_officer','bd_officer','bd_head')
+	u.role IN ('sales_officer','sales_head','account_officer','bd_officer','bd_head')
 	OR EXISTS (SELECT 1 FROM sales_targets st WHERE st.user_id = u.id)
 	OR EXISTS (SELECT 1 FROM app.sales_team_members m WHERE m.user_id = u.id)
 	OR EXISTS (SELECT 1 FROM app.sales_teams t WHERE t.head_user_id = u.id)`

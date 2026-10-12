@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -104,10 +105,25 @@ func roleGrantsAdmin(primary string, extras []string) bool {
 // update, register, login), preventing duplicate/mismatched accounts.
 func normalizeEmail(e string) string { return strings.ToLower(strings.TrimSpace(e)) }
 
+// errAdminNotASecondaryRole is surfaced as a 422 by both write paths.
+var errAdminNotASecondaryRole = errors.New(
+	"admin cannot be a secondary role — set it as the primary role instead")
+
 // sanitizeExtraRoles trims/dedups secondary roles and drops any that equal the
 // primary role or are blank. Returns a non-nil slice so it maps to a Postgres
 // TEXT[] cleanly.
-func sanitizeExtraRoles(db *core.DB, r *http.Request, primary string, extras []string) []string {
+//
+// It REFUSES admin as a secondary role rather than silently dropping it, so the
+// user editor is told instead of appearing to accept a grant it did not make.
+//
+// Admin is a primary role or it is nothing. RolePages["admin"] is AllCatalogPages()
+// and core.Claims.AllRoles feeds every role-derived decision, so "admin" sitting in
+// extra_roles used to confer every page and — through seesAllRoles in scope.go —
+// every row, while the in-body `user.Role != "admin"` guards still refused it: a
+// superuser with holes in it, produced by what reads in the UI as a small additive
+// grant. core.AllRoles now drops it defensively; this is the half that stops it ever
+// being written.
+func sanitizeExtraRoles(db *core.DB, r *http.Request, primary string, extras []string) ([]string, error) {
 	seen := map[string]bool{primary: true}
 	out := []string{}
 	for _, e := range extras {
@@ -115,10 +131,13 @@ func sanitizeExtraRoles(db *core.DB, r *http.Request, primary string, extras []s
 		if e == "" || seen[e] {
 			continue
 		}
+		if e == core.RoleAdmin {
+			return nil, errAdminNotASecondaryRole
+		}
 		seen[e] = true
 		out = append(out, e)
 	}
-	return out
+	return out, nil
 }
 
 func listUsers(db *core.DB) http.HandlerFunc {
@@ -199,7 +218,11 @@ func createUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Unknown role: "+b.Role)
 			return
 		}
-		extraRoles := sanitizeExtraRoles(db, r, b.Role, b.ExtraRoles)
+		extraRoles, err := sanitizeExtraRoles(db, r, b.Role, b.ExtraRoles)
+		if err != nil {
+			respondErr(w, 422, err.Error())
+			return
+		}
 		for _, er := range extraRoles {
 			if !validRole(db, r, er) {
 				respondErr(w, 422, "Unknown extra role: "+er)
@@ -357,14 +380,20 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			} else if cur, _ := db.PGQuery(r.Context(), `SELECT role FROM o3c_users WHERE id=$1`, id); len(cur) > 0 {
 				primary = str(cur[0]["role"])
 			}
-			extraRoles := sanitizeExtraRoles(db, r, primary, *b.ExtraRoles)
+			extraRoles, err := sanitizeExtraRoles(db, r, primary, *b.ExtraRoles)
+			if err != nil {
+				respondErr(w, 422, err.Error())
+				return
+			}
 			for _, er := range extraRoles {
 				if !validRole(db, r, er) {
 					respondErr(w, 422, "Unknown extra role: "+er)
 					return
 				}
 			}
-			// C1: only an admin may grant admin as a secondary role.
+			// C1: only an admin may grant admin as a secondary role. Unreachable now
+			// that extras cannot contain admin, and kept as a backstop: if the refusal
+			// above is ever relaxed, this is what still demands a primary admin.
 			if roleGrantsAdmin("", extraRoles) {
 				caller := core.UserFromCtx(r.Context())
 				if caller == nil || caller.Role != "admin" {

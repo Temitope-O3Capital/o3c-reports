@@ -22,15 +22,23 @@ import "github.com/o3c/workspace/core"
 // case named "cards head who also runs the call centre" — the reports layer learned
 // this lesson; the handlers had not.
 //
-// ADMIN IS DELIBERATELY NOT ROUTED THROUGH HERE. core.HasPage and
-// core.RequirePages treat admin as a PRIMARY-role superuser only (`c.Role ==
-// "admin"`), so widening admin here would hand out more than the page system does.
-// Every `user.Role != "admin"` comparison is therefore left exactly as it was. No
-// account currently holds admin as a secondary role, so nothing changes in
-// practice either way — but admin.go's roleGrantsAdmin() DOES count admin in
-// extra_roles when deciding who may grant it, so the two halves disagree. That is
-// a real inconsistency and a product decision (is admin primary-only, or not?),
-// not something to settle silently inside a helper.
+// ADMIN IS DELIBERATELY NOT ROUTED THROUGH HERE, and the reason is now simple:
+// admin is a PRIMARY role or it is nothing. core.Claims.AllRoles drops "admin"
+// from extra_roles, and handlers/admin.go refuses to store it there, so a caller
+// who holds admin holds it as `user.Role` — which every `user.Role != "admin"`
+// comparison already reads correctly. Passing admin through this helper would
+// therefore add nothing, and TestAdminIsNeverWidenedToSecondaryRoles asserts no
+// call site does.
+//
+// The earlier version of this comment said HasPage treats admin as primary-only
+// and that admin.go disagreed with it. Both halves of that were wrong, and in the
+// dangerous direction: HasPage's `c.Role == "admin"` is only a fast path, and the
+// loop after it resolves RolePages["admin"] — AllCatalogPages() — for ANY role in
+// AllRoles(). So admin in extra_roles used to grant every page and, through
+// seesAllRoles in scope.go, every row. admin.go's roleGrantsAdmin was the one piece
+// behaving conservatively: it describes the role being GRANTED, and required a
+// primary admin to grant it. The fix was to make the state unrepresentable rather
+// than to pick a side.
 func callerHasRole(c *core.Claims, roles ...string) bool {
 	if c == nil {
 		return false

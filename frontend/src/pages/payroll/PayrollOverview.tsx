@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter, NameCell, ActionRow,
+  Modal, ConfirmModal, ErrBanner, EmptyState, Spinner, StatusBadge, btnPrimary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, RowAction, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -61,12 +61,34 @@ export default function PayrollOverview() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
 
+  // There is no payroll service. These three pages were built against an API nobody
+  // wrote: /api/payroll/* is registered nowhere in the Go backend, and there is no
+  // payroll or payslip table in ANY schema. The summary call returns 404 and always
+  // will, until someone builds it.
+  //
+  // That used to surface as an error banner with a Retry button, beside a "New
+  // Payroll Run" button — three affordances that can only fail, reading like a fault
+  // in the page. `absent` makes it a plain statement of where things stand instead.
+  // The pages are kept rather than deleted because Payroll is HR's to hold once it
+  // exists; what is removed is the pretence that it already does.
+  const [absent, setAbsent] = useState(false)
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setErr(null)
     try {
       const d = await apiFetch<SummaryData>(`/api/payroll/summary?from=${dateFrom}&to=${dateTo}`)
       setData(d)
-    } catch (e: any) { setErr(e.message) }
+      setAbsent(false)
+    } catch (e: any) {
+      // A 404 is the service being absent, not a request going wrong. Anything else
+      // — 403, 500, a dropped connection — is a real error and still says so.
+      if (/\b404\b|not found/i.test(String(e?.message ?? ''))) {
+        setAbsent(true)
+        setErr(null)
+      } else {
+        setErr(e.message)
+      }
+    }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])
 
@@ -152,6 +174,28 @@ export default function PayrollOverview() {
       },
     },
   ]
+
+  // Nothing on this page can work without the service, so it says so and stops,
+  // rather than rendering four zeroed KPI tiles and an empty table that look like a
+  // month with no payroll in it.
+  if (absent) {
+    return (
+      <Page title="Payroll" subtitle="Not available yet">
+        <SectionCard title="Payroll Is Not Built Yet">
+          <EmptyState
+            icon="payments"
+            title="There Is No Payroll Service"
+            description={
+              'These screens were built against /api/payroll, which does not exist in the '
+              + 'backend, and there is no payroll or payslip table in the database. Nothing '
+              + 'is missing or broken — payroll has simply not been built. The pages are '
+              + 'kept so the work has somewhere to land.'
+            }
+          />
+        </SectionCard>
+      </Page>
+    )
+  }
 
   return (
     <Page

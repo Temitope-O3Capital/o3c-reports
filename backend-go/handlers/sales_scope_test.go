@@ -45,9 +45,14 @@ func TestParseUserID(t *testing.T) {
 // rather than left to the map literal.
 func TestIsSalesHead(t *testing.T) {
 	for role, want := range map[string]bool{
-		"admin":             true,
-		"sales_head":        true,
-		"head_sales":        true,
+		"admin":      true,
+		"sales_head": true,
+		// "head_sales" must now be FALSE. It is a retired slug (migration 141 remapped
+		// it to sales_head), it is absent from core.RolePages, and no account holds it
+		// — so granting it whole-book data scope was scope for a role the rest of the
+		// system does not recognise. TestEveryRoleNamedInAHandlerGateExists is what
+		// keeps names like this from reappearing in a gate.
+		"head_sales":        false,
 		"head_ops":          true,
 		"cfo":               true,
 		"sales_officer":     false,

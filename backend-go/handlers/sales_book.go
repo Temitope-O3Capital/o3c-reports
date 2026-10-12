@@ -27,10 +27,14 @@ import (
 // salesHeadRoles may see and reassign the whole book. Anyone else sees only their own.
 // admin bypasses page gating entirely in RequirePages, but is listed here too because
 // this is a data-scope decision, not a route-access one.
+//
+// "head_sales" was dropped on 2026-10-12: a retired slug that migration 141 remapped
+// to sales_head, absent from core.RolePages (so a holder gets no pages at all), and
+// held by no account. Listing it here granted whole-book data scope to a role the
+// rest of the system does not recognise.
 var salesHeadRoles = map[string]bool{
 	"admin":      true,
 	"sales_head": true,
-	"head_sales": true,
 	"head_ops":   true,
 	"cfo":        true,
 }
@@ -568,7 +572,7 @@ func listSalesOfficers(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT u.id, u.full_name, u.email, u.role, u.is_active,
 			       COUNT(o.cif) AS book_size,
-			       (u.role IN ('sales_officer','sales_head','head_sales','bd_officer','bd_head')
+			       (u.role IN ('sales_officer','sales_head','bd_officer','bd_head')
 			        OR COUNT(o.cif) > 0) AS already_officer
 			  FROM o3c_users u
 			  LEFT JOIN customer_officers o ON o.officer_id = u.id
