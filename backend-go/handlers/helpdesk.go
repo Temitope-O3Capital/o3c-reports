@@ -4122,6 +4122,13 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// has just had creates a SECOND row: the recording and duration on one, the
 		// notes and disposition on the other, and neither complete on its own.
 		MergeCallID *int64 `json:"merge_call_id"`
+		// Where the lead is, learned on this call. Sent alongside the disposition so an
+		// agent marking someone Interested supplies the location in the same action
+		// rather than being bounced to a second form — see guardLeadLocation, which
+		// requires a city and state before that one disposition can qualify a lead.
+		LeadCity    string `json:"lead_city"`
+		LeadState   string `json:"lead_state"`
+		LeadAddress string `json:"lead_address"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureCallLogSchema(r.Context(), db); err != nil {
@@ -4169,6 +4176,15 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		if ccDispositionNoteMissing(b.Disposition, ptrStr(b.Notes), ptrStr(b.Resolution)) {
 			respondErr(w, 422, "Choosing Other means telling us what happened — "+
 				"write it in the notes, in a sentence the next person can act on")
+			return
+		}
+		// A lead cannot be marked Interested without somewhere to visit it. Interested is
+		// the one disposition that qualifies a lead and sends it to Sales, and Sales plans
+		// by city and state — so this is where the location has to be in hand. Anything the
+		// agent did send is saved first, so supplying it with the disposition passes on the
+		// first attempt. See handlers/lead_location.go for why the rule lives server-side.
+		if guardLeadLocation(r.Context(), db, w, b.LeadID, b.Disposition,
+			b.LeadCity, b.LeadState, b.LeadAddress) {
 			return
 		}
 		// Look up ticket by ref if provided

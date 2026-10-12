@@ -548,6 +548,9 @@ func main() {
 			handlers.RegisterSalesOverview(r, db)     // the team lead's dashboard
 			handlers.RegisterSalesApplications(r, db) // raise loan/card applications for a customer
 			handlers.RegisterSalesActivity(r, db)     // the officer's logged day + the head's calendar over it
+			// Deal the unowned pool out: by state to the office that can actually
+			// visit it, evenly round-robin within that office (migration 353).
+			handlers.RegisterSalesLeadDistribute(r, db)
 		})
 		r.Route("/api/cards", func(r chi.Router) {
 			handlers.RegisterCards(r, db)

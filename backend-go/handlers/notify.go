@@ -108,6 +108,26 @@ const (
 	EvtLoanPastDue           = "loan_past_due"            // DPD > 0 (daily)
 	EvtFDMaturing3Days       = "fd_maturing_3days"        // 3 days before maturity_date
 	EvtFDMaturingToday       = "fd_maturing_today"        // maturity_date = today
+
+	// ── The lead journey ──────────────────────────────────────────────────────
+	// Every step a lead takes between the phone floor and a sales visit. Almost none
+	// of this was announced: the only lead alert in the app was the hand-off digest
+	// to sales_head, so an officer could be dealt eleven leads and be told nothing,
+	// and the agent who qualified one never learned whether anybody picked it up.
+	//
+	// EvtLeadForwarded keeps the literal 'cc_lead_forwarded' it has used since that
+	// digest shipped — renaming the string would orphan both the rows already in
+	// notifications and any per-channel config an admin has set against it.
+	EvtLeadForwarded  = "cc_lead_forwarded" // a call qualified a lead; Sales now owns it
+	EvtLeadAssigned   = "lead_assigned"     // leads dealt to an officer from the pool
+	EvtLeadClaimed    = "lead_claimed"      // an officer took a lead out of the pool
+	EvtLeadConverted  = "lead_converted"    // the lead became a customer
+	EvtLeadNoLocation = "lead_no_location"  // qualified with nowhere to visit it
+
+	// Sales planning — the officer's own diary (migration 353's sales_visit_plans).
+	EvtVisitPlanned  = "visit_planned"   // someone put a visit in your diary
+	EvtVisitDueToday = "visit_due_today" // daily: what you planned for today
+	EvtFollowUpDue   = "follow_up_due"   // a lead's next action has come due
 )
 
 // NotifPayload carries everything needed to dispatch a notification.

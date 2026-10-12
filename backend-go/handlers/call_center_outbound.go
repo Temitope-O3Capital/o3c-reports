@@ -798,6 +798,7 @@ func ccCreateLead(db *core.DB) http.HandlerFunc {
 		CustomerPhone *string `json:"customer_phone"`
 		Employer      *string `json:"employer"`
 		State         *string `json:"state"`
+		City          *string `json:"city"`
 		LeadScore     int     `json:"lead_score"`
 		AssignedTo    *int64  `json:"assigned_to"`
 	}
@@ -809,10 +810,10 @@ func ccCreateLead(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(),
 			`INSERT INTO call_center_leads
-			 (campaign_id, customer_cif, customer_name, customer_phone, employer, state, lead_score, assigned_to)
-			 VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8) RETURNING *`,
+			 (campaign_id, customer_cif, customer_name, customer_phone, employer, state, city, lead_score, assigned_to)
+			 VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9) RETURNING *`,
 			b.CampaignID, b.CustomerCIF, b.CustomerName, b.CustomerPhone,
-			b.Employer, b.State, b.LeadScore, b.AssignedTo)
+			b.Employer, b.State, b.City, b.LeadScore, b.AssignedTo)
 		if err != nil {
 			respondErr(w, 500, "Insert failed")
 			return
@@ -834,6 +835,7 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 		Employer     *string `json:"employer"`
 		Address      *string `json:"address"`
 		State        *string `json:"state"`
+		City         *string `json:"city"`
 		CustomerCIF  *string `json:"customer_cif"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -876,6 +878,13 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 		if b.State != nil {
 			q += fmt.Sprintf(", state=NULLIF($%d,'')", n)
 			args = append(args, strings.TrimSpace(*b.State))
+			n++
+		}
+		// City arrived with migration 353. Sales routes on state and plans on city, so
+		// the lead book needs somewhere to put the answer to "whereabouts in Lagos?".
+		if b.City != nil {
+			q += fmt.Sprintf(", city=NULLIF($%d,'')", n)
+			args = append(args, strings.TrimSpace(*b.City))
 			n++
 		}
 		if b.CustomerCIF != nil {
@@ -972,6 +981,12 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 					slog.Error("ccUpdateLead: record status change", "lead", id, "err", err)
 				}
 			}
+		}
+		// A location corrected here reaches Sales immediately. The agent who edits the
+		// lead is usually doing it because the customer has just told them where they
+		// are, and Sales is the only reason the field exists.
+		if b.State != nil || b.City != nil || b.Address != nil {
+			propagateLeadLocation(r.Context(), db, toInt64(rows[0]["id"]))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -3923,7 +3938,9 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 // progress to another's record, so a shared number gets a fresh contact instead.
 func crmLinkLeadToContact(ctx context.Context, db *core.DB, leadID int64) bool {
 	rows, err := db.PGQuery(ctx, `
-		SELECT id, customer_name, customer_phone, email, assigned_to, marketing_campaign_id
+		SELECT id, customer_name, customer_phone, email, assigned_to, marketing_campaign_id,
+		       COALESCE(state, '') AS state, COALESCE(city, '') AS city,
+		       COALESCE(address, '') AS address
 		  FROM call_center_leads WHERE id = $1 AND COALESCE(customer_phone,'') <> ''`, leadID)
 	if err != nil || len(rows) == 0 {
 		return false
@@ -3949,6 +3966,11 @@ func crmLinkLeadToContact(ctx context.Context, db *core.DB, leadID int64) bool {
 				        source_cc_lead_id  = COALESCE(source_cc_lead_id, $3),
 				        updated_at         = NOW()
 				  WHERE id = $1`, toInt64(m[0]["id"]), mktCampaign, leadID)
+			// Carry the location across too, on the same COALESCE terms as the campaign
+			// lineage above. Without this the lead's city and state stopped at the join:
+			// city was blank on all 36,499 contacts and state on 36,319, which is why
+			// migration 317 had to reconstruct state from the campaign name instead.
+			propagateLeadLocation(ctx, db, leadID)
 			return true
 		}
 		return false
@@ -3962,12 +3984,19 @@ func crmLinkLeadToContact(ctx context.Context, db *core.DB, leadID int64) bool {
 	if first == "" {
 		first = "Lead"
 	}
+	// state, city and address are carried from the lead at creation. They used to be
+	// omitted, so a contact minted here was born with no location and Sales could not
+	// tell a Lagos lead from an Abuja one without going back to the campaign it came
+	// from. The lead is the only place that knowledge exists at this moment.
 	created, err := db.PGQuery(ctx, `
 		INSERT INTO crm_contacts (first_name, last_name, phone, email, source, lead_source,
 		                          source_type, lead_stage, lead_owner_id, status,
-		                          source_campaign_id, source_cc_lead_id)
-		VALUES ($1,$2,$3,NULLIF(TRIM($4),''),'call_centre','call_centre','self_sourced','new',$5,'lead',$6,$7)
-		RETURNING id`, first, last, phone, str(rows[0]["email"]), rows[0]["assigned_to"], mktCampaign, leadID)
+		                          source_campaign_id, source_cc_lead_id,
+		                          state, city, address)
+		VALUES ($1,$2,$3,NULLIF(TRIM($4),''),'call_centre','call_centre','self_sourced','new',$5,'lead',$6,$7,
+		        NULLIF(btrim($8),''), NULLIF(btrim($9),''), NULLIF(btrim($10),''))
+		RETURNING id`, first, last, phone, str(rows[0]["email"]), rows[0]["assigned_to"], mktCampaign, leadID,
+		str(rows[0]["state"]), str(rows[0]["city"]), str(rows[0]["address"]))
 	if err != nil || len(created) == 0 {
 		slog.Error("crmLinkLeadToContact: create contact", "lead", leadID, "err", err)
 		return false
