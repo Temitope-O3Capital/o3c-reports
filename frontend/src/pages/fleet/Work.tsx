@@ -55,7 +55,33 @@ interface IncRow {
   reported_by_name: string
 }
 
+interface CoverRow {
+  vehicle_id: number
+  reg_no: string
+  vehicle_status: string
+  policy_id: number | null
+  insurer: string | null
+  policy_no: string | null
+  cover_type: string | null
+  sum_insured_kobo: number | null
+  premium_kobo: number | null
+  cover_from: string | null
+  cover_to: string | null
+  cover_state: string
+  days_to_expiry: number | null
+}
+
 type Scope = 'all' | 'overdue' | 'due_soon'
+
+/* 'unknown' is held apart from 'expired' throughout: the register not holding a
+   policy is not evidence that a vehicle is uninsured, and saying so about a legal
+   exposure would be a confident wrong answer. */
+const COVER_TONE: Record<string, string> = {
+  covered: GREEN, expiring: AMBER, expired: RED, unknown: 'var(--txt3)',
+}
+const COVER_LABEL: Record<string, string> = {
+  covered: 'Covered', expiring: 'Expiring', expired: 'Expired', unknown: 'No Policy On Record',
+}
 
 function plusDays(n: number): string {
   const d = new Date()
@@ -67,6 +93,7 @@ export default function FleetWork() {
   const navigate = useNavigate()
   const [maint, setMaint] = useState<MaintRow[]>([])
   const [incidents, setIncidents] = useState<IncRow[]>([])
+  const [cover, setCover] = useState<CoverRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState('work')
@@ -76,12 +103,14 @@ export default function FleetWork() {
     setLoading(true)
     setError(null)
     try {
-      const [m, i] = await Promise.all([
+      const [m, i, c] = await Promise.all([
         apiFetch<{ data: MaintRow[] }>('/api/fleet/maintenance'),
         apiFetch<{ data: IncRow[] }>('/api/fleet/incidents'),
+        apiFetch<{ data: CoverRow[] }>('/api/fleet/cover'),
       ])
       setMaint(m.data ?? [])
       setIncidents(i.data ?? [])
+      setCover(c.data ?? [])
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load the fleet work register')
     } finally {
@@ -110,6 +139,10 @@ export default function FleetWork() {
   const openInc  = useMemo(() => incidents.filter(x => !x.resolved_on), [incidents])
   const vehiclesWithWork = useMemo(
     () => new Set(maint.map(m => m.vehicle_id)).size, [maint])
+
+  const coverExpired  = useMemo(() => cover.filter(c => c.cover_state === 'expired'), [cover])
+  const coverExpiring = useMemo(() => cover.filter(c => c.cover_state === 'expiring'), [cover])
+  const coverUnknown  = useMemo(() => cover.filter(c => c.cover_state === 'unknown'), [cover])
 
   const regCell = (reg: string, vehicleID: number) => (
     <button type="button" onClick={() => navigate(`/fleet/vehicles/${vehicleID}`)}
@@ -190,7 +223,59 @@ export default function FleetWork() {
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.reported_by_name || '—'}</span> },
   ]
 
-  const nothingYet = !loading && maint.length === 0 && incidents.length === 0
+  const coverCols: TableCol<CoverRow>[] = [
+    { key: 'reg_no', label: 'Vehicle', sortable: true, width: 120,
+      render: r => regCell(r.reg_no, r.vehicle_id) },
+    { key: 'cover_state', label: 'Cover', sortable: true, width: 170, render: r => (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: TEXT.sm, fontWeight: FW.semibold,
+        color: COVER_TONE[r.cover_state] ?? 'var(--txt3)',
+      }}>
+        <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 16 }}>
+          {r.cover_state === 'covered' ? 'verified_user'
+            : r.cover_state === 'unknown' ? 'help' : 'gpp_maybe'}
+        </span>
+        {COVER_LABEL[r.cover_state] ?? humanLabel(r.cover_state)}
+      </span>
+    ) },
+    { key: 'insurer', label: 'Insurer', sortable: true, render: r => r.insurer
+      ? (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.insurer}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            {r.policy_no || 'no policy number'}
+            {r.cover_type ? ` · ${humanLabel(r.cover_type)}` : ''}
+          </div>
+        </div>
+      )
+      : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>nothing recorded</span> },
+    { key: 'cover_to', label: 'Expires', sortable: true, width: 160, render: r => {
+      if (!r.cover_to) return <span style={{ color: 'var(--txt3)' }}>—</span>
+      const d = r.days_to_expiry
+      return (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDate(r.cover_to)}</div>
+          <div style={{
+            fontSize: TEXT.xs,
+            color: d != null && d < 0 ? RED : d != null && d <= 30 ? AMBER : 'var(--txt3)',
+          }}>
+            {d == null ? '' : d < 0 ? `lapsed ${fmtNum(Math.abs(d))} day(s) ago` : `${fmtNum(d)} day(s) left`}
+          </div>
+        </div>
+      )
+    } },
+    { key: 'sum_insured_kobo', label: 'Sum Insured', align: 'right', sortable: true, width: 140,
+      render: r => Number(r.sum_insured_kobo ?? 0) > 0
+        ? <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(Number(r.sum_insured_kobo))}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span> },
+    { key: 'premium_kobo', label: 'Premium', align: 'right', sortable: true, width: 130,
+      render: r => Number(r.premium_kobo ?? 0) > 0
+        ? <span style={NUM}>{fmtKobo(Number(r.premium_kobo))}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span> },
+  ]
+
+  const nothingYet = !loading && maint.length === 0 && incidents.length === 0 && cover.length === 0
 
   return (
     <Page
@@ -248,6 +333,18 @@ export default function FleetWork() {
         <KpiCard label="Incidents" value={fmtKobo(incCost)}
           sub={openInc.length ? `${fmtNum(openInc.length)} still open` : `${fmtNum(incidents.length)} record(s)`}
           icon="report" accent={openInc.length ? RED : NAVY} loading={loading} />
+        <KpiCard label="Insurance"
+          value={coverExpired.length
+            ? `${fmtNum(coverExpired.length)} expired`
+            : coverExpiring.length
+              ? `${fmtNum(coverExpiring.length)} expiring`
+              : coverUnknown.length ? `${fmtNum(coverUnknown.length)} unknown` : 'All covered'}
+          sub={coverUnknown.length
+            ? `${fmtNum(coverUnknown.length)} vehicle(s) with no policy on record`
+            : `${fmtNum(cover.length)} vehicle(s) checked`}
+          icon="shield"
+          accent={coverExpired.length ? RED : coverExpiring.length ? AMBER : coverUnknown.length ? 'var(--txt3)' : GREEN}
+          loading={loading} />
       </div>
 
       {nothingYet ? (
@@ -263,6 +360,7 @@ export default function FleetWork() {
             tabs={[
               { key: 'work',      label: 'Work',      badge: maint.length },
               { key: 'incidents', label: 'Incidents', badge: incidents.length },
+              { key: 'cover',     label: 'Insurance', badge: coverExpired.length + coverExpiring.length },
             ]}
           />
 
@@ -290,6 +388,22 @@ export default function FleetWork() {
                     description={scope === 'all'
                       ? 'Log work from a vehicle page and it appears here.'
                       : 'Every job with a due date is inside its window.'} />
+                }
+              />
+            </SectionCard>
+          )}
+
+          {tab === 'cover' && (
+            <SectionCard title="Insurance Cover" padding={false}
+              subtitle="One row per vehicle, worst first. A vehicle with no policy reads “no policy on record” — which is not the same as uninsured">
+              <DataTable
+                cols={coverCols} rows={cover} keyFn={r => String(r.vehicle_id)}
+                searchKeys={['reg_no', 'insurer', 'policy_no', 'cover_state']}
+                searchPlaceholder="Search vehicle or insurer…"
+                loading={loading && !cover.length} skeletonRows={5} pageSize={25}
+                emptyText={
+                  <EmptyState icon="shield" title="No Vehicles To Check"
+                    description="Cover is reported per vehicle on the register. Add a vehicle and record its policy from the vehicle page." />
                 }
               />
             </SectionCard>

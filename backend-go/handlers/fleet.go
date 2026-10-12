@@ -69,6 +69,12 @@ func RegisterFleet(r chi.Router, db *core.DB) {
 
 	r.With(read).Get("/incidents", fleetIncidentList(db))
 	r.With(write).Post("/incidents", fleetIncidentAdd(db))
+
+	// Cover, across the register and per policy. A lapsed certificate is a legal
+	// exposure rather than an expense, so it is reportable to anyone who can read the
+	// module; recording a policy is a register write.
+	r.With(read).Get("/cover", fleetCoverList(db))
+	r.With(write).Post("/insurance", fleetInsuranceAdd(db))
 }
 
 // fleetJSON writes a bare JSON object with an explicit status.
@@ -122,6 +128,20 @@ func fleetOverview(db *core.DB) http.HandlerFunc {
 			       COALESCE(SUM(acquisition_cost_kobo),0)          AS fleet_cost_kobo
 			FROM app.fleet_vehicles`); len(rows) > 0 {
 			out["vehicles"] = rows[0]
+		}
+
+		// Insurance cover across the register. 'unknown' is counted separately from
+		// 'expired' on purpose: the register not holding a policy is not evidence that
+		// none exists, and reporting those vehicles as uninsured would be a confident
+		// wrong answer about a legal exposure.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) FILTER (WHERE cover_state = 'covered')  AS covered,
+			       COUNT(*) FILTER (WHERE cover_state = 'expiring') AS expiring,
+			       COUNT(*) FILTER (WHERE cover_state = 'expired')  AS expired,
+			       COUNT(*) FILTER (WHERE cover_state = 'unknown')  AS unknown
+			FROM app.fleet_cover_status
+			WHERE vehicle_status <> 'disposed'`); len(rows) > 0 {
+			out["cover"] = rows[0]
 		}
 
 		// Card coverage. A vehicle with no card has no spend, and that is a register
@@ -359,9 +379,12 @@ func fleetVehicleDetail(db *core.DB) http.HandlerFunc {
 			maint = []core.Row{}
 		}
 
+		// driver_then is the point of keeping custody as a window: six months after an
+		// accident the CURRENT driver is not the person who was holding the car.
 		inc, _ := db.PGQuery(ctx, `
 			SELECT i.id, i.occurred_on, i.kind, i.description, i.cost_kobo, i.resolved_on,
-			       COALESCE(u.full_name,'') AS reported_by_name
+			       COALESCE(u.full_name,'') AS reported_by_name,
+			       app.fleet_driver_on(i.vehicle_id, i.occurred_on) AS driver_then
 			FROM app.fleet_incidents i
 			LEFT JOIN app.o3c_users u ON u.id = i.reported_by
 			WHERE i.vehicle_id = $1 ORDER BY i.occurred_on DESC`, id)
@@ -369,9 +392,43 @@ func fleetVehicleDetail(db *core.DB) http.HandlerFunc {
 			inc = []core.Row{}
 		}
 
+		// Driver custody, newest first. Written by trigger from the vehicle row, so it
+		// cannot be out of step with the current assignment shown above.
+		assigns, _ := db.PGQuery(ctx, `
+			SELECT a.id, a.valid_from, a.valid_to, a.note,
+			       COALESCE(u.full_name, a.driver_name, '') AS driver,
+			       a.assigned_to IS NOT NULL AS is_staff
+			FROM app.fleet_assignments a
+			LEFT JOIN app.o3c_users u ON u.id = a.assigned_to
+			WHERE a.vehicle_id = $1
+			ORDER BY a.valid_from DESC, a.id DESC`, id)
+		if assigns == nil {
+			assigns = []core.Row{}
+		}
+
+		policies, _ := db.PGQuery(ctx, `
+			SELECT id, insurer, policy_no, cover_type, sum_insured_kobo, premium_kobo,
+			       cover_from, cover_to, note,
+			       (cover_from <= CURRENT_DATE AND cover_to >= CURRENT_DATE) AS is_current
+			FROM app.fleet_insurance WHERE vehicle_id = $1
+			ORDER BY cover_to DESC`, id)
+		if policies == nil {
+			policies = []core.Row{}
+		}
+
+		var cover any
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT cover_state, days_to_expiry, insurer, policy_no, cover_to
+			FROM app.fleet_cover_status WHERE vehicle_id = $1`, id); len(rows) > 0 {
+			cover = rows[0]
+		}
+
 		fleetJSON(w, 200, map[string]any{
 			"vehicle":     veh[0],
 			"cards":       cards,
+			"assignments": assigns,
+			"insurance":   policies,
+			"cover":       cover,
 			"spend":       spend,
 			"monthly":     monthly,
 			"odometer":    odo,
@@ -730,6 +787,83 @@ func fleetOdometerAdd(db *core.DB) http.HandlerFunc {
 }
 
 /* ── Maintenance ────────────────────────────────────────────────────────────── */
+
+// fleetCoverList is the insurance position for the whole register: one row per
+// vehicle, with the policy that covers today or, failing that, the most recent one.
+// Disposed vehicles are excluded — nobody needs to insure a car that has been sold.
+func fleetCoverList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT vehicle_id, reg_no, vehicle_status, policy_id, insurer, policy_no,
+			       cover_type, sum_insured_kobo, premium_kobo, cover_from, cover_to,
+			       cover_state, days_to_expiry
+			FROM app.fleet_cover_status
+			WHERE vehicle_status <> 'disposed'
+			ORDER BY CASE cover_state
+			           WHEN 'expired'  THEN 0
+			           WHEN 'expiring' THEN 1
+			           WHEN 'unknown'  THEN 2
+			           ELSE 3 END,
+			         days_to_expiry NULLS LAST, reg_no`)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		fleetJSON(w, 200, map[string]any{"data": rows})
+	}
+}
+
+func fleetInsuranceAdd(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			VehicleID      int64  `json:"vehicle_id"`
+			Insurer        string `json:"insurer"`
+			PolicyNo       string `json:"policy_no"`
+			CoverType      string `json:"cover_type"`
+			SumInsuredKobo int64  `json:"sum_insured_kobo"`
+			PremiumKobo    int64  `json:"premium_kobo"`
+			CoverFrom      string `json:"cover_from"`
+			CoverTo        string `json:"cover_to"`
+			Note           string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.VehicleID == 0 || strings.TrimSpace(b.Insurer) == "" || b.CoverFrom == "" || b.CoverTo == "" {
+			respondErr(w, 422, "The vehicle, the insurer and both cover dates are all required")
+			return
+		}
+		if b.CoverType == "" {
+			b.CoverType = "comprehensive"
+		}
+		var by *int64
+		if u := core.UserFromCtx(r.Context()); u != nil && u.ID != 0 {
+			by = &u.ID
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO app.fleet_insurance
+			  (vehicle_id, insurer, policy_no, cover_type, sum_insured_kobo,
+			   premium_kobo, cover_from, cover_to, note, created_by)
+			VALUES ($1, btrim($2), NULLIF(btrim($3),''), $4, $5, $6,
+			        $7::date, $8::date, NULLIF(btrim($9),''), $10)
+			RETURNING id`,
+			b.VehicleID, b.Insurer, b.PolicyNo, b.CoverType, b.SumInsuredKobo,
+			b.PremiumKobo, b.CoverFrom, b.CoverTo, b.Note, by)
+		if err != nil {
+			if strings.Contains(err.Error(), "fleet_insurance_cover_type_check") {
+				respondErr(w, 422, "That kind of cover is not one the register recognises")
+				return
+			}
+			if strings.Contains(err.Error(), "fleet_insurance_window") {
+				respondErr(w, 422, "Cover cannot end before it starts")
+				return
+			}
+			respondErrLog(w, 500, "Could not record the policy", err)
+			return
+		}
+		fleetJSON(w, 201, rows[0])
+	}
+}
 
 // fleetLookups feeds the register's two reference dropdowns in one call. Names and
 // ids only: assigning a driver needs to know who exists, not anything about them.

@@ -63,6 +63,7 @@ interface Overview {
   maintenance: { jobs: number; cost_kobo: number }
   incidents: { incidents: number; open_incidents: number; cost_kobo: number }
   due: DueRow[]
+  cover: CoverCounts
   feed: { card_feed_last_day: string | null }
   period: { from: string; to: string }
 }
@@ -87,6 +88,10 @@ const VEHICLE_STATUSES = ['active', 'workshop', 'reserve', 'stolen', 'disposed']
 
 interface Lookup { id: number; name: string }
 interface Driver { id: number; full_name: string }
+
+/* Cover counts, with 'unknown' deliberately apart from 'expired': the register not
+   holding a policy is not evidence a vehicle is uninsured. */
+interface CoverCounts { covered: number; expiring: number; expired: number; unknown: number }
 
 function daysSince(iso: string | null | undefined): number | null {
   if (!iso) return null
@@ -186,6 +191,7 @@ export default function FleetOverview() {
   const byVeh    = d?.by_vehicle ?? []
   const codes    = d?.spend_by_code ?? []
   const due      = d?.due ?? []
+  const cover    = d?.cover
 
   const feedLast  = d?.feed?.card_feed_last_day ?? null
   const feedStale = daysSince(feedLast)
@@ -421,6 +427,24 @@ export default function FleetOverview() {
         <KpiCard label="Maintenance" value={fmtKobo(d?.maintenance?.cost_kobo)}
           sub={`${fmtNum(d?.maintenance?.jobs)} jobs · ${fmtNum(d?.incidents?.open_incidents)} open incident(s)`}
           icon="build" accent={PURPLE} loading={loading && !d} />
+        {/* Cover leads with the worst state present, because an expired certificate is
+            a legal exposure and a count of healthy ones hides it. */}
+        <KpiCard label="Insurance"
+          value={Number(cover?.expired ?? 0) > 0
+            ? `${fmtNum(cover?.expired)} expired`
+            : Number(cover?.expiring ?? 0) > 0
+              ? `${fmtNum(cover?.expiring)} expiring`
+              : Number(cover?.unknown ?? 0) > 0
+                ? `${fmtNum(cover?.unknown)} unknown`
+                : Number(cover?.covered ?? 0) > 0 ? 'All covered' : '—'}
+          sub={Number(cover?.unknown ?? 0) > 0
+            ? `${fmtNum(cover?.unknown)} with no policy on record`
+            : `${fmtNum(cover?.covered)} covered`}
+          icon="shield"
+          accent={Number(cover?.expired ?? 0) > 0 ? RED
+            : Number(cover?.expiring ?? 0) > 0 ? AMBER
+              : Number(cover?.unknown ?? 0) > 0 ? 'var(--txt3)' : GREEN}
+          loading={loading && !d} />
       </div>
 
       <SectionCard title="Cost per Vehicle" padding={false} style={{ marginBottom: SP[4] }}

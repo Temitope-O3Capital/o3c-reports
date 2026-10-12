@@ -111,17 +111,63 @@ interface IncRow {
   cost_kobo: number
   resolved_on: string | null
   reported_by_name: string
+  // Who held the vehicle that day, which is not who holds it now.
+  driver_then: string | null
+}
+
+interface AssignRow {
+  id: number
+  valid_from: string
+  valid_to: string | null
+  note: string | null
+  driver: string
+  is_staff: boolean
+}
+
+interface PolicyRow {
+  id: number
+  insurer: string
+  policy_no: string | null
+  cover_type: string
+  sum_insured_kobo: number
+  premium_kobo: number
+  cover_from: string
+  cover_to: string
+  note: string | null
+  is_current: boolean
+}
+
+interface Cover {
+  cover_state: string
+  days_to_expiry: number | null
+  insurer: string | null
+  policy_no: string | null
+  cover_to: string | null
 }
 
 interface Detail {
   vehicle: Vehicle
   cards: CardWindow[]
+  assignments: AssignRow[]
+  insurance: PolicyRow[]
+  cover: Cover | null
   spend: SpendRow[]
   monthly: MonthRow[]
   odometer: OdoRow[]
   maintenance: MaintRow[]
   incidents: IncRow[]
 }
+
+/* Cover is reported in four states, and 'unknown' is deliberately not 'uninsured':
+   the register not holding a policy is not evidence that none exists. */
+const COVER_TONE: Record<string, string> = {
+  covered: GREEN, expiring: AMBER, expired: RED, unknown: 'var(--txt3)',
+}
+const COVER_WORD: Record<string, string> = {
+  covered: 'Insured', expiring: 'Cover Expiring', expired: 'Cover Expired',
+  unknown: 'No Policy On Record',
+}
+const COVER_TYPES = ['comprehensive', 'third_party', 'third_party_fire_theft']
 
 const STATUS_TONE: Record<string, string> = {
   active: GREEN, workshop: AMBER, reserve: BLUE, stolen: RED, disposed: 'var(--txt3)',
@@ -207,6 +253,17 @@ export default function FleetVehicle() {
   const [fullOdo, setFullOdo] = useState<OdoRow[] | null>(null)
   const [loadingOdo, setLoadingOdo] = useState(false)
 
+  // Record a policy
+  const [pOpen, setPOpen]       = useState(false)
+  const [pInsurer, setPInsurer] = useState('')
+  const [pPolicyNo, setPPolicyNo] = useState('')
+  const [pType, setPType]       = useState('comprehensive')
+  const [pSum, setPSum]         = useState('')
+  const [pPremium, setPPremium] = useState('')
+  const [pFrom, setPFrom]       = useState('')
+  const [pTo, setPTo]           = useState('')
+  const [pNote, setPNote]       = useState('')
+
   // Log incident
   const [iOpen, setIOpen]       = useState(false)
   const [iKind, setIKind]       = useState('accident')
@@ -251,8 +308,38 @@ export default function FleetVehicle() {
     }
   }
 
+  const addPolicy = async () => {
+    if (!pInsurer.trim() || !pFrom || !pTo) return
+    setSaving(true); setError(null)
+    try {
+      await apiPost('/api/fleet/insurance', {
+        vehicle_id: Number(id),
+        insurer: pInsurer.trim(),
+        policy_no: pPolicyNo.trim(),
+        cover_type: pType,
+        sum_insured_kobo: pSum.trim() ? toKobo(pSum) : 0,
+        premium_kobo: pPremium.trim() ? toKobo(pPremium) : 0,
+        cover_from: pFrom,
+        cover_to: pTo,
+        note: pNote.trim(),
+      })
+      setPOpen(false)
+      setPInsurer(''); setPPolicyNo(''); setPSum(''); setPPremium('')
+      setPFrom(''); setPTo(''); setPNote(''); setPType('comprehensive')
+      setNotice('Policy recorded. Cover status recalculates from its dates.')
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not record the policy')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const v        = d?.vehicle
   const cards    = d?.cards ?? []
+  const assigns  = d?.assignments ?? []
+  const policies = d?.insurance ?? []
+  const cover    = d?.cover ?? null
   const spend    = d?.spend ?? []
   const monthly  = d?.monthly ?? []
   const odo      = fullOdo ?? d?.odometer ?? []
@@ -540,8 +627,63 @@ export default function FleetVehicle() {
       render: r => r.resolved_on
         ? <span style={{ fontSize: TEXT.sm, color: GREEN }}>closed {fmtDate(r.resolved_on)}</span>
         : <Badge variant="warning">open</Badge> },
+    // The driver at the time, not the current one — the reason custody is a window.
+    { key: 'driver_then', label: 'Driver At The Time', width: 160,
+      render: r => r.driver_then
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.driver_then}</span>
+        : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>not on record</span> },
     { key: 'reported_by_name', label: 'Reported By', width: 150,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.reported_by_name || '—'}</span> },
+  ]
+
+  const assignCols: TableCol<AssignRow>[] = [
+    { key: 'driver', label: 'Driver', sortable: true, render: r => (
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+          {r.driver || '—'}
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          {r.is_staff ? 'staff' : 'contract driver'}
+        </div>
+      </div>
+    ) },
+    { key: 'valid_from', label: 'Held From', sortable: true, width: 130,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDate(r.valid_from)}</span> },
+    { key: 'valid_to', label: 'Until', sortable: true, width: 140,
+      render: r => r.valid_to
+        ? <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDate(r.valid_to)}</span>
+        : <Badge variant="success">currently holds it</Badge> },
+    { key: 'note', label: 'Note',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.note || '—'}</span> },
+  ]
+
+  const policyCols: TableCol<PolicyRow>[] = [
+    { key: 'insurer', label: 'Insurer', sortable: true, render: r => (
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.insurer}</div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          {r.policy_no || 'no policy number'} · {humanLabel(r.cover_type)}
+        </div>
+      </div>
+    ) },
+    { key: 'cover_from', label: 'Cover', sortable: true, width: 190, render: r => (
+      <div style={{ minWidth: 0 }}>
+        <div style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDate(r.cover_from)} → {fmtDate(r.cover_to)}</div>
+        {r.is_current
+          ? <Badge variant="success">current</Badge>
+          : r.cover_to < today()
+            ? <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>expired</span>
+            : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>not started</span>}
+      </div>
+    ) },
+    { key: 'sum_insured_kobo', label: 'Sum Insured', align: 'right', sortable: true, width: 140,
+      render: r => Number(r.sum_insured_kobo) > 0
+        ? <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.sum_insured_kobo)}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span> },
+    { key: 'premium_kobo', label: 'Premium', align: 'right', sortable: true, width: 130,
+      render: r => Number(r.premium_kobo) > 0
+        ? <span style={NUM}>{fmtKobo(r.premium_kobo)}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span> },
   ]
 
   const spendCols: TableCol<SpendRow>[] = [
@@ -714,6 +856,16 @@ export default function FleetVehicle() {
         <KpiCard label="Last Reading" value={lastReading ? fmtDate(lastReading) : '—'}
           sub={dueSoon.length ? `${fmtNum(dueSoon.length)} job(s) due within 30 days` : 'nothing due in 30 days'}
           icon="event" accent={dueSoon.length ? AMBER : 'var(--txt3)'} loading={loading && !d} />
+        <KpiCard label="Insurance"
+          value={cover ? COVER_WORD[cover.cover_state] ?? humanLabel(cover.cover_state) : '—'}
+          sub={cover?.cover_to
+            ? cover.days_to_expiry != null && cover.days_to_expiry >= 0
+              ? `${cover.insurer ?? 'policy'} · ${fmtNum(cover.days_to_expiry)} day(s) left`
+              : `${cover.insurer ?? 'policy'} · lapsed ${fmtDate(cover.cover_to)}`
+            : 'not the same as uninsured'}
+          icon="shield"
+          accent={cover ? COVER_TONE[cover.cover_state] ?? 'var(--txt3)' : 'var(--txt3)'}
+          loading={loading && !d} />
       </div>
 
       {v?.status && v.status !== 'active' && (
@@ -738,10 +890,45 @@ export default function FleetVehicle() {
           { key: 'maintenance', label: 'Maintenance',     badge: maint.length },
           { key: 'incidents',   label: 'Incidents',       badge: incidents.length },
           { key: 'spend',       label: 'Card Spend',      badge: spend.length },
+          { key: 'drivers',     label: 'Drivers',         badge: assigns.length },
+          { key: 'insurance',   label: 'Insurance',       badge: policies.length },
           { key: 'cards',       label: 'Cards Held',      badge: cards.length },
           { key: 'details',     label: 'Details' },
         ]}
       />
+
+      {tab === 'drivers' && (
+        <SectionCard title="Driver Custody" padding={false}
+          subtitle="Who held this vehicle and when. Written automatically whenever the driver on the register changes, so it cannot be bypassed">
+          <DataTable
+            cols={assignCols} rows={assigns} keyFn={r => String(r.id)}
+            loading={loading && !d} skeletonRows={3} pageSize={25}
+            emptyText={
+              <EmptyState icon="person_off" title="No Driver Ever Assigned"
+                description="Assign a driver on the Details tab and the custody window opens from that day. Each change closes the last one, so an incident can always be traced to whoever held the vehicle."
+                action={canWrite ? { label: 'Assign a Driver', icon: 'edit', onClick: openEdit } : undefined} />
+            }
+          />
+        </SectionCard>
+      )}
+
+      {tab === 'insurance' && (
+        <SectionCard title="Motor Policies" padding={false}
+          subtitle="Insurer, policy number, sum insured and the cover window — what a claim would actually need"
+          actions={canWrite
+            ? <Button size="sm" icon="add" onClick={() => setPOpen(true)}>Record Policy</Button>
+            : undefined}>
+          <DataTable
+            cols={policyCols} rows={policies} keyFn={r => String(r.id)}
+            loading={loading && !d} skeletonRows={3} pageSize={25}
+            emptyText={
+              <EmptyState icon="shield" title="No Policy On Record"
+                description="This is not the same as uninsured — the register simply holds no policy. Record one and its expiry drives the cover warnings on the Fleet Overview and the Work & Incidents page."
+                action={canWrite ? { label: 'Record Policy', icon: 'add', onClick: () => setPOpen(true) } : undefined} />
+            }
+          />
+        </SectionCard>
+      )}
 
       {tab === 'distance' && (
         <SectionCard title="Odometer & Consumption" padding={false}
@@ -961,6 +1148,51 @@ export default function FleetVehicle() {
           The registration number cannot be changed here. It is the key this vehicle is known by on
           invoices and fines, so renaming it would silently re-identify everything already filed
           against it — retire the entry and add a new one instead.
+        </p>
+      </Modal>
+
+      {/* ── Record a policy ── */}
+      <Modal open={pOpen} onClose={() => setPOpen(false)} title="Record a Motor Policy" width={620}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPOpen(false)} disabled={saving}>Cancel</Button>
+            <Button icon="shield" onClick={addPolicy} loading={saving}
+              disabled={!pInsurer.trim() || !pFrom || !pTo}>Record Policy</Button>
+          </>
+        }>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: SP[3] }}>
+          <Field label="Insurer" required>
+            <Input value={pInsurer} onChange={e => setPInsurer(e.target.value)} placeholder="e.g. Leadway" />
+          </Field>
+          <Field label="Policy number">
+            <Input value={pPolicyNo} onChange={e => setPPolicyNo(e.target.value)} />
+          </Field>
+          <Field label="Cover">
+            <Select value={pType} onChange={e => setPType(e.target.value)}>
+              {COVER_TYPES.map(c => <option key={c} value={c}>{humanLabel(c)}</option>)}
+            </Select>
+          </Field>
+          <Field label="Cover from" required>
+            <Input type="date" value={pFrom} onChange={e => setPFrom(e.target.value)} />
+          </Field>
+          <Field label="Cover to" required hint="This date drives every expiry warning.">
+            <Input type="date" value={pTo} onChange={e => setPTo(e.target.value)} />
+          </Field>
+          <Field label="Sum insured (₦)" hint="What the insurer would pay.">
+            <Input inputMode="decimal" value={pSum} onChange={e => setPSum(e.target.value)} />
+          </Field>
+          <Field label="Premium (₦)" hint="What the cover cost.">
+            <Input inputMode="decimal" value={pPremium} onChange={e => setPPremium(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Note">
+          <Textarea rows={2} value={pNote} onChange={e => setPNote(e.target.value)} />
+        </Field>
+        <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: SP[2], lineHeight: 'var(--lh-relaxed)' }}>
+          This is the record of the <strong>cover</strong>. If you also want the premium in the
+          vehicle&apos;s running cost, log it under <strong>Work</strong> as kind
+          &ldquo;insurance&rdquo; — the two are kept apart so a renewal date is never inferred from
+          a payment, or the other way round.
         </p>
       </Modal>
 
