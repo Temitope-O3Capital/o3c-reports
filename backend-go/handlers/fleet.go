@@ -57,6 +57,13 @@ func RegisterFleet(r chi.Router, db *core.DB) {
 	r.With(read).Get("/vehicles/{id}/odometer", fleetOdometerList(db))
 	r.With(write).Post("/vehicles/{id}/odometer", fleetOdometerAdd(db))
 
+	// What the register's dropdowns need: the departments a vehicle can belong to and
+	// the staff a vehicle can be assigned to. Served here under the fleet gate rather
+	// than borrowed from /api/people, which is gated on people_directory — a grant the
+	// COO and Head of Ops do not hold, so reusing it would have made the fields
+	// permanently empty for exactly the people who maintain the register.
+	r.With(read).Get("/lookups", fleetLookups(db))
+
 	r.With(read).Get("/maintenance", fleetMaintenanceList(db))
 	r.With(write).Post("/maintenance", fleetMaintenanceAdd(db))
 
@@ -382,6 +389,7 @@ func fleetVehicleCreate(db *core.DB) http.HandlerFunc {
 			Model               string  `json:"model"`
 			ModelYear           *int    `json:"model_year"`
 			VIN                 string  `json:"vin"`
+			EngineNo            string  `json:"engine_no"`
 			Colour              string  `json:"colour"`
 			AcquiredOn          *string `json:"acquired_on"`
 			AcquisitionCostKobo int64   `json:"acquisition_cost_kobo"`
@@ -408,12 +416,15 @@ func fleetVehicleCreate(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO app.fleet_vehicles
-			  (reg_no, make, model, model_year, vin, colour, acquired_on,
+			  (reg_no, make, model, model_year, vin, engine_no, colour, acquired_on,
 			   acquisition_cost_kobo, status, department_id, assigned_to,
 			   assigned_driver_name, notes, created_by)
-			VALUES (btrim($1),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			VALUES (btrim($1), NULLIF(btrim($2),''), NULLIF(btrim($3),''), $4,
+			        NULLIF(btrim($5),''), NULLIF(btrim($6),''), NULLIF(btrim($7),''),
+			        $8::date, $9, $10, $11, $12, NULLIF(btrim($13),''),
+			        NULLIF(btrim($14),''), $15)
 			RETURNING id, reg_no`,
-			b.RegNo, b.Make, b.Model, b.ModelYear, b.VIN, b.Colour, b.AcquiredOn,
+			b.RegNo, b.Make, b.Model, b.ModelYear, b.VIN, b.EngineNo, b.Colour, b.AcquiredOn,
 			b.AcquisitionCostKobo, b.Status, b.DepartmentID, b.AssignedTo,
 			b.AssignedDriverName, b.Notes, by)
 		if err != nil {
@@ -431,43 +442,102 @@ func fleetVehicleCreate(db *core.DB) http.HandlerFunc {
 func fleetVehicleUpdate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		var b struct {
-			Make                *string `json:"make"`
-			Model               *string `json:"model"`
-			ModelYear           *int    `json:"model_year"`
-			Colour              *string `json:"colour"`
-			Status              *string `json:"status"`
-			DepartmentID        *int    `json:"department_id"`
-			AssignedTo          *int64  `json:"assigned_to"`
-			AssignedDriverName  *string `json:"assigned_driver_name"`
-			Notes               *string `json:"notes"`
-			DisposedOn          *string `json:"disposed_on"`
-			DisposalProceedsKobo *int64 `json:"disposal_proceeds_kobo"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		// Decoded as raw keys, not a struct, so "absent" and "sent as null" are
+		// distinguishable. The earlier version COALESCE'd every column against its own
+		// value, which made a partial update safe but clearing IMPOSSIBLE: a vehicle
+		// could be given a driver and never unassigned, moved to a department and never
+		// moved out. Here only the keys actually present are written, and a null (or an
+		// empty string on a text column) clears the field — the ordinary PATCH contract.
+		var raw map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		// COALESCE on every field so a partial update leaves the rest alone, rather
-		// than blanking whatever the form did not send.
-		rows, err := db.PGQuery(r.Context(), `
-			UPDATE app.fleet_vehicles SET
-			  make = COALESCE($2, make),
-			  model = COALESCE($3, model),
-			  model_year = COALESCE($4, model_year),
-			  colour = COALESCE($5, colour),
-			  status = COALESCE($6, status),
-			  department_id = COALESCE($7, department_id),
-			  assigned_to = COALESCE($8, assigned_to),
-			  assigned_driver_name = COALESCE($9, assigned_driver_name),
-			  notes = COALESCE($10, notes),
-			  disposed_on = COALESCE($11::date, disposed_on),
-			  disposal_proceeds_kobo = COALESCE($12, disposal_proceeds_kobo),
-			  updated_at = now()
-			WHERE id = $1 RETURNING id`,
-			id, b.Make, b.Model, b.ModelYear, b.Colour, b.Status, b.DepartmentID,
-			b.AssignedTo, b.AssignedDriverName, b.Notes, b.DisposedOn, b.DisposalProceedsKobo)
-		if err != nil || len(rows) == 0 {
+
+		// reg_no is deliberately absent: it is the business key this vehicle is known
+		// by on invoices and fines, and renaming it would silently re-identify every
+		// record already filed against it.
+		type colKind int
+		const (
+			kText colKind = iota
+			kInt
+			kDate
+		)
+		cols := []struct {
+			key  string
+			kind colKind
+		}{
+			{"make", kText}, {"model", kText}, {"model_year", kInt},
+			{"vin", kText}, {"engine_no", kText}, {"colour", kText},
+			{"acquired_on", kDate}, {"acquisition_cost_kobo", kInt},
+			{"status", kText}, {"department_id", kInt}, {"assigned_to", kInt},
+			{"assigned_driver_name", kText}, {"notes", kText},
+			{"disposed_on", kDate}, {"disposal_proceeds_kobo", kInt},
+		}
+
+		sets := make([]string, 0, len(cols))
+		args := []any{id}
+		for _, c := range cols {
+			msg, present := raw[c.key]
+			if !present {
+				continue
+			}
+			n := len(args) + 1
+			switch c.kind {
+			case kText:
+				var v *string
+				if err := json.Unmarshal(msg, &v); err != nil {
+					respondErr(w, 422, fmt.Sprintf("%s must be text or null", c.key))
+					return
+				}
+				// An empty string means "clear it", not "store a blank".
+				sets = append(sets, fmt.Sprintf("%s = NULLIF(btrim($%d), '')", c.key, n))
+				args = append(args, v)
+			case kInt:
+				var v *int64
+				if err := json.Unmarshal(msg, &v); err != nil {
+					respondErr(w, 422, fmt.Sprintf("%s must be a number or null", c.key))
+					return
+				}
+				sets = append(sets, fmt.Sprintf("%s = $%d", c.key, n))
+				args = append(args, v)
+			case kDate:
+				var v *string
+				if err := json.Unmarshal(msg, &v); err != nil {
+					respondErr(w, 422, fmt.Sprintf("%s must be a date or null", c.key))
+					return
+				}
+				if v != nil && strings.TrimSpace(*v) == "" {
+					v = nil
+				}
+				sets = append(sets, fmt.Sprintf("%s = $%d::date", c.key, n))
+				args = append(args, v)
+			}
+		}
+
+		if len(sets) == 0 {
+			respondErr(w, 422, "Nothing to update — no recognised field was sent")
+			return
+		}
+		sets = append(sets, "updated_at = now()")
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(
+			`UPDATE app.fleet_vehicles SET %s WHERE id = $1 RETURNING id`,
+			strings.Join(sets, ", ")), args...)
+		if err != nil {
+			if strings.Contains(err.Error(), "fleet_vehicles_status_check") {
+				respondErr(w, 422, "That status is not one the register recognises")
+				return
+			}
+			// A NOT NULL column cleared to null, or a department id that does not exist.
+			if strings.Contains(err.Error(), "not-null") || strings.Contains(err.Error(), "foreign key") {
+				respondErr(w, 422, "That change would leave the register inconsistent")
+				return
+			}
+			respondErrLog(w, 500, "Could not update the vehicle", err)
+			return
+		}
+		if len(rows) == 0 {
 			respondErr(w, 404, "Vehicle not found")
 			return
 		}
@@ -660,6 +730,28 @@ func fleetOdometerAdd(db *core.DB) http.HandlerFunc {
 }
 
 /* ── Maintenance ────────────────────────────────────────────────────────────── */
+
+// fleetLookups feeds the register's two reference dropdowns in one call. Names and
+// ids only: assigning a driver needs to know who exists, not anything about them.
+func fleetLookups(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		depts, _ := db.PGQuery(r.Context(), `
+			SELECT id, name FROM app.departments ORDER BY name`)
+		if depts == nil {
+			depts = []core.Row{}
+		}
+		// Staff a vehicle can be assigned to. A contract driver cannot sign in and so
+		// has no row here — that is what assigned_driver_name is for.
+		drivers, _ := db.PGQuery(r.Context(), `
+			SELECT id, full_name FROM app.o3c_users
+			WHERE is_active AND NULLIF(btrim(COALESCE(full_name,'')),'') IS NOT NULL
+			ORDER BY full_name`)
+		if drivers == nil {
+			drivers = []core.Row{}
+		}
+		fleetJSON(w, 200, map[string]any{"departments": depts, "drivers": drivers})
+	}
+}
 
 func fleetMaintenanceList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

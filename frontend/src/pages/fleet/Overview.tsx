@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, ErrBanner, DataTable, EmptyState, DateFilter,
-  Button, Badge, Modal, Field, Input, Select,
+  Button, Badge, Modal, Field, Input, Select, Textarea,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -81,6 +81,13 @@ const STATUS_TONE: Record<string, string> = {
 */
 const NON_PURCHASE_CODES = new Set(['423', '422', '473', '452', '402'])
 
+// Mirrors fleet_vehicles_status_check. A value not in this list is rejected by the
+// database, so the form offers exactly these rather than free text.
+const VEHICLE_STATUSES = ['active', 'workshop', 'reserve', 'stolen', 'disposed']
+
+interface Lookup { id: number; name: string }
+interface Driver { id: number; full_name: string }
+
 function daysSince(iso: string | null | undefined): number | null {
   if (!iso) return null
   const t = Date.parse(iso)
@@ -104,6 +111,19 @@ export default function FleetOverview() {
   const [make, setMake]       = useState('')
   const [model, setModel]     = useState('')
   const [modelYear, setModelYear] = useState('')
+  const [colour, setColour]   = useState('')
+  const [status, setStatus]   = useState('active')
+  const [deptId, setDeptId]   = useState('')
+  const [driverId, setDriverId] = useState('')
+  const [driverName, setDriverName] = useState('')
+  const [acquiredOn, setAcquiredOn] = useState('')
+  const [acqCost, setAcqCost] = useState('')
+  const [vin, setVin]         = useState('')
+  const [engineNo, setEngineNo] = useState('')
+  const [notes, setNotes]     = useState('')
+
+  const [departments, setDepartments] = useState<Lookup[]>([])
+  const [drivers, setDrivers]         = useState<Driver[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -119,6 +139,17 @@ export default function FleetOverview() {
 
   useEffect(() => { load() }, [load])
 
+  /* The reference lists the form offers. Loaded once, and a failure here is not
+     surfaced as a page error: an empty dropdown degrades the form, it does not
+     break the page, and the register's own figures do not depend on it. */
+  useEffect(() => {
+    let live = true
+    apiFetch<{ departments: Lookup[]; drivers: Driver[] }>('/api/fleet/lookups')
+      .then(r => { if (live) { setDepartments(r.departments ?? []); setDrivers(r.drivers ?? []) } })
+      .catch(() => { /* dropdowns stay empty; free-text driver name still works */ })
+    return () => { live = false }
+  }, [])
+
   const addVehicle = async () => {
     if (!regNo.trim()) return
     setSaving(true)
@@ -127,9 +158,20 @@ export default function FleetOverview() {
       await apiPost('/api/fleet/vehicles', {
         reg_no: regNo.trim(), make: make.trim(), model: model.trim(),
         model_year: modelYear ? Number(modelYear) : null,
+        vin: vin.trim(), engine_no: engineNo.trim(), colour: colour.trim(),
+        acquired_on: acquiredOn || null,
+        acquisition_cost_kobo: acqCost.trim()
+          ? Math.round(Number(acqCost.replace(/,/g, '')) * 100) : 0,
+        status,
+        department_id: deptId ? Number(deptId) : null,
+        assigned_to: driverId ? Number(driverId) : null,
+        assigned_driver_name: driverName.trim(),
+        notes: notes.trim(),
       })
       setAddOpen(false)
-      setRegNo(''); setMake(''); setModel(''); setModelYear('')
+      setRegNo(''); setMake(''); setModel(''); setModelYear(''); setColour('')
+      setStatus('active'); setDeptId(''); setDriverId(''); setDriverName('')
+      setAcquiredOn(''); setAcqCost(''); setVin(''); setEngineNo(''); setNotes('')
       await load()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not add the vehicle')
@@ -315,6 +357,8 @@ export default function FleetOverview() {
           </Button>
           <Button size="sm" variant="secondary" icon="credit_card"
             onClick={() => navigate('/fleet/cards')}>Fuel Cards</Button>
+          <Button size="sm" variant="secondary" icon="build"
+            onClick={() => navigate('/fleet/work')}>Work &amp; Incidents</Button>
           <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
         </div>
       }
@@ -407,7 +451,11 @@ export default function FleetOverview() {
         </SectionCard>
 
         <SectionCard title="Work Falling Due" padding={false}
-          subtitle="By date and by distance, because an idle vehicle comes due by one and a busy one by the other">
+          subtitle="By date and by distance, because an idle vehicle comes due by one and a busy one by the other"
+          actions={
+            <Button size="sm" variant="secondary" icon="open_in_new"
+              onClick={() => navigate('/fleet/work')}>All Work</Button>
+          }>
           <DataTable
             cols={dueCols} rows={due} keyFn={r => r.id}
             loading={loading && !d} skeletonRows={4}
@@ -437,8 +485,11 @@ export default function FleetOverview() {
         </SectionCard>
       )}
 
-      {/* ── Add a vehicle ── */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a Vehicle" width={520}
+      {/* ── Add a vehicle ──
+          Everything the register holds is capturable here. The earlier version took
+          four fields, which left ten columns with no way in: a vehicle could never
+          be given a driver, a department, or what it cost to buy. */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a Vehicle" width={660}
         footer={
           <>
             <Button variant="secondary" onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
@@ -447,18 +498,56 @@ export default function FleetOverview() {
             </Button>
           </>
         }>
-        <Field label="Registration number"
+        <Field label="Registration number" required
           hint="The business key — what appears on a mechanic's invoice and on a fine.">
           <Input value={regNo} onChange={e => setRegNo(e.target.value)} placeholder="e.g. LAG-123-XY" />
         </Field>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[3] }}>
           <Field label="Make"><Input value={make} onChange={e => setMake(e.target.value)} placeholder="Toyota" /></Field>
           <Field label="Model"><Input value={model} onChange={e => setModel(e.target.value)} placeholder="Hilux" /></Field>
+          <Field label="Year">
+            <Input value={modelYear} onChange={e => setModelYear(e.target.value)}
+              inputMode="numeric" placeholder="2021" />
+          </Field>
+          <Field label="Colour"><Input value={colour} onChange={e => setColour(e.target.value)} placeholder="White" /></Field>
+          <Field label="Status">
+            <Select value={status} onChange={e => setStatus(e.target.value)}>
+              {VEHICLE_STATUSES.map(s => <option key={s} value={s}>{humanLabel(s)}</option>)}
+            </Select>
+          </Field>
+          <Field label="Department" hint="Whose cost centre carries it.">
+            <Select value={deptId} onChange={e => setDeptId(e.target.value)}>
+              <option value="">Not assigned</option>
+              {departments.map(x => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+            </Select>
+          </Field>
         </div>
-        <Field label="Year">
-          <Input value={modelYear} onChange={e => setModelYear(e.target.value)}
-            inputMode="numeric" placeholder="2021" />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[3] }}>
+          <Field label="Driver (staff)" hint="Leave blank for a contract driver.">
+            <Select value={driverId} onChange={e => setDriverId(e.target.value)}>
+              <option value="">Not assigned</option>
+              {drivers.map(x => <option key={x.id} value={String(x.id)}>{x.full_name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Driver name" hint="For a driver who has no staff account.">
+            <Input value={driverName} onChange={e => setDriverName(e.target.value)} />
+          </Field>
+          <Field label="Acquired on">
+            <Input type="date" value={acquiredOn} max={today()} onChange={e => setAcquiredOn(e.target.value)} />
+          </Field>
+          <Field label="Purchase cost (₦)" hint="Capital, reported separately from running cost.">
+            <Input inputMode="decimal" value={acqCost} onChange={e => setAcqCost(e.target.value)} />
+          </Field>
+          <Field label="VIN"><Input value={vin} onChange={e => setVin(e.target.value)} /></Field>
+          <Field label="Engine number"><Input value={engineNo} onChange={e => setEngineNo(e.target.value)} /></Field>
+        </div>
+
+        <Field label="Notes">
+          <Textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
         </Field>
+
         <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: SP[3], lineHeight: 'var(--lh-relaxed)' }}>
           Next, map the vehicle&apos;s fuel card from <strong>Fuel Cards</strong>. Its whole transaction
           history attributes itself — nothing needs re-entering.

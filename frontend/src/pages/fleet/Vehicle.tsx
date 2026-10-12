@@ -5,7 +5,7 @@ import {
   Button, Badge, Modal, Field, Input, Select, Textarea,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today } from '../../lib/fmt'
 import { hasPage } from '../../hooks/useAuth'
 import { GREEN, RED, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -40,15 +40,23 @@ interface Vehicle {
   model: string | null
   model_year: number | null
   vin: string | null
+  engine_no: string | null
   colour: string | null
   acquired_on: string | null
   acquisition_cost_kobo: number
   disposed_on: string | null
+  disposal_proceeds_kobo: number
   status: string
   department: string | null
+  department_id: number | null
+  assigned_to: number | null
+  assigned_driver_name: string | null
   driver: string
   notes: string | null
 }
+
+interface Lookup { id: number; name: string }
+interface Driver { id: number; full_name: string }
 
 interface CardWindow {
   id: number
@@ -123,6 +131,8 @@ const MAINT_KINDS = ['service', 'repair', 'tyres', 'battery', 'insurance',
   'licence', 'roadworthiness', 'papers', 'towing', 'other']
 const INCIDENT_KINDS = ['accident', 'fine', 'theft', 'breakdown', 'vandalism', 'other']
 const ODO_SOURCES = ['refuel', 'service', 'manual', 'audit', 'handover']
+// Mirrors fleet_vehicles_status_check — anything else the database rejects.
+const VEHICLE_STATUSES = ['active', 'workshop', 'reserve', 'stolen', 'disposed']
 
 /* The register stores kobo. A person types naira. */
 function toKobo(naira: string): number {
@@ -169,6 +179,34 @@ export default function FleetVehicle() {
   const [mDesc, setMDesc]       = useState('')
   const [mInvoice, setMInvoice] = useState('')
 
+  // Edit the register entry. Sent as a PATCH-style partial: only the keys below go
+  // up, and an empty one clears the field rather than being ignored.
+  const [eOpen, setEOpen]       = useState(false)
+  const [eMake, setEMake]       = useState('')
+  const [eModel, setEModel]     = useState('')
+  const [eYear, setEYear]       = useState('')
+  const [eColour, setEColour]   = useState('')
+  const [eVin, setEVin]         = useState('')
+  const [eEngine, setEEngine]   = useState('')
+  const [eStatus, setEStatus]   = useState('active')
+  const [eDept, setEDept]       = useState('')
+  const [eDriverId, setEDriverId] = useState('')
+  const [eDriverName, setEDriverName] = useState('')
+  const [eAcquired, setEAcquired] = useState('')
+  const [eAcqCost, setEAcqCost] = useState('')
+  const [eDisposed, setEDisposed] = useState('')
+  const [eProceeds, setEProceeds] = useState('')
+  const [eNotes, setENotes]     = useState('')
+
+  const [departments, setDepartments] = useState<Lookup[]>([])
+  const [drivers, setDrivers]         = useState<Driver[]>([])
+
+  /* The detail payload caps the odometer series at 100 rows so one page load stays
+     one page load. Rather than truncate silently, the Distance tab says so and
+     fetches the fuller series on request. */
+  const [fullOdo, setFullOdo] = useState<OdoRow[] | null>(null)
+  const [loadingOdo, setLoadingOdo] = useState(false)
+
   // Log incident
   const [iOpen, setIOpen]       = useState(false)
   const [iKind, setIKind]       = useState('accident')
@@ -191,11 +229,33 @@ export default function FleetVehicle() {
 
   useEffect(() => { load() }, [load])
 
+  /* Reference lists for the edit form. A failure is not a page error — an empty
+     dropdown degrades one form, and none of the figures depend on it. */
+  useEffect(() => {
+    let live = true
+    apiFetch<{ departments: Lookup[]; drivers: Driver[] }>('/api/fleet/lookups')
+      .then(r => { if (live) { setDepartments(r.departments ?? []); setDrivers(r.drivers ?? []) } })
+      .catch(() => { /* free-text driver name still works */ })
+    return () => { live = false }
+  }, [])
+
+  const loadFullOdo = async () => {
+    setLoadingOdo(true)
+    try {
+      const r = await apiFetch<{ data: OdoRow[] }>(`/api/fleet/vehicles/${id}/odometer`)
+      setFullOdo(r.data ?? [])
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not load the full reading history')
+    } finally {
+      setLoadingOdo(false)
+    }
+  }
+
   const v        = d?.vehicle
   const cards    = d?.cards ?? []
   const spend    = d?.spend ?? []
   const monthly  = d?.monthly ?? []
-  const odo      = d?.odometer ?? []
+  const odo      = fullOdo ?? d?.odometer ?? []
   const maint    = d?.maintenance ?? []
   const incidents = d?.incidents ?? []
 
@@ -264,6 +324,58 @@ export default function FleetVehicle() {
     : null
 
   // ── writes ──────────────────────────────────────────────────────────────────
+
+  const openEdit = () => {
+    if (!v) return
+    setEMake(v.make ?? '')
+    setEModel(v.model ?? '')
+    setEYear(v.model_year != null ? String(v.model_year) : '')
+    setEColour(v.colour ?? '')
+    setEVin(v.vin ?? '')
+    setEEngine(v.engine_no ?? '')
+    setEStatus(v.status || 'active')
+    setEDept(v.department_id != null ? String(v.department_id) : '')
+    setEDriverId(v.assigned_to != null ? String(v.assigned_to) : '')
+    setEDriverName(v.assigned_driver_name ?? '')
+    setEAcquired(v.acquired_on ? v.acquired_on.slice(0, 10) : '')
+    setEAcqCost(Number(v.acquisition_cost_kobo) > 0
+      ? String(Number(v.acquisition_cost_kobo) / 100) : '')
+    setEDisposed(v.disposed_on ? v.disposed_on.slice(0, 10) : '')
+    setEProceeds(Number(v.disposal_proceeds_kobo) > 0
+      ? String(Number(v.disposal_proceeds_kobo) / 100) : '')
+    setENotes(v.notes ?? '')
+    setEOpen(true)
+  }
+
+  const saveEdit = async () => {
+    setSaving(true); setError(null)
+    try {
+      await apiPut(`/api/fleet/vehicles/${id}`, {
+        make: eMake.trim(),
+        model: eModel.trim(),
+        model_year: eYear.trim() ? Number(eYear) : null,
+        colour: eColour.trim(),
+        vin: eVin.trim(),
+        engine_no: eEngine.trim(),
+        status: eStatus,
+        department_id: eDept ? Number(eDept) : null,
+        assigned_to: eDriverId ? Number(eDriverId) : null,
+        assigned_driver_name: eDriverName.trim(),
+        acquired_on: eAcquired || null,
+        acquisition_cost_kobo: eAcqCost.trim() ? toKobo(eAcqCost) : 0,
+        disposed_on: eDisposed || null,
+        disposal_proceeds_kobo: eProceeds.trim() ? toKobo(eProceeds) : 0,
+        notes: eNotes.trim(),
+      })
+      setEOpen(false)
+      setNotice('Register updated.')
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not update the vehicle')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const addReading = async () => {
     if (!readingKm.trim() || !readOn) return
@@ -492,6 +604,7 @@ export default function FleetVehicle() {
           <Button size="sm" icon="speed" onClick={() => setOdoOpen(true)}>Record Reading</Button>
           <Button size="sm" variant="secondary" icon="build" onClick={() => setMOpen(true)}>Log Work</Button>
           <Button size="sm" variant="secondary" icon="report" onClick={() => setIOpen(true)}>Log Incident</Button>
+          <Button size="sm" variant="secondary" icon="edit" onClick={openEdit}>Edit</Button>
         </>
       ) : undefined}
     >
@@ -626,15 +739,28 @@ export default function FleetVehicle() {
           { key: 'incidents',   label: 'Incidents',       badge: incidents.length },
           { key: 'spend',       label: 'Card Spend',      badge: spend.length },
           { key: 'cards',       label: 'Cards Held',      badge: cards.length },
+          { key: 'details',     label: 'Details' },
         ]}
       />
 
       {tab === 'distance' && (
         <SectionCard title="Odometer & Consumption" padding={false}
-          subtitle="Consumption appears only between two fills that were both to full — any other pair measures an unknown starting level"
-          actions={canWrite
-            ? <Button size="sm" icon="add" onClick={() => setOdoOpen(true)}>Record Reading</Button>
-            : undefined}>
+          subtitle={fullOdo
+            ? `Showing ${fmtNum(odo.length)} reading(s). Consumption appears only between two fills that were both to full`
+            : odo.length >= 100
+              ? 'Showing the 100 most recent readings — load the full series to see the rest'
+              : 'Consumption appears only between two fills that were both to full — any other pair measures an unknown starting level'}
+          actions={
+            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+              {!fullOdo && odo.length >= 100 && (
+                <Button size="sm" variant="secondary" icon="history"
+                  onClick={loadFullOdo} loading={loadingOdo}>Load Full History</Button>
+              )}
+              {canWrite && (
+                <Button size="sm" icon="add" onClick={() => setOdoOpen(true)}>Record Reading</Button>
+              )}
+            </div>
+          }>
           <DataTable
             cols={odoCols} rows={odo} keyFn={r => String(r.id)}
             loading={loading && !d} skeletonRows={6} pageSize={25}
@@ -722,6 +848,121 @@ export default function FleetVehicle() {
           />
         </SectionCard>
       )}
+
+      {tab === 'details' && (
+        <SectionCard title="Register Entry"
+          subtitle="What the register holds about this vehicle, beyond what it costs to run"
+          actions={canWrite
+            ? <Button size="sm" variant="secondary" icon="edit" onClick={openEdit}>Edit</Button>
+            : undefined}>
+          <dl style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+            gap: `${SP[4]}px ${SP[5]}px`, margin: 0,
+          }}>
+            {([
+              ['Registration', v?.reg_no],
+              ['Make & model', [v?.make, v?.model].filter(Boolean).join(' ') || null],
+              ['Year', v?.model_year != null ? String(v.model_year) : null],
+              ['Colour', v?.colour],
+              ['Status', v?.status ? humanLabel(v.status) : null],
+              ['Department', v?.department],
+              ['Driver', v?.driver || v?.assigned_driver_name],
+              ['VIN', v?.vin],
+              ['Engine number', v?.engine_no],
+              ['Acquired on', v?.acquired_on ? fmtDate(v.acquired_on) : null],
+              ['Purchase cost', Number(v?.acquisition_cost_kobo ?? 0) > 0
+                ? fmtKobo(Number(v!.acquisition_cost_kobo)) : null],
+              ['Disposed on', v?.disposed_on ? fmtDate(v.disposed_on) : null],
+              ['Disposal proceeds', Number(v?.disposal_proceeds_kobo ?? 0) > 0
+                ? fmtKobo(Number(v!.disposal_proceeds_kobo)) : null],
+              ['Fuel card', liveCard ? (liveCard.card_label || `CIF ${liveCard.cif}`) : null],
+            ] as [string, string | null | undefined][]).map(([label, value]) => (
+              <div key={label} style={{ minWidth: 0 }}>
+                <dt style={{
+                  fontSize: TEXT.xs, color: 'var(--txt3)', textTransform: 'uppercase',
+                  letterSpacing: '0.04em', marginBottom: 2,
+                }}>{label}</dt>
+                <dd style={{
+                  margin: 0, fontSize: TEXT.sm,
+                  color: value ? 'var(--txt)' : 'var(--txt3)',
+                  fontWeight: value ? FW.medium : FW.normal,
+                  overflowWrap: 'anywhere',
+                }}>{value || 'not recorded'}</dd>
+              </div>
+            ))}
+          </dl>
+          {v?.notes && (
+            <div style={{
+              marginTop: SP[4], padding: SP[3], borderRadius: RADIUS.md,
+              background: 'var(--th-bg)', fontSize: TEXT.sm, color: 'var(--txt2)',
+              lineHeight: 'var(--lh-relaxed)',
+            }}>
+              <strong style={{ color: 'var(--txt)' }}>Notes. </strong>{v.notes}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {/* ── Edit the register entry ──
+          A partial send: an emptied field clears, which is why the driver and
+          department can be unassigned here and not only reassigned. */}
+      <Modal open={eOpen} onClose={() => setEOpen(false)}
+        title={v ? `Edit ${v.reg_no}` : 'Edit Vehicle'} width={660}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEOpen(false)} disabled={saving}>Cancel</Button>
+            <Button icon="save" onClick={saveEdit} loading={saving}>Save Changes</Button>
+          </>
+        }>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[3] }}>
+          <Field label="Make"><Input value={eMake} onChange={e => setEMake(e.target.value)} /></Field>
+          <Field label="Model"><Input value={eModel} onChange={e => setEModel(e.target.value)} /></Field>
+          <Field label="Year"><Input inputMode="numeric" value={eYear} onChange={e => setEYear(e.target.value)} /></Field>
+          <Field label="Colour"><Input value={eColour} onChange={e => setEColour(e.target.value)} /></Field>
+          <Field label="Status" hint="Workshop, reserve, stolen or disposed.">
+            <Select value={eStatus} onChange={e => setEStatus(e.target.value)}>
+              {VEHICLE_STATUSES.map(s => <option key={s} value={s}>{humanLabel(s)}</option>)}
+            </Select>
+          </Field>
+          <Field label="Department" hint="Blank unassigns it.">
+            <Select value={eDept} onChange={e => setEDept(e.target.value)}>
+              <option value="">Not assigned</option>
+              {departments.map(x => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Driver (staff)" hint="Blank unassigns it.">
+            <Select value={eDriverId} onChange={e => setEDriverId(e.target.value)}>
+              <option value="">Not assigned</option>
+              {drivers.map(x => <option key={x.id} value={String(x.id)}>{x.full_name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Driver name" hint="A driver with no staff account.">
+            <Input value={eDriverName} onChange={e => setEDriverName(e.target.value)} />
+          </Field>
+          <Field label="VIN"><Input value={eVin} onChange={e => setEVin(e.target.value)} /></Field>
+          <Field label="Engine number"><Input value={eEngine} onChange={e => setEEngine(e.target.value)} /></Field>
+          <Field label="Acquired on">
+            <Input type="date" value={eAcquired} max={today()} onChange={e => setEAcquired(e.target.value)} />
+          </Field>
+          <Field label="Purchase cost (₦)">
+            <Input inputMode="decimal" value={eAcqCost} onChange={e => setEAcqCost(e.target.value)} />
+          </Field>
+          <Field label="Disposed on" hint="Set this and the status together.">
+            <Input type="date" value={eDisposed} max={today()} onChange={e => setEDisposed(e.target.value)} />
+          </Field>
+          <Field label="Disposal proceeds (₦)">
+            <Input inputMode="decimal" value={eProceeds} onChange={e => setEProceeds(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Notes">
+          <Textarea rows={2} value={eNotes} onChange={e => setENotes(e.target.value)} />
+        </Field>
+        <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: SP[2], lineHeight: 'var(--lh-relaxed)' }}>
+          The registration number cannot be changed here. It is the key this vehicle is known by on
+          invoices and fines, so renaming it would silently re-identify everything already filed
+          against it — retire the entry and add a new one instead.
+        </p>
+      </Modal>
 
       {/* ── Record a reading ── */}
       <Modal open={odoOpen} onClose={() => setOdoOpen(false)} title="Record an Odometer Reading" width={560}

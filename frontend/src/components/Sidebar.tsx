@@ -318,6 +318,7 @@ const SECTIONS: Section[] = [
           // Mapping a card to a vehicle is what makes every cost figure mean
           // something, so it is gated on the write page, not the read one.
           { label: 'Fuel Cards', to: '/fleet/cards', vis: ['head_ops','coo'] },
+          { label: 'Work & Incidents', to: '/fleet/work' },
         ],
       },
     ],
@@ -597,7 +598,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/settlements/interswitch': ['settlement', 'cards'], '/settlements/interswitch/half-year': ['settlement', 'cards'],
   '/settlements/interswitch/import': ['settlement', 'cards'],
   // Fleet — read the cost on 'fleet', change the register on 'fleet_admin'.
-  '/fleet': 'fleet', '/fleet/cards': 'fleet_admin',
+  '/fleet': 'fleet', '/fleet/cards': 'fleet_admin', '/fleet/work': 'fleet',
   // Finance
   '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income', '/finance/treasury': 'income', '/finance/commissions': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',
