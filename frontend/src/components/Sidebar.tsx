@@ -105,10 +105,6 @@ const SECTIONS: Section[] = [
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
-          // The officer's own diary of planned visits and due follow-ups. Sits next to
-          // Leads because that is where the work it plans comes from; Team (Live) above
-          // is the retrospective view of the same floor.
-          { label: 'My Calendar',      to: '/sales/calendar' },
           { label: 'Teams',            to: '/sales/teams', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
           { label: 'Contacts',         to: '/sales/customers' },
           { label: 'Follow-Ups',       to: '/sales/tasks' },

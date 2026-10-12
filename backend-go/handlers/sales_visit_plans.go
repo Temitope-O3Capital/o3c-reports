@@ -76,14 +76,64 @@ func listVisitPlans(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		u := core.UserFromCtx(ctx)
-		officer, ok := visitPlanOfficer(r, db, u, qstr(r, "officer_id"))
-		if !ok {
-			respondErr(w, 403, "That is not your diary")
-			return
-		}
 		from, to := qstr(r, "from"), qstr(r, "to")
 		if from == "" || to == "" {
 			respondErr(w, 422, "from and to dates are required")
+			return
+		}
+
+		// scope=team is the head's view: every diary they manage in one read. Without it
+		// the supervisor page would fetch each officer separately — seven round trips to
+		// answer one question, and a half-drawn week whenever one of them failed.
+		if qstr(r, "scope") == "team" {
+			ids := teamHeadOfficerIDs(r, db, u.ID)
+			if len(ids) == 0 && u.CanSeeAllRows() {
+				rows, _ := db.PGQuery(ctx, `
+					SELECT DISTINCT m.user_id FROM app.sales_teams t
+					  JOIN app.sales_team_members m ON m.team_id = t.id WHERE t.is_active
+					UNION SELECT t.head_user_id FROM app.sales_teams t
+					 WHERE t.is_active AND t.head_user_id IS NOT NULL`)
+				for _, row := range rows {
+					if id := toInt64(row["user_id"]); id != 0 {
+						ids = append(ids, id)
+					}
+				}
+			}
+			if len(ids) == 0 {
+				respondErr(w, 403, "You do not run a team")
+				return
+			}
+			plans, err := db.PGQuery(ctx, `
+				SELECT p.id, p.kind, p.planned_for, p.planned_at, p.status, p.title,
+				       p.address, p.city, p.state, p.officer_id,
+				       u.full_name AS officer_name,
+				       btrim(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS contact_name,
+				       c.phone AS contact_phone, p.contact_id,
+				       COALESCE(NULLIF(btrim(p.city),''),  c.city)  AS where_city,
+				       COALESCE(NULLIF(btrim(p.state),''), c.state) AS where_state,
+				       'plan'::text AS source
+				  FROM app.sales_visit_plans p
+				  JOIN app.o3c_users u ON u.id = p.officer_id
+				  LEFT JOIN app.crm_contacts c ON c.id = p.contact_id
+				 WHERE p.officer_id = ANY($1::bigint[])
+				   AND p.planned_for BETWEEN $2::date AND $3::date
+				 ORDER BY p.planned_for, u.full_name, p.planned_at NULLS LAST`,
+				int64Array(ids), from, to)
+			if err != nil {
+				respondErrLog(w, 500, "Could not read the team diary", err)
+				return
+			}
+			officers, _ := db.PGQuery(ctx, `
+				SELECT id, full_name, COALESCE(app.sales_hub_for_office(office_location), '') AS hub
+				  FROM app.o3c_users WHERE id = ANY($1::bigint[]) AND is_active
+				 ORDER BY full_name`, int64Array(ids))
+			respond(w, map[string]any{"scope": "team", "officers": officers, "plans": plans}, "pg")
+			return
+		}
+
+		officer, ok := visitPlanOfficer(r, db, u, qstr(r, "officer_id"))
+		if !ok {
+			respondErr(w, 403, "That is not your diary")
 			return
 		}
 		plans, err := db.PGQuery(ctx, `
@@ -187,6 +237,15 @@ func createVisitPlan(db *core.DB) http.HandlerFunc {
 		}
 		if strings.TrimSpace(b.PlannedFor) == "" {
 			respondErr(w, 422, "planned_for is required — a plan needs a day")
+			return
+		}
+		// A plan has to be about somebody, for the same reason an activity does: it
+		// becomes an activity when it is closed, and an activity attached to nobody is
+		// work claimed against no record. It is also the only way the diary can know
+		// WHERE the visit is — the address defaults from the lead.
+		if b.ContactID == nil || *b.ContactID <= 0 {
+			respondErr(w, 422, "Pick the lead or customer this is for. A diary entry attached to "+
+				"nobody cannot carry an address, and closing it would log work against no record.")
 			return
 		}
 		// A visit with no address is a plan nobody can act on, so the city and state are

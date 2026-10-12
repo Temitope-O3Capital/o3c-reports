@@ -6,6 +6,7 @@ import { EArea, EBar } from '../../components/echarts'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, navigableProps } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { MyDay } from './MyDay'
+import { DiaryWeek } from './DiaryWeek'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -233,6 +234,15 @@ export default function SalesMyDashboard() {
           {fmtPct(data.target_pct)} of target
         </div>
       </SectionCard>
+
+      {/* ── The week ahead ───────────────────────────────────────────────────
+          Above the follow-up list deliberately: the list answers "what is
+          outstanding", the strip answers "what does Thursday look like", and an
+          officer builds the second out of the first. The full month is a click away
+          rather than duplicated here — this page already carries eight sections. */}
+      <div style={{ marginBottom: SP[4] }}>
+        <DiaryWeek mode="mine" />
+      </div>
 
       {/* ── My Follow-ups + Recent Activity ─────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[4] }}>

@@ -243,6 +243,18 @@ func logSalesActivity(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// An activity has to be about somebody. Both of these were optional, so a visit
+		// could be logged against nobody: it counted on the officer's day and on every
+		// activity total, while appearing on no lead's timeline and no customer's record.
+		// That is worse than not logging it — the work is claimed and unfindable, and it
+		// is why "what did we do for this customer" could not be answered from the
+		// numbers the floor was reporting.
+		if (b.ContactID == nil || *b.ContactID <= 0) && strings.TrimSpace(b.CIF) == "" {
+			respondErr(w, 422, "Attach this to a lead or a customer. An activity with neither "+
+				"counts towards your day but never reaches their record, so nobody can find it again.")
+			return
+		}
+
 		// The disposition, and the two rules it carries. Validated server-side as well as
 		// in the form: a rule enforced only in the browser is a rule that is not enforced.
 		var disp salesDisposition

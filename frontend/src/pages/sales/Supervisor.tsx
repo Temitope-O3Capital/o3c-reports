@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Page, SectionCard, KpiCard, Spinner, ErrBanner, Modal, navigableProps } from '../../components/UI'
 import { TeamCalendar } from './TeamCalendar'
+import { DiaryWeek } from './DiaryWeek'
 import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
@@ -132,6 +133,15 @@ export default function SalesSupervisor() {
           a stock figure and looks the same whether they worked today or not. The calendar
           says what they DID, day by day — the question a head actually opens this page
           with, and one nothing in the workspace could answer before the daily log. */}
+      {/* The week AHEAD, above the month behind. The two answer opposite questions and
+          a head needs both: TeamCalendar below says what the floor DID, this says what
+          it intends — who is out on Thursday, where, and whose week is empty. It is
+          also the only place a head can put work into an officer's diary, which was
+          not possible anywhere before. */}
+      <div style={{ marginBottom: SP[4] }}>
+        <DiaryWeek mode="team" />
+      </div>
+
       <div style={{ marginBottom: SP[4] }}>
         <TeamCalendar />
       </div>
