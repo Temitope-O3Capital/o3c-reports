@@ -103,6 +103,14 @@ var PageCatalog = []CatalogModule{
 	{Key: "people", Label: "People", Icon: "groups", Pages: []CatalogPage{
 		{"payroll", "Payroll"},
 	}},
+	// Fleet splits read from write the way settlement/reconciliation does. Plenty of
+	// people need to see what a vehicle costs; changing the register — above all
+	// which card belongs to which vehicle — decides what every cost figure in the
+	// module MEANS, so it is the narrower grant.
+	{Key: "fleet", Label: "Fleet", Icon: "directions_car", Pages: []CatalogPage{
+		{"fleet", "Fleet Register"},
+		{"fleet_admin", "Fleet — Manage Register"},
+	}},
 	{Key: "contact", Label: "Contact Centre", Icon: "headset_mic", Pages: []CatalogPage{
 		{"call_center", "Call Center"},
 		{"call_center_stats", "Call Center — Performance"},

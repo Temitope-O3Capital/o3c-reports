@@ -777,7 +777,11 @@ func buildRolePages() map[string][]string {
 	m["md"] = AllCatalogPages()
 	m["coo"] = union(util, collAgent, collHead, recAgent, recHead, cardsAgent, cardsHead,
 		finAgent, finHead, ccAgent, ccHead, riskAgent, riskHead,
-		[]string{"kpi_dashboard", "statements", "executive", "approvals", "active_loan_book", "payroll"})
+		[]string{"kpi_dashboard", "statements", "executive", "approvals", "active_loan_book", "payroll",
+			// Company vehicles are an operations cost the COO owns, the register
+			// included — who holds which card is what decides whether a vehicle's
+			// cost figure means anything.
+			"fleet", "fleet_admin"})
 	// Head of Operations — oversight of the operational floor (Collections, Recovery,
 	// Cards, Settlement, Contact Centre, Care) with the exec dashboards + approvals. An
 	// explicit set rather than composed head blocks, so it does NOT pick up loan booking,
@@ -791,6 +795,9 @@ func buildRolePages() map[string][]string {
 		"call_center", "call_center_stats", "helpdesk", "helpdesk_stats", "helpdesk_canned", "helpdesk_kb", "care",
 		"credit_portfolio", "loans", "crm_contacts",
 		"kpi_dashboard", "statements", "executive", "approvals", "surveys",
+		// The vehicle fleet is part of the operational floor this role oversees,
+		// and the register is maintained here day to day.
+		"fleet", "fleet_admin",
 	})
 	m["cfo"] = union(util, finAgent, finHead,
 		// CFO is the final signatory on the HOP → COO → CFO chain for recovery write-offs,
@@ -799,7 +806,10 @@ func buildRolePages() map[string][]string {
 		// endpoints, base-gated) and `recovery_write_off` (write-off endpoint). Without them
 		// the chain would 403 at the final stage.
 		[]string{"collections", "collections_payment", "collections_payment_approve",
-			"recovery", "recovery_write_off", "kpi_dashboard", "statements", "executive", "approvals"})
+			"recovery", "recovery_write_off", "kpi_dashboard", "statements", "executive", "approvals",
+			// Read the fleet's cost, but not change the register: what a vehicle
+			// costs is a finance question, who holds which card is an operations one.
+			"fleet"})
 	// The CMO runs Sales and BD, so supervision of the floor ("sales_team") comes with
 	// the job — the only non-head role that carries it.
 	m["cmo"] = union(util, salesAgent, bdAgent,
@@ -827,6 +837,11 @@ func buildRolePages() map[string][]string {
 		skip := map[string]bool{
 			"admin_users": true, "admin_api_keys": true, "settings": true,
 			"sync_status": true, "uploads": true, "reports": true,
+			// Internal control READS every module and writes nothing. fleet_admin
+			// maintains the vehicle register — including which card belongs to which
+			// vehicle, which rewrites what every historical cost figure means — so it
+			// is a write page and excluded here. The read page "fleet" is not.
+			"fleet_admin": true,
 		}
 		out := make([]string, 0, len(catalogPageSet))
 		for _, p := range AllCatalogPages() {

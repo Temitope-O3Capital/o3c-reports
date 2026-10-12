@@ -304,6 +304,25 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    // Company vehicles. Its own section rather than a child of Finance: the spend is
+    // a finance figure but the register, the odometer and the workshop are operations,
+    // and the people who maintain it are not the people who read the cost.
+    key: 'fleet',
+    header: 'Fleet',
+    items: [
+      {
+        icon: 'directions_car', label: 'Fleet', to: '/fleet',
+        vis: ['head_ops','coo','cfo','finance_head'],
+        subs: [
+          { label: 'Overview',   to: '/fleet' },
+          // Mapping a card to a vehicle is what makes every cost figure mean
+          // something, so it is gated on the write page, not the read one.
+          { label: 'Fuel Cards', to: '/fleet/cards', vis: ['head_ops','coo'] },
+        ],
+      },
+    ],
+  },
+  {
     key: 'finance',
     header: 'Finance',
     items: [
@@ -558,6 +577,8 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/settlements/reconciliation': 'reconciliation', '/settlements/manual-postings': 'settlement',
   '/settlements/interswitch': ['settlement', 'cards'], '/settlements/interswitch/half-year': ['settlement', 'cards'],
   '/settlements/interswitch/import': ['settlement', 'cards'],
+  // Fleet — read the cost on 'fleet', change the register on 'fleet_admin'.
+  '/fleet': 'fleet', '/fleet/cards': 'fleet_admin',
   // Finance
   '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income', '/finance/treasury': 'income', '/finance/commissions': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',

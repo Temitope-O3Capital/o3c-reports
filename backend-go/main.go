@@ -691,6 +691,12 @@ func main() {
 			handlers.RegisterSettlementOps(r, db)
 			handlers.RegisterSettlementOverview(r, db)
 		})
+		// Company vehicles. Each handler carries its own page gate: reading what a
+		// vehicle costs is widely useful, maintaining the register is not — see
+		// handlers/fleet.go.
+		r.Route("/api/fleet", func(r chi.Router) {
+			handlers.RegisterFleet(r, db)
+		})
 		r.Route("/api/mobile-app", func(r chi.Router) {
 			handlers.RegisterMobileApp(r, db)
 		})

@@ -20,7 +20,7 @@ func TestInternalControlReadsEveryModuleButAdmin(t *testing.T) {
 		"los", "loans", "credit_portfolio", "active_loan_book",
 		"collections", "recovery", "recovery_write_off",
 		"cards", "card_trends", "income", "finance", "transactions",
-		"settlement", "reconciliation", "payroll",
+		"settlement", "reconciliation", "payroll", "fleet",
 		"call_center", "helpdesk", "customer360", "care", "surveys",
 		"risk_all", "compliance_all", "audit_trail", "audit_export", "sars",
 	} {
@@ -30,7 +30,11 @@ func TestInternalControlReadsEveryModuleButAdmin(t *testing.T) {
 	}
 
 	// Administration is the exception the user asked for, and "uploads" is a bulk write.
-	for _, page := range []string{"admin_users", "admin_api_keys", "settings", "sync_status", "uploads"} {
+	// fleet_admin joins them: it maintains the vehicle register, and re-pointing a
+	// fuel card at a different vehicle silently restates that vehicle's whole cost
+	// history — a write, however much it looks like reference data.
+	for _, page := range []string{"admin_users", "admin_api_keys", "settings", "sync_status", "uploads",
+		"fleet_admin"} {
 		if hasPage(role, page) {
 			t.Errorf("internal control holds admin page %q: administration is excluded", page)
 		}

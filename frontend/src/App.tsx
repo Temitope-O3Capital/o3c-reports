@@ -249,6 +249,11 @@ const SettleWorkbench  = lazy(() => import('./pages/settlements/Workbench'))
 const SettleExceptions = lazy(() => import('./pages/settlements/Exceptions'))
 const SettleSupervisor = lazy(() => import('./pages/settlements/Supervisor'))
 
+// Fleet — company vehicles. Spend is read from the O3-issued fuel cards already in
+// the card ledger; the module adds the register, the odometer and the work done.
+const FleetOverview    = lazy(() => import('./pages/fleet/Overview'))
+const FleetCards       = lazy(() => import('./pages/fleet/Cards'))
+
 // Call Center
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
 const CallCenterLeads          = lazy(() => import('./pages/call-center/Leads'))
@@ -1251,6 +1256,14 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                       not get a page whose only controls reassign other people's work. */}
                   <Route path="/settlements/supervisor"               element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/reconciliation"           element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleRecon /></PageErrorBoundary></RequireAccess>} />
+
+                  {/* FLEET. Reading what a vehicle costs is gated on 'fleet';
+                      maintaining the register is 'fleet_admin', because re-pointing
+                      a fuel card at a different vehicle silently restates that
+                      vehicle's whole cost history. The card page needs the write
+                      grant since mapping is its entire purpose. */}
+                  <Route path="/fleet"       element={<RequireAccess page="fleet" user={user}><PageErrorBoundary><FleetOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/fleet/cards" element={<RequireAccess page="fleet_admin" user={user}><PageErrorBoundary><FleetCards /></PageErrorBoundary></RequireAccess>} />
                   {/* Manual postings: functional, with a real approval chain, but the
                       table is empty — nobody has ever raised one. Kept reachable
                       rather than retired, because it works. */}
