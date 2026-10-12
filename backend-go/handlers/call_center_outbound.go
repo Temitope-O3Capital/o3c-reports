@@ -3949,27 +3949,16 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 	// names the customer and the town. Fire-and-forget like the rest of this function:
 	// the hand-off is already recorded, and an alert must never throw at an agent who
 	// has just put the phone down.
-	// The group key carries the DAY, and that is the whole point of it.
+	// One announcement, made by notifyLeadForwarded, which knows WHERE the lead is.
 	//
-	// It used to be the bare string "cc:forwarded". Email is suppressed on a grouped
-	// re-send — by design, so one busy afternoon does not send forty mails — but with a
-	// key that never changes, the suppression never lifts either. Measured 2026-10-12:
-	// Jennifer and Ikechukwu were each sitting on ONE unread digest with group_count =
-	// 162. They had been emailed once, about the first lead, and heard nothing about the
-	// following 161 while the badge quietly climbed.
-	//
-	// Dated, the digest collapses within a day and reopens the next, so each morning's
-	// first hand-off is mailed and the rest accumulate into it. That is the cadence the
-	// grouping was meant to produce.
-	go NotifyRoles(context.WithoutCancel(ctx), db, []string{"sales_head"}, NotifPayload{
-		EventType: EvtLeadForwarded,
-		Title:     "Lead Forwarded From the Call Centre",
-		Body:      "A call-centre agent qualified a lead. Assign it in the hand-off tracker.",
-		ActionURL: "/call-center/forwards",
-		EntityRef: fmt.Sprintf("cc_forward:lead:%d", leadID),
-		GroupKey:  "cc:forwarded:" + nowDateKey(ctx, db),
-		Priority:  "high",
-	})
+	// There used to be a second alert here, sent to every sales_head and keyed on the
+	// bare string "cc:forwarded". Two faults in one call: email is suppressed on a
+	// grouped re-send, so a key that never changes meant the suppression never lifted —
+	// Jennifer and Ikechukwu were each sitting on one unread digest with group_count =
+	// 162, emailed once about the first lead and silent for the following 161 — and it
+	// went to both Lagos heads and the CMO regardless of which office the lead belonged
+	// to. notifyLeadForwarded now routes it to the head whose office actually covers the
+	// state, dated so it reopens each morning.
 	go notifyLeadForwarded(context.WithoutCancel(ctx), db, leadID, agentID)
 }
 

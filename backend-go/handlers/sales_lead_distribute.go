@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -166,15 +167,59 @@ func notifyLeadsAssigned(ctx context.Context, db *core.DB, perOfficer map[int64]
 		if count == 1 {
 			noun, Noun = "lead", "Lead"
 		}
+		body := fmt.Sprintf("%d %s from the pool are now yours to work.", count, noun)
+		if who := assignedNames(ctx, db, id); who != "" {
+			body += " " + who
+		}
 		go Notify(context.WithoutCancel(ctx), db, NotifPayload{
 			EventType: EvtLeadAssigned,
 			UserID:    id,
 			Title:     fmt.Sprintf("%d New %s Assigned to You", count, Noun),
-			Body: fmt.Sprintf("%d %s from the pool are now yours to work. "+
-				"Open Leads to plan the first visit.", count, noun),
+			Body:      body + " Open Leads to plan the first visit.",
 			ActionURL: "/sales/leads?owner=me",
 			EntityRef: fmt.Sprintf("sales_lead_batch:%d", id),
-			Priority:  "high",
+			// Ungrouped on purpose: a distribution is a discrete event the officer is
+			// waiting on, so it must email every time rather than fold into a digest
+			// that eventually stops sending.
+			Priority: "high",
 		})
 	}
+}
+
+// assignedNames lists WHO the officer has just been given, and where each one is.
+//
+// The alert used to say only "12 leads assigned to you", which tells an officer that
+// something happened and nothing about what. Naming them makes the mail itself worth
+// reading on a phone, without opening the queue to find out who they are.
+//
+// Capped at ten and counted beyond: a sixty-lead distribution should not produce an
+// email nobody scrolls to the end of.
+func assignedNames(ctx context.Context, db *core.DB, officer int64) string {
+	rows, err := db.PGQuery(ctx, `
+		SELECT btrim(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')) AS name,
+		       COALESCE(NULLIF(btrim(c.city), ''), NULLIF(btrim(c.state), ''), '')   AS where_
+		  FROM app.crm_contacts c
+		 WHERE c.sales_owner_id = $1
+		   AND c.lead_stage NOT IN ('converted', 'disqualified')
+		 ORDER BY c.updated_at DESC
+		 LIMIT 11`, officer)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	parts := []string{}
+	for i, row := range rows {
+		if i == 10 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(rows)-10))
+			break
+		}
+		n := strings.TrimSpace(str(row["name"]))
+		if n == "" {
+			n = "Unnamed lead"
+		}
+		if w := str(row["where_"]); w != "" {
+			n += " (" + w + ")"
+		}
+		parts = append(parts, n)
+	}
+	return strings.Join(parts, ", ") + "."
 }

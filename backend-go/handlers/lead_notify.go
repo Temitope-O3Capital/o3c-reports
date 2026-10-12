@@ -34,6 +34,39 @@ import (
 // lead or one ever.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// leadHubHeads returns the heads whose team covers this hub — the people who should
+// hear that a lead has landed in their patch, and nobody else.
+//
+// The hand-off digest used to go to every sales_head, which on this floor means the two
+// Lagos heads AND the CMO hear about an Abuja lead that is none of their business. A
+// head who cannot act on an alert learns to ignore the alerts they can act on.
+//
+// Keyed on the head's own office rather than on a hard-coded team list, so moving
+// somebody between offices moves their alerts with them. Returns empty when the lead's
+// state does not resolve, and the caller then falls back to every head — an unplaceable
+// lead is exactly the case where somebody senior needs to look.
+func leadHubHeads(ctx context.Context, db *core.DB, hub string) []int64 {
+	if hub == "" {
+		return nil
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT DISTINCT u.id
+		  FROM app.o3c_users u
+		  JOIN app.sales_teams t ON t.head_user_id = u.id AND t.is_active
+		 WHERE u.is_active
+		   AND app.sales_hub_for_office(u.office_location) = $1`, hub)
+	if err != nil {
+		return nil
+	}
+	out := []int64{}
+	for _, row := range rows {
+		if id := toInt64(row["id"]); id != 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // leadHubOfficers returns the active sales officers whose office covers this hub.
 func leadHubOfficers(ctx context.Context, db *core.DB, hub string) []int64 {
 	if hub == "" {
@@ -158,6 +191,27 @@ func notifyLeadForwarded(ctx context.Context, db *core.DB, leadID int64, agentID
 		})
 	}
 
+	// The head whose office covers this lead — and only them.
+	//
+	// This digest used to go to every sales_head, so both Lagos heads and the CMO were
+	// told about Abuja leads they cannot act on. Alerts a person cannot act on are how
+	// they learn to ignore the ones they can. Dated, so it collapses within a day and
+	// reopens the next morning rather than falling silent for ever.
+	//
+	// Falls back to every head when the state does not resolve, because an unplaceable
+	// lead belongs to no office and is precisely when someone senior should look.
+	if heads := leadHubHeads(ctx, db, f.Hub); len(heads) > 0 {
+		NotifyUsers(ctx, db, heads, NotifPayload{
+			EventType: EvtLeadForwarded,
+			Title:     "A Lead Was Forwarded to Your Team",
+			Body:      body + " " + whoHasIt(f),
+			ActionURL: "/sales/leads?owner=unassigned",
+			EntityRef: fmt.Sprintf("crm_contact:%d", f.ContactID),
+			GroupKey:  "sales:head:" + f.Hub + ":" + nowDateKey(ctx, db),
+			Priority:  "high",
+		})
+	}
+
 	// A lead with no resolvable state cannot be routed or planned, and will sit in the
 	// pool indefinitely unless a person notices. Heads get this one because fixing it
 	// means deciding where the customer actually is.
@@ -195,6 +249,16 @@ func hubOrSales(hub string) string {
 		return "sales"
 	}
 	return hub
+}
+
+// whoHasIt tells the head whether the lead already has a name against it or is sitting
+// in the pool waiting to be given out — the one thing that decides whether they need to
+// do anything about it.
+func whoHasIt(f leadForwardFacts) string {
+	if f.OwnerID != 0 {
+		return "Already owned."
+	}
+	return "Unclaimed — distribute it or let an officer take it."
 }
 
 // nowDateKey is the database's idea of today, so a group key rolls over at the same
