@@ -727,7 +727,7 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 		if _, ok := phoenixProductNames[code]; !ok {
 			return phoenixHTTPError{
 				Status: http.StatusUnprocessableEntity,
-				Body: fmt.Sprintf("no Phoenix product is mapped to %q — create the product in Phoenix, then add it to phoenixProductNames", code),
+				Body: fmt.Sprintf("no Phoenix product is mapped to %q. Create the product in Phoenix, then add it to phoenixProductNames", code),
 			}
 		}
 	}

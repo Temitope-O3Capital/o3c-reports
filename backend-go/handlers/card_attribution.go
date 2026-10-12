@@ -355,7 +355,7 @@ func cardBulkAttribution(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "note", Outcome: "attributed",
-			Subject: fmt.Sprintf("Card sales credited — %d cards", len(rows)), Body: req.Note,
+			Subject: fmt.Sprintf("Card sales credited: %d cards", len(rows)), Body: req.Note,
 			Source: "card_ops", EntityType: "card_attribution", EntityID: "bulk",
 			Metadata: map[string]any{
 				"sales_officer_id": req.SalesOfficerID,

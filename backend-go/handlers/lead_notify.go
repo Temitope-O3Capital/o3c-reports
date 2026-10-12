@@ -183,7 +183,7 @@ func notifyLeadForwarded(ctx context.Context, db *core.DB, leadID int64, agentID
 		NotifyUsers(ctx, db, officers, NotifPayload{
 			EventType: EvtLeadForwarded,
 			Title:     "New " + f.Hub + " Leads Forwarded From the Call Centre",
-			Body:      body + " Unclaimed — open Leads to take it.",
+			Body:      body + " Unclaimed. Open Leads to take it.",
 			ActionURL: "/sales/leads?owner=unassigned",
 			EntityRef: fmt.Sprintf("crm_contact:%d", f.ContactID),
 			GroupKey:  "sales:forwarded:" + f.Hub + ":" + day,

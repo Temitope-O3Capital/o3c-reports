@@ -632,7 +632,7 @@ func ccRaiseWinbackHandoff(ctx context.Context, db *core.DB, contactID, phone st
 		Status:      "open",
 		Subject:     "Win-back: " + name + " wants an offer",
 		Body: "Reached on a win-back call and asked about a new offer" + worth +
-			". The call centre cannot price or place one — Sales to follow up.",
+			". The call centre cannot price or place one. Sales to follow up.",
 		Source: "retention",
 	})
 	slog.Info("retention: win-back hand-off raised to Sales", "contact", contactID, "cif", cif)

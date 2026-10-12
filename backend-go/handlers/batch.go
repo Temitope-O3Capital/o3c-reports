@@ -1374,7 +1374,7 @@ func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 		}
 		res := SendMail(ctx, db, SendMailOptions{
 			To:       []MailAddress{{Email: email}},
-			Subject:  fmt.Sprintf("O3 Capital Board Pack — %s", prevMonth),
+			Subject:  fmt.Sprintf("O3 Capital Board Pack: %s", prevMonth),
 			HTMLBody: htmlBody,
 			TextBody: fmt.Sprintf("O3 Capital Board Pack — %s\n\nPlease view in an HTML email client.", prevMonth),
 			Kind:     "board_pack",

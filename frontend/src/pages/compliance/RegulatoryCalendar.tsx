@@ -280,7 +280,7 @@ export default function RegulatoryCalendar() {
       <ConfirmModal
         open={!!doneEntry}
         title="Mark as Submitted?"
-        body={`Confirm that "${doneEntry?.report_name}" has been submitted to ${doneEntry?.regulatory_body ?? 'the regulator'}.`}
+        body={`Confirm you have submitted "${doneEntry?.report_name}" to ${doneEntry?.regulatory_body ?? 'the regulator'}.`}
         confirmLabel="Mark Submitted"
         loading={doneing}
         onConfirm={handleMarkDone}
