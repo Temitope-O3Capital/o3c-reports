@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useLiveData } from '../../hooks/useRealtime'
 import { Page, DataTable, ErrBanner, EmptyState, type TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtCount } from '../../lib/fmt'
@@ -107,6 +109,9 @@ export default function CallCenterForwards() {
   }, [sup, scope])
 
   useEffect(() => { load() }, [load])
+  // Live: an outcome moving is the whole subject of this page.
+  useLiveData(load, { topics: ['crm', 'cc_leads', 'activities'] })
+  const nav = useNavigate()
 
   // The five buckets are mutually exclusive and add up to the backend's `total`. The
   // first card used to show `total` itself: with 10 forwarded / 4 with sales / 3
@@ -203,6 +208,10 @@ export default function CallCenterForwards() {
           threw away the in-table search, the filter chips and the page position. */}
       <DataTable
         cols={cols} rows={tableRows} keyFn={r => r.id}
+        // A row is a lead, and a lead has a story. The table could only ever show the
+        // bucket it is in; the page behind it shows the calls that qualified it, who in
+        // Sales holds it and what they have done since.
+        onRowClick={r => nav(`/call-center/forwards/${r.id}`)}
         loading={loading && rows.length === 0}
         searchKeys={['customer_name', 'customer_phone', 'product_interest', 'sales_owner_name', 'lead_agent_name']}
         searchPlaceholder="Search customer, product, owner…"

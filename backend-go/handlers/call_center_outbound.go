@@ -315,6 +315,9 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	// Sales hand-off tracker — agents see their own forwards; supervisors the floor.
 	r.Get("/forwards", ccListForwards(db))
 	r.Get("/forwards/summary", ccForwardsSummary(db))
+	// One hand-off in full — the calls that qualified it, who in Sales holds it now and
+	// what they have done since. Read-only; see call_center_forward_detail.go.
+	r.Get("/forwards/{id}", ccForwardDetail(db))
 
 	// Call-back reminders — the agent's due call-backs (feeds the pop-up) + snooze.
 	r.Get("/callbacks/due", ccMyCallbacksDue(db))

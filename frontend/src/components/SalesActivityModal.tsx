@@ -174,6 +174,19 @@ export default function SalesActivityModal({
   // was still stamped with the moment it was typed. Both paths now carry it.
   const [when, setWhen] = useState('')
 
+  // What this sitting has already put on the record.
+  //
+  // A field day is four or five visits, and the dialog made it four or five round trips:
+  // open, type, save, watch it close, find the button again. Officers logged the first
+  // one and wrote the rest in a notebook, which is how a day ends up looking emptier
+  // than it was.
+  //
+  // Each entry posts as it is added rather than being held and sent together at the end.
+  // Three visits that saved and one that failed is a recoverable afternoon; a batch that
+  // fails on the fourth and loses all four is not, and that is also the version where a
+  // closed laptop costs the officer the whole day.
+  const [logged, setLogged] = useState<{ kind: string; subject: string }[]>([])
+
   // What came of it, from the shared vocabulary rather than a free-text box.
   const [disposition, setDisposition] = useState('')
   const [dispCatalogue, setDispCatalogue] = useState<Record<string, Disposition[]>>({})
@@ -303,7 +316,9 @@ export default function SalesActivityModal({
     return null
   }
 
-  async function submit() {
+  // again = keep the dialog open for the next entry. Day mode only: a lead log is one
+  // act on one lead, and it has somewhere to return to afterwards.
+  async function submit(again = false) {
     const problem = validate()
     if (problem) { setErr(problem); return }
     setErr(null); setSaving(true)
@@ -331,7 +346,18 @@ export default function SalesActivityModal({
         } else if (res?.moved) {
           toast.success(`Logged. The lead moved to ${leadStageLabel(res.moved)}.`)
         } else {
-          toast.success('Logged to your day')
+          toast.success(again ? `Logged — ${logged.length + 2} so far` : 'Logged to your day')
+        }
+        if (again) {
+          // Kind survives the reset. Logging four visits means picking Visit once, and the
+          // one field that always differs is the next line down, which is where the cursor
+          // goes. Nothing calls onSaved here, so the dialog stays put — the page behind it
+          // refreshes anyway off the 'activities' topic the moment the write lands.
+          setLogged(prev => [...prev, { kind, subject: subject.trim() }])
+          setSubject(''); setLocation(''); setNote(''); setDisposition('')
+          setWhen(''); setFollow(''); setLeadId(''); setLeadName('')
+          setErr(null)
+          return
         }
         onSaved()
         return
@@ -376,7 +402,13 @@ export default function SalesActivityModal({
     color: on ? '#fff' : 'var(--txt2)', fontFamily: INTER, transition: 'var(--transition-fast)',
   })
 
+  // With entries already saved and an empty form, the primary has nothing left to post:
+  // it is the "I am finished" button. Leaving it as Log to My Day would fail validation
+  // on a dialog whose work is already done, which is a strange way to end a day.
+  const finishOnly = isDay && logged.length > 0 && (!kind || !subject.trim())
+
   const primaryLabel = saving ? 'Saving…'
+    : finishOnly ? `Done — ${logged.length} Logged`
     : isDay ? 'Log to My Day'
     : isForward ? `Move to ${chosenStep!.label}`
     : kind ? `Log ${RECORD_KINDS.find(k => k.kind === kind)?.label ?? 'Activity'}`
@@ -389,11 +421,24 @@ export default function SalesActivityModal({
       title={isDay ? 'Log to My Day' : lead?.name ? `Log Activity: ${lead.name}` : 'Log Activity'}
       width={isDay ? 500 : 560}
       footer={
-        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', alignItems: 'center' }}>
-          <span style={{ flex: 1, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Ctrl + Enter to save</span>
-          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button variant="primary" loading={saving} onClick={submit}
-            icon={isForward ? 'trending_flat' : isDay ? 'add' : 'check'}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, minWidth: 90, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Ctrl + Enter to save</span>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            {/* Once something is saved, backing out is not cancelling anything — those
+                entries are already on the day. Saying Cancel there reads like it would
+                undo them. */}
+            {isDay && logged.length > 0 ? 'Close' : 'Cancel'}
+          </Button>
+          {/* Day mode only, and live only while there is something in the form to save. */}
+          {isDay && (
+            <Button variant="secondary" disabled={saving || !kind || !subject.trim()}
+              onClick={() => submit(true)} icon="playlist_add">
+              Save &amp; Add Another
+            </Button>
+          )}
+          <Button variant="primary" loading={saving}
+            onClick={() => (finishOnly ? onSaved() : submit())}
+            icon={isForward ? 'trending_flat' : 'check'}>
             {primaryLabel}
           </Button>
         </div>
@@ -403,6 +448,27 @@ export default function SalesActivityModal({
         onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submit() } }}
         style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}
       >
+        {/* The tally. Without it there is no way to tell a dialog that has saved three
+            entries from one that has saved none, and an officer re-logs a visit they
+            already recorded rather than risk it being missing. */}
+        {isDay && logged.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6,
+            padding: '7px 10px', borderRadius: RADIUS.md,
+            background: `${GREEN}0D`, border: `1px solid ${GREEN}33` }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15, color: GREEN }}>task_alt</span>
+            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: GREEN }}>
+              {logged.length} on your day
+            </span>
+            {logged.map((e, i) => (
+              <span key={i} title={e.subject} style={{ maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap', padding: '1px 8px', borderRadius: RADIUS.full,
+                background: 'var(--card)', border: '1px solid var(--bdr)',
+                fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>
+                {DAY_KINDS.find(k => k.kind === e.kind)?.label ?? e.kind}: {e.subject}
+              </span>
+            ))}
+          </div>
+        )}
         {/* Where the lead stands right now. Without it the rail is a list of words:
             "already passed" only means something once you can see where you are. */}
         {!isDay && currentLabel && (
@@ -445,7 +511,9 @@ export default function SalesActivityModal({
               </div>
             </div>
 
-            <Input label="In A Few Words" value={subject} autoFocus
+            {/* keyed on the tally so each saved entry remounts the field and autoFocus puts the
+                cursor back where the next entry starts. Input takes no ref. */}
+            <Input key={`subject-${logged.length}`} label="In A Few Words" value={subject} autoFocus
               onChange={e => setSubject(e.target.value)}
               placeholder={kind === 'visit' ? 'e.g. Visited Dangote HR' : kind === 'call' ? 'e.g. Called Mr Adeyemi' : 'e.g. Met the Ikeja branch manager'}
               hint="This is what the entry reads as on your day." />

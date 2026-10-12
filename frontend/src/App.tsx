@@ -269,6 +269,8 @@ const StaffPerformance = lazy(() => import('./pages/performance/Overview'))
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
 const CallCenterLeads          = lazy(() => import('./pages/call-center/Leads'))
 const CallCenterForwards       = lazy(() => import('./pages/call-center/Forwards'))
+// One hand-off in full — the call centre's counterpart to the sales lead page.
+const CallCenterForwardDetail  = lazy(() => import('./pages/call-center/ForwardDetail'))
 const CallCenterDNC            = lazy(() => import('./pages/call-center/DNC'))
 const CallCenterPerformance    = lazy(() => import('./pages/call-center/Performance'))
 const CallCenterVoiceSpike     = lazy(() => import('./pages/call-center/VoiceSpike'))
@@ -1164,6 +1166,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/call-center/queue"              element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/leads"              element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterLeads /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/forwards"           element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterForwards /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/call-center/forwards/:id"       element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterForwardDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/dnc"                element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterDNC /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/performance"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterPerformance /></PageErrorBoundary></RequireAccess>} />
                   {/* Developer spike, not product: it loads a third-party SDK from

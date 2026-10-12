@@ -1,5 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from 'react' 
 import {
@@ -1515,7 +1515,13 @@ interface LeadsView {
   selectedId: number | null; agentId?: string
 }
 function readLeadsView(): Partial<LeadsView> {
-  try { return JSON.parse(sessionStorage.getItem(LEADS_VIEW_KEY) || '{}') } catch { return {} }
+  try {
+    const v = JSON.parse(sessionStorage.getItem(LEADS_VIEW_KEY) || '{}')
+    // The Converted · Unverified chip is gone, so a view saved while it was selected
+    // would restore a filter with no chip lit and no way to clear it.
+    if (v?.status === 'converted_unverified') v.status = 'converted'
+    return v
+  } catch { return {} }
 }
 function writeLeadsView(v: LeadsView) {
   try { sessionStorage.setItem(LEADS_VIEW_KEY, JSON.stringify(v)) } catch { /* private mode / quota — non-fatal */ }
@@ -1920,22 +1926,12 @@ export default function CallCenterLeads() {
               ))}
             </div>
 
-            {/* An unverified conversion is a converted lead that names no customer. It sits
-                here rather than in an alert because it is a backlog for whoever logged it,
-                and clicking it is the only way to find them. Six of the nine conversions on
-                the book were real and three were not; nothing distinguished them until the
-                CIF was captured. */}
-            {(summary.converted_unverified ?? 0) > 0 && (
-              <button onClick={() => setStatus('converted_unverified')}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', marginBottom: 10,
-                  padding: '6px 10px', borderRadius: RADIUS.md, border: `1px solid ${AMBER}55`,
-                  background: `${AMBER}12`, color: AMBER, fontSize: TEXT['2xs'], fontWeight: FW.semibold,
-                  cursor: 'pointer', textAlign: 'left' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>help</span>
-                {summary.converted_unverified} converted {summary.converted_unverified === 1 ? 'lead names' : 'leads name'} no
-                customer — confirm which customer it was
-              </button>
-            )}
+            {/* A conversion that names no customer used to be called out here as a backlog to
+                chase. It is not one: the CIF sweep resolves it on its own as soon as the
+                customer appears in the core book, and until then "converted" is already the
+                truth of what the agent did. Converted is converted. The ones that HAVE a
+                customer get a Customer 360 link on the row instead, which is the useful half
+                of the same information. */}
 
             {/* Search */}
             <TblSearch value={search} onChange={setSearch}
@@ -1970,10 +1966,6 @@ export default function CallCenterLeads() {
                 { value: 'callback',   label: 'Callback',      color: AMBER },
                 { value: 'no_answer',  label: 'No Answer',     color: RED },
                 { value: 'converted',  label: 'Converted',     color: GREEN },
-                // Not a status — a converted lead that names no customer. Offered as a chip
-                // because it is the only way an agent can find the conversions waiting on
-                // them to confirm which customer it was.
-                { value: 'converted_unverified', label: 'Converted · Unverified', color: AMBER },
                 { value: 'dnc',        label: 'DNC',           color: PURPLE },
                 // closed and invalid are set by the backend (a decline on our side, and
                 // a bad number) — without chips those leads could never be filtered to.
@@ -2093,6 +2085,23 @@ export default function CallCenterLeads() {
                         <NameCell name={lead.customer_name} sub={lead.customer_phone ?? undefined} avatar={false} />
                       </div>
                       <StatusPill status={lead.status} />
+                      {/* Converted AND carrying a CIF means this lead is a customer in the
+                          core book now, so the row stops being the end of the story. The
+                          badge is the only exit from the lead book into Customer 360, and
+                          it appears on exactly the rows where there is something to see.
+                          stopPropagation because the row itself opens the lead. */}
+                      {lead.status === 'converted' && lead.customer_cif && (
+                        <Link to={`/customers/${encodeURIComponent(lead.customer_cif)}`}
+                          onClick={e => e.stopPropagation()}
+                          title={`Open Customer 360 — CIF ${lead.customer_cif}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0,
+                            padding: '1px 6px 1px 4px', borderRadius: 999, textDecoration: 'none',
+                            border: `1px solid ${GREEN}55`, background: `${GREEN}14`, color: GREEN,
+                            fontSize: TEXT['2xs'], fontWeight: FW.bold, lineHeight: 1.6 }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xs }}>account_circle</span>
+                          C360
+                        </Link>
+                      )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {lead.campaign_name && (
