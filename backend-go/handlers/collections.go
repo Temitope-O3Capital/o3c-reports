@@ -177,11 +177,32 @@ func debtorJoinsSQL(alias string) string {
 		"\t\t\tLEFT JOIN app.customers c ON c.cif = " + cardsKeySQL(alias)
 }
 
-// debtorNameSQL is the display name over those joins: the row's own stored name first
-// (it was written from the arm's own source), then the party, then the arm's customer
-// master, then the key itself. It never falls through to another namespace's name.
+// debtorNameSQL is the display name over those joins: the PARTY first, then the row's
+// own stored name, then the arm's customer master, then the key itself. It never falls
+// through to another namespace's name.
+//
+// THE PARTY LEADS, AND IT DID NOT USED TO. This read `alias.customer_name` first, on the
+// reasoning that the row's own stored name came from the arm's own source. Measured
+// against the live data, that ordering was the weaker one:
+//
+//   - recovery_cases.customer_name is populated on 89 of 269 payments and 85 of 1,617
+//     cases — 5.3%. app.parties resolves 97.3%.
+//   - Where both exist they disagree on 16 of 89: always the same person, in a different
+//     word order, casing or pluralisation (ADELOYE BAYONLE / Bayonle Adeloye, FOLTI
+//     TECHNOLOGY / FOLTI TECHNOLOGIES).
+//
+// So the stored column was not adding identity, it was adding a second spelling — and
+// because the Payment Approvals list resolved via party_id while the Cases list came
+// through here, the same debtor appeared under two names on two screens of one module.
+// The party record is the maintained identity; the stored name stays as the fallback
+// immediately behind it, which is where it still earns its place: it names the rows whose
+// party was never linked.
+//
+// The namespace guarantee is unchanged. pty is joined on the ROW'S OWN party_id, so
+// leading with it cannot borrow another namespace's name — which is the property the
+// cardsKeySQL / udaraKeySQL joins above exist to protect.
 func debtorNameSQL(alias string) string {
-	return "COALESCE(NULLIF(TRIM(" + alias + ".customer_name),''), NULLIF(TRIM(pty.full_name),''), " +
+	return "COALESCE(NULLIF(TRIM(pty.full_name),''), NULLIF(TRIM(" + alias + ".customer_name),''), " +
 		"NULLIF(TRIM(cbs.name),''), NULLIF(TRIM(CONCAT(c.first_name,' ',c.last_name)),''), " +
 		alias + ".account_cif)"
 }

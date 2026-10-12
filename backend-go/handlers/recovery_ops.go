@@ -948,23 +948,28 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 
 func recoveryOpsPendingPayments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// customer_name is resolved through recovery_cases.party_id -> app.parties, the
-		// cross-namespace customer key, NOT through recovery_cases.customer_name: that
-		// column is populated on only 85 of 1,617 cases (5.3%), so leading with it would
-		// leave 95% of these money approvals nameless. Measured on the live approvals
-		// feed, the party route names 262 of 269 payments (97.4%). account_cif stays in
-		// the payload — it is the id the approver acts on, and it is the fallback for the
-		// 7 payments whose case carries no party_id.
+		// customer_name comes through debtorNameSQL / debtorJoinsSQL — the module's one
+		// sanctioned way to put a debtor's name on a row — so this screen and the Cases
+		// list cannot spell the same person differently.
+		//
+		// This query previously resolved the party itself, deliberately, because the
+		// canonical helper led with recovery_cases.customer_name (5.3% populated) and
+		// would have left most of these money approvals nameless. The helper now leads
+		// with the party, so the reason for the local copy is gone — and a second copy of
+		// an identity rule in the same module is exactly how two screens come to disagree.
+		// The party route names 262 of 269 payments (97.4%); account_cif stays in the
+		// payload as the id the approver acts on and as the fallback for the 7 whose case
+		// carries no party_id.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			    rp.id, rp.case_id, rc.account_cif,
-			    COALESCE(NULLIF(btrim(p.full_name), ''), rc.account_cif) AS customer_name,
+			    `+debtorNameSQL("rc")+` AS customer_name,
 			    rp.amount_kobo, rp.payment_date, rp.channel, rp.reference,
 			    rp.status, rp.created_at,
 			    u.full_name AS posted_by_name
 			FROM recovery_payments rp
 			JOIN recovery_cases rc ON rc.id = rp.case_id
-			LEFT JOIN app.parties p ON p.party_id = rc.party_id
+			`+debtorJoinsSQL("rc")+`
 			LEFT JOIN o3c_users u ON u.id = rp.posted_by
 			WHERE `+chainStatusClause(qstr(r, "status"), "rp")+`
 			ORDER BY rp.created_at DESC
