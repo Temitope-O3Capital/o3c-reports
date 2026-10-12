@@ -95,7 +95,12 @@ WITH assign AS (
     -- out for good. Money still awaiting approval is kept as its own pool and reported
     -- in its own column -- never blended into a paid or outstanding figure.
     SELECT account_cif,
-           COALESCE(SUM(amount_kobo) FILTER (WHERE status = 'approved'), 0)                   AS paid_kobo,
+           -- superseded_by_udara excluded: migration 366 flags a hand-entered receipt
+           -- on a facility Udara holds, where app.loan_repayments carries the
+           -- authoritative version and the Udara arm above now reports it. Counting
+           -- both would credit the same money twice.
+           COALESCE(SUM(amount_kobo) FILTER (WHERE status = 'approved'
+                                               AND NOT superseded_by_udara), 0)              AS paid_kobo,
            COALESCE(SUM(amount_kobo) FILTER (WHERE status NOT IN ('approved','rejected')), 0) AS pending_kobo
       FROM collection_payments GROUP BY 1
 ), udara_owner AS (

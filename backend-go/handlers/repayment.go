@@ -43,7 +43,11 @@ import (
 const paymentTierCTE = `
 WITH cif_paid AS (
 	SELECT account_cif,
-	       SUM(amount_kobo) FILTER (WHERE status = 'approved') AS paid_kobo,
+	       -- superseded_by_udara excluded (migration 366): where Udara holds the
+	       -- facility its ledger is the record, and the Udara arm reports it from
+	       -- loan_paid. Counting the spreadsheet copy too would double the money.
+	       SUM(amount_kobo) FILTER (WHERE status = 'approved'
+	                                  AND NOT superseded_by_udara) AS paid_kobo,
 	       SUM(amount_kobo) FILTER (WHERE status NOT IN ('approved','rejected')) AS pending_kobo
 	  FROM collection_payments GROUP BY 1
 ), uploaded_alloc AS (

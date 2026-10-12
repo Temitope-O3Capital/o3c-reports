@@ -947,7 +947,22 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		// the retired "Collections Log". Defaults to month-to-date when no range given.
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
-		where := "status = 'approved'"
+		// COLLECTED IS BOTH BOOKS, COUNTED ONCE.
+		//
+		// This summed app.collection_payments alone, so it reported the hand-entered and
+		// imported receipts and none of Udara's: 901,306,487.98 naira of real repayment
+		// on the core-banking ledger was absent from the company's "Collected" figure,
+		// while the spreadsheet copies of some of that same money were in it.
+		//
+		// Now: the entered ledger minus the receipts migration 366 proved Udara already
+		// reports, plus the Udara ledger itself. Over all time that moves the figure
+		// from 1,094,578,699.07 to 1,915,152,698.49 — it was understating by more than
+		// it was double-counting.
+		//
+		// superseded_by_udara is what keeps the two from overlapping; see migration 366
+		// for why precedence is applied per FACILITY and bounded by Udara's ledger floor
+		// rather than matched receipt to receipt.
+		where := "status = 'approved' AND NOT superseded_by_udara"
 		cargs := []any{}
 		if from != "" {
 			cargs = append(cargs, from)
@@ -960,9 +975,25 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		if from == "" && to == "" {
 			where += " AND date_trunc('month',payment_date) = date_trunc('month',CURRENT_DATE)"
 		}
+		// The Udara arm carries the same period filter, built from the same args so the
+		// two halves can never drift onto different windows.
+		udaraWhere := "1=1"
+		if from != "" {
+			udaraWhere += fmt.Sprintf(" AND payment_date >= $%d::date", 1)
+		}
+		if to != "" {
+			udaraWhere += fmt.Sprintf(" AND payment_date <= $%d::date", len(cargs))
+		}
+		if from == "" && to == "" {
+			udaraWhere += " AND date_trunc('month',payment_date) = date_trunc('month',CURRENT_DATE)"
+		}
 		crow, _ := db.PGQuery(r.Context(),
 			`SELECT COALESCE(SUM(amount_kobo),0) AS collected_kobo, COUNT(*) AS collected_count
-			 FROM app.collection_payments WHERE `+where, cargs...)
+			 FROM (
+			   SELECT amount_kobo FROM app.collection_payments WHERE `+where+`
+			   UNION ALL
+			   SELECT amount_kobo FROM app.loan_repayments      WHERE `+udaraWhere+`
+			 ) q`, cargs...)
 		if len(crow) > 0 {
 			result["collected_kobo"] = crow[0]["collected_kobo"]
 			result["collected_count"] = crow[0]["collected_count"]
