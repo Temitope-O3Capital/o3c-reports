@@ -200,7 +200,7 @@ export default function SalesCalendar() {
                 label=""
                 value={officerId}
                 onChange={setOfficerId}
-                options={[{ value: '', label: 'My diary' },
+                options={[{ value: '', label: 'My Diary' },
                   ...officers.map(o => ({ value: String(o.id), label: o.full_name }))]}
               />
             </div>
