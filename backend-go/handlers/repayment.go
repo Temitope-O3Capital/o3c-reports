@@ -72,6 +72,15 @@ WITH cif_paid AS (
 	 WHERE money_in = true AND COALESCE(amount_credit,0) > 0
 	   AND txn_date >= CURRENT_DATE - INTERVAL '12 months'
 	 GROUP BY 1
+), loan_paid AS (
+	-- Receipts on a Udara facility, keyed on the loan ACCOUNT NUMBER. Same CTE as in
+	-- collections_portfolio.go, for the same reason: collection_payments is cards-keyed
+	-- and must not be reached from the Udara arm, but app.loan_repayments keys on
+	-- cbs_loan_account — an account number, which collides with nothing.
+	SELECT cbs_loan_account, SUM(COALESCE(amount_kobo,0)) AS paid_kobo
+	  FROM app.loan_repayments
+	 WHERE NULLIF(TRIM(cbs_loan_account),'') IS NOT NULL
+	 GROUP BY 1
 ), loan AS (
 	SELECT 'UD-' || cl.cbs_customer_id                                 AS cif, -- namespaced: a bare Udara id here navigated to a stranger's Customer 360
 	       COALESCE(NULLIF(TRIM(cl.raw->>'name'), ''), cl.cbs_customer_id) AS customer_name, -- Udara's own name
@@ -80,16 +89,24 @@ WITH cif_paid AS (
 	       cl.cbs_account_number                                       AS reference,
 	       cl.loan_amount_kobo                                         AS principal_kobo,
 	       cl.outstanding_principal_kobo                               AS outstanding_kobo,
-	       GREATEST(cl.loan_amount_kobo - cl.outstanding_principal_kobo, 0) AS paid_kobo,
-	       -- No approval chain on this arm: paydown comes from Udara's own outstanding
-	       -- principal. collection_payments is keyed by CARDS account_cif, a different
+	       -- RECEIPTS, not the balance delta. This was
+	       -- GREATEST(loan_amount - outstanding_principal, 0), which is principal
+	       -- movement: it counts a write-off or restructure as a payment and counts an
+	       -- interest-only payment as nothing. Uncapped, so interest collected above
+	       -- the principal still shows as the cash it was.
+	       COALESCE(lp.paid_kobo,0)                                    AS paid_kobo,
+	       -- No approval chain on this arm: Udara receipts post straight from core
+	       -- banking. collection_payments is keyed by CARDS account_cif, a different
 	       -- namespace from cbs_customer_id, so it must NOT be joined here.
 	       0::bigint                                                   AS pending_kobo,
+	       -- Percent is OF PRINCIPAL and capped at 100, so a facility repaid with
+	       -- interest reads 100% rather than 142%. The uncapped cash is paid_kobo.
 	       CASE WHEN cl.loan_amount_kobo > 0
-	            THEN ROUND(100.0 * GREATEST(cl.loan_amount_kobo - cl.outstanding_principal_kobo, 0)::numeric / cl.loan_amount_kobo, 1)
+	            THEN LEAST(100.0, ROUND(100.0 * COALESCE(lp.paid_kobo,0)::numeric / cl.loan_amount_kobo, 1))
 	            ELSE 0 END                                             AS pct_paid,
 	       ` + cbsLoanDPD + `                                          AS dpd
 	FROM cbs_loans cl
+	LEFT JOIN loan_paid lp ON lp.cbs_loan_account = cl.cbs_account_number
 	WHERE cl.status NOT IN ('Closed','Revoked')
 
 	UNION ALL
