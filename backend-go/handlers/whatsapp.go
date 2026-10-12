@@ -353,6 +353,11 @@ func waInbound(db *core.DB) http.HandlerFunc {
 						kind = "ad_reply"
 					}
 					waLogInbound(db, kind, fromPhone, msgType, text, wamid, clid, headline, refSrc)
+					// A STOP is honoured before anything else, and never becomes a support ticket:
+					// it is a completed instruction, not a request for help.
+					if waHandleOptOut(db, fromPhone, text) {
+						continue
+					}
 					go processWAMessage(db, fromPhone, senderName, text)
 				}
 
@@ -530,4 +535,74 @@ func waUpdateLedgerStatus(db *core.DB, wamid, status, errCode, errText string) {
 		wamid, status, nullIf(errCode), nullIf(errText), rank[status]); err != nil {
 		slog.Error("waUpdateLedgerStatus", "wamid", wamid, "status", status, "err", err)
 	}
+}
+
+// waHandleOptOut honours a customer who replies STOP on WhatsApp. It reports whether the
+// message was an opt-out, so the caller can skip the usual ticket handling.
+//
+// WHY THIS EXISTS. optOutKeyword and the whole CTIA keyword set were already here and
+// already wired — to SMS. WhatsApp inbound ignored them completely, so a customer typing
+// STOP on WhatsApp got a support ticket opened and kept receiving messages. That is the
+// exact fact pattern a Lagos court awarded NGN 1,000,000 over in Olatokun v. Polaris Bank
+// (December 2024): the bank kept messaging after an explicit stop request, and the court
+// rejected "there was an unsubscribe mechanism" as a defence. An opt-out honoured on one
+// channel and ignored on another is not a mechanism, it is a trap.
+//
+// THIS CHANNEL, NOT ALL CHANNELS, and that is a deliberate reading. The request arrived
+// on WhatsApp, so WhatsApp is what it certainly covers. Writing dnc_list instead — which
+// app.is_suppressed applies to call, sms AND whatsapp — would also silence the arrears
+// reminders and due-date notices the customer may well still want, and nobody asked for
+// that. Note the asymmetry is already there and is correct: a STOP sent by SMS writes
+// dnc_list and therefore DOES stop WhatsApp too, because a voice/SMS do-not-call is the
+// broader instruction.
+//
+// SUPPRESSION RUNS FIRST, before any ticket work, so it still lands if everything after
+// it fails. The order is the point: a suppression we failed to record is a regulatory
+// exposure, and a ticket we failed to open is an inconvenience.
+func waHandleOptOut(db *core.DB, phone, text string) bool {
+	if !optOutKeyword(text) {
+		return false
+	}
+	ctx := context.Background()
+	norm := normalizeE164(phone)
+
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO app.contact_suppressions (phone, channel, reason, source)
+		VALUES ($1, 'whatsapp', 'Customer replied STOP on WhatsApp', 'whatsapp_inbound')`,
+		norm); err != nil {
+		// Loud, because this is the half that carries the legal weight.
+		slog.Error("waHandleOptOut: STOP received but NOT suppressed", "phone", norm, "err", err)
+	} else {
+		slog.Info("waHandleOptOut: opt-out honoured", "phone", norm)
+	}
+
+	// Withdraw any recorded WhatsApp consent as well, so the audience resolver and the
+	// suppression list agree. app.party_contact_consent is keyed on party, so this only
+	// applies where the number is linked to one — the suppression above is what protects
+	// the rest.
+	db.PGExec(ctx, `
+		UPDATE app.party_contact_consent c
+		   SET state = 'withdrawn', recorded_at = NOW()
+		  FROM app.parties p
+		 WHERE p.party_id = c.party_id
+		   AND c.channel = 'whatsapp'
+		   AND c.state = 'granted'
+		   AND app.norm_phone(p.primary_phone) = app.norm_phone($1)`, norm) //nolint:errcheck
+
+	// Thread it onto an OPEN conversation if there is one, so the agent can see that the
+	// customer opted out — but never open a NEW ticket. A STOP is a completed
+	// instruction, not a support request, and one ticket per opt-out is exactly the noise
+	// that buried the alerting rail before. Same rule as the SMS path.
+	if rows, _ := db.PGQuery(ctx, `
+		SELECT id FROM helpdesk_tickets
+		 WHERE channel = 'whatsapp' AND contact_phone = $1
+		   AND status NOT IN ('resolved','closed')
+		 ORDER BY created_at DESC LIMIT 1`, norm); len(rows) > 0 {
+		tid := toInt64(rows[0]["id"])
+		db.PGExec(ctx, //nolint:errcheck
+			`INSERT INTO helpdesk_messages (ticket_id, direction, channel, body_text, sender_name, created_at)
+			 VALUES ($1, 'inbound', 'whatsapp', $2, $3, NOW())`,
+			tid, text, norm)
+	}
+	return true
 }
