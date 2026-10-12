@@ -78,6 +78,13 @@ const MODULES: Module[] = [
     accent: BLUE,
   },
   {
+    icon: 'chat',
+    label: 'WhatsApp',
+    description: 'Check the Business Account: which credentials are set, the webhook address to give Meta, and the number’s quality rating.',
+    to: '/admin/whatsapp',
+    accent: '#25D366',
+  },
+  {
     icon: 'notifications',
     label: 'Notification Settings',
     description: 'Toggle email and push alerts by module: loans, cards, helpdesk, finance, and sync.',

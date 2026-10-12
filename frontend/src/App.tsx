@@ -222,6 +222,7 @@ const AdminApiKeys               = lazy(() => import('./pages/admin/ApiKeys'))
 const AdminSettings              = lazy(() => import('./pages/admin/Settings'))
 const AdminNotificationSettings  = lazy(() => import('./pages/admin/NotificationSettings'))
 const AdminIntegrations          = lazy(() => import('./pages/admin/Integrations'))
+const AdminWhatsApp               = lazy(() => import('./pages/admin/WhatsApp'))
 const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
 const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
 const AdminDataFreshness         = lazy(() => import('./pages/admin/DataFreshness'))
@@ -1423,6 +1424,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/settings"              element={<RequireAccess page="settings" user={user}><PageErrorBoundary><AdminSettings /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/notification-settings" element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminNotificationSettings /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/integrations"          element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminIntegrations /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/whatsapp"             element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminWhatsApp /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/audit"                 element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminAuditLog /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/sync"                  element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary></RequireAccess>} />
                   {/* Same audience as the Sync hub: sync_status sits in the it_admin
