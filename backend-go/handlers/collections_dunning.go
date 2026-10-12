@@ -305,7 +305,29 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		facility := dunningFacilityDisplay(cand.Facility,
 			str(r["catalog_name"]), str(r["catalog_category"]), toBool(r["catalog_coop"]))
 
-		for _, ch := range []string{"email", "whatsapp", "sms"} {
+		// EMAIL AND SMS ONLY. WhatsApp IS DELIBERATELY NOT A DUNNING CHANNEL.
+		//
+		// This list used to read {"email", "whatsapp", "sms"} and the whatsapp case
+		// called sendWhatsApp unconditionally. It never actually sent, for the one
+		// reason that is about to stop being true: WHATSAPP_ACCESS_TOKEN and
+		// WHATSAPP_PHONE_NUMBER_ID are empty, so sendWhatsApp returns "not_configured".
+		// The moment credentials are added for the WhatsApp messaging work, every
+		// dunning run would have started sending arrears reminders over WhatsApp with
+		// nobody deciding to.
+		//
+		// That would be a direct breach of Meta's own WhatsApp Business Policy, which
+		// names "debt collection" as a prohibited category "irrespective of the global
+		// or local licenses, registrations, or other approvals your business may hold".
+		// The penalty is not a bounced message, it is the WhatsApp Business Account —
+		// so it would take out customer service, notifications and campaigns along with
+		// it, none of which are collections.
+		//
+		// It is removed here rather than guarded by a setting on purpose: a setting is
+		// something somebody can switch on without reading this comment. If WhatsApp is
+		// ever wanted for arrears, that is a decision to take with Meta first, not a
+		// flag to flip. The 'whatsapp' case in the switch below is gone with it, so
+		// adding the channel back cannot half-work.
+		for _, ch := range []string{"email", "sms"} {
 			// Built per channel, because the amount is not spelt the same way on all
 			// three. See dunningAmount.
 			merge := map[string]any{
@@ -390,8 +412,6 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 				ok, detail = sendEmail(ctx, db, recipient, cand.Name, "", "", subject, dunningEmailHTML(tpl, merge), body, cand.CIF)
 			case "sms":
 				ok, detail = sendSMS(ctx, db, recipient, body)
-			case "whatsapp":
-				ok, detail = sendWhatsApp(ctx, db, recipient, body)
 			}
 			if ok {
 				dispatched++
