@@ -500,6 +500,19 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    key: 'people',
+    header: 'People',
+    items: [
+      // The staff register. Listed for HR, and canSee short-circuits the MGMT roles
+      // anyway; the real gate is PAGE_FOR below, on people_directory, so a role that
+      // does not hold the page never sees the entry even if it is listed here.
+      {
+        icon: 'groups', label: 'People Directory', to: '/people',
+        vis: ['hr'],
+      },
+    ],
+  },
+  {
     key: 'admin',
     header: 'Admin',
     items: [
@@ -550,6 +563,8 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/care/knowledge-base': 'helpdesk', '/care/canned': 'helpdesk_canned',
   // Customer Feedback
   '/feedback': 'surveys',
+  // People
+  '/people': 'people_directory',
   // Cards
   '/cards': 'cards', '/cards/my-queue': 'cards', '/cards/credit-portfolio': 'cards',
   '/cards/at-risk': 'cards', '/cards/cycle-import': 'cards', '/cards/trends': 'card_trends',

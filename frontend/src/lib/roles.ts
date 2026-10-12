@@ -58,6 +58,11 @@ export const ROLE_LABELS: Record<string, string> = {
   compliance_head:          'Head of Compliance',
   internal_control_head:    'Head of Internal Control',
 
+  // People
+  // Deliberately NOT in the MGMT set below: HR monitors headcount and the KPI
+  // tracker, which is not the same thing as reading the book.
+  hr:                       'Human Resources',
+
   // ── Retired legacy slugs (render a name if still referenced) ──
   executive:                'Executive',
   management:               'Management',

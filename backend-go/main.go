@@ -697,6 +697,13 @@ func main() {
 		r.Route("/api/fleet", func(r chi.Router) {
 			handlers.RegisterFleet(r, db)
 		})
+		// The staff register, read-only — HR's People Directory. No mount-level gate:
+		// every route inside carries the people_directory page gate, and there is no
+		// write route in the file at all. Administering an account (roles, passwords,
+		// suspension) stays where it was, behind admin_users.
+		r.Route("/api/people", func(r chi.Router) {
+			handlers.RegisterPeople(r, db)
+		})
 		r.Route("/api/mobile-app", func(r chi.Router) {
 			handlers.RegisterMobileApp(r, db)
 		})

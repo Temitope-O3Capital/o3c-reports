@@ -275,6 +275,10 @@ const PayrollOverview = lazy(() => import('./pages/payroll/PayrollOverview'))
 const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
 const PayslipView     = lazy(() => import('./pages/payroll/PayslipView'))
 
+// People — the staff register (read-only). Separate from User Management, which is
+// the same table but the page that grants roles and resets passwords.
+const PeopleDirectory = lazy(() => import('./pages/people/Directory'))
+
 // Compliance
 const ComplianceMyDashboard    = lazy(() => import('./pages/compliance/MyDashboard'))
 const ComplianceWatchlist      = lazy(() => import('./pages/compliance/WatchList'))
@@ -332,6 +336,11 @@ function homeFor(role: string): string {
     it_admin: '/admin/overview',
     bi_analyst: '/reports/my-dashboard', bi_head: '/reports',
     settlement_officer: '/settlements/my-dashboard', settlement_head: '/settlements',
+    // HR must be listed. An unmapped role falls through to '/', and the "/" route
+    // renders the executive Overview for anything whose home IS '/' — so leaving HR
+    // out would land it on the company dashboard, which is the one place the role is
+    // specifically not meant to go.
+    hr: '/people',
   }
   return map[role] ?? '/'
 }
@@ -1323,6 +1332,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* People */}
 
+                  <Route path="/people"                           element={<RequireAccess page="people_directory" user={user}><PageErrorBoundary><PeopleDirectory /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/payroll"                          element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/payroll/runs/:id"                 element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/payroll/runs/:runId/items/:itemId" element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayslipView /></PageErrorBoundary></RequireAccess>} />

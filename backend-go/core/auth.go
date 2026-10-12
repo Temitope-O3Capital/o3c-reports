@@ -822,6 +822,34 @@ func buildRolePages() map[string][]string {
 	// but unlike md it is NOT unrestricted — page access is exactly this set.
 	m["exec_overview"] = union(util, []string{"executive", "kpi_dashboard", "statements"})
 
+	// ── Human Resources ──
+	// HR monitors the company's KPIs and its people. It is the one role in the
+	// taxonomy where oversight does NOT mean sight of the book: no customer, lending,
+	// cards, collections or money pages at all.
+	//
+	// Composed explicitly rather than from `util`, which every other role takes. util
+	// is {"overview", "customer360"} and neither belongs to HR:
+	//   - "customer360" is a customer's whole financial life (loans, cards,
+	//     transactions, statements). HR has no business reason to open one, and it is
+	//     the single widest customer-PII page in the catalog.
+	//   - "overview" would be inert anyway: its only use is inside RegisterOverview,
+	//     which main.go mounts behind core.RequireManagement, and HR is deliberately
+	//     not a management role (see managementRoles in scope.go). Granting a page key
+	//     that cannot open anything is how a role matrix starts lying about itself.
+	//
+	// Not granted, deliberately:
+	//   - "payroll": the People module's other page is a frontend shell — there is no
+	//     /api/payroll route and no payroll table in any schema — so granting it would
+	//     put a nav entry in front of HR that cannot load. It is HR's page to hold the
+	//     day the payroll backend exists.
+	//   - "report_builder": every data source in handlers/report_access.go requires a
+	//     customer/lending/money page HR does not hold, so the builder would open with
+	//     nothing in it.
+	//   - "admin_users": the same staff table as people_directory, but it is the page
+	//     that grants roles and resets passwords. Monitoring people is not
+	//     administering their accounts.
+	m["hr"] = []string{"people_directory", "kpi_dashboard"}
+
 	// ── Internal Control ──
 	// Head of Internal Control audits the business, so it holds every page in the
 	// catalog EXCEPT the Administration module — and is read-only, enforced centrally by

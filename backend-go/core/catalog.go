@@ -102,6 +102,11 @@ var PageCatalog = []CatalogModule{
 	}},
 	{Key: "people", Label: "People", Icon: "groups", Pages: []CatalogPage{
 		{"payroll", "Payroll"},
+		// The staff register — headcount, department, status, last sign-in. Read-only
+		// and deliberately separate from "admin_users", which is the SAME underlying
+		// table but is the page that grants roles and resets passwords. HR monitors
+		// people; it does not administer accounts.
+		{"people_directory", "People Directory"},
 	}},
 	// Fleet splits read from write the way settlement/reconciliation does. Plenty of
 	// people need to see what a vehicle costs; changing the register — above all
