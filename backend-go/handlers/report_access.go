@@ -71,6 +71,48 @@ var reportDatasetPages = map[string][]string{
 	"mail_suppressions": {"campaigns", "message_templates"},
 	"appsflyer_daily":   {"mobile_app", "campaigns"},
 	"appsflyer_events":  {"mobile_app", "campaigns"},
+	// ── Added in the 2026-10-09 coverage pass ─────────────────────────────────
+	//
+	// Every one of these was reachable by BI the moment it entered the registry, because
+	// an unmapped dataset falls through to the "reports" branch above. Mapping them is
+	// what makes them DEPARTMENT reports: without an entry here, the campaigns team
+	// cannot open a campaigns dataset and the compliance officer cannot open the consent
+	// register, which is the gap this pass set out to close.
+	//
+	// Campaigns & lists
+	"campaign_performance": {"campaigns", "message_templates"},
+	"campaign_contacts":    {"campaigns", "contact_lists", "message_templates"},
+	"campaign_events":      {"campaigns", "message_templates"},
+	"contact_list_members": {"contact_lists", "campaigns"},
+	// Consent sits in two places on purpose. Marketing needs it to build an audience;
+	// Compliance needs it to answer why a customer was contacted. Neither is a guest.
+	"consent_register": {"campaigns", "contact_lists", "compliance_all"},
+	// Compliance
+	"aml_flags":             {"compliance_all", "sars"},
+	"aml_rules":             {"compliance_all", "sars"},
+	"sars":                  {"sars", "compliance_all"},
+	"watch_list":            {"watch_list", "compliance_all"},
+	"data_breach_incidents": {"compliance_all"},
+	"dpa_register":          {"compliance_all"},
+	"policy_documents":      {"compliance_all", "compliance_checklists"},
+	// Care
+	"care_mail": {"care", "mail", "helpdesk_stats"},
+	// Finance
+	"fx_rates":         {"fx_rates", "finance", "income"},
+	"commission_rates": {"finance", "income", "sales"},
+	// Sales & CRM
+	"sales_targets": {"sales", "sales_team", "crm_reports"},
+	"crm_tasks":     {"crm_tasks", "crm_pipeline", "crm_reports"},
+	// The hand-off ledger is the boundary between two teams, so both sides can report on
+	// it: the call centre on what it sent, Sales on what it received.
+	"lead_handoffs": {"call_center_stats", "crm_pipeline", "crm_reports"},
+	// Cards
+	"card_disputes":          {"cards"},
+	"card_issuance_requests": {"cards", "sales"},
+	// Call centre QA
+	"qa_evaluations": {"call_center_stats", "helpdesk_stats"},
+	// Feedback
+	"survey_responses": {"surveys", "helpdesk_stats"},
 }
 
 // reportBIOnlyDatasets belong to no department. They are the customer master — every

@@ -5,7 +5,8 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKoboExact, fmtNum, fmtDate, fmtDatetime, today, yearStart } from '../../lib/fmt'
+import { today, yearStart } from '../../lib/fmt'
+import { kindOf, labelFor, fmtValue, alignFor, downloadRowsCSV } from '../../lib/reportFormat'
 import { NAVY, FW, SP } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
 
@@ -31,82 +32,17 @@ import { humanLabel } from '../../lib/labels'
   fourteen places for a money column to be rendered in the wrong unit. Instead the
   payloads describe themselves: a key ending _kobo is minor units, _pct is a percentage,
   _at is a timestamp. That convention is enforced on the server by
-  TestReportPayloadsDescribeThemselves, and `kindOf` below is its only counterpart here.
-  Adding a report needs no change to this file.
+  TestReportPayloadsDescribeThemselves; src/lib/reportFormat.ts is its one counterpart
+  on this side, shared with the BI SQL Console. Adding a report needs no change here.
 
   The convention went in at the same time as this page on purpose. While nothing read
   these payloads, renaming an output column cost nothing; from today it costs a release.
 */
 
-// ── The self-describing payload convention ────────────────────────────────────
-//
-// Mirrors reportKeyKind in handlers/report_payload_convention_test.go. Kept to one
-// function on each side so there is one place to look when a column renders oddly.
-
-type Kind = 'kobo' | 'money' | 'pct' | 'bps' | 'datetime' | 'date' | 'int' | 'text'
-
-const INT_KEYS = new Set([
-  'loan_count', 'loans_booked', 'payment_count', 'new_accounts', 'new_customers',
-  'accounts', 'active_accounts', 'total_accounts', 'distinct_cifs', 'cards_held',
-  'parties', 'deposits', 'customers', 'leads', 'converted', 'disqualified', 'owned',
-  'open_leads', 'tickets', 'tickets_created', 'resolved', 'sla_breached', 'calls',
-  'csat_responses', 'contact_attempts', 'promises_total', 'promises_broken',
-  'contacts_total', 'active_days', 'assigned_count', 'count', 'total_loans',
-  'active_loans', 'legs', 'payments', 'cases', 'active_cases', 'legal_cases', 'snaps',
-  'npl_snapshots', 'txn_count', 'open_products', 'dpd', 'tenor_days', 'tenor_months',
-  'total', 'targets_set',
-])
-
-function kindOf(key: string): Kind {
-  if (key.endsWith('_kobo')) return 'kobo'
-  if (key.endsWith('_ngn')) return 'money'
-  if (key.endsWith('_pct')) return 'pct'
-  if (key.endsWith('_bps')) return 'bps'
-  if (key.endsWith('_at')) return 'datetime'
-  if (key.endsWith('_date') || key.startsWith('date_') ||
-      key.endsWith('_start') || key.endsWith('_end')) return 'date'
-  if (INT_KEYS.has(key)) return 'int'
-  return 'text'
-}
-
-/** Strip the type suffix before humanising, so a header reads "Outstanding", not
- *  "Outstanding Kobo" — the unit belongs in the header's own suffix, once. */
-function labelFor(key: string): string {
-  const k = kindOf(key)
-  let base = key
-  for (const s of ['_kobo', '_ngn', '_pct', '_bps']) {
-    if (base.endsWith(s)) { base = base.slice(0, -s.length); break }
-  }
-  const text = humanLabel(base)
-  if (k === 'kobo' || k === 'money') return `${text} (₦)`
-  if (k === 'pct') return `${text} (%)`
-  if (k === 'bps') return `${text} (bps)`
-  return text
-}
-
-function fmtValue(key: string, v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—'
-  switch (kindOf(key)) {
-    case 'kobo': return fmtKoboExact(v)
-    case 'money': return '₦' + Number(v).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    case 'pct': return `${Number(v).toFixed(2)}%`
-    case 'bps': return `${fmtNum(v)} bps`
-    case 'datetime': return fmtDatetime(String(v))
-    case 'date': return fmtDate(String(v))
-    case 'int': return Number(v).toLocaleString('en-NG')
-    default:
-      if (typeof v === 'boolean') return v ? 'Yes' : 'No'
-      if (typeof v === 'number') return Number.isInteger(v) ? v.toLocaleString('en-NG') : String(v)
-      return String(v)
-  }
-}
-
-/** Money and counts right-align so columns of digits line up; labels do not. */
-function alignFor(key: string): 'left' | 'right' {
-  const k = kindOf(key)
-  return k === 'kobo' || k === 'money' || k === 'pct' || k === 'bps' || k === 'int'
-    ? 'right' : 'left'
-}
+// The self-describing payload convention now lives in one place for both screens that
+// need it — this page and the BI SQL Console. It was written twice before, which is the
+// same duplication that produced the money-unit defect the convention exists to
+// prevent. See src/lib/reportFormat.ts, and reportKeyKind on the server side.
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -117,6 +53,14 @@ interface CatalogueEntry {
   description: string
   /** Parameters the report cannot run without. Only the customer statement has one. */
   needs?: string[]
+  /**
+   * False for a report that reads no date at all. Card Portfolio and Fixed Deposit
+   * Book are point-in-time views of the book, and offering them a date filter that
+   * changes nothing is the defect this module was criticised for elsewhere -- see
+   * sales/Reports.tsx, where days=30 is hardcoded beside a picker and ANDed with it.
+   * Pinned to the handlers by TestUndatedReportsReallyIgnoreTheirDatesLive.
+   */
+  dated?: boolean
 }
 
 type Row = Record<string, unknown>
@@ -144,28 +88,6 @@ function blockCols(rows: Row[]): TableCol<Row>[] {
   }))
 }
 
-/** CSV of exactly what is on screen, formatted the same way. A number a reader can see
- *  but not take away is half a report. */
-function downloadBlockCSV(name: string, rows: Row[]) {
-  if (!rows.length) return
-  const keys = Object.keys(rows[0])
-  const esc = (s: string) => {
-    // Leading =, +, - and @ are neutralised: a spreadsheet treats them as formulas, and
-    // this file is opened in Excel by definition. The export engine does the same.
-    const t = /^[=+\-@]/.test(s) ? `'${s}` : s
-    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
-  }
-  const lines = [
-    keys.map(k => esc(labelFor(k))).join(','),
-    ...rows.map(r => keys.map(k => esc(fmtValue(k, r[k]))).join(',')),
-  ]
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `${name}.csv`
-  a.click()
-  URL.revokeObjectURL(a.href)
-}
 
 function ScalarStrip({ entries }: { entries: [string, unknown][] }) {
   if (!entries.length) return null
@@ -192,7 +114,7 @@ function Block({ name, value }: { name: string; value: unknown }) {
         subtitle={rows.length ? `${rows.length.toLocaleString('en-NG')} row${rows.length === 1 ? '' : 's'}` : undefined}
         actions={rows.length ? (
           <Button variant="secondary" size="sm" icon="download"
-            onClick={() => downloadBlockCSV(name, rows)}>CSV</Button>
+            onClick={() => downloadRowsCSV(name, rows)}>CSV</Button>
         ) : undefined}
       >
         <DataTable
@@ -241,7 +163,10 @@ export default function ReportLibrary() {
     () => catalogue?.find(c => c.key === active) ?? null,
     [catalogue, active],
   )
-  const needsCif = !!entry?.needs?.includes('cif')
+  const needsCif = !!entry?.needs?.includes("cif")
+  // Absent means dated: the catalogue emits the flag on every entry, so only an older
+  // backend could omit it, and defaulting a missing flag to "dated" keeps the filter.
+  const isDated = entry ? entry.dated !== false : true
 
   const run = useCallback(async () => {
     if (!entry) return
@@ -251,8 +176,9 @@ export default function ReportLibrary() {
     }
     setLoading(true); setErr(null)
     try {
-      const q = new URLSearchParams({ date_from: from, date_to: to })
-      if (needsCif) q.set('cif', cif.trim())
+      // An undated report is sent no window at all, rather than one it would ignore.
+      const q = new URLSearchParams(isDated ? { date_from: from, date_to: to } : {})
+      if (needsCif) q.set("cif", cif.trim())
       setPayload(await apiFetch<Payload>(`/api/reports/${entry.key}?${q}`))
     } catch (e: any) {
       setPayload(null)
@@ -260,7 +186,7 @@ export default function ReportLibrary() {
     } finally {
       setLoading(false)
     }
-  }, [entry, from, to, cif, needsCif])
+  }, [entry, from, to, cif, needsCif, isDated])
 
   // Running on selection, and on a date change, is what makes this feel like a report
   // library rather than a form. The CIF report is the exception: it waits, because
@@ -298,8 +224,10 @@ export default function ReportLibrary() {
       title="Report Library"
       subtitle="The standing reports, run on demand. Each one is grouped the way the business is, and every table can be taken away as CSV."
       loading={!catalogue && !err}
-      actions={entry && !entry.needs?.includes('cif')
+      actions={entry && isDated && !needsCif
         ? <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
+        : entry && !isDated
+        ? <Badge variant="default">Point in time, as at today</Badge>
         : undefined}
     >
       <ErrBanner error={err} onRetry={entry ? run : undefined} />

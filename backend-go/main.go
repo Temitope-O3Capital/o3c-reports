@@ -766,6 +766,29 @@ func main() {
 		r.Route("/api/management-reports", func(r chi.Router) {
 			handlers.RegisterManagementReports(r, db)
 		})
+		// KPI dashboard, portfolio and collections trends, alerts, and the TARGETS
+		// the KPI Tracker edits.
+		//
+		// RegisterKPI was written, guarded and never mounted. Its definition in
+		// handlers/kpi.go was the ONLY reference to it in the whole Go tree, so every
+		// route below returned the SPA shell instead of JSON. The visible consequence:
+		// KPITracker.tsx PUTs /api/kpi/targets, that fell through to the index.html
+		// fallback, app.kpi_targets stayed empty at 0 rows, and so every RAG indicator
+		// on the tracker was permanently blank -- while reports.go carried careful
+		// cadence-mapping logic over a table nothing could ever write to.
+		r.Route("/api/kpi", func(r chi.Router) {
+			handlers.RegisterKPI(r, db)
+		})
+		// The SQL console for the BI team. Guarded on "reports", which is BI and admin
+		// only -- NOT "report_builder", which every department head holds.
+		//
+		// Safety here is Postgres-enforced rather than parser-enforced: a read-only
+		// transaction and a statement timeout, both verified against this database, with
+		// the result screened for credential-shaped columns before any row is returned.
+		// See handlers/bi_sql.go for the order the controls actually protect anything in.
+		r.Route("/api/bi-sql", func(r chi.Router) {
+			handlers.RegisterBISQL(r, db)
+		})
 		// Customer Growth & Activity monitor — registrations, transaction activity
 		// and churn. Access is gated per-endpoint (management + operating teams).
 		r.Route("/api/growth", func(r chi.Router) {

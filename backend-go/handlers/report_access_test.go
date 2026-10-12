@@ -111,3 +111,78 @@ func TestOnlyOwnersAndAdminManageReportItems(t *testing.T) {
 		t.Error("no user, or an unowned item, must not be manageable by a non-admin")
 	}
 }
+
+// TestEveryDepartmentDatasetReachesItsDepartment proves the 2026-10-09 coverage pass
+// actually delivered DEPARTMENT reports rather than 22 more BI-only ones.
+//
+// Mapping a dataset in reportDatasetPages is necessary but not sufficient: a department
+// head also has to hold "report_builder", and the pages named have to be pages that
+// head actually carries. Both are easy to get subtly wrong — the first version of these
+// mappings used "campaign_analytics", which is a page in the FRONTEND's role table and
+// not in the Go catalog at all, so three campaign datasets would have been mapped to
+// nobody. That was caught by the catalog check above; this test catches the other half,
+// where the page is real but the role that needs it does not hold it.
+//
+// One role per dataset, chosen as the person whose job the dataset exists for.
+func TestEveryDepartmentDatasetReachesItsDepartment(t *testing.T) {
+	owners := map[string]string{
+		// Campaigns
+		"campaign_performance": "cmo",
+		"campaign_contacts":    "cmo",
+		"campaign_events":      "cmo",
+		"contact_list_members": "cmo",
+		// Compliance
+		"consent_register":      "compliance_head",
+		"aml_flags":             "compliance_head",
+		"aml_rules":             "compliance_head",
+		"sars":                  "compliance_head",
+		"watch_list":            "compliance_head",
+		"data_breach_incidents": "compliance_head",
+		"dpa_register":          "compliance_head",
+		"policy_documents":      "compliance_head",
+		// Care
+		"care_mail": "care_head",
+		// Finance
+		"fx_rates":         "finance_head",
+		"commission_rates": "finance_head",
+		// Sales & CRM
+		"sales_targets": "sales_head",
+		"crm_tasks":     "sales_head",
+		"lead_handoffs": "call_center_head",
+		// Cards
+		"card_disputes":          "cards_head",
+		"card_issuance_requests": "cards_head",
+		// Call centre
+		"qa_evaluations": "call_center_head",
+		// Feedback
+		"survey_responses": "care_head",
+	}
+
+	for key, role := range owners {
+		if _, inRegistry := exportDatasetByKey(key); !inRegistry {
+			t.Errorf("%q is named here but is not in the export registry", key)
+			continue
+		}
+		if !reportDatasetAllowed(reportClaims(role), key) {
+			t.Errorf("%s cannot open %q, so it is not a department report — check that the "+
+				"pages in reportDatasetPages[%q] are pages %s actually holds, and that %s is "+
+				"granted report_builder in core/auth.go",
+				role, key, key, role, role)
+		}
+	}
+
+	// And the converse, so this does not quietly become a list of everything: a head
+	// must NOT reach another department's new data just because it was added.
+	for _, c := range []struct {
+		role, key string
+	}{
+		{"cards_head", "sars"},
+		{"care_head", "card_issuance_requests"},
+		{"finance_head", "qa_evaluations"},
+		{"call_center_head", "data_breach_incidents"},
+	} {
+		if reportDatasetAllowed(reportClaims(c.role), c.key) {
+			t.Errorf("%s can open %q, which belongs to another department", c.role, c.key)
+		}
+	}
+}

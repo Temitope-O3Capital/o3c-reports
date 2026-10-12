@@ -240,7 +240,18 @@ func qint(r *http.Request, key string, def, min, max int) int {
 	return v
 }
 
-// validDate returns the date string if it matches YYYY-MM-DD, empty string if absent, error if malformed.
+// validDate returns the date string if it is a real YYYY-MM-DD date, empty string if
+// absent, error if malformed.
+//
+// IT PARSES, IT DOES NOT ONLY PATTERN-MATCH. The shape regex alone admits 2026-13-45,
+// 2026-02-30 and 2026-00-00 — all three pass `^\d{4}-\d{2}-\d{2}$`. Postgres then
+// rejects the ::date cast, and in the reporting handlers that error is discarded
+// (`rows, _ :=`) so every figure falls through to its pre-set zero: HTTP 200, a page of
+// zeros, and no fault reported anywhere. Found 2026-10-07 by a test that passed a nil
+// database and watched an impossible date reach it.
+//
+// This guards 143 call sites, so the parse is the cheapest place in the codebase to put
+// it. Nothing legitimate sends the 30th of February.
 func validDate(r *http.Request, key string) (string, error) {
 	s := r.URL.Query().Get(key)
 	if s == "" {
@@ -248,6 +259,10 @@ func validDate(r *http.Request, key string) (string, error) {
 	}
 	if !dateRE.MatchString(s) {
 		return "", fmt.Errorf("invalid %s — must be YYYY-MM-DD", key)
+	}
+	// time.Parse is strict about real calendar dates where the regex is not.
+	if _, err := time.Parse("2006-01-02", s); err != nil {
+		return "", fmt.Errorf("invalid %s — %s is not a real date", key, s)
 	}
 	return s, nil
 }
@@ -504,4 +519,21 @@ func toInt64FromStr(s string) int64 {
 		n = n*10 + int64(c-'0')
 	}
 	return n
+}
+
+// rowsOrEmpty turns a nil result set into an empty one.
+//
+// PGQuery returns a nil slice when a query matches nothing, and a nil slice marshals to
+// JSON `null`, not `[]`. That pushes a decision onto every reader: is this block empty,
+// or did something fail? They are different things and the payload should say which.
+// Measured 2026-10-07, collections-performance was emitting `"by_agent": null` on every
+// request, because collections_daily_kpi holds no rows — a true empty, arriving in the
+// shape of a fault.
+//
+// Use it on any block a generic renderer will read.
+func rowsOrEmpty(rows []core.Row) []core.Row {
+	if rows == nil {
+		return []core.Row{}
+	}
+	return rows
 }

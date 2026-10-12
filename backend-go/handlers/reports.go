@@ -52,52 +52,127 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/export-log", exportLog(db))
 }
 
-// reportsList returns metadata for all available report types.
+// reportsList is the library catalogue the Report Library page renders.
+//
+// IT FILTERS BY WHAT THE CALLER CAN ACTUALLY RUN. The list is guarded on "reports" while
+// the Audit Trail is guarded on "audit_export", and those two grants are DISJOINT:
+// core/auth.go gives audit_export to the compliance head and reports to the BI team and
+// admins. So the catalogue advertised a report to an audience that would get a 403 on
+// opening it, and hid it from the one person who could. That is the same
+// route-guard-versus-API-guard mismatch the KPI tracker comment below describes, and the
+// fix is the same — ask the guard, do not restate it.
+//
+// `needs` names any parameter a report cannot run without, so the page can ask for it
+// instead of firing a request that must fail. Only the customer statement has one.
 func reportsList(db *core.DB) http.HandlerFunc {
+	type libReport struct {
+		Key, Group, Name, Desc string
+		// Pages the caller must hold, or empty for "the list's own guard is enough".
+		// Mirrors what RequirePages on the route will decide, so the two cannot drift
+		// without this list hiding a report that works, which is visible, rather than
+		// offering one that 403s, which is not.
+		Pages []string
+		Needs []string
+		// Undated marks a report that reads no date parameter at all, so the page can
+		// stop offering a date filter that does nothing.
+		//
+		// Checked against the handlers rather than assumed: reportCardPortfolio and
+		// reportFDBook contain ZERO references to date_from, date_to or any BETWEEN —
+		// they are point-in-time views of the book, which is the right design for a
+		// portfolio snapshot. Every other report in the library reads date_from and
+		// date_to, either directly or through periodDefaults.
+		//
+		// Offering a picker that changes nothing is the exact defect this module was
+		// criticised for elsewhere: sales/Reports.tsx hardcodes days=30 beside a date
+		// filter and ANDs them, so choosing "This Year" still returns thirty days. A
+		// control that lies about what it does is worse than an absent one.
+		Undated bool
+	}
+	// Ordered by product line, so the library reads the way the business is organised
+	// rather than the order the handlers happened to be written.
+	all := []libReport{
+		// Revenue
+		{Key: "income", Group: "Revenue", Name: "Income & Revenue Report",
+			Desc: "Fee, interest and penalty income by category, product and month, off the card book"},
+		// Cards
+		{Key: "card-portfolio", Group: "Cards", Name: "Card Portfolio Report",
+			Desc: "Accounts by status and product, limits, balances, utilisation bands and delinquency", Undated: true},
+		// Customers
+		{Key: "customer-acquisition", Group: "Customers", Name: "Customer Acquisition Report",
+			Desc: "New customers by month, first product and state, counted by first account opened"},
+		// Sales
+		{Key: "sales-pipeline", Group: "Sales", Name: "Sales Pipeline & Attribution Report",
+			Desc: "Campaign → call-centre → sales funnel: leads by source and stage, forwards, conversion, and per-officer attribution"},
+		// Credit
+		{Key: "loan-portfolio", Group: "Credit", Name: "Loan Portfolio Report",
+			Desc: "All loans: status, amounts, tenor, interest rate distribution, top 10 by outstanding"},
+		{Key: "npl-return", Group: "Credit", Name: "CBN NPL Return",
+			Desc: "Loans by DPD bucket, NPL ratio, CBN prudential provisions, write-offs"},
+		{Key: "monthly-business", Group: "Credit", Name: "Monthly Business Report",
+			Desc: "New accounts, loans booked, repayments received, collections and recovery — grouped by product"},
+		// Deposits
+		{Key: "fd-book", Group: "Fixed Deposits", Name: "Fixed Deposit Book",
+			Desc: "Deposit book by status and product, with the maturity ladder treasury needs", Undated: true},
+		// Collections
+		{Key: "collections-performance", Group: "Collections", Name: "Collections Performance Report",
+			Desc: "Agent contact attempts, PTP count, kept rate, amount vs target by agent and DPD bucket"},
+		{Key: "agent-performance", Group: "Collections", Name: "Agent Performance Report",
+			Desc: "Daily KPI summary per agent: contacts, PTPs, collected, target achievement"},
+		// Service
+		{Key: "service-performance", Group: "Service", Name: "Service Performance Report",
+			Desc: "Tickets by channel, status and agent; SLA breaches, CSAT and call volumes"},
+		// Operations
+		{Key: "settlement-recon", Group: "Operations", Name: "Settlement Reconciliation Report",
+			Desc: "Loans booked against repayments received, with open exposure taken from the book"},
+		{Key: "customer-statement", Group: "Operations", Name: "Customer Statement",
+			Desc:  "Account details and transaction history for one customer",
+			Needs: []string{"cif"}},
+		{Key: "audit-trail-export", Group: "Compliance", Name: "Audit Trail",
+			Desc:  "Paginated full audit trail",
+			Pages: []string{"audit_export"}},
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ordered by product line, so the library reads the way the business is
-		// organised rather than the order the handlers happened to be written.
-		reports := []map[string]any{
-			// Revenue
-			{"key": "income", "group": "Revenue", "name": "Income & Revenue Report",
-				"description": "Fee, interest and penalty income by category, product and month, off the card book"},
-			// Cards
-			{"key": "card-portfolio", "group": "Cards", "name": "Card Portfolio Report",
-				"description": "Accounts by status and product, limits, balances, utilisation bands and delinquency"},
-			// Customers
-			{"key": "customer-acquisition", "group": "Customers", "name": "Customer Acquisition Report",
-				"description": "New customers by month, first product and state, counted by first account opened"},
-			// Sales
-			{"key": "sales-pipeline", "group": "Sales", "name": "Sales Pipeline & Attribution Report",
-				"description": "Campaign → call-centre → sales funnel: leads by source and stage, forwards, conversion, and per-officer attribution"},
-			// Credit
-			{"key": "loan-portfolio", "group": "Credit", "name": "Loan Portfolio Report",
-				"description": "All loans: status, amounts, tenor, interest rate distribution, top 10 by outstanding"},
-			{"key": "npl-return", "group": "Credit", "name": "CBN NPL Return",
-				"description": "Loans by DPD bucket, NPL ratio, CBN prudential provisions, write-offs"},
-			{"key": "monthly-business", "group": "Credit", "name": "Monthly Business Report",
-				"description": "New accounts, disbursements, collections, recoveries, NPL — grouped by product"},
-			// Deposits
-			{"key": "fd-book", "group": "Fixed Deposits", "name": "Fixed Deposit Book",
-				"description": "Deposit book by status and product, with the maturity ladder treasury needs"},
-			// Collections
-			{"key": "collections-performance", "group": "Collections", "name": "Collections Performance Report",
-				"description": "Agent contact attempts, PTP count, kept rate, amount vs target by agent and DPD bucket"},
-			{"key": "agent-performance", "group": "Collections", "name": "Agent Performance Report",
-				"description": "Daily KPI summary per agent: contacts, PTPs, collected, target achievement"},
-			// Service
-			{"key": "service-performance", "group": "Service", "name": "Service Performance Report",
-				"description": "Tickets by channel, status and agent; SLA breaches, CSAT and call volumes"},
-			// Operations
-			{"key": "settlement-recon", "group": "Operations", "name": "Settlement Reconciliation Report",
-				"description": "Approved/disbursed loans vs repayments received"},
-			{"key": "customer-statement", "group": "Operations", "name": "Customer Statement",
-				"description": "Account details + transaction history for a given CIF (requires a CIF)"},
-			{"key": "audit-trail-export", "group": "Compliance", "name": "Audit Trail",
-				"description": "Paginated full audit trail (requires audit_export permission)"},
+		u := core.UserFromCtx(r.Context())
+		reports := make([]map[string]any, 0, len(all))
+		for _, rep := range all {
+			if !libReportAllowed(u, rep.Pages) {
+				continue
+			}
+			row := map[string]any{
+				"key": rep.Key, "group": rep.Group,
+				"name": rep.Name, "description": rep.Desc,
+			}
+			if len(rep.Needs) > 0 {
+				row["needs"] = rep.Needs
+			}
+			// Emitted always, so the page never has to infer it from a missing key.
+			row["dated"] = !rep.Undated
+			reports = append(reports, row)
 		}
 		respond(w, reports, "static")
 	}
+}
+
+// libReportAllowed mirrors RequirePages: management passes, otherwise the caller must
+// hold one of the named pages. An empty list means the list's own guard already settled
+// it.
+func libReportAllowed(u *core.Claims, pages []string) bool {
+	if len(pages) == 0 {
+		return true
+	}
+	if u == nil {
+		return false
+	}
+	if core.IsManagement(u.Role) {
+		return true
+	}
+	for _, p := range pages {
+		if u.HasPage(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // reportMonthlyBusiness returns monthly business summary, optionally filtered by date range.
@@ -132,51 +207,99 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 			 GROUP BY product_name ORDER BY new_accounts DESC`),
 			dateFrom, dateTo)
 
-		// Disbursements from LOS
+		// ── WHAT THIS SECTION USED TO READ, AND WHY IT WAS ALWAYS EMPTY ──────────
+		//
+		// Measured 2026-10-07:
+		//
+		//   * Disbursements came from app.loan_applications — 8 rows in total, every
+		//     amount_approved_kobo NULL, and 0 rows carrying booked_at. The live book is
+		//     app.cbs_loans, which Udara publishes.
+		//   * total_collections summed "Collections Log". That relation exists in NO
+		//     schema. DualQuery turns a missing relation into an empty result with a nil
+		//     error, by design, so a half-built module shows a clean empty state — and
+		//     the error was discarded here anyway. The figure was silently null.
+		//   * total_recoveries summed app."Recovery Master Sheet". That one does exist
+		//     and holds 0 rows: a legacy import table nothing writes to any more.
+		//
+		// Three figures on a management report, none of which could ever be anything
+		// but empty, and not one of them reporting a fault.
+
+		// Booked in the window, from the real loan book.
 		disbRows, _ := db.PGQuery(ctx,
-			`SELECT product_type,
-			        COUNT(*) AS loans_booked,
-			        COALESCE(SUM(amount_approved_kobo),0) AS total_disbursed_kobo
-			 FROM loan_applications
-			 WHERE status IN ('booked','active','repaying')
-			   AND booked_at::date BETWEEN $1 AND $2
-			 GROUP BY product_type ORDER BY total_disbursed_kobo DESC`,
+			`SELECT COALESCE(NULLIF(btrim(cl.product_name), ''), 'Unclassified') AS product_type,
+			        COUNT(*)                                AS loans_booked,
+			        COALESCE(SUM(cl.loan_amount_kobo), 0)   AS total_disbursed_kobo
+			 FROM cbs_loans cl
+			 WHERE cl.date_booked BETWEEN $1 AND $2
+			 GROUP BY 1 ORDER BY total_disbursed_kobo DESC`,
 			dateFrom, dateTo)
 
-		// Total disbursements KPI
 		disbKPI, _ := db.PGQuery(ctx,
-			`SELECT COUNT(*) AS loans_booked,
-			        COALESCE(SUM(amount_approved_kobo),0) AS total_disbursed_kobo
-			 FROM loan_applications
-			 WHERE status IN ('booked','active','repaying')
-			   AND booked_at::date BETWEEN $1 AND $2`,
+			`SELECT COUNT(*)                              AS loans_booked,
+			        COALESCE(SUM(cl.loan_amount_kobo), 0) AS total_disbursed_kobo
+			 FROM cbs_loans cl
+			 WHERE cl.date_booked BETWEEN $1 AND $2`,
 			dateFrom, dateTo)
 
-		// Collections total (DualQuery — MSSQL or PG)
-		var f Filter
-		f.Date("Date", `"Date"`, dateFrom, dateTo)
-		collTotal, src2, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG()),
-			f.Args()...)
+		// TWO COLLECTIONS FIGURES, NEVER ONE.
+		//
+		// These are different books that overlap, and the management reports already
+		// state the rule in as many words: "Three sources, side by side. They overlap,
+		// so they are never added together." A single "total_collections" invited
+		// exactly that addition, so it is replaced by two named figures.
+		//
+		// Loan repayments are the GL capture, keyed on cbs_loan_account and dated by
+		// financial_date (Udara's value date), so a leg posted late still counts on the
+		// day it is dated. It has no history before 2026-07-01.
+		loanRepaid, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*)                            AS legs,
+			        COALESCE(SUM(rp.amount_kobo), 0)    AS amount_kobo
+			 FROM loan_repayments rp
+			 WHERE rp.financial_date BETWEEN $1 AND $2`,
+			dateFrom, dateTo)
 
-		// Recoveries total
-		var rf Filter
-		rf.Date("[Recovery Date]", `"Recovery Date"`, dateFrom, dateTo)
-		recovTotal, src3, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf(`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE 1=1%s`, rf.PG()),
-			rf.Args()...)
+		// The collections team's own book. APPROVED ONLY: 11 rows sitting at
+		// 'pending_hop' carry NGN 106,393,555.56 between them, and counting money that
+		// nobody has approved as collected is how a collections figure stops being
+		// trustworthy.
+		collPaid, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*)                            AS payments,
+			        COALESCE(SUM(cp.amount_kobo), 0)    AS amount_kobo
+			 FROM collection_payments cp
+			 WHERE cp.payment_date BETWEEN $1 AND $2
+			   AND cp.status = 'approved'`,
+			dateFrom, dateTo)
+
+		// Recovery is reported as STOCK, not as movement in the window. 1,585 of the
+		// 1,617 cases were opened in a single week of August by bulk import, and there
+		// is no recovered_at column to window on — only opened_at and closed_at — so a
+		// windowed recovery figure would read as a cliff after that week. This follows
+		// the convention the management reports already use for the same reason.
+		recovStock, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*)                                            AS cases,
+			        COUNT(*) FILTER (WHERE status = 'active')           AS active_cases,
+			        COUNT(*) FILTER (WHERE status = 'legal')            AS legal_cases,
+			        COALESCE(SUM(rc.recovered_kobo), 0)                 AS recovered_to_date_kobo,
+			        COALESCE(SUM(rc.outstanding_kobo)
+			                 FILTER (WHERE status IN ('active','legal')), 0) AS outstanding_kobo
+			 FROM recovery_cases rc`)
 
 		// Active loans and NPL count from snapshot
 		nplRows, _ := db.PGQuery(ctx,
 			`SELECT total_loans, total_npls_kobo, total_outstanding_kobo, npl_ratio_bps FROM (`+cbsSnapshotLiveSQL+`) s`)
 
 		result := map[string]any{
-			"date_from":         dateFrom,
-			"date_to":           dateTo,
-			"new_accounts":      newAccounts,
-			"disbursements":     disbRows,
-			"total_collections": collTotal,
-			"total_recoveries":  recovTotal,
+			"date_from":     dateFrom,
+			"date_to":       dateTo,
+			"new_accounts":  newAccounts,
+			"disbursements": disbRows,
+			// Named so neither can be mistaken for "all collections".
+			"loan_repayments":          firstRowOrEmpty(loanRepaid),
+			"collections_payments":     firstRowOrEmpty(collPaid),
+			"repayments_captured_from": "2026-07-01",
+		}
+		if len(recovStock) > 0 {
+			result["recovery"] = recovStock[0]
 		}
 		if len(disbKPI) > 0 {
 			result["disbursements_total"] = disbKPI[0]
@@ -185,8 +308,7 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 			result["portfolio_snapshot"] = nplRows[0]
 		}
 
-		sources := []string{src1, src2, src3}
-		respond(w, result, pickSource(sources))
+		respond(w, result, pickSource([]string{src1}))
 	}
 }
 
@@ -333,10 +455,14 @@ func reportCollectionsPerformance(db *core.DB) http.HandlerFunc {
 			}
 		}
 		respond(w, map[string]any{
-			"date_from":     dateFrom,
-			"date_to":       dateTo,
-			"by_agent":      agentRows,
-			"by_dpd_bucket": bucketRows,
+			"date_from": dateFrom,
+			"date_to":   dateTo,
+			// rowsOrEmpty, not the bare slice: a nil result serialises as JSON null, and
+			// "no rows" is an empty list, not an absent thing. collections_daily_kpi holds 0
+			// rows today, so by_agent was arriving as null and every reader would have
+			// needed its own null check to tell empty from broken.
+			"by_agent":      rowsOrEmpty(agentRows),
+			"by_dpd_bucket": rowsOrEmpty(bucketRows),
 		}, "pg")
 	}
 }
@@ -363,68 +489,124 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 
 		ctx := r.Context()
 
-		// Disbursements side
+		// ── WHY THIS REPORT WAS REWRITTEN ────────────────────────────────────────
+		//
+		// All THREE of its data sources were dead, and none of them said so.
+		// Measured 2026-10-07:
+		//
+		//   1. Disbursements read app.loan_applications: 8 rows in total, every
+		//      amount_approved_kobo NULL, and 0 rows carrying booked_at. The windowed
+		//      query could never return anything.
+		//   2. Collections read "Collections Log", which exists in NO schema. DualQuery
+		//      deliberately turns a missing relation into an empty result with a nil
+		//      error so a half-built module shows a clean empty state, and the call site
+		//      discarded the error anyway, so total_collections was silently null.
+		//   3. Open exposure joined loan_repayments ON application_id. That column is
+		//      NULL on all 86 rows and always will be: the GL capture keys on
+		//      cbs_loan_account only. repaid_kobo was therefore 0 on every row, so
+		//      "open exposure" always equalled the full disbursed amount.
+		//
+		// It now reads the books that actually hold this business: app.cbs_loans for
+		// what was booked, and app.loan_repayments (the GL capture, keyed properly) for
+		// what came back.
+		//
+		// OPEN EXPOSURE IS TAKEN FROM THE BOOK, NOT COMPUTED. Udara publishes
+		// outstanding principal and interest directly, and the GL capture is partial by
+		// design — it begins 2026-07-01 — so disbursed minus captured repayments would
+		// overstate the exposure of every loan older than that. repaid_kobo is still
+		// returned beside it, as evidence rather than as an input.
+
+		// What was booked in the window, from the real loan book.
 		disbRows, _ := db.PGQuery(ctx,
-			`SELECT product_type,
-			        COUNT(*) AS loan_count,
-			        COALESCE(SUM(amount_approved_kobo),0) AS disbursed_kobo
-			 FROM loan_applications
-			 WHERE booked_at::date BETWEEN $1 AND $2
-			   AND status NOT IN ('draft','pending','declined','cancelled')
-			 GROUP BY product_type ORDER BY disbursed_kobo DESC`,
+			`SELECT COALESCE(NULLIF(btrim(cl.product_name), ''), 'Unclassified') AS product_type,
+			        COUNT(*)                                   AS loan_count,
+			        COALESCE(SUM(cl.loan_amount_kobo), 0)      AS disbursed_kobo
+			 FROM cbs_loans cl
+			 WHERE cl.date_booked BETWEEN $1 AND $2
+			 GROUP BY 1 ORDER BY disbursed_kobo DESC`,
 			dateFrom, dateTo)
 
-		// Repayments side (DualQuery)
-		var f Filter
-		f.Date("Repayment_Date", `"Date"`, dateFrom, dateTo)
-		collRows, collSrc, _ := db.DualQuery(ctx,
-			fmt.Sprintf(`SELECT "Agent",
-			        COALESCE(SUM("Amount"),0) AS collected_total,
-			        COUNT(*) AS payment_count
-			 FROM "Collections Log" WHERE 1=1%s
-			 GROUP BY "Agent" ORDER BY collected_total DESC`, f.PG()),
-			f.Args()...)
+		// What came back in the window, split by what the posting was for. Keyed on
+		// financial_date (the value date Udara assigns), not posted_at: a leg posted
+		// late still belongs to the day it is dated.
+		collRows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(NULLIF(btrim(rp.component), ''), 'Unclassified') AS component,
+			        COUNT(*)                                  AS payment_count,
+			        COALESCE(SUM(rp.amount_kobo), 0)          AS collected_total_kobo,
+			        COALESCE(SUM(rp.principal_kobo), 0)       AS principal_kobo,
+			        COALESCE(SUM(rp.interest_kobo), 0)        AS interest_kobo
+			 FROM loan_repayments rp
+			 WHERE rp.financial_date BETWEEN $1 AND $2
+			 GROUP BY 1 ORDER BY collected_total_kobo DESC`,
+			dateFrom, dateTo)
 
-		// Totals
 		disbTotal, _ := db.PGQuery(ctx,
-			`SELECT COALESCE(SUM(amount_approved_kobo),0) AS disbursed_kobo
-			 FROM loan_applications
-			 WHERE booked_at::date BETWEEN $1 AND $2
-			   AND status NOT IN ('draft','pending','declined','cancelled')`,
+			`SELECT COALESCE(SUM(cl.loan_amount_kobo), 0) AS disbursed_kobo
+			 FROM cbs_loans cl
+			 WHERE cl.date_booked BETWEEN $1 AND $2`,
 			dateFrom, dateTo)
 
-		collTotal, _, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG()),
-			f.Args()...)
+		collTotalRows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(SUM(rp.amount_kobo), 0) AS val
+			 FROM loan_repayments rp
+			 WHERE rp.financial_date BETWEEN $1 AND $2`,
+			dateFrom, dateTo)
+		var collTotal any = int64(0)
+		if len(collTotalRows) > 0 {
+			collTotal = collTotalRows[0]["val"]
+		}
 
-		// Open exposure: disbursed but not yet fully repaid
+		// Open exposure, newest booking first.
+		//
+		// The borrower's name comes from app.cbs_customers, NEVER from app.customers.
+		// cbs_customer_id is Udara's own namespace: of 300 Udara ids, 275 also exist as
+		// a real card CIF, and in all 275 the card customer is a DIFFERENT person
+		// (HYCUBE PLUS LIMITED reads as "Abimbola Lasaki"). Joining to customers.cif
+		// would resolve 184 of 211 rows and every one of them would name a stranger.
 		exposureRows, _ := db.PGQuery(ctx,
-			`SELECT la.reference, la.applicant_cif, la.product_type,
-			        la.amount_approved_kobo                              AS disbursed_kobo,
-			        COALESCE(SUM(rp.amount_kobo),0)                     AS repaid_kobo,
-			        la.amount_approved_kobo - COALESCE(SUM(rp.amount_kobo),0) AS open_exposure_kobo
-			 FROM loan_applications la
-			 LEFT JOIN loan_repayments rp ON rp.application_id = la.id
-			 WHERE la.booked_at::date BETWEEN $1 AND $2
-			   AND la.status NOT IN ('draft','pending','declined','cancelled')
-			 GROUP BY la.id
-			 HAVING la.amount_approved_kobo - COALESCE(SUM(rp.amount_kobo),0) > 0
+			`SELECT cl.cbs_account_number,
+			        cl.reference_number,
+			        COALESCE(NULLIF(btrim(cc.name), ''),
+			                 NULLIF(btrim(cl.raw->>'name'), ''),
+			                 '(name not in CBS)')              AS customer_name,
+			        cl.cbs_customer_id,
+			        cl.product_name,
+			        cl.status,
+			        cl.officer_name,
+			        cl.date_booked,
+			        cl.loan_amount_kobo                        AS disbursed_kobo,
+			        COALESCE(cl.outstanding_principal_kobo, 0) +
+			        COALESCE(cl.outstanding_interest_kobo, 0)  AS open_exposure_kobo,
+			        COALESCE(rp.repaid_kobo, 0)                AS repaid_kobo
+			 FROM cbs_loans cl
+			 LEFT JOIN cbs_customers cc ON cc.cbs_customer_id = cl.cbs_customer_id
+			 LEFT JOIN LATERAL (
+			   SELECT SUM(r.amount_kobo) AS repaid_kobo
+			     FROM loan_repayments r
+			    WHERE r.cbs_loan_account = cl.cbs_account_number
+			 ) rp ON TRUE
+			 WHERE cl.date_booked BETWEEN $1 AND $2
+			   AND COALESCE(cl.outstanding_principal_kobo, 0) +
+			       COALESCE(cl.outstanding_interest_kobo, 0) > 0
 			 ORDER BY open_exposure_kobo DESC
 			 LIMIT 100`,
 			dateFrom, dateTo)
 
 		result := map[string]any{
-			"date_from":         dateFrom,
-			"date_to":           dateTo,
-			"disbursements":     disbRows,
-			"collections":       collRows,
-			"total_collections": collTotal,
-			"open_exposure":     exposureRows,
+			"date_from":              dateFrom,
+			"date_to":                dateTo,
+			"disbursements":          disbRows,
+			"collections":            collRows,
+			"total_collections_kobo": collTotal,
+			"open_exposure":          exposureRows,
+			// Stated so a reader can tell "nothing came back" from "we only started
+			// capturing in July". The GL capture has no history before this date.
+			"repayments_captured_from": "2026-07-01",
 		}
 		if len(disbTotal) > 0 {
 			result["total_disbursed_kobo"] = disbTotal[0]["disbursed_kobo"]
 		}
-		respond(w, result, pickSource([]string{collSrc}))
+		respond(w, result, pickSource(nil))
 	}
 }
 
@@ -459,7 +641,14 @@ func reportAgentPerformance(db *core.DB) http.HandlerFunc {
 			 FROM o3c_users u
 			 LEFT JOIN collections_daily_kpi kd ON kd.agent_user_id = u.id
 			     AND kd.kpi_date BETWEEN $1 AND $2
-			 WHERE u.role IN ('collections_agent','collections')
+			 -- 'collections' was in this list and is not a role this platform has. The live
+			 -- vocabulary is collections_agent (2 users) and recovery_agent (2); there is no
+			 -- 'collections' role and no collections_head user today. A dead predicate costs
+			 -- nothing to run, but it hides the real question of who belongs in this report.
+			 -- collections_head is included so a head, once one exists, is not invisible.
+			 -- recovery_agent is deliberately NOT: recovery is a separate book with its own
+			 -- report, and its agents are not worked against collections targets.
+			 WHERE u.role IN ('collections_agent','collections_head')
 			 GROUP BY u.id, u.full_name
 			 ORDER BY collected_kobo DESC`,
 			dateFrom, dateTo)
@@ -476,7 +665,16 @@ func reportAgentPerformance(db *core.DB) http.HandlerFunc {
 				row["target_achievement_pct"] = 0.0
 			}
 		}
-		respond(w, rows, "pg")
+		// Wrapped in a named block like every other report in the library. This one
+		// alone returned a bare top-level array, which a generic renderer cannot
+		// caption and cannot tell apart from an error payload. Nothing consumed it,
+		// so the shape is free to correct now; it stops being free the day a page
+		// reads it.
+		respond(w, map[string]any{
+			"date_from": dateFrom,
+			"date_to":   dateTo,
+			"by_agent":  rowsOrEmpty(rows),
+		}, "pg")
 	}
 }
 
@@ -814,10 +1012,23 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			period = "this_month"
 		}
 		dateFrom, dateTo := reportPeriodRange(period)
-		if v := r.URL.Query().Get("from"); v != "" {
+		// VALIDATE THE OVERRIDES. These were taken straight off the query string, and
+		// every KPI query below discards its own error (`rows, _ :=`), so a malformed
+		// date made each $1::date cast throw and each tile fall through to its pre-set
+		// zero. The result was HTTP 200 with every KPI reading 0 and nothing, anywhere,
+		// reporting a fault — the single most misleading response this endpoint could
+		// produce. The BI module validated the same two parameters and returned 422;
+		// this one did not.
+		if v, err := validDate(r, "from"); err != nil {
+			respondErr(w, 400, err.Error())
+			return
+		} else if v != "" {
 			dateFrom = v
 		}
-		if v := r.URL.Query().Get("to"); v != "" {
+		if v, err := validDate(r, "to"); err != nil {
+			respondErr(w, 400, err.Error())
+			return
+		} else if v != "" {
 			dateTo = v
 		}
 
@@ -834,18 +1045,23 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			out["active_loans"] = rows[0]["val"]
 		}
 
-		// Total disbursed in period
+		// Disbursed in the period, from the real loan book.
+		//
+		// This read app.loan_applications and was structurally incapable of returning a
+		// figure. Measured 2026-10-07: 8 rows in the entire table, every
+		// disbursed_amount_kobo NULL, 0 rows carrying disbursed_at, and a live status of
+		// 'submitted' — so the status filter excluded all 8 before the NULL sum could
+		// even reach 0. The book Udara actually publishes is app.cbs_loans, dated by
+		// date_booked, which carries 56 loans and NGN 2.0bn booked this year.
 		if rows, _ := db.PGQuery(ctx,
-			`SELECT COALESCE(SUM(disbursed_amount_kobo),0) AS val
-			 FROM loan_applications
-			 WHERE status IN ('disbursed','active') AND disbursed_at IS NOT NULL
-			   AND disbursed_at::date BETWEEN $1::date AND $2::date`,
+			`SELECT COALESCE(SUM(cl.loan_amount_kobo),0) AS val
+			 FROM cbs_loans cl
+			 WHERE cl.date_booked BETWEEN $1::date AND $2::date`,
 			dateFrom, dateTo); len(rows) > 0 {
 			out["total_disbursed_kobo"] = rows[0]["val"]
 		} else {
 			out["total_disbursed_kobo"] = 0
 		}
-
 		// NPL ratio and PAR30 from latest portfolio snapshot
 		out["npl_ratio_pct"] = 0.0
 		out["par30_pct"] = 0.0
@@ -872,16 +1088,33 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Recovery rate
+		// Recovery rate: BY VALUE, AND AS STOCK. Two deliberate choices.
+		//
+		// It used to count cases at status='recovered'. Nothing has ever written that
+		// value -- the live vocabulary is closed (908), active (461), legal (248) -- so
+		// the numerator was 0 across all 1,617 cases and the tile read 0.0% for ever.
+		// That was a wrong filter, not missing data.
+		//
+		// BY VALUE, because a rate counted in cases says nothing about how much money
+		// came back, and the canonical credit measures here are value-weighted (see
+		// app.is_npl, migration 261).
+		//
+		// AS STOCK and not windowed, because 1,585 of the 1,617 cases were created in
+		// the single week of 2026-08-24 by bulk import, and there is no recovered_at
+		// column to window on -- only opened_at and closed_at. A created_at window
+		// gives September just 30 cases and a rate that is an artefact of the import
+		// date. The management reports already report recovery as stock, in as many
+		// words, for exactly this reason.
+		//
+		// Reads 16.8% on 2026-10-07: NGN 921.2m recovered of NGN 5.48bn placed.
 		out["recovery_rate_pct"] = 0.0
 		if rows, _ := db.PGQuery(ctx,
-			`SELECT COUNT(*) FILTER (WHERE status='recovered') AS recovered, COUNT(*) AS total
-			 FROM recovery_cases
-			 WHERE created_at::date BETWEEN $1::date AND $2::date`,
-			dateFrom, dateTo); len(rows) > 0 {
-			total := toFloat(rows[0]["total"])
-			if total > 0 {
-				out["recovery_rate_pct"] = round1(toFloat(rows[0]["recovered"]) / total * 100)
+			`SELECT COALESCE(SUM(COALESCE(recovered_kobo,0)),0) AS recovered,
+			        COALESCE(SUM(COALESCE(recovered_kobo,0) + COALESCE(outstanding_kobo,0)),0) AS placed
+			 FROM recovery_cases`); len(rows) > 0 {
+			placed := toFloat(rows[0]["placed"])
+			if placed > 0 {
+				out["recovery_rate_pct"] = round1(toFloat(rows[0]["recovered"]) / placed * 100)
 			}
 		}
 
@@ -1063,10 +1296,31 @@ func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 			    ELSE NULL END AS rate
 			  FROM collections_daily_kpi GROUP BY 1
 			),
+			-- NPL BY VALUE, not the mean of daily ratios.
+			--
+			-- npl_kobo is already canonical: batch.go computes it with app.is_npl (migration
+			-- 261 -- DPD > 90 OR CBS Defaulting/Expired), so the rule is not the problem here.
+			-- The ARITHMETIC was. AVG() over each day's ratio is not the month's ratio, and the
+			-- old ELSE 0 fed a 0% day into that mean for any snapshot holding no principal,
+			-- pulling it down further. Measured 2026-10-07 against this table:
+			--
+			--     month     snaps   was      is
+			--     2026-10       7   74.06    74.02
+			--     2026-09      30   60.68    58.50   overstated  2.2pp
+			--     2026-08      28   31.12    36.82   understated 5.7pp
+			--
+			-- The error reversed sign between consecutive months, so it was not even a
+			-- consistent bias that a reader could learn to discount.
+			--
+			-- snaps is returned so the page can say how many days back a figure. The table
+			-- holds 65 rows from 2026-08-03 only, so most of a 12-month window has no
+			-- snapshot at all, and a month with none must read as unknown, never as 0% NPL.
 			npl AS (
 			  SELECT DATE_TRUNC('month', snapshot_date)::date AS m,
-			    ROUND(AVG(CASE WHEN outstanding_principal_kobo > 0
-			                   THEN 100.0 * npl_kobo / outstanding_principal_kobo ELSE 0 END), 2) AS ratio
+			    CASE WHEN SUM(outstanding_principal_kobo) > 0 THEN
+			      ROUND(100.0 * SUM(npl_kobo) / SUM(outstanding_principal_kobo), 2)
+			    ELSE NULL END AS ratio,
+			    COUNT(*)::int AS snaps
 			  FROM cbs_portfolio_snapshot GROUP BY 1
 			),
 			-- Revenue from the card book rather than the never-populated
@@ -1118,7 +1372,8 @@ func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 			  mo.month_start                      AS period_start,
 			  COALESCE(d.total, 0)                AS total_disbursed_kobo,
 			  c.rate                              AS collection_rate_pct,
-			  COALESCE(n.ratio, 0)                AS npl_ratio_pct,
+			  n.ratio                             AS npl_ratio_pct,
+			  COALESCE(n.snaps, 0)                AS npl_snapshots,
 			  COALESCE(rv.total, 0)               AS revenue_kobo,
 			  COALESCE(rv.fee, 0)                 AS revenue_fee_kobo,
 			  COALESCE(rv.interest, 0)            AS revenue_interest_kobo,

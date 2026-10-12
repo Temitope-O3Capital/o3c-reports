@@ -438,6 +438,10 @@ const SECTIONS: Section[] = [
           // Performance, Sales Pipeline -- and the heads who want them do NOT hold
           // 'reports', so widening it is a policy call, not a sidebar edit.
           { label: 'Report Library',     to: '/reports/library', vis: ['bi_analyst','bi_head'] },
+          // Read-only SQL over the whole workspace. BI only, by the same page guard
+          // the export engine uses -- a department head holds report_builder, not
+          // reports, and gets the 52 department-scoped datasets instead.
+          { label: 'SQL Console',        to: '/reports/sql', vis: ['bi_analyst','bi_head'] },
           { label: 'Report Builder',     to: '/reports/builder',
             vis: ['bi_analyst','bi_head','sales_head','bd_head','collections_head','recovery_head',
                   'cards_head','finance_head','settlement_head','call_center_head','care_head',
@@ -601,7 +605,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // '/reports' itself is intentionally left ungated so the KPI audience (heads +
   // management, who lack the 'reports' page) can open the module; ReportsHome routes
   // them to a page they can access. The individual subs below still enforce pages.
-  '/reports/library': 'reports',
+  '/reports/library': 'reports', '/reports/sql': 'reports',
   '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': ['reports', 'report_builder'], '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/reports/merchant-names': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
   '/reports/management': ['reports', 'executive'],
   '/reports/card-credit': ['cards', 'reports', 'executive', 'sales'],

@@ -84,6 +84,29 @@ const maskedPAN = `CASE WHEN NULLIF(a.card_pan,'') IS NULL THEN NULL
 const maskedBVN = `CASE WHEN NULLIF(c.bvn,'') IS NULL THEN NULL
                         ELSE '*******' || RIGHT(c.bvn, 4) END`
 
+// maskedWatchID and maskedIssuancePAN extend the same rule to the two tables added in
+// the 2026-10-09 coverage pass. Both keep enough of the value to recognise a match and
+// not enough to use it: a watch-list hit has to be verifiable by a screener, and a card
+// issuance request must never carry a full PAN into a spreadsheet.
+//
+// These exist as named constants rather than inline CASE expressions because
+// TestEveryDatasetMasksWhatItMustMask scans for them by name — a sensitive column is
+// only considered masked if it goes through one of these.
+const maskedWatchID = `CASE WHEN NULLIF(wl.id_value,'') IS NULL THEN NULL
+                            ELSE repeat('*', GREATEST(length(wl.id_value) - 4, 0)) ||
+                                 RIGHT(wl.id_value, 4) END`
+const maskedIssuancePAN = `CASE WHEN NULLIF(ci.card_pan,'') IS NULL THEN NULL
+                                ELSE '****' || RIGHT(ci.card_pan, 4) END`
+
+// cardCurrency renders app.accounts.currency_code as a letter code. The card book
+// carries four money columns and the Table view offers column sums over them, so
+// without this a total adds 219 USD accounts (-$224,743.97 of balance) to 21,075
+// naira ones. 71 rows carry no code at all and must not silently read as naira.
+const cardCurrency = `CASE btrim(COALESCE(a.currency_code,''))
+                        WHEN '566' THEN 'NGN' WHEN '840' THEN 'USD'
+                        WHEN '978' THEN 'EUR' WHEN '826' THEN 'GBP'
+                        ELSE 'unknown' END`
+
 // exportDatasets is the registry, ordered for display.
 var exportDatasets = []exportDataset{
 	// ── Credit ────────────────────────────────────────────────────────────────
@@ -192,6 +215,7 @@ var exportDatasets = []exportDataset{
 			{Key: "card_program", Label: "Programme", Type: colText, Expr: "a.card_program"},
 			{Key: "product_line", Label: "Product Line", Type: colText, Expr: "a.product_line"},
 			{Key: "status", Label: "Status", Type: colText, Expr: "a.status"},
+			{Key: "currency", Label: "Currency", Type: colText, Expr: cardCurrency},
 			// These are numeric (major units) on app.accounts, not kobo — the rest
 			// of the workspace stores kobo, so this is a genuine trap.
 			{Key: "card_limit", Label: "Card Limit (NGN)", Type: colMoney, Expr: "a.card_limit"},
@@ -210,6 +234,8 @@ var exportDatasets = []exportDataset{
 				Options: []string{"Open", "Active", "Inactive", "Closed", "Terminated", "Legal Suspended"}},
 			{Key: "product_name", Label: "Product", Kind: filterText, Expr: "a.product_name ILIKE '%' || ? || '%'"},
 			{Key: "cif", Label: "CIF", Kind: filterText, Expr: "a.cif = ?"},
+			{Key: "currency", Label: "Currency", Kind: filterSelect, Expr: cardCurrency + " = ?",
+				Options: []string{"NGN", "USD", "unknown"}},
 		},
 	},
 	{
@@ -410,16 +436,22 @@ var exportDatasets = []exportDataset{
 		},
 	},
 	{
-		Key:       "collections_payments",
-		Label:     "Collections Payments",
-		Module:    "Collections",
-		Desc:      "Payments recorded against collections cases, with reconciliation state.",
+		Key:    "collections_payments",
+		Label:  "Collections Payments",
+		Module: "Collections",
+		Desc: "Payments recorded against collections cases, with approval and reconciliation " +
+			"state. APPROVAL IS THE ONE THAT DECIDES WHETHER THE MONEY COUNTED: measured " +
+			"2026-10-07, 1,801 rows are approved (NGN 1,094,578,699.07) and 11 are still " +
+			"pending_hop (NGN 106,393,555.56). Filter on Status before totalling Amount, " +
+			"or the total overstates collections by the unapproved balance.",
 		From:      "app.collection_payments cp",
 		OrderBy:   "cp.payment_date DESC",
 		KeyCol:    "cp.id",
 		DateCol:   "cp.payment_date",
 		DateLabel: "Payment Date",
 		Cols: []exportCol{
+			{Key: "customer_name", Label: "Customer", Type: colText,
+				Expr: `(SELECT cu.full_name FROM app.customers cu WHERE cu.cif = cp.account_cif LIMIT 1)`},
 			{Key: "account_cif", Label: "Customer ID", Type: colText, Expr: "cp.account_cif"},
 			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "cp.amount_kobo"},
 			{Key: "payment_date", Label: "Payment Date", Type: colDate, Expr: "cp.payment_date"},
@@ -429,10 +461,17 @@ var exportDatasets = []exportDataset{
 			{Key: "reconciled", Label: "Reconciled", Type: colBool, Expr: "cp.reconciled"},
 			{Key: "reconciled_at", Label: "Reconciled At", Type: colDateTime, Expr: "cp.reconciled_at"},
 			{Key: "gl_reference", Label: "GL Reference", Type: colText, Expr: "cp.gl_reference"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "cp.status"},
+			{Key: "approved_at", Label: "Approved At", Type: colDateTime, Expr: "cp.approved_at"},
+			{Key: "approved_by_name", Label: "Approved By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = cp.approved_by)`},
+			{Key: "rejection_reason", Label: "Rejection Reason", Type: colText, Expr: "cp.rejection_reason"},
 			{Key: "received_by_name", Label: "Received By", Type: colText,
 				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = cp.received_by)`},
 		},
 		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterSelect, Expr: "cp.status = ?",
+				Options: []string{"approved", "pending_hop", "rejected"}},
 			{Key: "channel", Label: "Channel", Kind: filterText, Expr: "cp.channel = ?"},
 		},
 	},
@@ -628,8 +667,8 @@ var exportDatasets = []exportDataset{
 			{Key: "full_name", Label: "Customer", Type: colText, Expr: "p.full_name"},
 			{Key: "bucket", Label: "Stage", Type: colText, Expr: "cl.bucket"},
 			{Key: "value_tier", Label: "Value Tier", Type: colText, Expr: "cl.value_tier"},
-			{Key: "value_kobo", Label: "Last Active Year", Type: colMoney, Expr: "cl.value_kobo"},
-			{Key: "lifetime_value_kobo", Label: "Lifetime Spend", Type: colMoney, Expr: "cl.lifetime_value_kobo"},
+			{Key: "value_kobo", Label: "Value, Last Active Year (NGN)", Type: colKobo, Expr: "cl.value_kobo"},
+			{Key: "lifetime_value_kobo", Label: "Lifetime Spend (NGN)", Type: colKobo, Expr: "cl.lifetime_value_kobo"},
 			{Key: "days_since_txn", Label: "Days Since Last Txn", Type: colInt, Expr: "cl.days_since_txn"},
 			{Key: "open_products", Label: "Open Products", Type: colInt, Expr: "cl.open_products"},
 			{Key: "measured", Label: "Has History", Type: colBool, Expr: "cl.measured"},
@@ -637,7 +676,16 @@ var exportDatasets = []exportDataset{
 			{Key: "has_open_recovery", Label: "In Recovery", Type: colBool, Expr: "cl.has_open_recovery"},
 			{Key: "primary_phone", Label: "Phone", Type: colText, Expr: "p.primary_phone"},
 			{Key: "primary_email", Label: "Email", Type: colText, Expr: "p.primary_email"},
+			{Key: "last_txn_at", Label: "Last Transaction", Type: colDateTime, Expr: "cl.last_txn_at"},
 			{Key: "computed_at", Label: "Scored At", Type: colDate, Expr: "cl.computed_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "bucket", Label: "Stage", Kind: filterText, Expr: "cl.bucket = ?"},
+			{Key: "value_tier", Label: "Value Tier", Kind: filterText, Expr: "cl.value_tier = ?"},
+			{Key: "measured", Label: "Has History", Kind: filterSelect, Expr: "cl.measured = (? = 'true')",
+				Options: []string{"true", "false"}},
+			{Key: "contactable", Label: "Contactable", Kind: filterSelect, Expr: "cl.contactable = (? = 'true')",
+				Options: []string{"true", "false"}},
 		},
 	},
 	{
@@ -1065,6 +1113,696 @@ var exportDatasets = []exportDataset{
 		Filters: []exportFilter{
 			{Key: "platform", Label: "Platform", Kind: filterSelect, Options: []string{"ios", "android"}, Expr: "ae.platform = ?"},
 			{Key: "event_name", Label: "Event", Kind: filterText, Expr: "ae.event_name = ?"},
+		},
+	},
+
+	// ── Campaigns ─────────────────────────────────────────────────────────────
+	//
+	// The campaigns module had exactly one data source — mail_suppressions, 1 row —
+	// so nothing could report what a campaign sent, who it reached, or which lead
+	// came out of it, despite 11,599 contacts carrying a source_campaign_id.
+	{
+		Key:    "campaign_performance",
+		Label:  "Campaign Performance",
+		Module: "Campaigns",
+		Desc: "One row per campaign: what went out on each channel and what came back. " +
+			"READ THE OPEN AND CLICK COLUMNS WITH CARE — measured 2026-10-09, 9,124 sends " +
+			"are recorded and NOT ONE open or click is, on any campaign. Open tracking is " +
+			"wired (the /t/o pixel writes campaign_events) but has never fired, so a 0% " +
+			"open rate here means 'not captured', not 'nobody opened'. The legacy " +
+			"sent_count/open_count family is deliberately excluded: no writer has ever " +
+			"incremented it, and it would read 0 beside a real figure.",
+		From:      "app.campaigns cm",
+		OrderBy:   "cm.created_at DESC",
+		KeyCol:    "cm.id",
+		DateCol:   "cm.created_at",
+		DateLabel: "Created",
+		Cols: []exportCol{
+			{Key: "name", Label: "Campaign", Type: colText, Expr: "cm.name"},
+			{Key: "purpose", Label: "Purpose", Type: colText, Expr: "cm.purpose"},
+			{Key: "type", Label: "Type", Type: colText, Expr: "cm.type"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "cm.status"},
+			{Key: "total_contacts", Label: "Contacts", Type: colInt, Expr: "cm.total_contacts"},
+			{Key: "emails_sent", Label: "Emails Sent", Type: colInt, Expr: "cm.emails_sent"},
+			{Key: "emails_delivered", Label: "Emails Delivered", Type: colInt, Expr: "cm.emails_delivered"},
+			{Key: "emails_bounced", Label: "Emails Bounced", Type: colInt, Expr: "cm.emails_bounced"},
+			{Key: "emails_opened", Label: "Emails Opened", Type: colInt, Expr: "cm.emails_opened"},
+			{Key: "emails_clicked", Label: "Emails Clicked", Type: colInt, Expr: "cm.emails_clicked"},
+			{Key: "sms_sent", Label: "SMS Sent", Type: colInt, Expr: "cm.sms_sent"},
+			{Key: "sms_delivered", Label: "SMS Delivered", Type: colInt, Expr: "cm.sms_delivered"},
+			{Key: "sms_failed", Label: "SMS Failed", Type: colInt, Expr: "cm.sms_failed"},
+			{Key: "whatsapp_sent", Label: "WhatsApp Sent", Type: colInt, Expr: "cm.whatsapp_sent"},
+			{Key: "whatsapp_delivered", Label: "WhatsApp Delivered", Type: colInt, Expr: "cm.whatsapp_delivered"},
+			{Key: "scheduled_at", Label: "Scheduled", Type: colDateTime, Expr: "cm.scheduled_at"},
+			{Key: "started_at", Label: "Started", Type: colDateTime, Expr: "cm.started_at"},
+			{Key: "completed_at", Label: "Completed", Type: colDateTime, Expr: "cm.completed_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "cm.status = ?"},
+			{Key: "type", Label: "Type", Kind: filterText, Expr: "cm.type = ?"},
+			{Key: "purpose", Label: "Purpose", Kind: filterText, Expr: "cm.purpose = ?"},
+		},
+	},
+	{
+		Key:    "campaign_contacts",
+		Label:  "Campaign Recipients",
+		Module: "Campaigns",
+		Desc: "Who each campaign was sent to, and what happened to their copy. The " +
+			"campaign is named rather than numbered. Soft-deleted recipients are excluded.",
+		From: `app.campaign_contacts cc
+		         LEFT JOIN app.campaigns cm ON cm.id = cc.campaign_id`,
+		Where:     "cc.deleted_at IS NULL",
+		OrderBy:   "cc.created_at DESC",
+		KeyCol:    "cc.id",
+		DateCol:   "cc.created_at",
+		DateLabel: "Added",
+		Cols: []exportCol{
+			{Key: "campaign_name", Label: "Campaign", Type: colText, Expr: "cm.name"},
+			{Key: "customer_name", Label: "Recipient", Type: colText,
+				Expr: `NULLIF(btrim(COALESCE(cc.first_name,'') || ' ' || COALESCE(cc.last_name,'')), '')`},
+			{Key: "phone", Label: "Phone", Type: colText, Expr: "cc.phone"},
+			{Key: "email", Label: "Email", Type: colText, Expr: "cc.email"},
+			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "cc.cif_number"},
+			{Key: "email_status", Label: "Email Status", Type: colText, Expr: "cc.email_status"},
+			{Key: "email_sent_at", Label: "Email Sent", Type: colDateTime, Expr: "cc.email_sent_at"},
+			{Key: "email_opened_at", Label: "Email Opened", Type: colDateTime, Expr: "cc.email_opened_at"},
+			{Key: "sms_status", Label: "SMS Status", Type: colText, Expr: "cc.sms_status"},
+			{Key: "sms_sent_at", Label: "SMS Sent", Type: colDateTime, Expr: "cc.sms_sent_at"},
+			{Key: "whatsapp_status", Label: "WhatsApp Status", Type: colText, Expr: "cc.whatsapp_status"},
+			{Key: "whatsapp_sent_at", Label: "WhatsApp Sent", Type: colDateTime, Expr: "cc.whatsapp_sent_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "campaign_name", Label: "Campaign", Kind: filterText, Expr: "cm.name ILIKE '%' || ? || '%'"},
+			{Key: "email_status", Label: "Email Status", Kind: filterText, Expr: "cc.email_status = ?"},
+			{Key: "sms_status", Label: "SMS Status", Kind: filterText, Expr: "cc.sms_status = ?"},
+		},
+	},
+	{
+		Key:    "campaign_events",
+		Label:  "Campaign Engagement Events",
+		Module: "Campaigns",
+		Desc: "The per-event ledger behind the campaign counters: one row each time a " +
+			"message was sent, opened or clicked. This is the evidence trail — if a " +
+			"counter and this dataset disagree, believe this one.",
+		From: `app.campaign_events ce
+		         LEFT JOIN app.campaigns cm ON cm.id = ce.campaign_id`,
+		OrderBy:   "ce.occurred_at DESC",
+		KeyCol:    "ce.id",
+		DateCol:   "ce.occurred_at",
+		DateLabel: "Occurred",
+		Cols: []exportCol{
+			{Key: "occurred_at", Label: "Occurred", Type: colDateTime, Expr: "ce.occurred_at"},
+			{Key: "campaign_name", Label: "Campaign", Type: colText, Expr: "cm.name"},
+			{Key: "event_type", Label: "Event", Type: colText, Expr: "ce.event_type"},
+			{Key: "channel", Label: "Channel", Type: colText, Expr: "ce.channel"},
+			{Key: "url", Label: "Link Clicked", Type: colText, Expr: "ce.url"},
+			{Key: "provider_msg_id", Label: "Provider Message ID", Type: colText, Expr: "ce.provider_msg_id"},
+		},
+		Filters: []exportFilter{
+			{Key: "event_type", Label: "Event", Kind: filterText, Expr: "ce.event_type = ?"},
+			{Key: "channel", Label: "Channel", Kind: filterText, Expr: "ce.channel = ?"},
+			{Key: "campaign_name", Label: "Campaign", Kind: filterText, Expr: "cm.name ILIKE '%' || ? || '%'"},
+		},
+	},
+	{
+		Key:    "contact_list_members",
+		Label:  "Contact List Members",
+		Module: "Campaigns",
+		Desc: "The marketing lists and who is on them, with the list named rather than " +
+			"numbered. The consent basis recorded against each list is on the list, not " +
+			"the member — see the Consent Register for per-person consent.",
+		From: `app.contact_list_members lm
+		         LEFT JOIN app.contact_lists cl ON cl.id = lm.list_id`,
+		OrderBy:   "lm.created_at DESC",
+		KeyCol:    "lm.id",
+		DateCol:   "lm.created_at",
+		DateLabel: "Added",
+		Cols: []exportCol{
+			{Key: "list_name", Label: "List", Type: colText, Expr: "cl.name"},
+			{Key: "list_source", Label: "List Source", Type: colText, Expr: "cl.source"},
+			{Key: "consent_basis", Label: "List Consent Basis", Type: colText, Expr: "cl.consent_basis"},
+			{Key: "customer_name", Label: "Member", Type: colText,
+				Expr: `NULLIF(btrim(COALESCE(lm.first_name,'') || ' ' || COALESCE(lm.last_name,'')), '')`},
+			{Key: "phone", Label: "Phone", Type: colText, Expr: "lm.phone"},
+			{Key: "email", Label: "Email", Type: colText, Expr: "lm.email"},
+			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "lm.cif_number"},
+			{Key: "state", Label: "State", Type: colText, Expr: "lm.state"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "lm.status"},
+		},
+		Filters: []exportFilter{
+			{Key: "list_name", Label: "List", Kind: filterText, Expr: "cl.name ILIKE '%' || ? || '%'"},
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "lm.status = ?"},
+			{Key: "state", Label: "State", Kind: filterText, Expr: "lm.state ILIKE ?"},
+		},
+	},
+
+	// ── Compliance ────────────────────────────────────────────────────────────
+	{
+		Key:    "consent_register",
+		Label:  "Consent Register",
+		Module: "Compliance",
+		Desc: "Per-person marketing and contact consent by channel: who may be contacted, " +
+			"on what basis, and when it expires. This is the record the retention and " +
+			"campaign audiences are built from, so it is the one to produce when someone " +
+			"asks why a customer was contacted.",
+		From: `app.party_contact_consent pc
+		         LEFT JOIN app.parties pt ON pt.party_id = pc.party_id`,
+		OrderBy:   "pc.recorded_at DESC",
+		KeyCol:    "pc.id",
+		DateCol:   "pc.recorded_at",
+		DateLabel: "Recorded",
+		Cols: []exportCol{
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "pt.full_name"},
+			{Key: "channel", Label: "Channel", Type: colText, Expr: "pc.channel"},
+			{Key: "purpose", Label: "Purpose", Type: colText, Expr: "pc.purpose"},
+			{Key: "state", Label: "Consent", Type: colText, Expr: "pc.state"},
+			{Key: "basis", Label: "Legal Basis", Type: colText, Expr: "pc.basis"},
+			{Key: "evidence", Label: "Evidence", Type: colText, Expr: "pc.evidence"},
+			{Key: "recorded_by_name", Label: "Recorded By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = pc.recorded_by)`},
+			{Key: "recorded_at", Label: "Recorded", Type: colDateTime, Expr: "pc.recorded_at"},
+			{Key: "expires_at", Label: "Expires", Type: colDateTime, Expr: "pc.expires_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "channel", Label: "Channel", Kind: filterText, Expr: "pc.channel = ?"},
+			{Key: "state", Label: "Consent", Kind: filterText, Expr: "pc.state = ?"},
+			{Key: "purpose", Label: "Purpose", Kind: filterText, Expr: "pc.purpose = ?"},
+		},
+	},
+	{
+		Key:    "aml_flags",
+		Label:  "AML Flags",
+		Module: "Compliance",
+		Desc: "Transactions an AML rule flagged, with the rule that caught them and the " +
+			"review outcome. The rule is named rather than numbered.",
+		From: `app.aml_flags af
+		         LEFT JOIN app.aml_rules ar ON ar.id = af.rule_id`,
+		OrderBy:   "af.triggered_at DESC",
+		KeyCol:    "af.id",
+		DateCol:   "af.triggered_at",
+		DateLabel: "Triggered",
+		Cols: []exportCol{
+			{Key: "triggered_at", Label: "Triggered", Type: colDateTime, Expr: "af.triggered_at"},
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "af.customer_name"},
+			{Key: "cif", Label: "CIF", Type: colText, Expr: "af.cif"},
+			{Key: "rule_name", Label: "Rule", Type: colText, Expr: "ar.name"},
+			{Key: "severity", Label: "Severity", Type: colText, Expr: "ar.severity"},
+			{Key: "amount_kobo", Label: "Amount (NGN)", Type: colKobo, Expr: "af.amount_kobo"},
+			{Key: "transaction_ref", Label: "Transaction Ref", Type: colText, Expr: "af.transaction_ref"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "af.status"},
+			{Key: "reviewed_by_name", Label: "Reviewed By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = af.reviewed_by)`},
+			{Key: "reviewed_at", Label: "Reviewed", Type: colDateTime, Expr: "af.reviewed_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "af.status = ?"},
+			{Key: "severity", Label: "Severity", Kind: filterText, Expr: "ar.severity = ?"},
+		},
+	},
+	{
+		Key:       "aml_rules",
+		Label:     "AML Rules",
+		Module:    "Compliance",
+		Desc:      "The AML rule set in force: thresholds, windows and severity, and which rules are switched on.",
+		From:      "app.aml_rules ar",
+		OrderBy:   "ar.enabled DESC, ar.name",
+		KeyCol:    "ar.id",
+		DateCol:   "ar.created_at",
+		DateLabel: "Created",
+		Cols: []exportCol{
+			{Key: "name", Label: "Rule", Type: colText, Expr: "ar.name"},
+			{Key: "rule_type", Label: "Type", Type: colText, Expr: "ar.rule_type"},
+			// app.aml_rules.threshold CARRIES TWO DIFFERENT UNITS, decided by rule_type.
+			// Measured 2026-10-09: the velocity_daily rule holds 5, meaning five
+			// transactions, while the two amount_threshold rules hold 500000000 and
+			// 5000000000, meaning NGN 5m and NGN 50m in kobo. A single kobo-typed column
+			// would therefore have printed the velocity rule as NGN 0.05 — the same
+			// kobo-as-naira class of error this registry carried for months on the
+			// retention export. Split, so each column means one thing and is empty where
+			// it does not apply.
+			{Key: "threshold_kobo", Label: "Amount Threshold (NGN)", Type: colKobo,
+				Expr: `CASE WHEN ar.rule_type = 'amount_threshold' THEN ar.threshold END`},
+			{Key: "threshold_count", Label: "Count Threshold", Type: colInt,
+				Expr: `CASE WHEN ar.rule_type <> 'amount_threshold' THEN ar.threshold END`},
+			{Key: "period_days", Label: "Window (Days)", Type: colInt, Expr: "ar.period_days"},
+			{Key: "severity", Label: "Severity", Type: colText, Expr: "ar.severity"},
+			{Key: "enabled", Label: "Enabled", Type: colBool, Expr: "ar.enabled"},
+		},
+		Filters: []exportFilter{
+			{Key: "severity", Label: "Severity", Kind: filterText, Expr: "ar.severity = ?"},
+			{Key: "rule_type", Label: "Type", Kind: filterText, Expr: "ar.rule_type = ?"},
+		},
+	},
+	{
+		Key:    "sars",
+		Label:  "Suspicious Activity Reports",
+		Module: "Compliance",
+		Desc: "The SAR register: references, amounts, status and the NFIU filing trail. " +
+			"THE SUBJECT IS DELIBERATELY NOT HERE. app.sars stores subject_name_encrypted, " +
+			"subject_id_encrypted and summary_encrypted, and this dataset exposes none of " +
+			"the three — a SAR subject must not leave the building in a spreadsheet, and a " +
+			"tipping-off risk is not worth a convenience column. Use the Compliance module " +
+			"itself, which decrypts per record against a named reader.",
+		From:      "app.sars sr",
+		OrderBy:   "sr.created_at DESC",
+		KeyCol:    "sr.id",
+		DateCol:   "sr.transaction_date",
+		DateLabel: "Transaction Date",
+		Cols: []exportCol{
+			{Key: "sar_ref", Label: "SAR Ref", Type: colText, Expr: "sr.sar_ref"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "sr.status"},
+			{Key: "subject_id_type", Label: "Subject ID Type", Type: colText, Expr: "sr.subject_id_type"},
+			{Key: "amount_kobo", Label: "Amount (NGN)", Type: colKobo, Expr: "sr.amount_kobo"},
+			{Key: "transaction_date", Label: "Transaction Date", Type: colDate, Expr: "sr.transaction_date"},
+			{Key: "reporter_name", Label: "Raised By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = sr.reporter_id)`},
+			{Key: "nfiu_ref", Label: "NFIU Ref", Type: colText, Expr: "sr.nfiu_ref"},
+			{Key: "nfiu_submitted_at", Label: "NFIU Submitted", Type: colDateTime, Expr: "sr.nfiu_submitted_at"},
+			{Key: "created_at", Label: "Raised", Type: colDateTime, Expr: "sr.created_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "sr.status = ?"},
+		},
+	},
+	{
+		Key:    "watch_list",
+		Label:  "Watch List",
+		Module: "Compliance",
+		Desc: "Names and entities on the internal watch list, with why and from where. " +
+			"The identifier is masked to its last 4 characters: screening needs to " +
+			"recognise a match, not to carry everyone's ID number around in a file.",
+		From:      "app.watch_list_entries wl",
+		OrderBy:   "wl.created_at DESC",
+		KeyCol:    "wl.id",
+		DateCol:   "wl.created_at",
+		DateLabel: "Added",
+		Cols: []exportCol{
+			{Key: "entity_name", Label: "Name", Type: colText, Expr: "wl.entity_name"},
+			{Key: "entity_type", Label: "Type", Type: colText, Expr: "wl.entity_type"},
+			{Key: "id_type", Label: "ID Type", Type: colText, Expr: "wl.id_type"},
+			{Key: "id_value_masked", Label: "ID (Masked)", Type: colText, Expr: maskedWatchID},
+			{Key: "reason", Label: "Reason", Type: colText, Expr: "wl.reason"},
+			{Key: "source", Label: "Source", Type: colText, Expr: "wl.source"},
+			{Key: "is_active", Label: "Active", Type: colBool, Expr: "wl.is_active"},
+			{Key: "added_by_name", Label: "Added By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = wl.added_by)`},
+		},
+		Filters: []exportFilter{
+			{Key: "entity_type", Label: "Type", Kind: filterText, Expr: "wl.entity_type = ?"},
+			{Key: "is_active", Label: "Active", Kind: filterSelect, Expr: "wl.is_active = (? = 'true')",
+				Options: []string{"true", "false"}},
+		},
+	},
+	{
+		Key:    "data_breach_incidents",
+		Label:  "Data Breach Incidents",
+		Module: "Compliance",
+		Desc: "The NDPR breach register: what happened, how many records, and whether the " +
+			"NDPC was notified inside the deadline. notify_deadline_at against " +
+			"ndpc_notified_at is the column pair an audit will ask about.",
+		From:      "app.data_breach_incidents db",
+		OrderBy:   "db.discovered_at DESC",
+		KeyCol:    "db.id",
+		DateCol:   "db.discovered_at",
+		DateLabel: "Discovered",
+		Cols: []exportCol{
+			{Key: "ref_no", Label: "Ref", Type: colText, Expr: "db.ref_no"},
+			{Key: "title", Label: "Incident", Type: colText, Expr: "db.title"},
+			{Key: "breach_type", Label: "Type", Type: colText, Expr: "db.breach_type"},
+			{Key: "severity", Label: "Severity", Type: colText, Expr: "db.severity"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "db.status"},
+			{Key: "affected_records", Label: "Records Affected", Type: colInt, Expr: "db.affected_records"},
+			{Key: "discovered_at", Label: "Discovered", Type: colDateTime, Expr: "db.discovered_at"},
+			{Key: "notify_deadline_at", Label: "Notify Deadline", Type: colDateTime, Expr: "db.notify_deadline_at"},
+			{Key: "ndpc_notified", Label: "NDPC Notified", Type: colBool, Expr: "db.ndpc_notified"},
+			{Key: "ndpc_notified_at", Label: "NDPC Notified At", Type: colDateTime, Expr: "db.ndpc_notified_at"},
+			{Key: "ndpc_ref_number", Label: "NDPC Ref", Type: colText, Expr: "db.ndpc_ref_number"},
+			{Key: "closed_at", Label: "Closed", Type: colDateTime, Expr: "db.closed_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "db.status = ?"},
+			{Key: "severity", Label: "Severity", Kind: filterText, Expr: "db.severity = ?"},
+		},
+	},
+	{
+		Key:       "dpa_register",
+		Label:     "Data Processing Register",
+		Module:    "Compliance",
+		Desc:      "The NDPR Article 30-style register: each processing activity, its legal basis, who the data is shared with, and how long it is kept.",
+		From:      "app.dpa_processing_register dr",
+		OrderBy:   "dr.processing_name",
+		KeyCol:    "dr.id",
+		DateCol:   "dr.created_at",
+		DateLabel: "Created",
+		Cols: []exportCol{
+			{Key: "processing_name", Label: "Processing Activity", Type: colText, Expr: "dr.processing_name"},
+			{Key: "purpose", Label: "Purpose", Type: colText, Expr: "dr.purpose"},
+			{Key: "legal_basis", Label: "Legal Basis", Type: colText, Expr: "dr.legal_basis"},
+			{Key: "data_subjects", Label: "Data Subjects", Type: colText, Expr: "dr.data_subjects"},
+			{Key: "recipients", Label: "Recipients", Type: colText, Expr: "dr.recipients"},
+			{Key: "third_country_transfers", Label: "Transfers Abroad", Type: colBool, Expr: "dr.third_country_transfers"},
+			{Key: "retention_period", Label: "Retention", Type: colText, Expr: "dr.retention_period"},
+			{Key: "dpo_reviewed", Label: "DPO Reviewed", Type: colBool, Expr: "dr.dpo_reviewed"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "dr.status"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "dr.status = ?"},
+			{Key: "legal_basis", Label: "Legal Basis", Kind: filterText, Expr: "dr.legal_basis = ?"},
+		},
+	},
+	{
+		Key:       "policy_documents",
+		Label:     "Policy Documents",
+		Module:    "Compliance",
+		Desc:      "The policy library with its review clock: owner, approval, version and when each document is next due for review.",
+		From:      "app.soc2_policy_documents pd",
+		OrderBy:   "pd.sort_order, pd.name",
+		KeyCol:    "pd.id",
+		DateCol:   "pd.next_review_date",
+		DateLabel: "Next Review",
+		Cols: []exportCol{
+			{Key: "name", Label: "Policy", Type: colText, Expr: "pd.name"},
+			{Key: "category", Label: "Category", Type: colText, Expr: "pd.category"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "pd.status"},
+			{Key: "version", Label: "Version", Type: colText, Expr: "pd.version"},
+			{Key: "owner_name", Label: "Owner", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = pd.owner_id)`},
+			{Key: "approved_by_name", Label: "Approved By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = pd.approved_by)`},
+			{Key: "approved_at", Label: "Approved", Type: colDateTime, Expr: "pd.approved_at"},
+			{Key: "next_review_date", Label: "Next Review", Type: colDate, Expr: "pd.next_review_date"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "pd.status = ?"},
+			{Key: "category", Label: "Category", Kind: filterText, Expr: "pd.category = ?"},
+		},
+	},
+
+	// ── Care ──────────────────────────────────────────────────────────────────
+	{
+		Key:    "care_mail",
+		Label:  "Care Mail",
+		Module: "Care",
+		Desc: "Every message the workspace sent or queued on the email channel, with its " +
+			"delivery outcome. Care works email-channel tickets and had no data source at " +
+			"all; this is the delivery record behind them. Bodies are not included — a " +
+			"delivery report does not need the correspondence.",
+		From:      "app.mail_messages mm",
+		OrderBy:   "mm.created_at DESC",
+		KeyCol:    "mm.id",
+		DateCol:   "mm.created_at",
+		DateLabel: "Created",
+		Cols: []exportCol{
+			{Key: "created_at", Label: "Created", Type: colDateTime, Expr: "mm.created_at"},
+			{Key: "kind", Label: "Kind", Type: colText, Expr: "mm.kind"},
+			{Key: "subject", Label: "Subject", Type: colText, Expr: "mm.subject"},
+			{Key: "from_name", Label: "From Name", Type: colText, Expr: "mm.from_name"},
+			{Key: "from_email", Label: "From", Type: colText, Expr: "mm.from_email"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "mm.status"},
+			{Key: "queued_at", Label: "Queued", Type: colDateTime, Expr: "mm.queued_at"},
+			{Key: "delivered_at", Label: "Delivered", Type: colDateTime, Expr: "mm.delivered_at"},
+			{Key: "opened_at", Label: "Opened", Type: colDateTime, Expr: "mm.opened_at"},
+			{Key: "clicked_at", Label: "Clicked", Type: colDateTime, Expr: "mm.clicked_at"},
+			{Key: "bounced_at", Label: "Bounced", Type: colDateTime, Expr: "mm.bounced_at"},
+			{Key: "last_error", Label: "Last Error", Type: colText, Expr: "mm.last_error"},
+			{Key: "sent_by_name", Label: "Sent By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = mm.created_by)`},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "mm.status = ?"},
+			{Key: "kind", Label: "Kind", Kind: filterText, Expr: "mm.kind = ?"},
+		},
+	},
+
+	// ── Finance ───────────────────────────────────────────────────────────────
+	{
+		Key:    "fx_rates",
+		Label:  "FX Rates",
+		Module: "Finance",
+		Desc: "Scraped parallel-market buy and sell rates by source and currency. Rates " +
+			"are major units, not kobo — a rate is a price, not an amount.",
+		From:      "app.fx_parallel_rates fr",
+		OrderBy:   "fr.scraped_at DESC",
+		KeyCol:    "fr.id",
+		DateCol:   "fr.scraped_at",
+		DateLabel: "Scraped",
+		Cols: []exportCol{
+			{Key: "scraped_at", Label: "Scraped", Type: colDateTime, Expr: "fr.scraped_at"},
+			{Key: "source", Label: "Source", Type: colText, Expr: "fr.source"},
+			{Key: "currency", Label: "Currency", Type: colText, Expr: "fr.currency"},
+			{Key: "buy_ngn", Label: "Buy (NGN)", Type: colMoney, Expr: "fr.buy"},
+			{Key: "sell_ngn", Label: "Sell (NGN)", Type: colMoney, Expr: "fr.sell"},
+			{Key: "spread_ngn", Label: "Spread (NGN)", Type: colMoney, Expr: "(fr.sell - fr.buy)"},
+		},
+		Filters: []exportFilter{
+			{Key: "currency", Label: "Currency", Kind: filterText, Expr: "fr.currency = ?"},
+			{Key: "source", Label: "Source", Kind: filterText, Expr: "fr.source = ?"},
+		},
+	},
+	{
+		Key:       "commission_rates",
+		Label:     "Commission Rates",
+		Module:    "Finance",
+		Desc:      "The commission rate card by product line: the basis points or flat amount each line earns, and who last changed it.",
+		From:      "app.sales_commission_rates cr",
+		OrderBy:   "cr.line",
+		KeyCol:    "cr.line",
+		DateCol:   "cr.updated_at",
+		DateLabel: "Updated",
+		Cols: []exportCol{
+			{Key: "line", Label: "Product Line", Type: colText, Expr: "cr.line"},
+			{Key: "basis", Label: "Basis", Type: colText, Expr: "cr.basis"},
+			{Key: "rate_bps", Label: "Rate (bps)", Type: colInt, Expr: "cr.rate_bps"},
+			{Key: "amount_kobo", Label: "Flat Amount (NGN)", Type: colKobo, Expr: "cr.amount_kobo"},
+			{Key: "updated_by_name", Label: "Updated By", Type: colText,
+				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = cr.updated_by)`},
+			{Key: "updated_at", Label: "Updated", Type: colDateTime, Expr: "cr.updated_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "basis", Label: "Basis", Kind: filterText, Expr: "cr.basis = ?"},
+		},
+	},
+
+	// ── Sales ─────────────────────────────────────────────────────────────────
+	{
+		Key:    "sales_targets",
+		Label:  "Sales Targets",
+		Module: "Sales & CRM",
+		Desc: "One row per officer per month, in the three product lines targets are set " +
+			"in. Note that loan_count and card_count are 0 across every period measured " +
+			"2026-10-09 — only the money targets are being set — so a 0 here means 'no " +
+			"target set', not 'a target of nothing'.",
+		From: `app.sales_targets st
+		         LEFT JOIN app.o3c_users u ON u.id = st.user_id`,
+		OrderBy:   "st.period DESC, u.full_name",
+		KeyCol:    "st.id",
+		DateCol:   "st.created_at",
+		DateLabel: "Set",
+		Cols: []exportCol{
+			{Key: "officer_name", Label: "Officer", Type: colText, Expr: "u.full_name"},
+			{Key: "period", Label: "Period", Type: colText, Expr: "st.period"},
+			{Key: "disbursement_kobo", Label: "Loan Target (NGN)", Type: colKobo, Expr: "st.disbursement_kobo"},
+			{Key: "loan_count", Label: "Loan Count Target", Type: colInt, Expr: "st.loan_count"},
+			{Key: "fd_amount_kobo", Label: "Deposit Target (NGN)", Type: colKobo, Expr: "st.fd_amount_kobo"},
+			{Key: "fd_count", Label: "Deposit Count Target", Type: colInt, Expr: "st.fd_count"},
+			{Key: "card_count", Label: "Card Target", Type: colInt, Expr: "st.card_count"},
+			{Key: "notes", Label: "Notes", Type: colText, Expr: "st.notes"},
+		},
+		Filters: []exportFilter{
+			{Key: "period", Label: "Period", Kind: filterText, Expr: "st.period = ?"},
+			{Key: "officer_name", Label: "Officer", Kind: filterText, Expr: "u.full_name ILIKE '%' || ? || '%'"},
+		},
+	},
+	{
+		Key:    "lead_handoffs",
+		Label:  "Lead Hand-offs to Sales",
+		Module: "Sales & CRM",
+		Desc: "The audited hand-off ledger: every lead the call centre passed to Sales, " +
+			"who passed it, who received it and what became of it. This is the trail " +
+			"migrations 250-253 created and migration 298 backfilled, and it is the only " +
+			"place the call-centre-to-Sales boundary is recorded.",
+		From:      "app.call_center_lead_forwards lf",
+		OrderBy:   "lf.forwarded_at DESC",
+		KeyCol:    "lf.id",
+		DateCol:   "lf.forwarded_at",
+		DateLabel: "Forwarded",
+		Cols: []exportCol{
+			{Key: "forwarded_at", Label: "Forwarded", Type: colDateTime, Expr: "lf.forwarded_at"},
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "lf.customer_name"},
+			{Key: "customer_phone", Label: "Phone", Type: colText, Expr: "lf.customer_phone"},
+			{Key: "customer_cif", Label: "CIF", Type: colText, Expr: "lf.customer_cif"},
+			{Key: "product_interest", Label: "Product Interest", Type: colText, Expr: "lf.product_interest"},
+			{Key: "forwarded_by_name", Label: "Forwarded By", Type: colText, Expr: "lf.forwarded_by_name"},
+			{Key: "sales_owner_name", Label: "Sales Owner", Type: colText, Expr: "lf.sales_owner_name"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "lf.status"},
+			{Key: "outcome", Label: "Outcome", Type: colText, Expr: "lf.outcome"},
+			{Key: "notes", Label: "Notes", Type: colText, Expr: "lf.notes"},
+			{Key: "resolved_at", Label: "Resolved", Type: colDateTime, Expr: "lf.resolved_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "lf.status = ?"},
+			{Key: "outcome", Label: "Outcome", Kind: filterText, Expr: "lf.outcome = ?"},
+			{Key: "sales_owner_name", Label: "Sales Owner", Kind: filterText, Expr: "lf.sales_owner_name ILIKE '%' || ? || '%'"},
+		},
+	},
+	{
+		Key:    "crm_tasks",
+		Label:  "CRM Tasks",
+		Module: "Sales & CRM",
+		Desc: "Follow-up tasks against contacts and deals, with who owns each one and " +
+			"whether it is overdue. The contact is named rather than numbered.",
+		From: `app.crm_tasks ct
+		         LEFT JOIN app.crm_contacts k ON k.id = ct.contact_id
+		         LEFT JOIN app.o3c_users u ON u.id = ct.assigned_to`,
+		OrderBy:   "ct.due_date NULLS LAST",
+		KeyCol:    "ct.id",
+		DateCol:   "ct.due_date",
+		DateLabel: "Due",
+		Cols: []exportCol{
+			{Key: "title", Label: "Task", Type: colText, Expr: "ct.title"},
+			{Key: "customer_name", Label: "Contact", Type: colText,
+				Expr: `NULLIF(btrim(COALESCE(k.first_name,'') || ' ' || COALESCE(k.last_name,'')), '')`},
+			{Key: "assigned_to_name", Label: "Assigned To", Type: colText, Expr: "u.full_name"},
+			{Key: "priority", Label: "Priority", Type: colText, Expr: "ct.priority"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "ct.status"},
+			{Key: "due_date", Label: "Due", Type: colDateTime, Expr: "ct.due_date"},
+			{Key: "linked_type", Label: "Linked To", Type: colText, Expr: "ct.linked_type"},
+			{Key: "description", Label: "Description", Type: colText, Expr: "ct.description"},
+			{Key: "created_at", Label: "Created", Type: colDateTime, Expr: "ct.created_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "ct.status = ?"},
+			{Key: "priority", Label: "Priority", Kind: filterText, Expr: "ct.priority = ?"},
+			{Key: "assigned_to_name", Label: "Assigned To", Kind: filterText, Expr: "u.full_name ILIKE '%' || ? || '%'"},
+		},
+	},
+
+	// ── Cards ─────────────────────────────────────────────────────────────────
+	{
+		Key:       "card_disputes",
+		Label:     "Card Disputes",
+		Module:    "Cards",
+		Desc:      "Disputed card transactions: what was contested, for how much, and how long it took to resolve.",
+		From:      "app.card_disputes cd2",
+		OrderBy:   "cd2.filed_at DESC",
+		KeyCol:    "cd2.id",
+		DateCol:   "cd2.filed_at",
+		DateLabel: "Filed",
+		Cols: []exportCol{
+			{Key: "filed_at", Label: "Filed", Type: colDateTime, Expr: "cd2.filed_at"},
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "cd2.customer_name"},
+			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "cd2.cif_number"},
+			{Key: "card_type", Label: "Card Type", Type: colText, Expr: "cd2.card_type"},
+			{Key: "dispute_type", Label: "Dispute Type", Type: colText, Expr: "cd2.dispute_type"},
+			{Key: "amount_kobo", Label: "Amount (NGN)", Type: colKobo, Expr: "cd2.amount_kobo"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "cd2.status"},
+			{Key: "notes", Label: "Notes", Type: colText, Expr: "cd2.notes"},
+			{Key: "resolved_at", Label: "Resolved", Type: colDateTime, Expr: "cd2.resolved_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "cd2.status = ?"},
+			{Key: "dispute_type", Label: "Dispute Type", Kind: filterText, Expr: "cd2.dispute_type = ?"},
+		},
+	},
+	{
+		Key:    "card_issuance_requests",
+		Label:  "Card Issuance Requests",
+		Module: "Cards",
+		Desc: "Requests to issue a card, and who introduced the customer. This is the one " +
+			"flow that can attribute a card sale to a seller — card attribution was proved " +
+			"impossible from existing data twice, so sales_officer_id here is the only " +
+			"forward-looking source of it. The PAN is masked to its last 4.",
+		From: `app.card_issuance_requests ci
+		         LEFT JOIN app.o3c_users u ON u.id = ci.sales_officer_id`,
+		OrderBy:   "ci.created_at DESC",
+		KeyCol:    "ci.id",
+		DateCol:   "ci.created_at",
+		DateLabel: "Requested",
+		Cols: []exportCol{
+			{Key: "created_at", Label: "Requested", Type: colDateTime, Expr: "ci.created_at"},
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "ci.customer_name"},
+			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "ci.cif_number"},
+			{Key: "card_type", Label: "Card Type", Type: colText, Expr: "ci.card_type"},
+			{Key: "account_no", Label: "Account No", Type: colText, Expr: "ci.account_no"},
+			{Key: "card_pan_masked", Label: "Card (Masked)", Type: colText, Expr: maskedIssuancePAN},
+			{Key: "status", Label: "Status", Type: colText, Expr: "ci.status"},
+			{Key: "officer_name", Label: "Sales Officer", Type: colText, Expr: "u.full_name"},
+			{Key: "introducer", Label: "Introducer", Type: colText, Expr: "ci.introducer"},
+			{Key: "notes", Label: "Notes", Type: colText, Expr: "ci.notes"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "ci.status = ?"},
+			{Key: "card_type", Label: "Card Type", Kind: filterText, Expr: "ci.card_type = ?"},
+			{Key: "officer_name", Label: "Sales Officer", Kind: filterText, Expr: "u.full_name ILIKE '%' || ? || '%'"},
+		},
+	},
+
+	// ── Call Centre ───────────────────────────────────────────────────────────
+	{
+		Key:    "qa_evaluations",
+		Label:  "Call QA Evaluations",
+		Module: "Call Centre",
+		Desc: "Scored call reviews: who was evaluated, by whom, the score and band, and " +
+			"whether a critical error was recorded. The per-parameter scores live in a " +
+			"JSON column and are not flattened here — the band and the total are what a " +
+			"report compares.",
+		From:      "app.qa_evaluations qe",
+		OrderBy:   "qe.created_at DESC",
+		KeyCol:    "qe.id",
+		DateCol:   "qe.call_started_at",
+		DateLabel: "Call Date",
+		Cols: []exportCol{
+			{Key: "call_started_at", Label: "Call Date", Type: colDateTime, Expr: "qe.call_started_at"},
+			{Key: "agent_name", Label: "Agent", Type: colText, Expr: "qe.agent_name"},
+			{Key: "evaluator_name", Label: "Evaluator", Type: colText, Expr: "qe.evaluator_name"},
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "qe.customer_name"},
+			{Key: "call_direction", Label: "Direction", Type: colText, Expr: "qe.call_direction"},
+			{Key: "call_type", Label: "Call Type", Type: colText, Expr: "qe.call_type"},
+			{Key: "total_score", Label: "Score", Type: colPct, Expr: "qe.total_score"},
+			{Key: "rating_band", Label: "Band", Type: colText, Expr: "qe.rating_band"},
+			{Key: "passed", Label: "Passed", Type: colBool, Expr: "qe.passed"},
+			{Key: "critical_error", Label: "Critical Error", Type: colBool, Expr: "qe.critical_error"},
+			{Key: "coaching_status", Label: "Coaching", Type: colText, Expr: "qe.coaching_status"},
+			{Key: "strengths", Label: "Strengths", Type: colText, Expr: "qe.strengths"},
+			{Key: "improvements", Label: "Improvements", Type: colText, Expr: "qe.improvements"},
+		},
+		Filters: []exportFilter{
+			{Key: "rating_band", Label: "Band", Kind: filterText, Expr: "qe.rating_band = ?"},
+			{Key: "agent_name", Label: "Agent", Kind: filterText, Expr: "qe.agent_name ILIKE '%' || ? || '%'"},
+			{Key: "coaching_status", Label: "Coaching", Kind: filterText, Expr: "qe.coaching_status = ?"},
+		},
+	},
+
+	// ── Feedback ──────────────────────────────────────────────────────────────
+	{
+		Key:    "survey_responses",
+		Label:  "Survey Responses",
+		Module: "Feedback",
+		Desc: "Completed survey responses with NPS and overall score, and the survey " +
+			"named rather than numbered. An anonymous survey still records a response; " +
+			"the customer columns are simply empty for it.",
+		From: `app.survey_responses sv
+		         LEFT JOIN app.surveys s2 ON s2.id = sv.survey_id`,
+		OrderBy:   "sv.submitted_at DESC NULLS LAST",
+		KeyCol:    "sv.id",
+		DateCol:   "sv.submitted_at",
+		DateLabel: "Submitted",
+		Cols: []exportCol{
+			{Key: "submitted_at", Label: "Submitted", Type: colDateTime, Expr: "sv.submitted_at"},
+			{Key: "survey_name", Label: "Survey", Type: colText, Expr: "s2.title"},
+			{Key: "survey_category", Label: "Category", Type: colText, Expr: "s2.category"},
+			{Key: "department", Label: "Department", Type: colText, Expr: "s2.department"},
+			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "sv.customer_name"},
+			{Key: "customer_cif", Label: "CIF", Type: colText, Expr: "sv.customer_cif"},
+			{Key: "nps_score", Label: "NPS (0-10)", Type: colInt, Expr: "sv.nps_score"},
+			{Key: "overall_score", Label: "Overall Score (of 10)", Type: colInt, Expr: "sv.overall_score"},
+			{Key: "source", Label: "Source", Type: colText, Expr: "sv.source"},
+			{Key: "completed_at", Label: "Completed", Type: colDateTime, Expr: "sv.completed_at"},
+		},
+		Filters: []exportFilter{
+			{Key: "survey_name", Label: "Survey", Kind: filterText, Expr: "s2.title ILIKE '%' || ? || '%'"},
+			{Key: "department", Label: "Department", Kind: filterText, Expr: "s2.department = ?"},
+			{Key: "source", Label: "Source", Kind: filterText, Expr: "sv.source = ?"},
 		},
 	},
 }
