@@ -137,6 +137,13 @@ func main() {
 	// upcoming loan repayments, past-due loans, and FD maturities.
 	go handlers.ScheduleAccountAlerts(db)
 
+	// Nigerian public holidays, weekly. It is watching for one thing: a tentative Eid
+	// becoming a declared one, which moves the date by a day and silently restates
+	// every duration measured across it. It can only add a date or correct a guess of
+	// its own — never a confirmed holiday, never a human's correction. See
+	// handlers/holidays.go for why that rule is the whole safety argument.
+	go handlers.ScheduleHolidayImport(db)
+
 	// The sales diary — daily at 07:30, before the first visit: what each officer
 	// planned for today, and which leads have a follow-up now due or already late.
 	// next_action_at has been written by the disposition machinery all along with
@@ -719,6 +726,12 @@ func main() {
 		// suspension) stays where it was, behind admin_users.
 		r.Route("/api/people", func(r chi.Router) {
 			handlers.RegisterPeople(r, db)
+		})
+		// Nigerian public holidays, which every reported duration is computed against.
+		// Admin-gated rather than filed under People, because the People Directory is
+		// read-only by design and this writes the business clock.
+		r.Route("/api/holidays", func(r chi.Router) {
+			handlers.RegisterHolidays(r, db)
 		})
 		// Staff performance. Read-only: the module reports how quickly work is
 		// attended to and records no judgement about anybody -- "visibility now,
