@@ -190,6 +190,9 @@ type RepaymentResult struct {
 	InterestKobo  int64  // interest captured this run (kobo, new rows only)
 	OldestDate    string // oldest financialDate seen
 	NewestDate    string // newest financialDate seen
+	// Journal-credit RECEIPTS written this run (new rows only). A different event from
+	// the legs above: this is money arriving, those are its application to a facility.
+	JournalReceipts int
 }
 
 // ledgerLeg is one classified, validated call-over row ready to be written.
@@ -299,7 +302,120 @@ func SyncRepayments(ctx context.Context, c *udara.Client, db *core.DB) (Repaymen
 	if err != nil {
 		return res, err
 	}
+	// The RECEIPT side, from the same walk. A repayment does not always arrive as a
+	// loan-account leg: it also arrives as a journal credit to the borrower's own
+	// account, and 91 of those worth 1,029,965,072.55 naira were captured by nothing
+	// until now. Stored separately because a receipt and its application to a facility
+	// are different events -- see migration 371.
+	//
+	// A failure here must not cost us the loan legs, which are the older and more
+	// load-bearing half, so it is logged and the walk still writes them.
+	if n, jerr := writeJournalReceipts(ctx, db, classifyJournalReceipts(rows)); jerr != nil {
+		slog.Warn("cbs repayment capture: journal receipts not written", "err", jerr)
+	} else {
+		res.JournalReceipts = n
+	}
 	return writeLegs(ctx, db, resolveLegs(classifyLegs(rows, &res), loans, &res), &res, cutoff)
+}
+
+// classifyJournalReceipts picks out the journal credits that are repayment money
+// arriving.
+//
+// The filter is narrow on purpose: C-JRNL credits whose narration says repayment,
+// excluding "card repayment" because card collections are a separate pipeline with
+// their own feed. It does NOT try to work out which loan the money is for. Udara states
+// that itself by citing this receipt's posting reference in the narration of the leg
+// that applies it, which is what app.v_loan_receipts joins on -- so no free-text
+// borrower name is ever matched.
+func classifyJournalReceipts(rows []map[string]any) []journalReceipt {
+	var out []journalReceipt
+	for _, m := range rows {
+		code := strings.ToUpper(strings.TrimSpace(gstr(m, "entryCode")))
+		if !strings.HasPrefix(code, "C-JRNL") {
+			continue
+		}
+		n := strings.ToLower(gstr(m, "narration"))
+		if !strings.Contains(n, "repayment") || strings.Contains(n, "card repayment") {
+			continue
+		}
+		// On a credit leg the money is in the credit column; amount carries the same
+		// string on this endpoint, so it is the fallback rather than the first choice.
+		amt, err := koboOf(gstr(m, "credit"))
+		if err != nil || amt == 0 {
+			amt, err = koboOf(gstr(m, "amount"))
+		}
+		if err != nil || amt == 0 {
+			slog.Warn("cbs journal receipt: unusable amount, leg skipped",
+				"posting_reference", gstr(m, "postingReferenceNumber"),
+				"credit", gstr(m, "credit"), "amount", gstr(m, "amount"))
+			continue
+		}
+		fin := gstr(m, "financialDate")
+		if len(fin) < 10 {
+			continue
+		}
+		raw, _ := json.Marshal(m)
+		out = append(out, journalReceipt{
+			Key:         ledgerKey(m),
+			PostingRef:  strings.TrimSpace(gstr(m, "postingReferenceNumber")),
+			CASAAccount: strings.TrimSpace(gstr(m, "accountNumber")),
+			AccountName: strings.TrimSpace(gstr(m, "accountName")),
+			EntryCode:   code,
+			AmountKobo:  amt,
+			FinDate:     fin[:10],
+			PostedAt:    parsePostedAt(gstr(m, "transactionDate")),
+			Instrument:  strings.TrimSpace(gstr(m, "instrumentNumber")),
+			Narration:   gstr(m, "narration"),
+			InitiatedBy: strings.TrimSpace(gstr(m, "initiatedBy")),
+			ApprovedBy:  strings.TrimSpace(gstr(m, "approvedBy")),
+			Raw:         raw,
+		})
+	}
+	return out
+}
+
+type journalReceipt struct {
+	Key         string
+	PostingRef  string
+	CASAAccount string
+	AccountName string
+	EntryCode   string
+	AmountKobo  int64
+	FinDate     string
+	PostedAt    sql.NullTime
+	Instrument  string
+	Narration   string
+	InitiatedBy string
+	ApprovedBy  string
+	Raw         []byte
+}
+
+// writeJournalReceipts is idempotent on ledger_key, so the overlapping hourly window
+// re-sees the same credits every run without duplicating them.
+func writeJournalReceipts(ctx context.Context, db *core.DB, rs []journalReceipt) (int, error) {
+	written := 0
+	for _, r := range rs {
+		res, err := db.PGExec(ctx, `
+			INSERT INTO app.cbs_journal_receipts
+			  (ledger_key, posting_reference, casa_account, account_name, entry_code,
+			   amount_kobo, financial_date, posted_at, instrument_number, narration,
+			   initiated_by, approved_by, raw)
+			VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7::date,$8,NULLIF($9,''),NULLIF($10,''),
+			        NULLIF($11,''),NULLIF($12,''),$13)
+			ON CONFLICT (ledger_key) DO NOTHING`,
+			r.Key, r.PostingRef, r.CASAAccount, r.AccountName, r.EntryCode,
+			r.AmountKobo, r.FinDate, r.PostedAt, r.Instrument, r.Narration,
+			r.InitiatedBy, r.ApprovedBy, r.Raw)
+		if err != nil {
+			return written, fmt.Errorf("journal receipt %s: %w", r.PostingRef, err)
+		}
+		if res != nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				written++
+			}
+		}
+	}
+	return written, nil
 }
 
 // BackfillRepayments is the ONE-OFF history path. DO NOT wire this to a timer.

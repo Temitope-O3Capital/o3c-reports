@@ -987,12 +987,36 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		if from == "" && to == "" {
 			udaraWhere += " AND date_trunc('month',payment_date) = date_trunc('month',CURRENT_DATE)"
 		}
+		// The journal arm dates on financial_date rather than payment_date.
+		jWhere := strings.ReplaceAll(udaraWhere, "payment_date", "financial_date")
+
+		// COLLECTED IS MONEY IN, COUNTED ONCE.
+		//
+		// This summed every app.loan_repayments leg, but 79 of the 88 legs are the
+		// APPLICATION of a receipt rather than the receipt itself -- Udara credits the
+		// borrower's account first (a C-JRNL journal credit) and then applies some or
+		// all of it to the facility, citing the receipt's posting reference. Summing the
+		// applications answered "how much was applied to loans", not "how much came in",
+		// and missed the 1,029,965,072.55 naira of journal credits entirely.
+		//
+		// So the three arms are: receipts logged by staff, Udara journal receipts that a
+		// loan leg actually cites, and the 9 loan legs that cite nothing and are
+		// therefore receipts in their own right. No arm overlaps another.
+		//
+		// Journal receipts with NO loan leg citing them are deliberately NOT counted
+		// here: nothing ties them to a facility except a free-text name, and that is the
+		// guess this whole module refuses to make. They are reported beside the figure
+		// instead, so the money is visible without being asserted as collections.
 		crow, _ := db.PGQuery(r.Context(),
 			`SELECT COALESCE(SUM(amount_kobo),0) AS collected_kobo, COUNT(*) AS collected_count
 			 FROM (
 			   SELECT amount_kobo FROM app.collection_payments WHERE `+where+`
 			   UNION ALL
-			   SELECT amount_kobo FROM app.loan_repayments      WHERE `+udaraWhere+`
+			   SELECT received_kobo AS amount_kobo FROM app.v_loan_receipts
+			    WHERE linked_to_a_loan AND `+jWhere+`
+			   UNION ALL
+			   SELECT amount_kobo FROM app.loan_repayments
+			    WHERE source_posting_reference IS NULL AND `+udaraWhere+`
 			 ) q`, cargs...)
 		if len(crow) > 0 {
 			result["collected_kobo"] = crow[0]["collected_kobo"]
@@ -1001,6 +1025,19 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 			result["collected_kobo"] = int64(0)
 			result["collected_count"] = int64(0)
 		}
+
+		// Money that arrived and that Udara has not applied to any facility. Reported
+		// rather than folded into the figure above, because nothing links it to a loan
+		// except the borrower's name in free text. A large number here is a real
+		// operational signal: receipts sitting in customers' accounts unapplied.
+		if urow, _ := db.PGQuery(r.Context(),
+			`SELECT COALESCE(SUM(received_kobo),0) AS kobo, COUNT(*) AS n
+			   FROM app.v_loan_receipts WHERE NOT linked_to_a_loan AND `+jWhere,
+			cargs...); len(urow) > 0 {
+			result["received_unapplied_kobo"] = urow[0]["kobo"]
+			result["received_unapplied_count"] = urow[0]["n"]
+		}
+
 		respond(w, result, "pg")
 	}
 }
