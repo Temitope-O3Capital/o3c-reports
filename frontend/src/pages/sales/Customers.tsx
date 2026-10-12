@@ -335,9 +335,11 @@ export default function CRMContacts() {
     },
     {
       key: '_actions', label: '', sortable: false,
+      // Straight to the lead's own page. This pointed at ?open=, which now only
+      // redirects there — a wasted hop that flashed the queue on the way past.
       render: r => <ActionRow actions={[
-        { icon: 'open_in_new', label: 'Open Lead', onClick: () => navigate(`/sales/leads?open=${r.id}`) },
-        { icon: 'visibility', label: 'Details', onClick: () => navigate(`/sales/customers/${r.id}`) },
+        { icon: 'open_in_new', label: 'Open Lead', onClick: () => navigate(`/sales/leads/${r.id}`) },
+        { icon: 'visibility', label: 'Full Record', onClick: () => navigate(`/sales/customers/${r.id}`) },
         { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
         { icon: 'archive', label: 'Archive', danger: true, onClick: () => setArchiving(r) },
       ]} />,

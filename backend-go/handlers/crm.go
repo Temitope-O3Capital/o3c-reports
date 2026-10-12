@@ -611,7 +611,9 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 func listAccounts(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		isHead := callerHasRole(user, "sales_head", "head_sales")
+		// "head_sales" dropped 2026-10-12: retired slug, remapped by migration 141,
+		// absent from core.RolePages, held by nobody.
+		isHead := callerHasRole(user, "sales_head")
 
 		where := "c.status = 'customer'"
 		args := []any{}
@@ -689,11 +691,37 @@ func customer360(db *core.DB) http.HandlerFunc {
 		}
 		contact := contactRows[0]
 
+		// app.activities, NOT crm_activities.
+		//
+		// crm_activities is one of the parallel dead models: fully coded, wired into this
+		// endpoint, and holding zero rows since the day it was created. app.activities is
+		// where every team actually writes — 34,774 rows carrying a contact at the time of
+		// writing — and it is already what the Contacts LIST counts for its "N
+		// interactions" line. So the list said "4 interactions" while this tab, reading the
+		// empty table, rendered nothing: the contact looked untouched on the one screen
+		// you open to find out what had happened to them.
+		//
+		// Aliased to the shape the page already expects rather than changing the page —
+		// that shape is what crm_activities would have produced had it ever been filled.
+		// occurred_at is the real clock (a call written up afterwards carries the time of
+		// the CALL, not of the typing), with created_at as the fallback.
 		activities, _ := db.PGQuery(r.Context(), `
-			SELECT a.*, u.full_name AS agent_name
-			FROM crm_activities a
-			LEFT JOIN o3c_users u ON u.id=a.created_by
-			WHERE a.contact_id=$1 ORDER BY a.created_at DESC LIMIT 50`, id)
+			SELECT a.id,
+			       a.type,
+			       a.subject,
+			       a.body,
+			       a.outcome,
+			       TRUE                                                   AS completed,
+			       NULL::int                                              AS duration_mins,
+			       NULL::timestamptz                                      AS next_follow_up,
+			       COALESCE(NULLIF(btrim(a.actor_name), ''), u.full_name) AS agent_name,
+			       COALESCE(a.occurred_at, a.created_at)                  AS created_at,
+			       a.actor_team                                           AS team
+			FROM app.activities a
+			LEFT JOIN o3c_users u ON u.id = a.actor_user_id
+			WHERE a.contact_id = $1
+			ORDER BY COALESCE(a.occurred_at, a.created_at) DESC
+			LIMIT 50`, id)
 
 		deals, _ := db.PGQuery(r.Context(), `
 			SELECT d.*, s.name AS stage_name, s.color AS stage_color, u.full_name AS assigned_name

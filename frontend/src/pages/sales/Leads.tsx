@@ -124,6 +124,9 @@ export default function SalesLeads() {
   const [notice, setNotice] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
   const [tagCounts, setTagCounts] = useState<TagCount[]>([])
+  // The funnel is weekly reading; the queue is daily work. Collapsed so the queue is
+  // the first thing on the page rather than the fourth.
+  const [funnelOpen, setFunnelOpen] = useState(false)
   const [campaigns, setCampaigns] = useState<CampaignCount[]>([])
 
   const stage = params.get('stage') ?? ''
@@ -399,8 +402,18 @@ export default function SalesLeads() {
           </span>,
     },
     {
-      key: 'state', label: 'State', sortable: true,
-      render: r => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{r.state || '—'}</span>,
+      // Location, not just state. The state decides which office covers the lead; the
+      // city is what an officer plans the visit around, and showing one without the
+      // other made the column look answered when the useful half was still missing.
+      key: 'state', label: 'Location', sortable: true,
+      render: r => r.state || r.city ? (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: 'var(--txt)', fontSize: TEXT.sm }}>{r.city || r.state}</div>
+          {r.city && r.state && (
+            <div style={{ color: 'var(--txt3)', fontSize: TEXT['2xs'] }}>{r.state}</div>
+          )}
+        </div>
+      ) : <span style={{ color: AMBER, fontSize: TEXT.xs }}>No location</span>,
     },
     {
       key: 'product_interest', label: 'Product', sortable: true,
@@ -655,9 +668,22 @@ export default function SalesLeads() {
           icon="payments" accent={AMBER} loading={loading} />
       </div>
 
-      {/* Conversion funnel — how leads narrow from new to converted */}
-      <SectionCard title="Conversion Funnel" subtitle="Progression from new to converted, with step conversion" style={{ marginBottom: SP[4] }}>
-        {(() => {
+      {/* Conversion funnel — how leads narrow from new to converted.
+          Collapsed by default. It is eight full-width rows, so open it pushed the lead
+          queue — the actual work of this page — entirely below the fold. The funnel is
+          a thing you read once a week; the queue is what you came for. */}
+      <SectionCard
+        title="Conversion Funnel"
+        subtitle="Progression from new to converted, with step conversion"
+        style={{ marginBottom: SP[4] }}
+        actions={
+          <Button size="xs" variant="secondary" icon={funnelOpen ? 'expand_less' : 'expand_more'}
+            onClick={() => setFunnelOpen(o => !o)}>
+            {funnelOpen ? 'Hide' : 'Show'}
+          </Button>
+        }
+      >
+        {!funnelOpen ? null : (() => {
           // Every lifecycle step in order, new through converted (disqualified is an exit, not a step).
           const steps = STAGES.filter(s => s.key !== 'disqualified')
           const vals = steps.map(s => n(funnel?.counts?.[s.key]))

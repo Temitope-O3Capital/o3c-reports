@@ -147,12 +147,20 @@ export default function ContactDetail() {
   const canC360 = hasPage('customer360', me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
   const c360Cif = contact.lead_stage === 'converted' ? (contact.converted_cif || contact.cif_number || '') : ''
 
+  // Deals and Tasks appear only when they hold something.
+  //
+  // crm_deals and crm_tasks are parallel dead models — fully coded, wired into this
+  // page, and holding zero rows each since the day they were created. As permanent tabs
+  // they meant two of the four tabs here opened onto nothing, which reads as a broken
+  // page rather than an unused feature. Nothing is removed: if either is ever filled,
+  // its tab returns on its own.
+  const openTasks = tasks.filter(t => t.status === 'open').length
   const TABS = [
-    { key: 'overview',   label: 'Overview'   },
+    { key: 'overview',   label: 'Overview' },
     { key: 'activities', label: `Activities (${activities.length})` },
-    { key: 'deals',      label: `Deals (${deals.length})`           },
-    { key: 'tasks',      label: `Tasks (${tasks.filter(t=>t.status==='open').length} Open)` },
-  ] as const
+    ...(deals.length ? [{ key: 'deals' as const, label: `Deals (${deals.length})` }] : []),
+    ...(tasks.length ? [{ key: 'tasks' as const, label: `Tasks (${openTasks} Open)` }] : []),
+  ]
 
   return (
     <Page

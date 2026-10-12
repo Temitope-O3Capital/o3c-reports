@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Modal, Input, Spinner, Avatar, EmptyState } from '../../components/UI'
+import { Button, Modal, Input, Spinner, Avatar, EmptyState, SectionCard } from '../../components/UI'
 import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
 import { humanLabel } from '../../lib/labels'
+import { LEAD_STAGES } from '../../lib/leadStages'
+import { useIsMobile } from '../../hooks/useMediaQuery'
+import SalesActivityModal from '../../components/SalesActivityModal'
 
 // The lead record, opened from the Leads queue.
 //
@@ -108,6 +111,10 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
   const [convertOpen, setConvertOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [followOpen, setFollowOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
+  // The reference column folds under the history on a narrow screen rather than
+  // squeezing both into unreadable widths.
+  const isNarrow = useIsMobile()
 
   // Held in a ref so a parent that re-creates the callback each render does not
   // re-trigger load() and put the page in a fetch loop.
@@ -170,18 +177,27 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
 
-          {/* Identity + ownership */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap' }}>
-            <Avatar name={name} size={40} />
-            <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-              <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>{name}</div>
-              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          {/* Where the lead has got to, and who has it.
+              The name is NOT repeated here — the page header above already carries it
+              with the location. What this band adds is the two things a header cannot:
+              how far along the pipeline the lead is, and whose it is. */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
+            padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.lg,
+            background: 'var(--card)', border: '1px solid var(--bdr)',
+          }}>
+            <Avatar name={name} size={34} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                Owner
+              </div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>
                 {lead.owner_name
-                  ? <>Owned by <strong>{lead.owner_name}</strong>{isMine && ' (you)'}</>
-                  : <span style={{ color: AMBER, fontWeight: FW.semibold }}>Unclaimed</span>}
+                  ? <>{lead.owner_name}{isMine && ' (you)'}</>
+                  : <span style={{ color: AMBER }}>Unclaimed</span>}
               </div>
             </div>
-            <StagePill stage={lead.lead_stage} />
+            <div style={{ flex: 1, minWidth: 200 }}><StageRail stage={lead.lead_stage} /></div>
           </div>
 
           {/* Already a customer — the one caveat worth interrupting for */}
@@ -216,6 +232,15 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
                   created. */}
               <Button size="sm" variant="secondary" icon="alarm_add"
                 onClick={() => setFollowOpen(true)}>Follow Up</Button>
+              {/* Logging what happened was possible from the QUEUE and not from the
+                  lead itself, which is the one screen an officer has open while they
+                  are on the phone to the person. */}
+              <Button size="sm" variant="secondary" icon="add_comment"
+                onClick={() => setActivityOpen(true)}>Log Activity</Button>
+              {lead.phone && (
+                <Button size="sm" variant="ghost" icon="call"
+                  onClick={() => { window.location.href = `tel:${lead.phone}` }}>Call</Button>
+              )}
               {(isMine || canManage) && (
                 <>
                   <Button size="sm" variant="primary" icon="verified"
@@ -242,48 +267,80 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
             </div>
           )}
 
-          <Facts lead={lead} />
-
-          {/* Labels. Editable here because this is where an officer is looking at the lead
-              and forming the opinion the label records. Anyone who can see the lead can
-              label it: a tag is a note, not a state change, and gating it behind ownership
-              would leave a head unable to mark up the pool they are about to distribute. */}
-          {/* Array.isArray rather than ?? []: tags is a Postgres text[] and a non-array
-              would reach .map inside the editor. See pgTextArray in sales_leads.go. */}
-          <TagEditor leadId={lead.id} tags={Array.isArray(lead.tags) ? lead.tags : []} onChanged={refresh} />
-
-          {/* History */}
-          <div>
-            <div style={{
-              display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: SP[2],
-            }}>
-              <h3 style={{ margin: 0, fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>History</h3>
-              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-                {timeline.length} entr{timeline.length === 1 ? 'y' : 'ies'} · every team
-              </span>
-            </div>
-
-            {timeline.length === 0 ? (
-              <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: `${SP[3]} 0` }}>
-                Nothing recorded against this lead yet.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-                {byDay.map(([day, rows]) => (
-                  <div key={day}>
-                    <div style={{
-                      fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)',
-                      textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6,
-                    }}>{fmtDate(day)}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {rows.map((r, i) => <TimelineEntry key={`${day}-${i}`} row={r} />)}
+          {/* Two columns, because the page had one and it did not fit the content: the
+              facts ran as a thin strip across the full width and the history left the
+              right-hand half of the screen empty from the fold down. The history is the
+              long thing and gets the width; the facts are a reference and get a column
+              you can read without scrolling past them. */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1.65fr) minmax(300px, 1fr)',
+            gap: SP[4], alignItems: 'start',
+          }}>
+            {/* ── The history, which is what this page is mostly for ── */}
+            <SectionCard
+              title="History"
+              subtitle="Every team that has touched this lead, newest first"
+              badge={timeline.length || undefined}
+            >
+              {timeline.length === 0 ? (
+                <EmptyState icon="history" title="Nothing Recorded Yet"
+                  description="Calls, visits and stage changes will appear here as they happen." />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+                  {byDay.map(([day, rows]) => (
+                    <div key={day}>
+                      <div style={{
+                        fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)',
+                        textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6,
+                      }}>{fmtDate(day)}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {rows.map((r, i) => <TimelineEntry key={`${day}-${i}`} row={r} />)}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+
+            {/* ── The reference column ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+              <SectionCard title="What Happens Next" subtitle="The only dates that matter today">
+                <NextStep lead={lead} />
+              </SectionCard>
+
+              <SectionCard title="Contact">
+                <Facts lead={lead} group="contact" />
+              </SectionCard>
+
+              <SectionCard title="The Opportunity">
+                <Facts lead={lead} group="deal" />
+              </SectionCard>
+
+              {/* Labels. Editable here because this is where an officer is looking at the
+                  lead and forming the opinion the label records. Anyone who can see the
+                  lead can label it: a tag is a note, not a state change, and gating it
+                  behind ownership would leave a head unable to mark up the pool they are
+                  about to distribute. */}
+              {/* Array.isArray rather than ?? []: tags is a Postgres text[] and a
+                  non-array would reach .map inside the editor. See pgTextArray. */}
+              <SectionCard title="Labels">
+                <TagEditor leadId={lead.id} tags={Array.isArray(lead.tags) ? lead.tags : []} onChanged={refresh} />
+              </SectionCard>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Logging an activity from the record itself, which is where the officer is
+          standing when the call ends. The same dialog the queue uses. */}
+      {lead && (
+        <SalesActivityModal
+          open={activityOpen}
+          lead={{ id: lead.id, name, stage: lead.lead_stage }}
+          onClose={() => setActivityOpen(false)}
+          onSaved={() => { setActivityOpen(false); refresh() }}
+        />
       )}
 
       {convertOpen && lead && (
@@ -462,15 +519,21 @@ function StagePill({ stage }: { stage: string }) {
   )
 }
 
-function Facts({ lead }: { lead: Lead }) {
-  const all: Array<[string, string | undefined]> = [
+// The lead's facts, split into the two questions an officer actually asks: how do I
+// reach this person, and what is the deal. They used to run as one wide strip of up to
+// eleven cells across the full page, which read as a spreadsheet row and left no room
+// for anything beside it. In two columns they are a reference you can keep in view.
+function Facts({ lead, group }: { lead: Lead; group: 'contact' | 'deal' }) {
+  const contact: Array<[string, string | undefined]> = [
     ['Phone', lead.phone],
     ['Email', lead.email],
-    ['Interested In', lead.product_interest ? humanise(lead.product_interest) : undefined],
-    ['Estimated Value', lead.estimated_value_kobo ? fmtKobo(lead.estimated_value_kobo) : undefined],
+    ['Location', [lead.city, lead.state].filter(Boolean).join(', ') || undefined],
     ['Employer', lead.employer],
     ['Occupation', lead.occupation],
-    ['Location', [lead.city, lead.state].filter(Boolean).join(', ') || undefined],
+  ]
+  const deal: Array<[string, string | undefined]> = [
+    ['Interested In', lead.product_interest ? humanise(lead.product_interest) : undefined],
+    ['Estimated Value', lead.estimated_value_kobo ? fmtKobo(lead.estimated_value_kobo) : undefined],
     ['Reached Sales Via', lead.sales_source ? humanise(lead.sales_source) : undefined],
     ['Reached Sales On', lead.sales_entered_at ? fmtDate(lead.sales_entered_at) : undefined],
     // Not humanised: campaign names are data, and title-casing "CRC July Campaign (FCT
@@ -478,30 +541,147 @@ function Facts({ lead }: { lead: Lead }) {
     ['Campaign', lead.campaign_name
       ? lead.campaign_name + (lead.campaign_source === 'dialler' ? ' (call-centre list)' : '')
       : undefined],
-    ['Next Action', lead.next_action_at ? fmtDatetime(lead.next_action_at) : undefined],
+    ['First Seen', lead.created_at ? fmtDate(lead.created_at) : undefined],
   ]
-  // Only the facts this lead actually has — an empty grid cell reads as missing data
-  // rather than as "not recorded", and a half-filled grid looks broken.
-  const rows = all.filter(([, v]) => !!v)
+  // Only the facts this lead actually has — an empty cell reads as missing data rather
+  // than as "not recorded", and a half-filled grid looks broken.
+  const rows = (group === 'contact' ? contact : deal).filter(([, v]) => !!v)
 
-  if (rows.length === 0) return null
+  if (rows.length === 0) {
+    return (
+      <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
+        {group === 'contact'
+          ? 'No contact details recorded. The call centre captures these when it qualifies a lead.'
+          : 'Nothing recorded about the opportunity yet.'}
+      </div>
+    )
+  }
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: SP[3],
-      padding: SP[3], background: 'var(--bg)', borderRadius: RADIUS.lg,
-    }}>
-      {rows.map(([k, v]) => (
-        <div key={k} style={{ minWidth: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {rows.map(([k, v], i) => (
+        <div key={k} style={{
+          display: 'flex', alignItems: 'baseline', gap: SP[3], minWidth: 0,
+          padding: `${SP[2]} 0`,
+          borderTop: i === 0 ? 'none' : '1px solid var(--bdr)',
+        }}>
           <div style={{
-            fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)',
-            textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2,
+            fontSize: TEXT.xs, color: 'var(--txt3)', flex: '0 0 116px',
           }}>{k}</div>
           <div style={{
-            fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium,
-            overflow: 'hidden', textOverflow: 'ellipsis',
+            fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium, minWidth: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
           }}>{v}</div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// StageRail — how far along the pipeline this lead has got.
+//
+// A single pill said "Interested" and nothing else: it could not say whether that was
+// progress or a lead that had been stuck there for a month, and an officer had to know
+// the stage order by heart to tell. The rail shows the whole journey with the passed
+// steps filled, which is the same thing the activity dialog already does.
+function StageRail({ stage }: { stage: string }) {
+  const order = LEAD_STAGES.map(s => s.key)
+  const closed = stage === 'converted' || stage === 'disqualified'
+  const idx = order.indexOf(stage)
+  const current = LEAD_STAGES.find(s => s.key === stage)
+
+  if (closed) {
+    const c = stage === 'converted' ? GREEN : RED
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], justifyContent: 'flex-end' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 17, color: c }}>
+          {stage === 'converted' ? 'verified' : 'cancel'}
+        </span>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: c }}>
+          {current?.label ?? humanise(stage)}
+        </span>
+      </div>
+    )
+  }
+  // Only the open stages are drawn; converted/disqualified are outcomes, not steps.
+  const steps = LEAD_STAGES.filter(s => s.key !== 'converted' && s.key !== 'disqualified')
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 3, marginBottom: 5 }}>
+        {steps.map((s, i) => {
+          const done = idx >= 0 && order.indexOf(s.key) <= idx
+          return (
+            <div key={s.key} title={s.label} style={{
+              flex: 1, height: 4, borderRadius: 2,
+              background: done ? (current?.color ?? NAVY) : 'var(--bdr)',
+              opacity: done ? (order.indexOf(s.key) === idx ? 1 : 0.55) : 1,
+            }} />
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: SP[2] }}>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: current?.color ?? 'var(--txt)' }}>
+          {current?.label ?? humanise(stage)}
+        </span>
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          step {Math.max(1, idx + 1)} of {steps.length}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// NextStep — the dates, said in words rather than printed as timestamps.
+//
+// next_action_at and last_activity_at were two cells in the fact strip, formatted as
+// datetimes and indistinguishable from the employer. They are the two things that decide
+// whether this lead needs attention today, so they get their own card and read as
+// "overdue by 3 days" rather than "12/10/2026, 09:00".
+function NextStep({ lead }: { lead: Lead }) {
+  const now = Date.now()
+  const next = lead.next_action_at ? new Date(lead.next_action_at) : null
+  const last = lead.last_activity_at ? new Date(lead.last_activity_at) : null
+  const dayMs = 864e5
+  const daysSince = last ? Math.floor((now - last.getTime()) / dayMs) : null
+  const overdueDays = next ? Math.floor((now - next.getTime()) / dayMs) : null
+
+  const nextTone = !next ? 'var(--txt3)'
+    : overdueDays! > 0 ? RED
+    : overdueDays === 0 ? AMBER
+    : GREEN
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      <div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 3 }}>Next action</div>
+        <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: nextTone }}>
+          {!next ? 'None scheduled'
+            : overdueDays! > 0 ? `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
+            : overdueDays === 0 ? 'Due today'
+            : fmtDate(lead.next_action_at!)}
+        </div>
+        {next && (
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+            {fmtDatetime(lead.next_action_at!)}
+          </div>
+        )}
+      </div>
+      <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[3] }}>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 3 }}>Last touched</div>
+        <div style={{
+          fontSize: TEXT.base, fontWeight: FW.semibold,
+          color: daysSince != null && daysSince > 14 ? AMBER : 'var(--txt)',
+        }}>
+          {daysSince == null ? 'Never'
+            : daysSince === 0 ? 'Today'
+            : daysSince === 1 ? 'Yesterday'
+            : `${daysSince} days ago`}
+        </div>
+        {daysSince != null && daysSince > 14 && (
+          <div style={{ fontSize: TEXT.xs, color: AMBER, marginTop: 2 }}>
+            Going cold — nothing logged in a fortnight.
+          </div>
+        )}
+      </div>
     </div>
   )
 }
