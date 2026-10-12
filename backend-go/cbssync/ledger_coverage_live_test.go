@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,30 +16,30 @@ import (
 )
 
 /*
-	Does app.loan_repayments still hold every repayment Udara actually reports?
+Does app.loan_repayments still hold every repayment Udara actually reports?
 
-	This exists because "is the capture complete?" was asked on 2026-10-12 and could
-	not be answered from the data alone. The call-over ledger held 135 loan repayment
-	legs against 88 captured rows, which looks like a 47-leg hole and is not one: the
-	47 are the CREDIT halves of double entry, pairing 1:1 with a captured debit leg on
-	the same posting reference and amount. Capturing them would double every repayment.
+This exists because "is the capture complete?" was asked on 2026-10-12 and could
+not be answered from the data alone. The call-over ledger held 135 loan repayment
+legs against 88 captured rows, which looks like a 47-leg hole and is not one: the
+47 are the CREDIT halves of double entry, pairing 1:1 with a captured debit leg on
+the same posting reference and amount. Capturing them would double every repayment.
 
-	So the test asserts the two things that would actually be wrong:
+So the test asserts the two things that would actually be wrong:
 
-	  1. Every credit leg pairs with a debit leg. A credit leg with no debit partner is
-	     real money we are not capturing.
-	  2. Every DEBIT leg in the ledger is in app.loan_repayments. A debit leg we never
-	     stored is a repayment the product cannot see.
+ 1. Every credit leg pairs with a debit leg. A credit leg with no debit partner is
+    real money we are not capturing.
+ 2. Every DEBIT leg in the ledger is in app.loan_repayments. A debit leg we never
+    stored is a repayment the product cannot see.
 
-	It also reports how far back the ledger reaches. The floor was 2026-07-01 when
-	measured on both 2026-09-22 and 2026-10-12, and 13 uploaded-spreadsheet receipts
-	worth 75,530,477.78 naira sit BEFORE it — they are kept precisely because Udara has
-	no record of them (migration 366). If this floor ever moves earlier, those receipts
-	should be re-examined against the ledger, and this test is where that shows up.
+It also reports how far back the ledger reaches. The floor was 2026-07-01 when
+measured on both 2026-09-22 and 2026-10-12, and 13 uploaded-spreadsheet receipts
+worth 75,530,477.78 naira sit BEFORE it — they are kept precisely because Udara has
+no record of them (migration 366). If this floor ever moves earlier, those receipts
+should be re-examined against the ledger, and this test is where that shows up.
 
-	Read-only against both Udara and Postgres.
+Read-only against both Udara and Postgres.
 
-	    CBS_LIVE_TEST=1 go test ./cbssync -run TestLedgerCoverage -v
+	CBS_LIVE_TEST=1 go test ./cbssync -run TestLedgerCoverage -v
 */
 func TestLedgerCoverage(t *testing.T) {
 	if os.Getenv("CBS_LIVE_TEST") != "1" {
@@ -52,9 +53,9 @@ func TestLedgerCoverage(t *testing.T) {
 		FinancialDate string `json:"financialDate"`
 		AccountName   string `json:"accountName"`
 		EntryCode     string `json:"entryCode"`
-		Narration      string `json:"narration"`
-		Amount         string `json:"amount"`
-		PostingRef     string `json:"postingReferenceNumber"`
+		Narration     string `json:"narration"`
+		Amount        string `json:"amount"`
+		PostingRef    string `json:"postingReferenceNumber"`
 	}
 
 	// Page to the end. recordCount is always 0 on this endpoint, so a short page is the
@@ -161,5 +162,47 @@ func TestLedgerCoverage(t *testing.T) {
 	}
 	if missing == 0 {
 		t.Logf("ok   all %d ledger debit leg(s) are present in app.loan_repayments", len(debits))
+	}
+
+	// 3. THE KNOWN GAP, reported rather than asserted.
+	//
+	// A loan repayment does not always arrive as a loan-account leg. It also arrives as
+	// a JOURNAL credit to the borrower's current account carrying their name in free
+	// text — "Loan Repayment: NASS Society", "Loan Repayment: Odometa", "Wabibat loan
+	// repayment", "Repayment From Edgewood College". app.loan_repayments captures none
+	// of those, so the two assertions above prove the capture is complete FOR THE FOUR
+	// LOAN-ACCOUNT CODES and nothing wider. Saying otherwise is how 26,888,888.89 naira
+	// of NASSCOOP money was read as missing from Udara when it was sitting in the
+	// ledger (migration 369).
+	//
+	// Not a failure, because ingesting these means attributing a free-text name to a
+	// loan account and that decision has real money behind it. It is counted here so
+	// the gap stays visible and its size is known.
+	journal := 0
+	var journalKobo int64
+	var jsample []string
+	for _, l := range all {
+		n := strings.ToLower(l.Narration)
+		if !strings.Contains(n, "repayment") || isRepayment(l) {
+			continue
+		}
+		// Card collections are a different pipeline and not this module's business.
+		if strings.Contains(n, "card repayment") {
+			continue
+		}
+		if !strings.HasPrefix(l.EntryCode, "C-JRNL") {
+			continue
+		}
+		journal++
+		if v, e := strconv.ParseFloat(strings.TrimSpace(l.Amount), 64); e == nil {
+			journalKobo += int64(v)
+		}
+		if len(jsample) < 8 {
+			jsample = append(jsample, l.FinancialDate[:10]+"  "+l.Amount+" kobo  "+l.Narration)
+		}
+	}
+	t.Logf("KNOWN GAP: %d journal-credit repayment leg(s) worth %.2f naira are NOT captured in app.loan_repayments", journal, float64(journalKobo)/100)
+	for _, s := range jsample {
+		t.Logf("   %s", s)
 	}
 }
