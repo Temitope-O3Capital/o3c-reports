@@ -711,7 +711,7 @@ func buildRolePages() map[string][]string {
 	cardsAgent := []string{"cards", "card_trends", "los_booking", "blink_card"}
 	cardsHead := []string{"los_assign", "mobile_app", "kpi_dashboard", "statements", "executive", "surveys"}
 	finAgent := []string{"income", "finance", "transactions", "fixed_deposit", "fx_rates", "eod", "settlement", "reconciliation", "core-banking", "credit_portfolio", "los_finance"}
-	finHead := []string{"los_finance_approve", "payroll", "kpi_dashboard", "statements", "executive"}
+	finHead := []string{"los_finance_approve", "kpi_dashboard", "statements", "executive"}
 	// Settlement & Reconciliation is its OWN Operations module (not a Finance
 	// sub-team): the clearing/recon surface only, no P&L / payroll / FD desk. The
 	// officer does the daily matching; the head runs the desk with the oversight pages.
@@ -806,7 +806,7 @@ func buildRolePages() map[string][]string {
 	m["md"] = AllCatalogPages()
 	m["coo"] = union(util, collAgent, collHead, recAgent, recHead, cardsAgent, cardsHead,
 		finAgent, finHead, ccAgent, ccHead, riskAgent, riskHead,
-		[]string{"kpi_dashboard", "statements", "executive", "approvals", "active_loan_book", "payroll",
+		[]string{"kpi_dashboard", "statements", "executive", "approvals", "active_loan_book",
 			// Company vehicles are an operations cost the COO owns, the register
 			// included — who holds which card is what decides whether a vehicle's
 			// cost figure means anything.
@@ -877,10 +877,6 @@ func buildRolePages() map[string][]string {
 	// is now dropped in AllRoles and refused at the write boundary instead.
 	//
 	// Not granted, deliberately:
-	//   - "payroll": the People module's other page is a frontend shell — there is no
-	//     /api/payroll route and no payroll table in any schema — so granting it would
-	//     put a nav entry in front of HR that cannot load. It is HR's page to hold the
-	//     day the payroll backend exists.
 	//   - "report_builder": every data source in handlers/report_access.go requires a
 	//     customer/lending/money page HR does not hold, so the builder would open with
 	//     nothing in it.

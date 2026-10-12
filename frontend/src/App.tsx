@@ -281,11 +281,6 @@ const MarketingOverview    = lazy(() => import('./pages/marketing/Overview'))
 const MarketingAnalytics   = lazy(() => import('./pages/marketing/MarketingAnalytics'))
 const MobileAnalytics      = lazy(() => import('./pages/mobile/MobileAnalytics'))
 
-// Payroll
-const PayrollOverview = lazy(() => import('./pages/payroll/PayrollOverview'))
-const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
-const PayslipView     = lazy(() => import('./pages/payroll/PayslipView'))
-
 // People — the staff register (read-only). Separate from User Management, which is
 // the same table but the page that grants roles and resets passwords.
 const PeopleDirectory = lazy(() => import('./pages/people/Directory'))
@@ -1375,9 +1370,6 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* People */}
 
                   <Route path="/people"                           element={<RequireAccess page="people_directory" user={user}><PageErrorBoundary><PeopleDirectory /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/payroll"                          element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/payroll/runs/:id"                 element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/payroll/runs/:runId/items/:itemId" element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayslipView /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Intelligence */}
                   <Route path="/reports/my-dashboard" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsMyDashboard /></PageErrorBoundary></RequireAccess>} />

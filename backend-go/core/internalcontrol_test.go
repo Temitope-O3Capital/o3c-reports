@@ -20,7 +20,9 @@ func TestInternalControlReadsEveryModuleButAdmin(t *testing.T) {
 		"los", "loans", "credit_portfolio", "active_loan_book",
 		"collections", "recovery", "recovery_write_off",
 		"cards", "card_trends", "income", "finance", "transactions",
-		"settlement", "reconciliation", "payroll", "fleet", "staff_performance",
+		// "payroll" was dropped from this list on 2026-10-12 with the page key itself:
+		// the module had no API and no tables, so the key could only ever 404.
+		"settlement", "reconciliation", "fleet", "staff_performance",
 		"call_center", "helpdesk", "customer360", "care", "surveys",
 		"risk_all", "compliance_all", "audit_trail", "audit_export", "sars",
 	} {

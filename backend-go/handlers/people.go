@@ -13,10 +13,11 @@ import (
 PEOPLE — the staff register, read-only.
 
 WHAT THIS IS BUILT ON, AND WHY THAT IS THE WHOLE STORY. O3C holds no HR data. There
-is no payroll table in any schema, no /api/payroll route behind the three Payroll
-pages, no leave or attendance record, and no staff data source in the report
-builder. The only staff data that exists is app.o3c_users — the sign-in table. So
-"people monitoring" here means exactly what that table can honestly answer:
+is no payroll table in any schema and no payroll module — the three pages that once
+claimed to be one were deleted on 2026-10-12 because nothing was behind them — no
+leave or attendance record, and no staff data source in the report builder. The only
+staff data that exists is app.o3c_users, the sign-in table. So "people monitoring"
+here means exactly what that table can honestly answer:
 
     who is on the register, what they do, where they sit, are they active or
     suspended, how long their account has existed, and are they actually signing in.

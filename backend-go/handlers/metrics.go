@@ -53,7 +53,7 @@ func routeGroup(path string) string {
 		"credit-portfolio", "fixed-deposit", "settlement", "uploads",
 		"reconciliation", "kpi", "batch", "collections-ops", "recovery-ops",
 		"approvals", "customer360", "customer-service", "risk", "helpdesk",
-		"campaigns", "auth", "notifications", "finance", "payroll",
+		"campaigns", "auth", "notifications", "finance",
 	} {
 		if strings.Contains(path, "/api/"+seg) {
 			return "/api/" + seg

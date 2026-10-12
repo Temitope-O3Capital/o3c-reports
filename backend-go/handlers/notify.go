@@ -95,9 +95,6 @@ const (
 	EvtManualPostingApproved  = "manual_posting_approved"
 	EvtManualPostingRejected  = "manual_posting_rejected"
 
-	// Payroll events
-	EvtPayrollPaid = "payroll_paid"
-
 	// Call-centre: a scheduled call-back has come due for the assigned agent.
 	EvtCallbackDue = "callback_due"
 
@@ -321,7 +318,7 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 				msg += "\n\n" + p.ActionURL
 			}
 			go func() {
-				if ok, _ := sendWhatsApp(ctx, db, phone, msg); !ok {
+				if ok, _ := sendWhatsApp(ctx, db, phone, msg, waSend{Kind: "notification", Purpose: "servicing"}); !ok {
 					slog.Warn("notify: whatsapp failed", "event", p.EventType, "user", p.UserID)
 				}
 			}()

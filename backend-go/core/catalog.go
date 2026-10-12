@@ -100,8 +100,13 @@ var PageCatalog = []CatalogModule{
 		{"settlement", "Settlement"},
 		{"reconciliation", "Reconciliation"},
 	}},
+	// "payroll" was removed on 2026-10-12. Its three pages were built against
+	// /api/payroll, which was registered nowhere in the backend, with no payroll or
+	// payslip table in any schema — a page key that could only ever 404. It was held
+	// by finance_head and coo and had no nav entry anywhere, so it was reachable only
+	// by typing the URL. Payroll will need a page key again the day it is built; it
+	// should not have one before.
 	{Key: "people", Label: "People", Icon: "groups", Pages: []CatalogPage{
-		{"payroll", "Payroll"},
 		// The staff register — headcount, department, status, last sign-in. Read-only
 		// and deliberately separate from "admin_users", which is the SAME underlying
 		// table but is the page that grants roles and resets passwords. HR monitors
