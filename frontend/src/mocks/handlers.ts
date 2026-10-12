@@ -2149,54 +2149,6 @@ ${FOOTER}</body></html>`
   })),
 ]
 
-// ── BI / Report Builder ───────────────────────────────────────────────────────
-
-const BI_REPORTS_DATA = Array.from({ length: 6 }, (_, i) => ({
-  id: i+1,
-  name: ['Loan Book Summary','PAR Trend Report','Collections Performance','Fee Income Breakdown','HR Headcount','Disbursements MTD'][i],
-  description: pick([null, 'Monthly snapshot of portfolio health', 'Revenue analysis by fee type']),
-  module: ['los','risk','collections','finance','hr','los'][i],
-  date_range: pick(['mtd','last_30','last_90','ytd']),
-  is_public: i < 3,
-  run_count: rng(1,50),
-  last_run_at: pick([isoDate(rng(0,14)), null]),
-  created_at: isoDate(rng(10,90)),
-  created_by_name: name(),
-}))
-
-const BI = [
-  http.get(u('/api/bi/reports'),  () => ok(BI_REPORTS_DATA)),
-  http.post(u('/api/bi/reports'), () => ok({ id: 99 })),
-  http.put(u('/api/bi/reports/:id'),    () => new HttpResponse(null, { status: 204 })),
-  http.delete(u('/api/bi/reports/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/bi/reports/:id/run'), () => ok({
-    rows: Array.from({ length: 15 }, (_, i) => ({
-      month: MONTHS_ISO[i % 7] ?? MONTHS_ISO[0], value: rng(50, 5000), count: rng(10, 500),
-    })),
-  })),
-  http.post(u('/api/bi/reports/:id/schedule'), () => ok({ id: 99 })),
-  http.get(u('/api/bi/runs'), () => ok(
-    Array.from({ length: 10 }, (_, i) => ({
-      id: i+1, report_id: rng(1,6), report_name: pick(['Loan Book Summary','PAR Trend Report','Collections Performance']),
-      status: pick(['completed','completed','completed','failed']),
-      row_count: pick([rng(50,5000), null]), error_message: null,
-      started_at: isoDate(rng(0,14)), finished_at: isoDate(rng(0,14)), run_by_name: name(),
-    }))
-  )),
-  http.get(u('/api/bi/scheduled'), () => ok(
-    Array.from({ length: 4 }, (_, i) => ({
-      id: i+1, report_id: i+1, report_name: BI_REPORTS_DATA[i]?.name ?? 'Report',
-      module: ['los','risk','collections','finance'][i],
-      cron_expr: pick(['0 8 1 * *','0 7 * * 1','0 9 * * *']),
-      recipients: [`user${i}@o3capital.com`],
-      format: pick(['pdf','excel','csv']), is_active: Math.random() > 0.2,
-      last_run_at: pick([isoDate(rng(0,30)), null]),
-      next_run_at: isoDate(-rng(1,7)), created_at: isoDate(rng(10,60)), created_by_name: name(),
-    }))
-  )),
-  http.delete(u('/api/bi/scheduled/:id'), () => new HttpResponse(null, { status: 204 })),
-]
-
 // ── Admin — Integrations ──────────────────────────────────────────────────────
 
 const ADMIN_EXTRA = [
@@ -3362,17 +3314,6 @@ const MOCK_GAPS = [
     })
   ),
 
-  // BI / Report Builder — preview run
-  http.post(u('/api/bi/reports/preview'), () => wd({
-    rows: [
-      { month: 'Jan 2025', revenue_kobo: 2_840_000_000, cost_kobo: 1_520_000_000, net_kobo: 1_320_000_000 },
-      { month: 'Feb 2025', revenue_kobo: 3_120_000_000, cost_kobo: 1_640_000_000, net_kobo: 1_480_000_000 },
-      { month: 'Mar 2025', revenue_kobo: 2_980_000_000, cost_kobo: 1_580_000_000, net_kobo: 1_400_000_000 },
-    ],
-    columns: ['month', 'revenue_kobo', 'cost_kobo', 'net_kobo'],
-    row_count: 3,
-  })),
-
   // CC Statements — render HTML (returns HTML string)
   http.get(u('/api/cc-statements/:id/render'), () =>
     new Response('<html><body><h1>CC Statement</h1><p>Mock rendered statement for demo.</p></body></html>', {
@@ -3895,7 +3836,6 @@ export const handlers = [
   ...MAIL,
   ...SETTLEMENTS,
   ...REPORTS,
-  ...BI,
   ...ADMIN_EXTRA,
   ...COLLECTIONS_EXTRA,
   ...COMPLIANCE_EXTRA,

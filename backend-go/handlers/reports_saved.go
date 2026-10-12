@@ -552,7 +552,7 @@ func savedExportReport(db *core.DB) http.HandlerFunc {
 		if rep.Truncated {
 			w.Header().Set("X-Export-Truncated", "true")
 		}
-		logBIExport(ctx, db, r, name, d.Key, format, rep.RecordCount())
+		logReportExport(ctx, db, r, name, d.Key, format, rep.RecordCount())
 		if err := writeExport(w, format, filename, rep.Cols, rep.Rows); err != nil {
 			slog.Error("savedExportReport write", "id", id, "err", err)
 		}
@@ -825,7 +825,7 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 	if !result.OK && result.Error != "" {
 		return 0, fmt.Errorf("%s", result.Error)
 	}
-	logBIExport(ctx, db, r, name, dataset, f, rep.RecordCount())
+	logReportExport(ctx, db, r, name, dataset, f, rep.RecordCount())
 	return len(to), nil
 }
 

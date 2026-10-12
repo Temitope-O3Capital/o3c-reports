@@ -779,9 +779,6 @@ func main() {
 			handlers.RegisterBusinessDev(r, db)
 		})
 		r.Get("/api/search", handlers.GlobalSearch(db))
-		r.Route("/api/bi", func(r chi.Router) {
-			handlers.RegisterBI(r, db)
-		})
 		r.Route("/api/management-reports", func(r chi.Router) {
 			handlers.RegisterManagementReports(r, db)
 		})

@@ -4,66 +4,25 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/o3c/workspace/core"
 )
 
-// AUTHORISATION ON THE LEGACY BI MODULE, AND THE PIVOT'S HEADER GUARD.
+// THE PIVOT HEADER GUARD.
 //
-// Before this file there was no test anywhere in backend-go that named
-// biScheduleReport, biDeleteSchedule or biListScheduled. The only BI test was
-// bi_cron_test.go, which covers nextCronRun thoroughly and says nothing about who may
-// do what — so the module's cron PARSER was well tested while its cron RUNNER and every
-// one of its authorisation paths were not tested at all.
+// A Summary report puts a field's VALUES in the header row when that field is in
+// Columns -- that is what a pivot is. So an identifier there produces a file whose
+// first line is a row of customer identifiers, with no name possible beside them,
+// because a header has nowhere to put a second label.
 //
-// WHY THESE TESTS AND NOT HTTP-LEVEL ONES. Claims reach a handler only through
-// core.AuthMiddleware, and the context key it uses is unexported — there is no
-// core.WithUser, so a handlers test cannot forge an authenticated request without
-// minting a real JWT. Rather than build a token factory for this, the authorisation RULE
-// was extracted into biReportVisibleTo and the handlers now all call it. That is the
-// shape the fix wanted anyway: the rule had been written out three times and the fourth
-// site had none.
+// This file also used to hold TestBIReportVisibilityRule, which pinned the
+// authorisation rule for the legacy BI module. That module and its rule were deleted
+// with handlers/bi.go, and the test went with them: a test whose subject no longer
+// exists is not coverage, it is a reader's dead end. The guard below is the part that
+// protects LIVE code -- pivot_matrix.go backs the real Report Builder.
 //
-// What this therefore does NOT cover: that each handler actually calls the function.
-// Three call sites are a one-line grep and are commented at the point of use; the
-// alternative was no test at all.
+// Refused rather than warned, because these files are built by a cron and emailed:
+// there is no screen for a warning to land on.
 
-func TestBIReportVisibilityRule(t *testing.T) {
-	const me, them = int64(7), int64(9)
-
-	cases := []struct {
-		name string
-		def  core.Row
-		user int64
-		want bool
-	}{
-		{"my own private report", core.Row{"is_public": false, "created_by": me}, me, true},
-		{"a public report, not mine", core.Row{"is_public": true, "created_by": them}, me, true},
-		{"someone else's private report", core.Row{"is_public": false, "created_by": them}, me, false},
-		// The hole the audit found: schedule had no check, so this case was reachable.
-		{"someone else's private report, as the other way round", core.Row{"is_public": false, "created_by": me}, them, false},
-		// created_by can be NULL — ON DELETE SET NULL on the author. A report whose
-		// author is gone must not become everyone's.
-		{"private, author deleted", core.Row{"is_public": false, "created_by": nil}, me, false},
-		// is_public absent entirely (an older row, or a SELECT that did not ask for it)
-		// must read as private, not as public.
-		{"is_public missing", core.Row{"created_by": them}, me, false},
-		{"no definition at all", nil, me, false},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := biReportVisibleTo(c.def, c.user); got != c.want {
-				t.Errorf("biReportVisibleTo = %v, want %v", got, c.want)
-			}
-		})
-	}
-}
-
-// A field in Columns has its VALUES promoted to the header row, so an identifier there
-// produces a file whose first line is a list of customer identifiers with no name
-// possible beside them. Refused rather than warned: these files are built by a cron and
-// emailed, so there is no screen for a warning to land on.
+// The simplest case: CIF in Columns.
 func TestPivotRefusesAnIdentifierInColumns(t *testing.T) {
 	d, ok := exportDatasetByKey("card_transactions")
 	if !ok {

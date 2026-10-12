@@ -588,7 +588,7 @@ func reportFile(db *core.DB) http.HandlerFunc {
 			w.Header().Set("X-Export-Truncated", "true")
 		}
 		// A PDF made from the json render leaves the building like any other file.
-		logBIExport(ctx, db, r, name, d.Key, format, rep.RecordCount())
+		logReportExport(ctx, db, r, name, d.Key, format, rep.RecordCount())
 		if err := writeExport(w, format, exportFilename(name, format), rep.Cols, rep.Rows); err != nil {
 			slog.Error("reportFile write", "dataset", d.Key, "format", format, "err", err)
 		}

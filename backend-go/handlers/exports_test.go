@@ -400,21 +400,11 @@ func TestExportDatasetsRunLive(t *testing.T) {
 		})
 	}
 
-	// The BI report-builder modules use a different code path.
-	for _, module := range []string{"LOS", "Collections", "CRM", "Finance", "Helpdesk", "Campaigns", "Compliance"} {
-		t.Run("bi_module/"+module, func(t *testing.T) {
-			r := httptest.NewRequest("GET", "/?from=2020-01-01&to=2030-01-01", nil)
-			q, _, err := biQueryForReport(r, map[string]any{
-				"module": module, "date_range": "last_30_days",
-			})
-			if err != nil {
-				t.Fatalf("build: %v", err)
-			}
-			if _, err := db.PGQuery(ctx, q); err != nil {
-				t.Fatalf("module %s failed:\n%s\nerr: %v", module, q, err)
-			}
-		})
-	}
+	// The legacy BI module had its own query path and is gone: handlers/bi.go was
+	// deleted (no callers, no saved reports, weaker access control than the live
+	// builder), and the seven per-module queries this loop exercised went with it.
+	// Every dataset above IS the live path, and runPivot / runTable cover the
+	// aggregating one.
 
 	// And the fixed operational reports, which had no UI reaching them at all.
 	t.Run("npl_return_provisions", func(t *testing.T) {
