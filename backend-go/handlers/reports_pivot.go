@@ -131,6 +131,39 @@ type pivotUserError struct{ msg string }
 
 func (e pivotUserError) Error() string { return e.msg }
 
+// pivotIdentifierCols are the fields that must never be placed in Columns.
+//
+// WHY COLUMNS AND NOT ROWS. A field in Columns has its VALUES promoted to the header
+// row — that is what a pivot is. So putting CIF in Columns produces a file whose first
+// line is a row of customer identifiers, one per column, and no name can sit beside
+// them: by construction a header has nowhere to put a second label. The same field in
+// Rows is fine, and stays allowed, because a row can carry the name in the next cell.
+//
+// This is a short, deliberate list of PERSON AND ACCOUNT identifiers rather than a
+// pattern over every key ending in "_id". A broad rule would also refuse pivoting by
+// campaign or product id — poor practice, but not a privacy problem, and refusing it
+// would break reports that work. Being narrow here means the rule can be trusted;
+// being broad would get it switched off.
+//
+// Every key here is a real column key in the registry, and
+// TestPivotIdentifierListNamesRealColumns fails the build if one stops being. That test
+// earned its place immediately: the first draft of this list also carried "bvn",
+// "card_pan", "party_id", "customer_id" and "contact_id", none of which is a column key
+// in any dataset — five entries that read as protection and refused nothing.
+//
+// Raw bvn and card_pan are absent for a stronger reason than that: they cannot be
+// dataset columns at all. TestEveryDatasetMasksWhatItMustMask refuses any dataset that
+// exposes them unmasked, so the masked forms below are the only ones that can reach a
+// pivot.
+var pivotIdentifierCols = map[string]bool{
+	"cif": true, "customer_cif": true, "account_cif": true,
+	"party_key":  true,
+	"account_no": true, "account_number": true, "loan_account": true,
+	"bvn_masked": true, "card_pan_masked": true,
+	"txn_id": true,
+	"phone":  true, "phone_2": true, "email": true,
+}
+
 // runPivot validates a spec against a dataset, builds the aggregating SQL and
 // executes it. A pivotUserError means "the request was bad" (422); any other
 // error is an execution failure (500).
@@ -138,6 +171,21 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 	dims := append(append([]string{}, spec.Rows...), spec.Cols...)
 	if len(dims) == 0 && len(spec.Values) == 0 {
 		return pivotResult{}, pivotUserError{"Add at least one field to Rows, Columns or Values"}
+	}
+
+	// Refused, not warned. A warning on a scheduled report is read by nobody: the file
+	// is built by a cron and mailed, so there is no screen for a warning to appear on.
+	for _, k := range spec.Cols {
+		if pivotIdentifierCols[strings.ToLower(k)] {
+			label := k
+			if c, ok := d.colByKey(k); ok {
+				label = c.Label
+			}
+			return pivotResult{}, pivotUserError{
+				label + " identifies a person, so it cannot go in Columns — its values would " +
+					"become the column headings, where no name can sit beside them. Move it to Rows.",
+			}
+		}
 	}
 
 	var (

@@ -17,6 +17,49 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+// biZone is the clock this module schedules on: Lagos, the same zone the database
+// session runs in, so a cron time and a database NOW() mean the same instant.
+//
+// There were three clocks here. The cron expression was resolved against UTC, the
+// next_run_at it produced was compared against the database's Lagos NOW(), and the
+// report's own period range came from server-local time — so a schedule set for 07:00
+// delivered at 08:00 Lagos, and a report "for yesterday" could cover a different day
+// than the one it was sent on. The period range has since moved into SQL (DATE_TRUNC on
+// the database clock), which removed the third; this removes the second.
+//
+// The FixedZone fallback is not a guess: Go on Windows carries no tzdata unless it was
+// built with it, and this binary is not. Lagos has never observed DST, so +01:00 is
+// exact rather than approximate. Same pattern as zohoZone in call_center.go.
+var biZone = func() *time.Location {
+	if loc, err := time.LoadLocation("Africa/Lagos"); err == nil {
+		return loc
+	}
+	return time.FixedZone("WAT", 60*60)
+}()
+
+// biReportVisibleTo answers the module's one authorisation question: may this user act
+// on this report definition? Public reports are everyone's; a private one is its
+// author's alone.
+//
+// It exists as a function because the rule was written out three times — in run, in
+// export, and (newly) in schedule — and the fourth site, schedule, originally had no
+// check at all. Three copies of a rule is how a fourth place comes to have none: there
+// is nothing to find, nothing to reuse, and nothing to test. This is the thing to call.
+//
+// Management is NOT exempted. A report's author is the person accountable for who
+// receives it, and the audit's finding was about one analyst reaching another's work;
+// an admin who needs a colleague's report has the whole of the live Report Builder to
+// do it in, visibly.
+func biReportVisibleTo(def core.Row, userID int64) bool {
+	if def == nil {
+		return false
+	}
+	if isPublic, _ := def["is_public"].(bool); isPublic {
+		return true
+	}
+	return toInt64(def["created_by"]) == userID
+}
+
 func RegisterBI(r chi.Router, db *core.DB) {
 	bi := core.RequirePages("reports")
 
@@ -444,8 +487,7 @@ func biRunReport(db *core.DB) http.HandlerFunc {
 			return
 		}
 		def := defs[0]
-		isPublic, _ := def["is_public"].(bool)
-		if !isPublic && toInt64(def["created_by"]) != user.ID {
+		if user == nil || !biReportVisibleTo(def, user.ID) {
 			respondErr(w, 403, "Not authorised")
 			return
 		}
@@ -536,10 +578,17 @@ func biExportReport(db *core.DB) http.HandlerFunc {
 		}
 		// Ownership: a private report is not exportable by someone who cannot run
 		// it. biRunReport enforced this; this path did not.
+		//
+		// The `user != nil` term that used to sit in this condition inverted it when
+		// there were no claims: with user nil the whole expression was false, so the
+		// check PASSED and an unauthenticated context could export a private report.
+		// Nothing reaches this handler unauthenticated today — AuthMiddleware is in
+		// front of it — so this was a hole behind a door rather than an open door. A
+		// predicate that fails open when it cannot identify the caller is the wrong
+		// shape regardless, which is why the shared function denies on nil.
 		def := defs[0]
-		isPublic, _ := def["is_public"].(bool)
 		user := core.UserFromCtx(ctx)
-		if !isPublic && user != nil && toInt64(def["created_by"]) != user.ID {
+		if user == nil || !biReportVisibleTo(def, user.ID) {
 			respondErr(w, 403, "Not authorised")
 			return
 		}
@@ -656,13 +705,70 @@ func biScheduleReport(db *core.DB) http.HandlerFunc {
 		if b.Format == "" {
 			b.Format = "csv"
 		}
-		recip, _ := json.Marshal(b.Recipients)
+
+		// OWNERSHIP, WHICH THIS ENDPOINT NEVER CHECKED. Run and export both verify it
+		// (see biRunReport); schedule did not — so any holder of the "reports" page
+		// could attach a recipient list to ANOTHER analyst's private report and have it
+		// mailed out on a cron. Of the three ways data leaves this module, the only one
+		// that mails it to an address of the caller's choosing was the one that checked
+		// nothing. Same predicate as biRunReport, deliberately: one rule, not two.
+		defs, dErr := db.PGQuery(ctx, `SELECT id, is_public, created_by FROM bi_report_definitions WHERE id=$1`, id)
+		if dErr != nil || len(defs) == 0 {
+			respondErr(w, 404, "Report not found")
+			return
+		}
+		if user == nil || !biReportVisibleTo(defs[0], user.ID) {
+			respondErr(w, 403, "Not authorised")
+			return
+		}
+
+		// RECIPIENTS, VALIDATED THROUGH THE SAME HELPERS THE LIVE BUILDER USES. They
+		// were stored by json.Marshal with no inspection at all, so "finance@" or a
+		// typo was persisted and the runner then mailed into the void every cycle.
+		//
+		// Be clear about what the domain check does here: reportRecipientsNotAllowed
+		// exempts anyone holding the "reports" page, and every route in this file is
+		// gated on exactly that page — so today it is a no-op on this path. It is called
+		// anyway, because the alternative is a second, silently different rule about who
+		// may receive a report, and the moment this gate widens the check starts working
+		// on its own. The control that actually closes the hole is the ownership check
+		// above.
+		var addrs []string
+		switch v := b.Recipients.(type) {
+		case []string:
+			addrs = v
+		case []any:
+			for _, e := range v {
+				if s, ok := e.(string); ok {
+					addrs = append(addrs, s)
+				}
+			}
+		case string:
+			addrs = strings.Split(v, ",")
+		}
+		to := cleanRecipients(addrs)
+		if len(to) == 0 {
+			respondErr(w, 400, "Add at least one valid recipient email")
+			return
+		}
+		if bad := reportRecipientsNotAllowed(ctx, db, user, to); len(bad) > 0 {
+			respondErr(w, 422, reportRecipientsDeniedMessage(bad))
+			return
+		}
+		recip, _ := json.Marshal(to)
+
+		// next_run_at SET AT CREATION. The runner treats NULL as due, so a schedule
+		// created on a Wednesday for "Monday 07:00" mailed on the very next pass — the
+		// first send of every schedule was at the wrong time, which is the kind of bug
+		// that reads as "the cron is broken" forever after. Computed on the same Lagos
+		// clock the runner compares against.
+		first := nextCronRun(b.CronExpr, time.Now().In(biZone))
 		rows, err := db.PGQuery(ctx, `
-			INSERT INTO bi_scheduled_reports (report_id, cron_expr, recipients, format, created_by)
-			VALUES ($1,$2,$3,$4,$5) RETURNING id, report_id, cron_expr, format, created_at`,
-			id, b.CronExpr, recip, b.Format, user.ID)
+			INSERT INTO bi_scheduled_reports (report_id, cron_expr, recipients, format, created_by, next_run_at)
+			VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, report_id, cron_expr, format, created_at, next_run_at`,
+			id, b.CronExpr, recip, b.Format, user.ID, first)
 		if err != nil {
-			respondErr(w, 500, "Schedule creation failed")
+			respondErrLog(w, 500, "Schedule creation failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -673,9 +779,15 @@ func biScheduleReport(db *core.DB) http.HandlerFunc {
 
 func biListScheduled(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
 
+		// SCOPED, where it used to be WHERE 1=1. This listing returns s.recipients, so
+		// unscoped it handed every caller the full distribution list of every scheduled
+		// report in the company — who receives which numbers, which is exactly the kind
+		// of thing a report's owner assumes is private. Same predicate as the report
+		// listing above: mine, or public.
 		q := `SELECT s.id, s.report_id, d.name AS report_name, d.module,
 			       s.cron_expr, s.recipients, s.format, s.is_active,
 			       s.last_run_at, s.next_run_at, s.created_at,
@@ -683,8 +795,8 @@ func biListScheduled(db *core.DB) http.HandlerFunc {
 			FROM bi_scheduled_reports s
 			JOIN bi_report_definitions d ON d.id = s.report_id
 			LEFT JOIN o3c_users u ON s.created_by = u.id
-			WHERE 1=1`
-		var args []any
+			WHERE (d.is_public = TRUE OR d.created_by = $1 OR s.created_by = $1)`
+		args := []any{user.ID}
 		if from != "" {
 			args = append(args, from)
 			q += " AND s.created_at::date >= $" + itoa(len(args)) + "::date"
@@ -709,8 +821,37 @@ func biListScheduled(db *core.DB) http.HandlerFunc {
 
 func biDeleteSchedule(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
 		sid := chi.URLParam(r, "sid")
-		db.PGExec(r.Context(), `DELETE FROM bi_scheduled_reports WHERE id=$1`, sid) //nolint:errcheck
+
+		// SCOPED IN THE WHERE CLAUSE, not read-then-check. This used to delete by id
+		// alone, so one analyst could silently stop another's scheduled report — and
+		// because it always answered {"ok": true}, the owner would find out only by
+		// noticing the report had stopped arriving.
+		//
+		// The ownership test is "I created the schedule, OR I own the report it sends",
+		// because the report's owner is the person accountable for it going out.
+		// Management is not exempted here: an admin deleting someone's schedule should
+		// still be a deliberate act through a surface built for it, not a side effect of
+		// holding a page.
+		rows, err := db.PGQuery(ctx, `
+			DELETE FROM bi_scheduled_reports s
+			 USING bi_report_definitions d
+			 WHERE d.id = s.report_id
+			   AND s.id = $1
+			   AND (s.created_by = $2 OR d.created_by = $2)
+			RETURNING s.id`, sid, user.ID)
+		if err != nil {
+			respondErrLog(w, 500, "Delete failed", err)
+			return
+		}
+		// Not found and not yours are answered identically and on purpose: a distinct
+		// 403 would confirm that someone else's schedule exists under that id.
+		if len(rows) == 0 {
+			respondErr(w, 404, "Schedule not found")
+			return
+		}
 		respond(w, map[string]any{"ok": true}, "json")
 	}
 }
@@ -727,8 +868,8 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 			FROM bi_report_runs rr
 			JOIN bi_report_definitions d ON d.id = rr.report_id
 			LEFT JOIN o3c_users u ON rr.run_by = u.id
-			WHERE 1=1`
-		args := []any{}
+			WHERE (d.is_public = TRUE OR d.created_by = $1 OR rr.run_by = $1)`
+		args := []any{core.UserFromCtx(r.Context()).ID}
 		if reportID != "" {
 			args = append(args, reportID)
 			query += " AND rr.report_id=$" + itoa(len(args))
@@ -785,9 +926,12 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 		WHERE s.is_active = TRUE
 		  AND (s.next_run_at IS NULL OR s.next_run_at <= NOW())`)
 	if err != nil {
-		return fmt.Errorf("batchRunScheduledBIReports: query schedules: %w", err)
+		wrapped := fmt.Errorf("batchRunScheduledBIReports: query schedules: %w", err)
+		biSchedulerBeat(ctx, db, 0, wrapped)
+		return wrapped
 	}
 	if len(schedules) == 0 {
+		biSchedulerBeat(ctx, db, 0, nil)
 		return nil
 	}
 
@@ -801,7 +945,11 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 		// to "every 24 hours" for any expression it could not read, so a schedule
 		// written as "0 7 * * 1" (Monday 07:00) mailed its recipients EVERY MORNING.
 		// An expression we cannot parse is now a reason to stop, not to guess.
-		nextRun := nextCronRun(str(sched["cron_expr"]), time.Now().UTC())
+		// biZone, not UTC. The value computed here is stored in next_run_at and then
+		// compared against the database's NOW(), which runs in Lagos — so resolving the
+		// cron on a UTC wall clock made every schedule fire an hour late in local terms:
+		// "07:00" arrived at 08:00 Lagos. See the biZone comment at the top of the file.
+		nextRun := nextCronRun(str(sched["cron_expr"]), time.Now().In(biZone))
 		if nextRun.IsZero() {
 			slog.Error("batchRunScheduledBIReports: unparseable cron_expr — deactivating schedule",
 				"schedule_id", schedID, "report", reportName, "cron_expr", str(sched["cron_expr"]))
@@ -855,7 +1003,15 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 			for _, row := range rows {
 				record := make([]string, len(headers))
 				for i, h := range headers {
-					record[i] = fmt.Sprintf("%v", row[h])
+					// csvSafe, as the download path has always done. The interactive
+					// export goes through the shared writer specifically to neutralise
+					// spreadsheet formula injection — its own comment says so — while
+					// this path hand-rolled the same CSV with a bare Sprintf. So a value
+					// beginning "=" was inert when you downloaded the report and a LIVE
+					// FORMULA when the same report was emailed to you, which is the
+					// worse of the two: an attachment from an internal system is opened
+					// without a thought.
+					record[i] = csvSafe(fmt.Sprintf("%v", row[h]))
 				}
 				cw.Write(record) //nolint:errcheck
 			}
@@ -868,6 +1024,12 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 		json.Unmarshal([]byte(recipJSON), &recipients) //nolint:errcheck
 
 		fname := fmt.Sprintf("%s_%s.csv", reportName, time.Now().Format("20060102"))
+		// sendErr carries the outcome out of the block below so the run status can tell
+		// the truth about it. Previously the SendMail result was discarded, status was
+		// then set to 'success' unconditionally, and next_run_at advanced — so a bounced
+		// report was recorded as delivered AND its period was consumed, which is the
+		// worst combination: nobody is told, and nothing will retry.
+		var sendErr error
 		if len(recipients) > 0 {
 			to := make([]MailAddress, 0, len(recipients))
 			for _, email := range recipients {
@@ -876,7 +1038,7 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 				}
 			}
 			if len(to) > 0 {
-				SendMail(ctx, db, SendMailOptions{
+				res := SendMail(ctx, db, SendMailOptions{
 					To:          to,
 					Subject:     fmt.Sprintf("Scheduled Report: %s (%s)", reportName, time.Now().Format("2006-01-02")),
 					TextBody:    fmt.Sprintf("Scheduled BI report attached: %s\nGenerated: %s", reportName, time.Now().Format("2006-01-02 15:04")),
@@ -885,7 +1047,29 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 					Category:    "scheduled_report",
 					Attachments: []MailAttachment{{Filename: fname, ContentType: "text/csv", Content: base64.StdEncoding.EncodeToString([]byte(csvBuf.String()))}},
 				})
+				if !res.OK {
+					sendErr = fmt.Errorf("send failed: %s", res.Error)
+				}
 			}
+		}
+
+		// 'failed' ON A FAILED SEND, and the same word the rest of the module uses.
+		// There were three vocabularies for one idea: the interactive path wrote
+		// 'completed', this path wrote 'success', and the dashboard counted 'error',
+		// which nothing ever wrote — so the failure tile read zero by construction. The
+		// tile now counts ('failed','error') and every write here says 'failed', which
+		// is what the other failure paths in this file already say.
+		if sendErr != nil {
+			db.PGExec(ctx, `UPDATE bi_report_runs SET status='failed', row_count=$2, error_message=$3, finished_at=NOW() WHERE id=$1`, //nolint:errcheck
+				runID, len(rows), sendErr.Error())
+			// next_run_at still advances. A permanently bad address would otherwise
+			// re-send on every batch pass forever, which turns one undelivered report
+			// into a mail loop; the failure is recorded and visible instead.
+			db.PGExec(ctx, `UPDATE bi_scheduled_reports SET last_run_at=NOW(), next_run_at=$2 WHERE id=$1`, schedID, nextRun) //nolint:errcheck
+			slog.Error("batchRunScheduledBIReports: send failed",
+				"report", reportName, "schedule_id", schedID, "recipients", len(recipients), "err", sendErr)
+			lastErr = sendErr
+			continue
 		}
 
 		db.PGExec(ctx, `UPDATE bi_report_runs SET status='success', row_count=$2, finished_at=NOW() WHERE id=$1`, runID, len(rows)) //nolint:errcheck
@@ -894,7 +1078,26 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 
 		slog.Info("batchRunScheduledBIReports: report sent", "report", reportName, "recipients", len(recipients), "rows", len(rows))
 	}
+
+	biSchedulerBeat(ctx, db, len(schedules), lastErr)
 	return lastErr
+}
+
+// biSchedulerBeat records this worker's lifecycle, so its health is observable at all.
+// Every other batch step writes a heartbeat (see reporting_rollups.go); this one wrote
+// only log lines, so "has the scheduler run, and did it work?" could not be answered
+// from the data at all — and it is moot at zero schedules, which is precisely why the
+// gap would have stayed invisible until it mattered.
+//
+// Called on EVERY exit path, including the early return when nothing is due. A worker
+// that beats only when it has work looks dead on a quiet day, which is the same signal
+// as actually being dead.
+func biSchedulerBeat(ctx context.Context, db *core.DB, n int, err error) {
+	phase, errStr := "ok", ""
+	if err != nil {
+		phase, errStr = "error", err.Error()
+	}
+	WorkerBeat(ctx, db, "bi_scheduled_reports", phase, fmt.Sprintf("%d schedule(s) due", n), errStr)
 }
 
 // nextCronRun returns the next execution time after `after` for the given cron
