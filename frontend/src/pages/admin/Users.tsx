@@ -261,7 +261,8 @@ function InviteModal({ onClose, onSaved }: {
         '/api/admin/users', { method: 'POST', body: JSON.stringify({ ...form, extra_roles: extraRoles }) }
       )
       const pw = res.temp_password ?? res.temporary_password ?? '(check email)'
-      toast.success('User created')
+      // No toast here: onSaved already raises one naming the user and carrying the
+      // temp password, which says strictly more than "User created" does.
       onSaved(pw, res.full_name)
       onClose()
     } catch (e: any) {
