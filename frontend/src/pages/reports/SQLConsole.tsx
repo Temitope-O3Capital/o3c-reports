@@ -4,7 +4,7 @@ import {
   Input, Badge, Modal, SearchInput, ConfirmModal,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
+import { apiFetch, apiPost, apiPut, apiDelete, unwrap, unwrapList } from '../../lib/api'
 import { labelFor, fmtValue, alignFor, downloadRowsCSV } from '../../lib/reportFormat'
 import { NAVY, AMBER, GREEN, MONO, FW, SP } from '../../lib/design'
 import { fmtDatetime } from '../../lib/fmt'
@@ -95,15 +95,21 @@ export default function SQLConsole() {
   const [deleting, setDeleting] = useState<SavedQuery | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
 
+  // EVERY READ HERE GOES THROUGH unwrap/unwrapList. respond() on the Go side wraps
+  // payloads as { data, data_source, data_as_of }, so apiFetch/apiPost resolve to the
+  // ENVELOPE, not the payload. Without this the saved list is an object and .map throws
+  // "map is not a function" on first paint — which is what this page did in production.
   const loadSaved = useCallback(() => {
-    apiFetch<SavedQuery[]>('/api/bi-sql/saved').then(setSaved).catch(() => { /* listed empty */ })
+    apiFetch('/api/bi-sql/saved')
+      .then(res => setSaved(unwrapList<SavedQuery>(res)))
+      .catch(() => { /* listed empty */ })
   }, [])
   useEffect(() => { loadSaved() }, [loadSaved])
 
   const run = useCallback(async () => {
     setRunning(true); setErr(null)
     try {
-      setRes(await apiPost<SQLResult>('/api/bi-sql/run', { sql, limit }))
+      setRes(unwrap<SQLResult>(await apiPost('/api/bi-sql/run', { sql, limit })))
     } catch (e: any) {
       setRes(null)
       setErr(e?.message || 'The query could not be run')
@@ -172,8 +178,8 @@ export default function SQLConsole() {
   function openSchema() {
     setShowSchema(true)
     if (!schema) {
-      apiFetch<SchemaTable[]>('/api/bi-sql/schema')
-        .then(setSchema)
+      apiFetch('/api/bi-sql/schema')
+        .then(res => setSchema(unwrapList<SchemaTable>(res)))
         .catch(() => toast.error('Could not load the schema'))
     }
   }

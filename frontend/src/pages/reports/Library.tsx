@@ -4,7 +4,7 @@ import {
   EmptyState, Input, Badge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, unwrap, unwrapList } from '../../lib/api'
 import { today, yearStart } from '../../lib/fmt'
 import { kindOf, labelFor, fmtValue, alignFor, downloadRowsCSV } from '../../lib/reportFormat'
 import { NAVY, FW, SP } from '../../lib/design'
@@ -154,8 +154,12 @@ export default function ReportLibrary() {
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    apiFetch<CatalogueEntry[]>('/api/reports/list')
-      .then(setCatalogue)
+    // unwrapList, not the bare response. respond() on the Go side wraps every payload
+    // as { data, data_source, data_as_of }, so apiFetch resolves to the ENVELOPE and
+    // calling .find on it throws "find is not a function" — which is exactly what this
+    // page did on first load, for every user, until it was caught in production.
+    apiFetch('/api/reports/list')
+      .then(res => setCatalogue(unwrapList<CatalogueEntry>(res)))
       .catch(e => setErr(e?.message || 'Could not load the report catalogue'))
   }, [])
 
@@ -179,7 +183,8 @@ export default function ReportLibrary() {
       // An undated report is sent no window at all, rather than one it would ignore.
       const q = new URLSearchParams(isDated ? { date_from: from, date_to: to } : {})
       if (needsCif) q.set("cif", cif.trim())
-      setPayload(await apiFetch<Payload>(`/api/reports/${entry.key}?${q}`))
+      // Same envelope as the catalogue above — the report blocks live under .data.
+      setPayload(unwrap<Payload>(await apiFetch(`/api/reports/${entry.key}?${q}`)))
     } catch (e: any) {
       setPayload(null)
       setErr(e?.message || 'The report could not be run')
