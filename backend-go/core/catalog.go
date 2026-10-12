@@ -107,6 +107,10 @@ var PageCatalog = []CatalogModule{
 		// table but is the page that grants roles and resets passwords. HR monitors
 		// people; it does not administer accounts.
 		{"people_directory", "People Directory"},
+		// How quickly work is attended to, where the data can carry a person-level
+		// measure at all. Read-only by design: the business asked for "visibility
+		// now, appraisal later", so no page key here records a judgement.
+		{"staff_performance", "Staff Performance"},
 	}},
 	// Fleet splits read from write the way settlement/reconciliation does. Plenty of
 	// people need to see what a vehicle costs; changing the register — above all

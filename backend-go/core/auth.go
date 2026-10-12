@@ -781,7 +781,9 @@ func buildRolePages() map[string][]string {
 			// Company vehicles are an operations cost the COO owns, the register
 			// included — who holds which card is what decides whether a vehicle's
 			// cost figure means anything.
-			"fleet", "fleet_admin"})
+			"fleet", "fleet_admin",
+			// How quickly the floor attends to work. The COO asked for it.
+			"staff_performance"})
 	// Head of Operations — oversight of the operational floor (Collections, Recovery,
 	// Cards, Settlement, Contact Centre, Care) with the exec dashboards + approvals. An
 	// explicit set rather than composed head blocks, so it does NOT pick up loan booking,
@@ -798,6 +800,9 @@ func buildRolePages() map[string][]string {
 		// The vehicle fleet is part of the operational floor this role oversees,
 		// and the register is maintained here day to day.
 		"fleet", "fleet_admin",
+		// Helpdesk and the contact centre are this role's floor, and they are the
+		// two departments whose data can actually carry a per-person measure.
+		"staff_performance",
 	})
 	m["cfo"] = union(util, finAgent, finHead,
 		// CFO is the final signatory on the HOP → COO → CFO chain for recovery write-offs,
@@ -837,6 +842,11 @@ func buildRolePages() map[string][]string {
 	//     not a management role (see managementRoles in scope.go). Granting a page key
 	//     that cannot open anything is how a role matrix starts lying about itself.
 	//
+	// An earlier version of this comment claimed HasPage grants admin on the primary
+	// role only. That was wrong — the c.Role check is a fast path, and the loop below
+	// it resolves RolePages["admin"] for any role in AllRoles(). Admin in extra_roles
+	// is now dropped in AllRoles and refused at the write boundary instead.
+	//
 	// Not granted, deliberately:
 	//   - "payroll": the People module's other page is a frontend shell — there is no
 	//     /api/payroll route and no payroll table in any schema — so granting it would
@@ -848,7 +858,10 @@ func buildRolePages() map[string][]string {
 	//   - "admin_users": the same staff table as people_directory, but it is the page
 	//     that grants roles and resets passwords. Monitoring people is not
 	//     administering their accounts.
-	m["hr"] = []string{"people_directory", "kpi_dashboard"}
+	// staff_performance belongs here for the same reason people_directory does: HR
+	// monitors how the company's people are doing. It is a read page and records no
+	// judgement, so it carries none of the appraisal risk of a write grant.
+	m["hr"] = []string{"people_directory", "kpi_dashboard", "staff_performance"}
 
 	// ── Internal Control ──
 	// Head of Internal Control audits the business, so it holds every page in the

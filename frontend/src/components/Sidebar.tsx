@@ -511,6 +511,13 @@ const SECTIONS: Section[] = [
         icon: 'groups', label: 'People Directory', to: '/people',
         vis: ['hr'],
       },
+      // How quickly work is attended to. Listed for HR and the operational heads who
+      // asked for it; PAGE_FOR gates it on staff_performance, so a role without the
+      // page never sees the entry.
+      {
+        icon: 'speed', label: 'Staff Performance', to: '/performance',
+        vis: ['hr', 'coo', 'head_ops'],
+      },
     ],
   },
   {
@@ -599,6 +606,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/settlements/interswitch/import': ['settlement', 'cards'],
   // Fleet — read the cost on 'fleet', change the register on 'fleet_admin'.
   '/fleet': 'fleet', '/fleet/cards': 'fleet_admin', '/fleet/work': 'fleet',
+  '/performance': 'staff_performance',
   // Finance
   '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income', '/finance/treasury': 'income', '/finance/commissions': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',

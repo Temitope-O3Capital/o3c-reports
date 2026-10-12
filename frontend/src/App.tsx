@@ -261,6 +261,7 @@ const FleetOverview    = lazy(() => import('./pages/fleet/Overview'))
 const FleetCards       = lazy(() => import('./pages/fleet/Cards'))
 const FleetVehicle     = lazy(() => import('./pages/fleet/Vehicle'))
 const FleetWork        = lazy(() => import('./pages/fleet/Work'))
+const StaffPerformance = lazy(() => import('./pages/performance/Overview'))
 
 // Call Center
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
@@ -1309,6 +1310,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/fleet/cards" element={<RequireAccess page="fleet_admin" user={user}><PageErrorBoundary><FleetCards /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/fleet/vehicles/:id" element={<RequireAccess page="fleet" user={user}><PageErrorBoundary><FleetVehicle /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/fleet/work" element={<RequireAccess page="fleet" user={user}><PageErrorBoundary><FleetWork /></PageErrorBoundary></RequireAccess>} />
+                  {/* Staff performance. Read-only, and gated on its own page key so HR
+                      can hold it without any of the operational modules. */}
+                  <Route path="/performance" element={<RequireAccess page="staff_performance" user={user}><PageErrorBoundary><StaffPerformance /></PageErrorBoundary></RequireAccess>} />
                   {/* Manual postings: functional, with a real approval chain, but the
                       table is empty — nobody has ever raised one. Kept reachable
                       rather than retired, because it works. */}

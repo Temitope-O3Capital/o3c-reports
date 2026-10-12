@@ -716,6 +716,13 @@ func main() {
 		r.Route("/api/people", func(r chi.Router) {
 			handlers.RegisterPeople(r, db)
 		})
+		// Staff performance. Read-only: the module reports how quickly work is
+		// attended to and records no judgement about anybody -- "visibility now,
+		// appraisal later". See handlers/performance.go for why it leads with
+		// attribution coverage rather than a league table.
+		r.Route("/api/performance", func(r chi.Router) {
+			handlers.RegisterPerformance(r, db)
+		})
 		r.Route("/api/mobile-app", func(r chi.Router) {
 			handlers.RegisterMobileApp(r, db)
 		})
