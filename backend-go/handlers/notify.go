@@ -118,11 +118,15 @@ const (
 	// EvtLeadForwarded keeps the literal 'cc_lead_forwarded' it has used since that
 	// digest shipped — renaming the string would orphan both the rows already in
 	// notifications and any per-channel config an admin has set against it.
-	EvtLeadForwarded  = "cc_lead_forwarded" // a call qualified a lead; Sales now owns it
-	EvtLeadAssigned   = "lead_assigned"     // leads dealt to an officer from the pool
-	EvtLeadClaimed    = "lead_claimed"      // an officer took a lead out of the pool
-	EvtLeadConverted  = "lead_converted"    // the lead became a customer
-	EvtLeadNoLocation = "lead_no_location"  // qualified with nowhere to visit it
+	// 'sales_' prefixes the assignment event because call_center_outbound.go already
+	// emits 'leads_assigned' for the call-centre AGENT who is given leads to dial. Same
+	// words, different person and a different page to land on; one name for both would
+	// make the two indistinguishable in the config screen and in the bell.
+	EvtLeadForwarded  = "cc_lead_forwarded"   // a call qualified a lead; Sales now owns it
+	EvtLeadAssigned   = "sales_lead_assigned" // leads dealt to a SALES officer from the pool
+	EvtLeadClaimed    = "sales_lead_claimed"  // an officer took a lead out of the pool
+	EvtLeadConverted  = "sales_lead_converted"
+	EvtLeadNoLocation = "lead_no_location" // qualified with nowhere to visit it
 
 	// Sales planning — the officer's own diary (migration 353's sales_visit_plans).
 	EvtVisitPlanned  = "visit_planned"   // someone put a visit in your diary

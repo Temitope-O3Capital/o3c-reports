@@ -226,7 +226,7 @@ func rescanCustomerLeads(db *core.DB) http.HandlerFunc {
 
 type distributeReq struct {
 	OfficerIDs []int64 `json:"officer_ids"`
-	Strategy   string  `json:"strategy"` // "round_robin" (default) | "by_state"
+	Strategy   string  `json:"strategy"` // "round_robin" (default) | "by_state" | "by_office"
 	Source     string  `json:"source"`   // optional lead_source filter
 	State      string  `json:"state"`    // optional state filter
 	Limit      int     `json:"limit"`    // optional cap; 0 = every unowned lead
@@ -279,10 +279,10 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 		switch req.Strategy {
 		case "":
 			req.Strategy = "round_robin"
-		case "round_robin", "by_state":
+		case "round_robin", "by_state", "by_office":
 			// ok
 		default:
-			respondErr(w, 400, "strategy must be round_robin or by_state")
+			respondErr(w, 400, "strategy must be round_robin, by_state or by_office")
 			return
 		}
 
@@ -331,9 +331,40 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Which office each recipient works out of, for the by_office strategy.
+		// app.sales_hub_for_office normalises 'Lagos (Head Quarter)' to 'Lagos'
+		// (migration 353) — the two books spell the same place differently.
+		officerHub := map[int64]string{}
+		if req.Strategy == "by_office" {
+			hubRows, herr := db.PGQuery(r.Context(), `
+				SELECT id, COALESCE(app.sales_hub_for_office(office_location), '') AS hub
+				  FROM o3c_users WHERE id = ANY($1::bigint[])`, int64Array(officers))
+			if herr != nil {
+				respondErrLog(w, 500, "Could not read officer offices", herr)
+				return
+			}
+			withHub := 0
+			for _, row := range hubRows {
+				if h := str(row["hub"]); h != "" {
+					officerHub[toInt64(row["id"])] = h
+					withHub++
+				}
+			}
+			// Without a single office among the recipients there is nothing to route
+			// BY, and silently falling back to round-robin would scatter Lagos leads
+			// across Abuja while the head believed otherwise.
+			if withHub == 0 {
+				respondErr(w, 422, "None of these officers has an office set, so leads cannot be "+
+					"routed by state. Set their office in Admin, or distribute round-robin instead.")
+				return
+			}
+		}
+
 		// Read the unowned lead pool, optionally scoped by source/state and capped.
 		// Gated on sales_entered_at: only leads genuinely handed to Sales are dealable.
-		q := `SELECT id, COALESCE(NULLIF(TRIM(state),''),'—') AS state
+		q := `SELECT id, COALESCE(NULLIF(TRIM(state),''),'—') AS state,
+		             COALESCE(app.sales_hub_for_state(state), '') AS hub,
+		             COALESCE(estimated_value_kobo, 0) AS value_kobo
 		        FROM crm_contacts
 		       WHERE sales_entered_at IS NOT NULL
 		         AND sales_owner_id IS NULL
@@ -350,7 +381,14 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 			args = append(args, req.State)
 			n++
 		}
-		q += " ORDER BY created_at NULLS LAST, id"
+		// by_office deals the biggest leads first so they spread across the office
+		// rather than stacking on whoever happens to sort first; the other strategies
+		// keep their original oldest-first order, which is what their callers expect.
+		if req.Strategy == "by_office" {
+			q += " ORDER BY COALESCE(estimated_value_kobo, 0) DESC, id"
+		} else {
+			q += " ORDER BY created_at NULLS LAST, id"
+		}
 		if req.Limit > 0 {
 			q += fmt.Sprintf(" LIMIT $%d", n)
 			args = append(args, req.Limit)
@@ -367,13 +405,38 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 		buckets := map[int64][]int64{}
 		stateOwner := map[string]int64{}
 		next := 0
+		// by_office cycles independently within each office, so Lagos' turn order is
+		// not disturbed by an Abuja lead arriving between two Lagos ones.
+		hubNext := map[string]int{}
+		hubOfficers := map[string][]int64{}
+		if req.Strategy == "by_office" {
+			for _, id := range officers {
+				if h := officerHub[id]; h != "" {
+					hubOfficers[h] = append(hubOfficers[h], id)
+				}
+			}
+		}
+		unroutable := 0
 		for _, row := range rows {
 			id := toInt64(row["id"])
 			if id == 0 {
 				continue
 			}
 			var officer int64
-			if req.Strategy == "by_state" {
+			if req.Strategy == "by_office" {
+				// The lead goes to the office that can actually visit it, or to nobody.
+				// Leaving it in the pool is the point: a lead with an unrecognised state
+				// handed to a default office is a visit nobody can make, and the count
+				// below is what tells the head to go and fix the state.
+				hub := str(row["hub"])
+				pool := hubOfficers[hub]
+				if hub == "" || len(pool) == 0 {
+					unroutable++
+					continue
+				}
+				officer = pool[hubNext[hub]%len(pool)]
+				hubNext[hub]++
+			} else if req.Strategy == "by_state" {
 				st, _ := row["state"].(string)
 				if o, ok := stateOwner[st]; ok {
 					officer = o
@@ -404,7 +467,8 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 
 		// Dry run previews the split; no writes.
 		if req.DryRun {
-			respond(w, map[string]any{"assigned": 0, "would_assign": total, "per_officer": summary, "dry_run": true}, "pg")
+			respond(w, map[string]any{"assigned": 0, "would_assign": total, "per_officer": summary,
+				"unroutable": unroutable, "dry_run": true}, "pg")
 			return
 		}
 		if total == 0 {
@@ -450,7 +514,19 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Could not commit the distribution")
 			return
 		}
-		respond(w, map[string]any{"assigned": total, "per_officer": summary}, "pg")
+		// Tell each officer what landed — one grouped alert each, not one per lead.
+		// Without this a distribution was invisible until somebody reloaded the page,
+		// which is how leads sat untouched for a fortnight after being handed out.
+		counts := map[int64]int{}
+		for _, id := range officers {
+			if c := len(buckets[id]); c > 0 {
+				counts[id] = c
+			}
+		}
+		notifyLeadsAssigned(context.WithoutCancel(r.Context()), db, counts)
+
+		respond(w, map[string]any{"assigned": total, "per_officer": summary,
+			"unroutable": unroutable}, "pg")
 	}
 }
 
@@ -1492,6 +1568,10 @@ func claimLead(db *core.DB) http.HandlerFunc {
 			 VALUES ($1,'claimed',$2,'Claimed from the call-centre hand-off',$2)`, id, user.ID)
 		me := user.ID
 		markForwardResolved(r.Context(), db, toInt64FromStr(id), "assigned", &me, "Claimed by "+user.FullName)
+		// A claim is the one act that changes the pool for somebody else, so the head
+		// hears about it and nobody else does. Grouped per day: a claim is routine, and
+		// a ping for each would train the floor to ignore the bell.
+		go notifyLeadClaimed(context.WithoutCancel(r.Context()), db, toInt64FromStr(id), user.ID)
 		respond(w, map[string]any{"ok": true, "owner_id": user.ID}, "pg")
 	}
 }
@@ -2210,6 +2290,13 @@ func convertLead(db *core.DB) http.HandlerFunc {
 			markForwardResolved(r.Context(), db, toInt64FromStr(id), "converted", own,
 				"Converted on "+ProductLineLabel(line)+" "+ref)
 		}
+
+		// A conversion is the one lead event worth interrupting someone for, and it was
+		// announced nowhere. The hand-off tracker records it (above) but only the agent
+		// who forwarded that particular lead ever looks there — so a head learned about
+		// a conversion by noticing the number had moved.
+		go notifyLeadConverted(context.WithoutCancel(r.Context()), db,
+			toInt64FromStr(id), ProductLineLabel(line), ref)
 
 		respond(w, map[string]any{
 			"ok": true, "line": line, "ref": ref, "cif": cif,

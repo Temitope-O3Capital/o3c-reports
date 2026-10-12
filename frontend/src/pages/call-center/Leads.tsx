@@ -48,6 +48,9 @@ interface Lead {
   email:           string | null
   address:         string | null
   state:           string | null
+  // city arrived with migration 353. Sales routes on the state and plans the visit
+  // from the city, and neither was ever captured on a lead before.
+  city:            string | null
   lead_score:      number
   status:          string
   assigned_to:     number | null
@@ -219,6 +222,7 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
   const [cif, setCif]           = useState('')
   const [address, setAddress]   = useState('')
   const [state, setState]       = useState('')
+  const [city, setCity]         = useState('')
   const [leadStatus, setLeadStatus] = useState('')
   const [saving, setSaving]     = useState(false)
   const canEditStatus = isHeadRole()
@@ -231,6 +235,7 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
     setCif(lead.customer_cif ?? '')
     setAddress(lead.address ?? '')
     setState(lead.state ?? '')
+    setCity(lead.city ?? '')
     setLeadStatus(lead.status ?? '')
   }, [open, lead])
 
@@ -242,7 +247,7 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
       // in an address, which is how an audit trail stops being read.
       const body: Record<string, unknown> = {
         customer_name: name.trim() || lead.customer_phone || '',
-        employer, email, customer_cif: cif, address, state,
+        employer, email, customer_cif: cif, address, state, city,
       }
       if (canEditStatus && leadStatus && leadStatus !== lead.status) body.status = leadStatus
       await apiFetch(`/api/call-center/leads/${lead.id}`, {
@@ -274,11 +279,16 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
           <div><label style={lbl}>Employer</label><input value={employer} onChange={e => setEmployer(e.target.value)} style={inp} /></div>
           <div><label style={lbl}>Email</label><input value={email} onChange={e => setEmail(e.target.value)} style={inp} /></div>
         </div>
+        {/* State and city sit together because Sales reads them together: the state
+            decides which office covers the lead, the city is where the visit is. */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div><label style={lbl}>State</label><input value={state} onChange={e => setState(e.target.value)} placeholder="e.g. Lagos" style={inp} /></div>
-          <div><label style={lbl}>CIF (If a Customer)</label><input value={cif} onChange={e => setCif(e.target.value)} style={inp} /></div>
+          <div><label style={lbl}>City</label><input value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. Ikeja" style={inp} /></div>
         </div>
-        <div><label style={lbl}>Address</label><input value={address} onChange={e => setAddress(e.target.value)} style={inp} /></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div><label style={lbl}>CIF (If a Customer)</label><input value={cif} onChange={e => setCif(e.target.value)} style={inp} /></div>
+          <div><label style={lbl}>Address</label><input value={address} onChange={e => setAddress(e.target.value)} style={inp} /></div>
+        </div>
         {canEditStatus && (
           <div>
             <label style={lbl}>Status</label>

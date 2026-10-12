@@ -137,6 +137,12 @@ func main() {
 	// upcoming loan repayments, past-due loans, and FD maturities.
 	go handlers.ScheduleAccountAlerts(db)
 
+	// The sales diary — daily at 07:30, before the first visit: what each officer
+	// planned for today, and which leads have a follow-up now due or already late.
+	// next_action_at has been written by the disposition machinery all along with
+	// nothing ever reading it back out at the officer who owns the lead.
+	go handlers.ScheduleSalesDiaryAlerts(db)
+
 	// Recovery auto-escalation — daily at 02:00, opens recovery cases for any account
 	// that has crossed 90 DPD and isn't already in recovery, moving it out of the
 	// collections queue. Manual hand-off (Generate Cases, Add Customer, per-account
@@ -551,6 +557,9 @@ func main() {
 			// Deal the unowned pool out: by state to the office that can actually
 			// visit it, evenly round-robin within that office (migration 353).
 			handlers.RegisterSalesLeadDistribute(r, db)
+			// The officer's forward-looking diary — visits and follow-ups they plan,
+			// as opposed to the day TeamCalendar reconstructs after the fact.
+			handlers.RegisterSalesVisitPlans(r, db)
 		})
 		r.Route("/api/cards", func(r chi.Router) {
 			handlers.RegisterCards(r, db)

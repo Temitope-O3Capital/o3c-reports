@@ -7,7 +7,6 @@ import {
 import type { TableCol } from '../../components/UI'
 import NewApplicationModal from '../../components/NewApplicationModal'
 import SalesActivityModal, { type SalesActivityLead } from '../../components/SalesActivityModal'
-import { LeadDrawer } from './LeadDrawer'
 import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
 import { currentUser, isSalesHead, allRoles, hasPage } from '../../hooks/useAuth'
@@ -106,23 +105,20 @@ export default function SalesLeads() {
   const [funnel, setFunnel] = useState<Funnel | null>(null)
   const [sources, setSources] = useState<Source[]>([])
   const [officers, setOfficers] = useState<Officer[]>([])
-  // The lead record opened from a row. Everything about one lead — its facts, its
-  // actions and its history from every team — lives in the drawer rather than being
-  // spread across the row, a modal and a page the officer has to navigate away to.
+  // Opening a lead navigates to its own page (/sales/leads/:id) rather than sliding a
+  // drawer over this one. The record outgrew a half-width sheet — it carries the facts,
+  // the actions, the location Sales plans from and a timeline merged from four teams —
+  // and as a page it can be linked, opened in a second tab and reached from a
+  // notification without the queue having to be loaded underneath it.
   //
-  // Driven by ?open=<lead id> rather than local state so a lead is addressable from
-  // outside this page: a row in the Follow-Ups queue says what to do but not who it is
-  // about, and the way back to the lead has to be one click. Replace, not push, so Back
-  // leaves the page rather than stepping through every drawer that was opened.
+  // ?open=<id> is still honoured and redirects, because notifications and saved links
+  // created before the page existed point at it. Replace, not push, so Back does not
+  // land the officer on a URL that immediately bounces them again.
+  const navigate = useNavigate()
   const openLeadId = Number(params.get('open')) || null
-  const setOpenLeadId = useCallback((id: number | null) => {
-    setParams(prev => {
-      const q = new URLSearchParams(prev)
-      if (id) q.set('open', String(id))
-      else q.delete('open')
-      return q
-    }, { replace: true })
-  }, [setParams])
+  useEffect(() => {
+    if (openLeadId) navigate(`/sales/leads/${openLeadId}`, { replace: true })
+  }, [openLeadId, navigate])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -314,7 +310,6 @@ export default function SalesLeads() {
     } catch (e: any) { toast.error(e?.message ?? 'Could not claim') }
   }
   const meId = currentUser()?.id
-  const navigate = useNavigate()
   // Customer 360 is guarded by the 'customer360' page; management can always open it.
   const canC360 = hasPage('customer360', me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
 
@@ -786,7 +781,7 @@ export default function SalesLeads() {
             skeletonRows={8}
             emptyText="No leads match. Create one with New Lead"
             keyFn={r => r.id}
-            onRowClick={r => setOpenLeadId(r.id)}
+            onRowClick={r => navigate(`/sales/leads/${r.id}`)}
           />
           {total > PAGE_SIZE && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)' }}>
@@ -963,15 +958,6 @@ export default function SalesLeads() {
         onSaved={() => { setLogLead(null); load() }}
       />
 
-      <LeadDrawer
-        leadId={openLeadId}
-        officers={officers}
-        meId={meId ?? 0}
-        canManage={isHead}
-        onClose={() => setOpenLeadId(null)}
-        onChanged={load}
-      />
-
       {isHead && distOpen && (
         <DistributeModal officers={officers} meId={meId} onClose={() => setDistOpen(false)} onDone={() => { setDistOpen(false); load() }} />
       )}
@@ -1024,7 +1010,11 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
   officers: Officer[]; meId: number | undefined; onClose: () => void; onDone: () => void
 }) {
   const [picked, setPicked]   = useState<Set<number>>(new Set())
-  const [strategy, setStrategy] = useState<'round_robin' | 'by_state'>('round_robin')
+  // by_office is the default because it is the only strategy that respects geography:
+  // a Lagos lead reaches a Lagos officer. Round Robin spreads evenly but ignores where
+  // anyone is, and By State keeps a state with one officer without checking that the
+  // officer's own office covers it — so either could hand Kano to someone in Lagos.
+  const [strategy, setStrategy] = useState<'round_robin' | 'by_state' | 'by_office'>('by_office')
   const [limit, setLimit]     = useState('')
   const [preview, setPreview] = useState<{ officer_id: number; full_name: string; count: number }[] | null>(null)
   const [busy, setBusy]       = useState(false)
@@ -1065,12 +1055,24 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
     try {
       const body: any = { officer_ids: ids, strategy, dry_run: dry }
       if (limit && Number(limit) > 0) body.limit = Number(limit)
-      const res = await apiPost<{ assigned?: number; would_assign?: number; per_officer: any[] }>('/api/sales/leads/distribute', body)
+      const res = await apiPost<{ assigned?: number; would_assign?: number; per_officer: any[]; unroutable?: number }>(
+        '/api/sales/leads/distribute', body)
+      // Unroutable leads are the ones whose state nobody can place, so no office owns
+      // them. Said out loud both on the preview and after the run, because they are
+      // invisible otherwise: the count simply comes out lower than expected and the
+      // leads stay in the pool for ever.
+      const stuck = res.unroutable ?? 0
+      const note = stuck > 0
+        ? ` · ${stuck} left unrouted — no state we can place`
+        : ''
       if (dry) {
         setPreview(res.per_officer ?? [])
-        toast.info(`${res.would_assign ?? 0} lead(s) would be distributed`)
+        toast.info(`${res.would_assign ?? 0} lead(s) would be distributed${note}`)
       } else {
-        toast.success(`${res.assigned ?? 0} lead(s) distributed`)
+        toast.success(`${res.assigned ?? 0} lead(s) distributed${note}`)
+        if (stuck > 0) {
+          toast.warning(`${stuck} lead(s) have no usable state. Add one on the lead to release them.`)
+        }
         onDone()
       }
     } catch (e: any) { toast.error(e?.message ?? 'Distribute failed') }
@@ -1118,7 +1120,8 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Select label="Strategy" value={strategy} onChange={e => { setStrategy(e.target.value as any); setPreview(null) }} wrapStyle={{ flex: 1, minWidth: 160 }}>
-            <option value="round_robin">Round Robin (Even Split)</option>
+            <option value="by_office">By Office (Lagos to Lagos, Abuja to Abuja)</option>
+            <option value="round_robin">Round Robin (Even Split, Ignores Location)</option>
             <option value="by_state">By State (Keep a State Together)</option>
           </Select>
           <Input label="Limit (Optional)" type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="All" wrapStyle={{ width: 130 }} />

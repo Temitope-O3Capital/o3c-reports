@@ -327,6 +327,11 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
   // Collections-only: a structured Promise to Pay (amount + date). Captured on the
   // write-up and dropped into the queue as a follow-up on the promised date.
   const [ptp, setPtp] = useState({ amount: '', date: '' })
+  // Where the lead is. 'ask' is set by the server's 422 when a disposition of Interested
+  // arrives without a location — see the catch in save(). It stays false for every other
+  // call, so a support or collections write-up never sees these fields.
+  const [leadLoc, setLeadLoc] = useState<{ city: string; state: string; ask: boolean; missing: string[] }>(
+    { city: '', state: '', ask: false, missing: [] })
   const [saving, setSaving] = useState(false)
   const [callScript, setCallScript] = useState<CallScript | null>(null)
   const [scriptExpanded, setScriptExpanded] = useState(false)
@@ -629,6 +634,11 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         ticket_ref:       ticketRef,
         // Advances the lead in the same write when the call came from Leads.
         lead_id:          initial?.leadId,
+        // Where the lead is, when the agent has just been asked for it. Sent alongside
+        // the disposition rather than through a second form, so marking someone
+        // Interested stays one action — see the 422 handler in the catch below.
+        lead_city:        leadLoc.city.trim() || undefined,
+        lead_state:       leadLoc.state.trim() || undefined,
         // Applies the disposition's queue consequences to the contact when the call
         // came from the Outbound Queue (same shared form, same one write path).
         contact_id:       initial?.contactId,
@@ -685,7 +695,19 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
       // keeps the agent on a "Call Dropped" lead to redial instead of auto-advancing.
       onSaved(form.disposition)
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to log call')
+      // Marking a lead Interested is the one disposition that hands it to Sales, and
+      // Sales plans visits by city and state — so the server refuses it without them
+      // (handlers/lead_location.go). It answers with the fields that are missing, which
+      // is what lets this reveal exactly those two boxes and keep everything the agent
+      // has already typed. Nothing is lost and nothing is retyped: they fill the
+      // location in and press the same button again.
+      if (e?.status === 422 && e?.body?.error_code === 'lead_location_required') {
+        const missing: string[] = Array.isArray(e.body.missing) ? e.body.missing : ['city', 'state']
+        setLeadLoc(p => ({ ...p, ask: true, missing }))
+        toast.warning(e?.message ?? 'Add the lead’s city and state to mark them Interested')
+      } else {
+        toast.error(e?.message ?? 'Failed to log call')
+      }
     } finally { setSaving(false) }
   }
 
@@ -883,6 +905,36 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
             </select>
           </div>
         </div>
+
+        {/* Where the lead is — asked for only when the server has refused an Interested
+            disposition for want of it. Deliberately not a field on every call: the
+            location matters at exactly one moment in a lead's life, and putting it on
+            every write-up would be another box to tab past 11,000 times a month. */}
+        {leadLoc.ask && (
+          <div style={{ padding: 12, background: `${AMBER}0d`, borderRadius: RADIUS.md, border: `1px solid ${AMBER}55` }}>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>
+              Where is this customer?
+            </div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 10, lineHeight: 1.5 }}>
+              Interested hands this lead to Sales, and they plan the visit from the city
+              and state. Add them and log the call again — nothing you have typed is lost.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={labelSt}>State</label>
+                <input value={leadLoc.state} placeholder="e.g. Lagos" style={inputSt}
+                  autoFocus={leadLoc.missing.includes('state')}
+                  onChange={e => setLeadLoc(p => ({ ...p, state: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelSt}>City</label>
+                <input value={leadLoc.city} placeholder="e.g. Ikeja" style={inputSt}
+                  autoFocus={!leadLoc.missing.includes('state') && leadLoc.missing.includes('city')}
+                  onChange={e => setLeadLoc(p => ({ ...p, city: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Callback time — only when the disposition is a scheduled callback */}
         {needsCallback && (

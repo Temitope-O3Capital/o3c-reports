@@ -2,10 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -39,12 +37,21 @@ import (
 // a Lagos lead to someone in Abuja.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// RegisterSalesLeadDistribute adds the pool preview and the distribute action.
-// Both are head/management actions — an officer cannot deal the pool to themselves.
+// RegisterSalesLeadDistribute adds the pool preview.
+//
+// The ACTION itself lives in sales_leads.go's distributeLeads, which already owned
+// POST /leads/distribute, already had the dry-run/limit contract the Leads page is
+// written against, and already wrote a crm_lead_events row per assignment inside one
+// transaction. Registering a second handler on that path would have been a routing
+// collision at start-up, so the office routing went in there as a 'by_office' strategy
+// instead — its 'by_state' strategy clusters a state onto one officer but never checks
+// that the officer's office covers it, which is the thing Sales actually asked for.
+//
+// This file keeps the read side: "what would pressing Distribute do", which had no
+// endpoint at all.
 func RegisterSalesLeadDistribute(r chi.Router, db *core.DB) {
 	access := core.RequirePages("sales", "crm_contacts")
 	r.With(access).Get("/leads/distribution", salesLeadDistributionPreview(db))
-	r.With(access).Post("/leads/distribute", salesLeadDistribute(db))
 }
 
 // distributableOfficers resolves who may receive leads, and in which office.
@@ -144,114 +151,6 @@ func salesLeadDistributionPreview(db *core.DB) http.HandlerFunc {
 			}
 		}
 		respond(w, map[string]any{"pool": pool, "officers": roster}, "pg")
-	}
-}
-
-// salesLeadDistribute deals the unowned pool out.
-func salesLeadDistribute(db *core.DB) http.HandlerFunc {
-	type body struct {
-		// Hub narrows the run to one office. Empty means both.
-		Hub string `json:"hub"`
-		// OfficerIDs is who is on shift. Empty means everyone in scope with an office.
-		OfficerIDs []int64 `json:"officer_ids"`
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		u := core.UserFromCtx(ctx)
-		if !canManageTeams(u) {
-			respondErr(w, 403, "Only a sales head can distribute the lead pool")
-			return
-		}
-		var b body
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil && err.Error() != "EOF" {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-		hub := strings.TrimSpace(b.Hub)
-		if hub != "" && hub != "Lagos" && hub != "Abuja" {
-			respondErr(w, 422, "hub must be Lagos, Abuja, or omitted for both")
-			return
-		}
-		officers, err := distributableOfficers(r, db, u, b.OfficerIDs)
-		if err != nil {
-			respondErrLog(w, 500, "Could not resolve the officer roster", err)
-			return
-		}
-		if len(officers) == 0 {
-			respondErr(w, 422, "No officers to distribute to. Add officers to a sales team first.")
-			return
-		}
-
-		// One statement, so a half-finished distribution cannot exist. seq % n per hub is
-		// the round-robin; ordering by value descending within the hub is what spreads the
-		// large leads instead of stacking them on whoever sorts first.
-		assigned, err := db.PGQuery(ctx, `
-			WITH pool AS (
-				SELECT u.id,
-				       app.sales_hub_for_office(u.office_location) AS hub,
-				       ROW_NUMBER() OVER (PARTITION BY app.sales_hub_for_office(u.office_location)
-				                          ORDER BY u.id) - 1 AS rn,
-				       COUNT(*)    OVER (PARTITION BY app.sales_hub_for_office(u.office_location)) AS n
-				  FROM app.o3c_users u
-				 WHERE u.is_active
-				   AND u.id = ANY($1::bigint[])
-				   AND app.sales_hub_for_office(u.office_location) IS NOT NULL
-				   AND ($2 = '' OR app.sales_hub_for_office(u.office_location) = $2)
-			),
-			todo AS (
-				SELECT c.id,
-				       app.sales_hub_for_state(c.state) AS hub,
-				       ROW_NUMBER() OVER (PARTITION BY app.sales_hub_for_state(c.state)
-				                          ORDER BY COALESCE(c.estimated_value_kobo, 0) DESC, c.id) - 1 AS seq
-				  FROM app.crm_contacts c
-				 WHERE c.sales_entered_at IS NOT NULL
-				   AND c.sales_owner_id IS NULL
-				   AND c.lead_stage NOT IN ('converted', 'disqualified')
-				   AND app.sales_hub_for_state(c.state) IS NOT NULL
-				   AND ($2 = '' OR app.sales_hub_for_state(c.state) = $2)
-			)
-			UPDATE app.crm_contacts c
-			   SET sales_owner_id = p.id,
-			       updated_at     = NOW()
-			  FROM todo t
-			  JOIN pool p ON p.hub = t.hub AND p.rn = (t.seq % p.n)
-			 WHERE c.id = t.id
-			RETURNING c.id, c.sales_owner_id AS officer_id, t.hub`,
-			int64Array(officers), hub)
-		if err != nil {
-			respondErrLog(w, 500, "Distribution failed", err)
-			return
-		}
-
-		perOfficer := map[int64]int{}
-		perHub := map[string]int{}
-		for _, row := range assigned {
-			perOfficer[toInt64(row["officer_id"])]++
-			perHub[str(row["hub"])]++
-		}
-
-		// What is left, and why. An unroutable remainder is the number a head needs:
-		// those leads will sit there for ever until someone gives them a state.
-		left, _ := db.PGQuery(ctx, `
-			SELECT COUNT(*) FILTER (WHERE app.sales_hub_for_state(state) IS NULL)     AS unroutable,
-			       COUNT(*) FILTER (WHERE app.sales_hub_for_state(state) IS NOT NULL) AS no_officer
-			  FROM app.crm_contacts
-			 WHERE sales_entered_at IS NOT NULL
-			   AND sales_owner_id IS NULL
-			   AND lead_stage NOT IN ('converted', 'disqualified')`)
-
-		notifyLeadsAssigned(ctx, db, perOfficer)
-
-		out := map[string]any{
-			"assigned":    len(assigned),
-			"per_officer": perOfficer,
-			"per_hub":     perHub,
-		}
-		if len(left) > 0 {
-			out["unroutable"] = toInt64(left[0]["unroutable"])
-			out["no_officer_in_office"] = toInt64(left[0]["no_officer"])
-		}
-		respond(w, out, "pg")
 	}
 }
 

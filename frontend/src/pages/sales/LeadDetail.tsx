@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Drawer } from '../../components/Drawer'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Modal, Input, Spinner, Avatar, EmptyState } from '../../components/UI'
 import { SelectMenu, SelectMenuField } from '../../components/SelectMenu'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -10,10 +9,10 @@ import { humanLabel } from '../../lib/labels'
 
 // The lead record, opened from the Leads queue.
 //
-// The page it replaces showed a row and a stage, and every question an officer actually
-// has about a lead — has anyone rung them, what did they say, who had this before me,
-// what are they even interested in — needed a different screen or could not be answered
-// at all. The drawer puts the facts, the actions and the full history in one place.
+// What it replaced showed a row and a stage, and every question an officer actually has
+// about a lead — has anyone rung them, what did they say, who had this before me, what
+// are they even interested in — needed a different screen or could not be answered at
+// all. This puts the facts, the actions and the full history in one place.
 //
 // The history is the point. /leads/{id}/timeline merges Sales' own stage events with the
 // activity stream every team writes to (14,818 recorded calls among them) and the
@@ -81,13 +80,27 @@ const PRODUCT_LINES = [
   { value: 'fixed_deposit', label: 'Fixed Deposit', hint: 'Reference is the Udara FD account number' },
 ]
 
-export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChanged }: {
+// The lead record. Rendered as a PAGE, not a drawer.
+//
+// It began as a drawer because the queue was the only way in, and a sheet over the list
+// kept the officer's place. That stopped being the right shape as the record grew: it
+// now carries identity, ownership, the actions, the location Sales plans visits from, a
+// convert flow, a transfer picker, a follow-up scheduler and a timeline merged from four
+// teams. A half-width sheet with its own scrollbar is a poor container for that, it
+// could not be linked, printed or opened in a second tab, and on a phone it covered the
+// very list it was meant to be an aside to.
+//
+// This renders the body only; LeadPage.tsx supplies the page shell and the route, so the
+// lead is addressable as /sales/leads/<id>.
+export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoaded }: {
   leadId: number | null
   officers: Officer[]
   meId: number
   canManage: boolean
-  onClose: () => void
   onChanged: () => void
+  /** Reports the loaded lead upwards so the page shell can title itself without
+   *  fetching the same record a second time. */
+  onLoaded?: (lead: { name: string; stage: string; city?: string; state?: string }) => void
 }) {
   const [lead, setLead] = useState<Lead | null>(null)
   const [timeline, setTimeline] = useState<TimelineRow[]>([])
@@ -95,6 +108,11 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
   const [convertOpen, setConvertOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [followOpen, setFollowOpen] = useState(false)
+
+  // Held in a ref so a parent that re-creates the callback each render does not
+  // re-trigger load() and put the page in a fetch loop.
+  const onLoadedRef = useRef(onLoaded)
+  useEffect(() => { onLoadedRef.current = onLoaded }, [onLoaded])
 
   const load = useCallback(async () => {
     if (!leadId) return
@@ -104,7 +122,13 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
         apiFetch<{ data: Lead } | Lead>(`/api/sales/leads/${leadId}`),
         apiFetch<{ data: TimelineRow[] } | TimelineRow[]>(`/api/sales/leads/${leadId}/timeline`),
       ])
-      setLead((l as any)?.data ?? (l as Lead))
+      const got: Lead = (l as any)?.data ?? (l as Lead)
+      setLead(got)
+      onLoadedRef.current?.({
+        name: [got?.first_name, got?.last_name].filter(Boolean).join(' ') || 'Unnamed lead',
+        stage: got?.lead_stage ?? '',
+        city: got?.city, state: got?.state,
+      })
       const rows = Array.isArray(t) ? t : (t?.data ?? [])
       setTimeline(rows)
     } catch (e: any) { toast.error(e.message) }
@@ -137,7 +161,7 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
   }, [timeline])
 
   return (
-    <Drawer open={!!leadId} onClose={onClose} title={name}>
+    <>
       {loading && !lead ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}><Spinner size={26} /></div>
       ) : !lead ? (
@@ -277,7 +301,7 @@ export function LeadDrawer({ leadId, officers, meId, canManage, onClose, onChang
           onClose={() => setFollowOpen(false)}
           onDone={() => { setFollowOpen(false); refresh() }} />
       )}
-    </Drawer>
+    </>
   )
 }
 
@@ -674,4 +698,4 @@ function TransferModal({ leadId, name, officers, currentOwner, onClose, onDone }
   )
 }
 
-export default LeadDrawer
+export default LeadDetail
