@@ -97,6 +97,21 @@ var grandfatheredDuplicateMigrations = map[string]bool{
 	// rule. 'a_dropdown' re-adds CHECK constraints over a column it has already
 	// rewritten, which is precisely the second run the rule exists to prevent.
 	"321": true,
+	// 358_a_dashboard_is_tiles_over_saved_sources and
+	// 358_a_qualified_lead_actually_reaches_sales, 2026-10-12. Two sessions claimed
+	// 358 on the same afternoon and BOTH were applied in the same restart, at
+	// 15:37:05.59 and 15:37:05.97 — under a second apart, so neither author saw this
+	// test go red before production had run both.
+	//
+	// That timing is what forces the entry. The instruction above is to rename your own
+	// new file, and it is the right instruction while a file is still unapplied. Once
+	// schema_migrations holds a filename, renaming it makes the runner treat the file
+	// as new and run it a SECOND time — which for 'a_dashboard' means re-creating
+	// objects it has already created. So renaming is now the unsafe option and this
+	// list is the safe one, exactly as it was for 291 and 321.
+	//
+	// Authorised by Temitope on 2026-10-12 after the alternative was explained.
+	"358": true,
 }
 
 var migrationNumberRE = regexp.MustCompile(`^(\d+)_`)
