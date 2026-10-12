@@ -364,6 +364,8 @@ func waInbound(db *core.DB) http.HandlerFunc {
 						kind = "ad_reply"
 					}
 					waLogInbound(db, kind, fromPhone, msgType, text, wamid, clid, headline, refSrc)
+					// An ad click is attributable only at this moment: Meta sends ctwa_clid once.
+					waRecordAttribution(db, clid, fromPhone, headline, refSrc)
 					// A STOP is honoured before anything else, and never becomes a support ticket:
 					// it is a completed instruction, not a request for help.
 					if waHandleOptOut(db, fromPhone, text) {
@@ -616,4 +618,62 @@ func waHandleOptOut(db *core.DB, phone, text string) bool {
 			tid, text, norm)
 	}
 	return true
+}
+
+// waRecordAttribution turns an ad click into something that can be measured.
+//
+// Meta attaches ctwa_clid to the referral object of the FIRST inbound message after an ad
+// click and never sends it again — it is in no URL, no later webhook, and no API you can
+// ask afterwards. So this is the only moment the link between an ad and a conversation
+// exists, and if it is not written here the money spent on that ad becomes unattributable
+// for good.
+//
+// ON CONFLICT DO NOTHING on the click id: a replayed webhook, or Meta redelivering after a
+// timeout, must not turn one click into two conversations and halve the apparent cost per
+// lead.
+//
+// The campaign is left NULL. Meta sends a headline and a source URL on the referral, not a
+// campaign id, so matching to app.ad_campaigns is done by a person or a later Marketing
+// API sync — and an unmatched conversation still counts, which is why the column is
+// nullable rather than the row being withheld.
+//
+// Best-effort: attribution must never be the reason a customer's message does not reach an
+// agent.
+func waRecordAttribution(db *core.DB, clid, phone, headline, refSrc string) {
+	if strings.TrimSpace(clid) == "" {
+		return
+	}
+	ctx := context.Background()
+	nullIf := func(s string) any {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return s
+	}
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO app.ad_attribution
+			(ctwa_clid, phone, referral_headline, referral_source, first_seen_at, stage, stage_at)
+		VALUES ($1, $2, $3, $4, NOW(), 'conversation', NOW())
+		ON CONFLICT (ctwa_clid) DO NOTHING`,
+		clid, normalizeE164(phone), nullIf(headline), nullIf(refSrc)); err != nil {
+		slog.Error("waRecordAttribution", "clid", clid, "err", err)
+		return
+	}
+
+	// Link it to whoever this number already is, if anything. Done here rather than
+	// later because the phone is the only handle an ad click arrives with, and a party
+	// linked at first contact costs one query — reconstructing it a week later means
+	// guessing which of several conversations a customer came from.
+	//
+	// The stage is NOT advanced by this. Knowing who someone is does not make them a
+	// lead; a conversation that never becomes one must stay 'conversation', or a campaign
+	// that produced 400 chats and 3 loans will read as 400 leads.
+	db.PGExec(ctx, `
+		UPDATE app.ad_attribution a
+		   SET party_id = p.party_id, updated_at = NOW()
+		  FROM app.parties p
+		 WHERE a.ctwa_clid = $1
+		   AND a.party_id IS NULL
+		   AND length(app.norm_phone(p.primary_phone)) = 10
+		   AND app.norm_phone(p.primary_phone) = app.norm_phone($2)`, clid, normalizeE164(phone)) //nolint:errcheck
 }
