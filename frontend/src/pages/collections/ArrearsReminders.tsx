@@ -498,11 +498,11 @@ export default function ArrearsReminders() {
       <SectionCard title="Policy In Force" subtitle="Set in configuration, applied every run"
         style={{ marginBottom: SP[4] }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[4], fontSize: TEXT.sm }}>
-          <Fact label="Facilities per run" value={fmtNum(p.max_per_run)} />
-          <Fact label="Materiality floor" value={fmtKobo(p.min_kobo)} />
+          <Fact label="Facilities per Run" value={fmtNum(p.max_per_run)} />
+          <Fact label="Materiality Floor" value={fmtKobo(p.min_kobo)} />
           <Fact label="Contacted first, within" value={`${fmtNum(p.fresh_days)} days past due`} />
-          <Fact label="Upper age bound" value={p.max_dpd > 0 ? `${fmtNum(p.max_dpd)} days` : 'none set'} />
-          <Fact label="One round per facility every" value={`${fmtNum(p.throttle_days)} days`} />
+          <Fact label="Upper Age Bound" value={p.max_dpd > 0 ? `${fmtNum(p.max_dpd)} days` : 'none set'} />
+          <Fact label="One Round per Facility Every" value={`${fmtNum(p.throttle_days)} days`} />
         </div>
       </SectionCard>
 

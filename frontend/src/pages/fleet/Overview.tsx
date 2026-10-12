@@ -292,7 +292,7 @@ export default function FleetOverview() {
     () => Math.max(0, ...codes.map(c => Number(c.spend_kobo))), [codes])
 
   const codeCols: TableCol<CodeRow>[] = [
-    { key: 'code_label', label: 'What the card paid for', render: r => {
+    { key: 'code_label', label: 'What the Card Paid For', render: r => {
       const odd = NON_PURCHASE_CODES.has(String(r.txn_code))
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
@@ -457,7 +457,7 @@ export default function FleetOverview() {
           onRowClick={r => navigate(`/fleet/vehicles/${r.vehicle_id}`)}
           loading={loading && !d} skeletonRows={5}
           emptyText={
-            <EmptyState icon="directions_car" title="No vehicles on the register"
+            <EmptyState icon="directions_car" title="No Vehicles on the Register"
               description="Add a vehicle, then map its fuel card — the spend is already captured and only needs an owner."
               action={{ label: 'Add Vehicle', icon: 'add', onClick: () => setAddOpen(true) }} />
           }
@@ -470,7 +470,7 @@ export default function FleetOverview() {
           <DataTable
             cols={codeCols} rows={codes} keyFn={r => r.txn_code}
             loading={loading && !d} skeletonRows={4}
-            emptyText={<EmptyState icon="receipt_long" title="No card activity in this period" />}
+            emptyText={<EmptyState icon="receipt_long" title="No Card Activity in This Period" />}
           />
         </SectionCard>
 
@@ -483,7 +483,7 @@ export default function FleetOverview() {
           <DataTable
             cols={dueCols} rows={due} keyFn={r => r.id}
             loading={loading && !d} skeletonRows={4}
-            emptyText={<EmptyState icon="event_available" title="Nothing due"
+            emptyText={<EmptyState icon="event_available" title="Nothing Due"
               description="No service, insurance or licence renewal is scheduled in the next 60 days." />}
           />
         </SectionCard>
@@ -504,7 +504,7 @@ export default function FleetOverview() {
             ]}
             rows={d!.top_merchants} keyFn={r => r.merchant}
             loading={loading && !d} skeletonRows={5} pageSize={10}
-            emptyText={<EmptyState icon="storefront" title="No merchants" />}
+            emptyText={<EmptyState icon="storefront" title="No Merchants" />}
           />
         </SectionCard>
       )}
@@ -522,7 +522,7 @@ export default function FleetOverview() {
             </Button>
           </>
         }>
-        <Field label="Registration number" required
+        <Field label="Registration Number" required
           hint="The business key — what appears on a mechanic's invoice and on a fine.">
           <Input value={regNo} onChange={e => setRegNo(e.target.value)} placeholder="e.g. LAG-123-XY" />
         </Field>
@@ -542,30 +542,30 @@ export default function FleetOverview() {
           </Field>
           <Field label="Department" hint="Whose cost centre carries it.">
             <Select value={deptId} onChange={e => setDeptId(e.target.value)}>
-              <option value="">Not assigned</option>
+              <option value="">Not Assigned</option>
               {departments.map(x => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
             </Select>
           </Field>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[3] }}>
-          <Field label="Driver (staff)" hint="Leave blank for a contract driver.">
+          <Field label="Driver (Staff)" hint="Leave blank for a contract driver.">
             <Select value={driverId} onChange={e => setDriverId(e.target.value)}>
-              <option value="">Not assigned</option>
+              <option value="">Not Assigned</option>
               {drivers.map(x => <option key={x.id} value={String(x.id)}>{x.full_name}</option>)}
             </Select>
           </Field>
-          <Field label="Driver name" hint="For a driver who has no staff account.">
+          <Field label="Driver Name" hint="For a driver who has no staff account.">
             <Input value={driverName} onChange={e => setDriverName(e.target.value)} />
           </Field>
           <Field label="Acquired on">
             <Input type="date" value={acquiredOn} max={today()} onChange={e => setAcquiredOn(e.target.value)} />
           </Field>
-          <Field label="Purchase cost (₦)" hint="Capital, reported separately from running cost.">
+          <Field label="Purchase Cost (₦)" hint="Capital, reported separately from running cost.">
             <Input inputMode="decimal" value={acqCost} onChange={e => setAcqCost(e.target.value)} />
           </Field>
           <Field label="VIN"><Input value={vin} onChange={e => setVin(e.target.value)} /></Field>
-          <Field label="Engine number"><Input value={engineNo} onChange={e => setEngineNo(e.target.value)} /></Field>
+          <Field label="Engine Number"><Input value={engineNo} onChange={e => setEngineNo(e.target.value)} /></Field>
         </div>
 
         <Field label="Notes">

@@ -1048,21 +1048,21 @@ export default function FleetVehicle() {
           }}>
             {([
               ['Registration', v?.reg_no],
-              ['Make & model', [v?.make, v?.model].filter(Boolean).join(' ') || null],
+              ['Make & Model', [v?.make, v?.model].filter(Boolean).join(' ') || null],
               ['Year', v?.model_year != null ? String(v.model_year) : null],
               ['Colour', v?.colour],
               ['Status', v?.status ? humanLabel(v.status) : null],
               ['Department', v?.department],
               ['Driver', v?.driver || v?.assigned_driver_name],
               ['VIN', v?.vin],
-              ['Engine number', v?.engine_no],
+              ['Engine Number', v?.engine_no],
               ['Acquired on', v?.acquired_on ? fmtDate(v.acquired_on) : null],
-              ['Purchase cost', Number(v?.acquisition_cost_kobo ?? 0) > 0
+              ['Purchase Cost', Number(v?.acquisition_cost_kobo ?? 0) > 0
                 ? fmtKobo(Number(v!.acquisition_cost_kobo)) : null],
               ['Disposed on', v?.disposed_on ? fmtDate(v.disposed_on) : null],
-              ['Disposal proceeds', Number(v?.disposal_proceeds_kobo ?? 0) > 0
+              ['Disposal Proceeds', Number(v?.disposal_proceeds_kobo ?? 0) > 0
                 ? fmtKobo(Number(v!.disposal_proceeds_kobo)) : null],
-              ['Fuel card', liveCard ? (liveCard.card_label || `CIF ${liveCard.cif}`) : null],
+              ['Fuel Card', liveCard ? (liveCard.card_label || `CIF ${liveCard.cif}`) : null],
             ] as [string, string | null | undefined][]).map(([label, value]) => (
               <div key={label} style={{ minWidth: 0 }}>
                 <dt style={{
@@ -1113,31 +1113,31 @@ export default function FleetVehicle() {
           </Field>
           <Field label="Department" hint="Blank unassigns it.">
             <Select value={eDept} onChange={e => setEDept(e.target.value)}>
-              <option value="">Not assigned</option>
+              <option value="">Not Assigned</option>
               {departments.map(x => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
             </Select>
           </Field>
-          <Field label="Driver (staff)" hint="Blank unassigns it.">
+          <Field label="Driver (Staff)" hint="Blank unassigns it.">
             <Select value={eDriverId} onChange={e => setEDriverId(e.target.value)}>
-              <option value="">Not assigned</option>
+              <option value="">Not Assigned</option>
               {drivers.map(x => <option key={x.id} value={String(x.id)}>{x.full_name}</option>)}
             </Select>
           </Field>
-          <Field label="Driver name" hint="A driver with no staff account.">
+          <Field label="Driver Name" hint="A driver with no staff account.">
             <Input value={eDriverName} onChange={e => setEDriverName(e.target.value)} />
           </Field>
           <Field label="VIN"><Input value={eVin} onChange={e => setEVin(e.target.value)} /></Field>
-          <Field label="Engine number"><Input value={eEngine} onChange={e => setEEngine(e.target.value)} /></Field>
+          <Field label="Engine Number"><Input value={eEngine} onChange={e => setEEngine(e.target.value)} /></Field>
           <Field label="Acquired on">
             <Input type="date" value={eAcquired} max={today()} onChange={e => setEAcquired(e.target.value)} />
           </Field>
-          <Field label="Purchase cost (₦)">
+          <Field label="Purchase Cost (₦)">
             <Input inputMode="decimal" value={eAcqCost} onChange={e => setEAcqCost(e.target.value)} />
           </Field>
           <Field label="Disposed on" hint="Set this and the status together.">
             <Input type="date" value={eDisposed} max={today()} onChange={e => setEDisposed(e.target.value)} />
           </Field>
-          <Field label="Disposal proceeds (₦)">
+          <Field label="Disposal Proceeds (₦)">
             <Input inputMode="decimal" value={eProceeds} onChange={e => setEProceeds(e.target.value)} />
           </Field>
         </div>
@@ -1164,7 +1164,7 @@ export default function FleetVehicle() {
           <Field label="Insurer" required>
             <Input value={pInsurer} onChange={e => setPInsurer(e.target.value)} placeholder="e.g. Leadway" />
           </Field>
-          <Field label="Policy number">
+          <Field label="Policy Number">
             <Input value={pPolicyNo} onChange={e => setPPolicyNo(e.target.value)} />
           </Field>
           <Field label="Cover">
@@ -1178,7 +1178,7 @@ export default function FleetVehicle() {
           <Field label="Cover to" required hint="This date drives every expiry warning.">
             <Input type="date" value={pTo} onChange={e => setPTo(e.target.value)} />
           </Field>
-          <Field label="Sum insured (₦)" hint="What the insurer would pay.">
+          <Field label="Sum Insured (₦)" hint="What the insurer would pay.">
             <Input inputMode="decimal" value={pSum} onChange={e => setPSum(e.target.value)} />
           </Field>
           <Field label="Premium (₦)" hint="What the cover cost.">
@@ -1206,14 +1206,14 @@ export default function FleetVehicle() {
           </>
         }>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: SP[3] }}>
-          <Field label="Date read" required>
+          <Field label="Date Read" required>
             <Input type="date" value={readOn} max={today()} onChange={e => setReadOn(e.target.value)} />
           </Field>
           <Field label="Odometer (km)" required hint="The total on the dial, not the distance since.">
             <Input inputMode="numeric" value={readingKm} placeholder="e.g. 84500"
               onChange={e => setReadingKm(e.target.value)} />
           </Field>
-          <Field label="Litres added" hint="Optional. Needed for a consumption figure.">
+          <Field label="Litres Added" hint="Optional. Needed for a consumption figure.">
             <Input inputMode="decimal" value={litres} placeholder="e.g. 45.5"
               onChange={e => setLitres(e.target.value)} />
           </Field>
@@ -1249,12 +1249,12 @@ export default function FleetVehicle() {
           </>
         }>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: SP[3] }}>
-          <Field label="Kind of work" required>
+          <Field label="Kind of Work" required>
             <Select value={mKind} onChange={e => setMKind(e.target.value)}>
               {MAINT_KINDS.map(k => <option key={k} value={k}>{humanLabel(k)}</option>)}
             </Select>
           </Field>
-          <Field label="Date done" required>
+          <Field label="Date Done" required>
             <Input type="date" value={mOn} max={today()} onChange={e => setMOn(e.target.value)} />
           </Field>
           <Field label="Vendor">
@@ -1265,23 +1265,23 @@ export default function FleetVehicle() {
             <Input inputMode="decimal" value={mCost} placeholder="e.g. 85000"
               onChange={e => setMCost(e.target.value)} />
           </Field>
-          <Field label="Odometer at the time (km)"
+          <Field label="Odometer at the Time (km)"
             hint="Captured once, used twice — it joins the distance series too.">
             <Input inputMode="numeric" value={mOdo} placeholder="e.g. 84500"
               onChange={e => setMOdo(e.target.value)} />
           </Field>
-          <Field label="Invoice reference">
+          <Field label="Invoice Reference">
             <Input value={mInvoice} onChange={e => setMInvoice(e.target.value)} />
           </Field>
-          <Field label="Next due on" hint="Drives the Work Falling Due list.">
+          <Field label="Next Due on" hint="Drives the Work Falling Due list.">
             <Input type="date" value={mDueOn} onChange={e => setMDueOn(e.target.value)} />
           </Field>
-          <Field label="Next due at (km)">
+          <Field label="Next Due at (km)">
             <Input inputMode="numeric" value={mDueKm} placeholder="e.g. 89500"
               onChange={e => setMDueKm(e.target.value)} />
           </Field>
         </div>
-        <Field label="What was done">
+        <Field label="What Was Done">
           <Textarea rows={2} value={mDesc} onChange={e => setMDesc(e.target.value)} />
         </Field>
       </Modal>
@@ -1300,7 +1300,7 @@ export default function FleetVehicle() {
               {INCIDENT_KINDS.map(k => <option key={k} value={k}>{humanLabel(k)}</option>)}
             </Select>
           </Field>
-          <Field label="Date it happened" required>
+          <Field label="Date It Happened" required>
             <Input type="date" value={iOn} max={today()} onChange={e => setIOn(e.target.value)} />
           </Field>
           <Field label="Cost (₦)" hint="Leave blank if not yet known.">
@@ -1310,7 +1310,7 @@ export default function FleetVehicle() {
             <Input type="date" value={iResolved} onChange={e => setIResolved(e.target.value)} />
           </Field>
         </div>
-        <Field label="What happened">
+        <Field label="What Happened">
           <Textarea rows={3} value={iDesc} onChange={e => setIDesc(e.target.value)} />
         </Field>
       </Modal>

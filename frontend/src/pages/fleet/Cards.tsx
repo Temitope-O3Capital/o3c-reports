@@ -243,7 +243,7 @@ export default function FleetCards() {
           searchPlaceholder="Search card name or CIF…"
           loading={loading && !cards.length} skeletonRows={6} pageSize={25}
           emptyText={
-            <EmptyState icon="credit_card_off" title="No candidate cards found"
+            <EmptyState icon="credit_card_off" title="No Candidate Cards Found"
               description="No card in the book is named like a fuel or vehicle card. Cards can still be mapped by CIF." />
           }
         />

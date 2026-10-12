@@ -122,7 +122,7 @@ function Block({ name, value }: { name: string; value: unknown }) {
           rows={rows}
           pageSize={rows.length > 25 ? 25 : undefined}
           searchKeys={rows.length > 10 ? Object.keys(rows[0] ?? {}) : undefined}
-          emptyText={<EmptyState icon="inbox" title="Nothing in this section"
+          emptyText={<EmptyState icon="inbox" title="Nothing in This Section"
             description="The report ran and this section matched no rows." />}
         />
       </SectionCard>
@@ -268,8 +268,8 @@ export default function ReportLibrary() {
             </SectionCard>
           ))}
           {catalogue && !catalogue.length && (
-            <SectionCard title="Nothing available">
-              <EmptyState icon="lock" title="No reports for your role"
+            <SectionCard title="Nothing Available">
+              <EmptyState icon="lock" title="No Reports for Your Role"
                 description="The library only lists reports you can actually run." />
             </SectionCard>
           )}
@@ -279,7 +279,7 @@ export default function ReportLibrary() {
         <div style={{ minWidth: 0 }}>
           {!entry && (
             <SectionCard title="Pick a report">
-              <EmptyState icon="analytics" title="Nothing selected yet"
+              <EmptyState icon="analytics" title="Nothing Selected Yet"
                 description="Choose a report on the left. It runs straight away for the dates in the header." />
             </SectionCard>
           )}
