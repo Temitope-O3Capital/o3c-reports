@@ -272,6 +272,21 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "auto_close_tickets:ok")
 	}
 
+	// Satisfaction surveys for tickets closed this week.
+	//
+	// This exists because the in-app resolve button was the only sender, so every
+	// ticket closed through the Zoho sync was never asked: 46 surveys against 29,240
+	// resolved tickets. It sends nothing while app_base_url is an internal host --
+	// hdSendCSATEmail refuses an unreachable link rather than mailing a survey nobody
+	// can open -- so this step is inert until Infrastructure publishes a public
+	// hostname, and says so in its heartbeat meanwhile.
+	if err := batchSendPendingCSAT(ctx, db); err != nil {
+		slog.Error("Batch: CSAT surveys failed", "err", err)
+		steps = append(steps, "helpdesk_csat:FAILED")
+	} else {
+		steps = append(steps, "helpdesk_csat:ok")
+	}
+
 	// 15. Reporting rollups.
 	//
 	// collections_daily_kpi is what Collections Performance and Agent Performance

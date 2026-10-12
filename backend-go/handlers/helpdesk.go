@@ -30,6 +30,7 @@ import (
 	"io"
 	"log/slog"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -3923,14 +3924,37 @@ func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
 		return
 	}
 
-	// Get APP_BASE_URL from settings
-	base := ""
-	if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='app_base_url'`); len(rows) > 0 {
-		base = strings.TrimRight(str(rows[0]["value"]), "/")
-	}
-	if base == "" {
-		slog.Warn("hdSendCSATEmail: app_base_url not configured, skipping CSAT email")
+	// THE LINK HAS TO BE ONE A CUSTOMER CAN OPEN, and until 2026-10-12 nobody checked.
+	// app_base_url is https://crm.o3cards.pri:8443 — an internal hostname on a private
+	// TLD — so all 46 CSAT emails ever sent carried a link that no recipient's browser
+	// could resolve. The survey was not unanswered because customers did not care; it
+	// was unanswerable.
+	//
+	// Refusing to send beats sending a broken link. A survey a customer cannot complete
+	// spends their goodwill and teaches them that our email does not work, and it does
+	// it silently — the send "succeeds", so nothing anywhere reports a fault.
+	base, baseErr := hdCSATLinkBase(ctx, db)
+	if baseErr != nil {
+		slog.Warn("hdSendCSATEmail: not sending — the survey link would be unreachable",
+			"reason", baseErr, "ticket", str(ticket["ticket_ref"]))
 		return
+	}
+
+	// CLAIM THE TICKET BEFORE SENDING. csat_sent_at is set in the same statement that
+	// checks it is NULL, so two senders racing — the resolve button and the batch pass —
+	// cannot both email the same customer. Nothing claimed means somebody else already
+	// asked, and this call simply stops.
+	claimed, claimErr := db.PGQuery(ctx, `
+		UPDATE helpdesk_tickets
+		   SET csat_sent_at = NOW()
+		 WHERE id = $1 AND csat_sent_at IS NULL
+		RETURNING id`, toInt64(ticket["id"]))
+	if claimErr != nil {
+		slog.Error("hdSendCSATEmail: could not claim the survey", "err", claimErr)
+		return
+	}
+	if len(claimed) == 0 {
+		return // Already asked. Not an error, and not worth a log line per pass.
 	}
 
 	csatURL := fmt.Sprintf("%s/csat/%s", base, csatToken)
@@ -3953,7 +3977,7 @@ func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
 		"1 for poor and 5 for excellent:\n%s\n\nThe Customer Care team\nO3 Capital",
 		customerName, ticketRef, csatURL)
 
-	SendMail(ctx, db, SendMailOptions{
+	res := SendMail(ctx, db, SendMailOptions{
 		To:          []MailAddress{{Email: toEmail, Name: customerName}},
 		Subject:     subject,
 		HTMLBody:    html,
@@ -3964,6 +3988,144 @@ func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
 		RelatedID:   toInt64(ticket["id"]),
 		Attachments: []MailAttachment{brandedLogoAttachment()},
 	})
+	// RELEASE THE CLAIM IF THE SEND FAILED, so the next pass can try again. Holding it
+	// would mean one transient provider error permanently costs that customer's survey,
+	// and the claim exists to prevent a DOUBLE send, not to record an attempt. The
+	// retry is bounded by the sender's own window (see batchSendPendingCSAT), so a
+	// permanently bad address stops being retried when the ticket ages out rather than
+	// looping for ever.
+	if !res.OK {
+		slog.Error("hdSendCSATEmail: send failed, releasing the claim so it can retry",
+			"ticket", ticketRef, "err", res.Error)
+		db.PGExec(ctx, `UPDATE helpdesk_tickets SET csat_sent_at = NULL WHERE id = $1`, //nolint:errcheck
+			toInt64(ticket["id"]))
+	}
+}
+
+// csatSendWindowDays bounds how far back the sender looks.
+//
+// This number IS the blast radius, so it is small on purpose. Without a window the first
+// run would email every customer whose ticket was ever resolved — measured 2026-10-12:
+// 353 tickets carry a customer email, and 0 of them closed in the last seven days. With
+// the window, switching this on cannot produce a bulk send; it reaches only people whose
+// ticket closed this week, which is also the only time the question makes sense.
+const csatSendWindowDays = 7
+
+// batchSendPendingCSAT asks recently-resolved customers how it went.
+//
+// A batch step rather than a hook on the close path, and that is the point: the in-app
+// resolve button was the ONLY sender, so every ticket closed through the Zoho sync —
+// nearly all of them — was never asked. Measured: 46 surveys against 29,240 resolved
+// tickets, 0.16%. Polling for "resolved, never asked" catches closures from every
+// source, including sources that do not exist yet, instead of needing a new hook each
+// time one is added.
+//
+// IT IS SAFE TO RUN TODAY AND DOES NOTHING TODAY. hdSendCSATEmail refuses to send while
+// the survey link would be unreachable, and app_base_url is currently an internal host —
+// so this records its reason in the worker heartbeat and sends nothing until
+// Infrastructure publishes a public hostname. Deliberate: the alternative was leaving it
+// unbuilt and forgetting why.
+func batchSendPendingCSAT(ctx context.Context, db *core.DB) error {
+	// Checked once, before the query, so a disabled sender costs one settings read
+	// rather than a scan plus a log line per ticket.
+	if _, err := hdCSATLinkBase(ctx, db); err != nil {
+		WorkerBeat(ctx, db, "helpdesk_csat", "ok", "not sending: "+err.Error(), "")
+		return nil
+	}
+
+	rows, err := db.PGQuery(ctx, `
+		SELECT id, ticket_ref, customer_name, customer_email, csat_token
+		  FROM helpdesk_tickets
+		 WHERE csat_sent_at IS NULL
+		   AND resolved_at IS NOT NULL
+		   -- ($1 * interval '1 day'), NOT ($1 || ' days')::interval. pgx binds the
+		   -- parameter as a number and cannot encode it as text, so the concatenated
+		   -- form fails at execution — which TestNoConcatenatedIntervalParams exists to
+		   -- catch, and did catch here before this ever ran.
+		   AND resolved_at >= NOW() - ($1 * interval '1 day')
+		   AND NULLIF(customer_email, '') IS NOT NULL
+		   AND NULLIF(csat_token, '')     IS NOT NULL
+		   AND csat_submitted_at IS NULL
+		 ORDER BY resolved_at DESC
+		 LIMIT 200`, csatSendWindowDays)
+	if err != nil {
+		WorkerBeat(ctx, db, "helpdesk_csat", "error", "", err.Error())
+		return fmt.Errorf("batchSendPendingCSAT: %w", err)
+	}
+
+	sent := 0
+	for _, t := range rows {
+		// hdSendCSATEmail claims each row atomically, so this loop is safe to run
+		// alongside the resolve button without double-asking anybody.
+		hdSendCSATEmail(ctx, db, t)
+		sent++
+	}
+	if sent > 0 {
+		slog.Info("batchSendPendingCSAT: surveys sent", "count", sent)
+	}
+	WorkerBeat(ctx, db, "helpdesk_csat", "ok", fmt.Sprintf("%d survey(s) attempted", sent), "")
+	return nil
+}
+
+// hdCSATLinkBase returns the base URL for a customer-facing survey link, or an error
+// explaining why there isn't one.
+//
+// It exists because app_base_url serves two different audiences and only one of them is
+// inside the network. Staff follow links to crm.o3cards.pri:8443 perfectly well; a
+// customer's phone cannot resolve it at all. Rather than add a second setting that can
+// drift out of step with the first, this validates the one setting against what a
+// customer-facing link has to be.
+func hdCSATLinkBase(ctx context.Context, db *core.DB) (string, error) {
+	base := ""
+	if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='app_base_url'`); len(rows) > 0 {
+		base = strings.TrimRight(strings.TrimSpace(str(rows[0]["value"])), "/")
+	}
+	if base == "" {
+		return "", fmt.Errorf("app_base_url is not configured")
+	}
+	if !hdCSATBaseIsPublic(base) {
+		return "", fmt.Errorf("app_base_url %q is not reachable from outside the network", base)
+	}
+	return base, nil
+}
+
+// hdCSATBaseIsPublic is deliberately a pure function over the URL text: it is the piece
+// worth testing, and it must not need a database or a DNS lookup to decide. A DNS check
+// would be the "proper" test and the wrong one — it would pass inside the office, fail
+// in CI, and make a customer email depend on the resolver of whichever host sent it.
+//
+// It answers "could a stranger's browser open this?", and errs towards NO.
+func hdCSATBaseIsPublic(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	// http would put a survey token in the clear. Only https is a customer-facing link.
+	if u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return false
+	}
+	// Private TLDs and the ones reserved for internal naming. .pri is the one in use
+	// here; the rest are on the list because they are the obvious next mistake.
+	for _, suffix := range []string{".pri", ".local", ".internal", ".lan", ".intranet", ".corp", ".home"} {
+		if strings.HasSuffix(host, suffix) {
+			return false
+		}
+	}
+	// A bare hostname with no dot is a machine name, not a domain.
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	// RFC 1918 and link-local, for a base configured as an IP address.
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return false
+		}
+	}
+	return true
 }
 
 // ── Parsing / normalization helpers ──────────────────────────────────────────
