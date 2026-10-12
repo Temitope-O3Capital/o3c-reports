@@ -63,6 +63,28 @@ WITH assign AS (
      WHERE money_in = true AND COALESCE(amount_credit,0) > 0
        AND txn_date >= CURRENT_DATE - INTERVAL '12 months'
      GROUP BY 1
+), loan_paid AS (
+    -- Repayments received on a UDARA loan, keyed on the LOAN ACCOUNT NUMBER.
+    --
+    -- The Udara arm below used to report 0 paid on every facility, with a correct
+    -- reason: collection_payments is keyed by cards account_cif, a namespace that
+    -- COLLIDES with cbs_customer_id, so it must not be reached from this arm. True —
+    -- but it left the arm with no paid figure at all, and app.loan_repayments is the
+    -- feed that belongs here. It keys on cbs_loan_account, which is an ACCOUNT NUMBER
+    -- and not a customer id, so it carries none of that collision risk: all 88 rows
+    -- join to cbs_loans.cbs_account_number exactly.
+    --
+    -- Live, that silence hid 135,566,488 naira of real repayment across 20 of the 42
+    -- live Udara facilities — FINTRAK alone had five receipts totalling 56.8m while
+    -- the page reported nothing collected.
+    --
+    -- No 12-month window, unlike card_paid: a loan is repaid over its whole life and
+    -- the figure wanted here is cumulative, which is also how cif_paid treats the
+    -- uploaded arm. Keeping the two loan arms on the same basis is the point.
+    SELECT cbs_loan_account, SUM(COALESCE(amount_kobo,0)) AS paid_kobo
+      FROM app.loan_repayments
+     WHERE NULLIF(TRIM(cbs_loan_account),'') IS NOT NULL
+     GROUP BY 1
 ), cif_paid AS (
     -- 2026-09-21: this had NO status filter, so money still inside the HOP -> COO ->
     -- CFO approval chain counted as repaid. Live that was 11 rows / N106,393,555.56 of
@@ -222,12 +244,28 @@ WITH assign AS (
            -- else the full outstanding (policy for a matured facility).
            COALESCE(NULLIF(cl.installment_amount_kobo,0),
                     COALESCE(cl.outstanding_principal_kobo,0)+COALESCE(cl.outstanding_interest_kobo,0)),
-           GREATEST(COALESCE(cl.loan_amount_kobo,0)-COALESCE(cl.outstanding_principal_kobo,0),0),
-           -- Paydown on this arm is Udara's own outstanding principal, which carries no
-           -- approval chain. collection_payments is keyed by CARDS account_cif, a
-           -- different namespace that COLLIDES with cbs_customer_id (Udara 00000424 is
-           -- FINTRAK; card CIF 00000424 is Adetunji Taiwo), so it must not be reached
-           -- from this arm at all.
+           -- AMOUNT REPAID IS NOW THE RECEIPTS, not the balance movement.
+           --
+           -- This was GREATEST(loan_amount - outstanding_principal, 0): the drop in
+           -- principal, which is not the same thing as money received and must not be
+           -- labelled "Repaid". It moves for a restructure, a write-down, an interest
+           -- capitalisation or a correction, and it omits every naira of interest and
+           -- fee actually collected. Live, the two disagree in BOTH directions —
+           -- FINTRAK had 40.0m of paydown against 56.8m of receipts, HARRIET ODOMETA
+           -- 30.0m against 28.8m — so neither substitutes for the other.
+           --
+           -- app.loan_repayments is the receipt feed and keys on the loan ACCOUNT
+           -- NUMBER, so it carries none of the cbs_customer_id collision risk that
+           -- (correctly) keeps collection_payments away from this arm.
+           --
+           -- Where no receipt is on record the figure is 0, which is the honest answer:
+           -- 22 of the 42 live facilities have no repayment row, and the old derived
+           -- number was presenting an inference as a collection. The paydown it used to
+           -- show is still derivable on the client from loc_kobo - outstanding_kobo,
+           -- both of which this arm already returns.
+           COALESCE(lp.paid_kobo,0)::bigint,
+           -- Udara receipts post straight from core banking and pass through no
+           -- approval chain, so none of this money is awaiting sign-off.
            0::bigint,
            false,
            -- THE FIX (2026-09-21). The cif column above still COALESCEs to the raw
@@ -240,6 +278,9 @@ WITH assign AS (
            uo.customer_key
       FROM cbs_loans cl
       LEFT JOIN udara_owner uo ON uo.cbs_customer_id = cl.cbs_customer_id
+      -- On the loan ACCOUNT NUMBER. Deliberately not on any customer id: that is the
+      -- namespace that collides, and this one does not.
+      LEFT JOIN loan_paid lp    ON lp.cbs_loan_account = cl.cbs_account_number
      WHERE cl.status NOT IN ('Closed','Revoked')
 
     UNION ALL
