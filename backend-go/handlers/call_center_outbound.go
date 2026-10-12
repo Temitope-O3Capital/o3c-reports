@@ -3906,6 +3906,35 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 		`UPDATE call_center_leads SET forwarded_at = COALESCE(forwarded_at, NOW()) WHERE id=$1`, leadID); err != nil {
 		slog.Error("recordCallHandoff: stamp forwarded_at", "lead", leadID, "err", err)
 	}
+
+	// DELIVER the lead, do not merely record that it was handed over.
+	//
+	// The Leads queue is gated on crm_contacts.sales_entered_at (migration 302) and
+	// nothing on this path ever set it — only the explicit "Forward to Sales" button
+	// did, over in call_center_forwards.go. So an agent dispositioning a call
+	// "Interested" wrote the ledger row, the timeline event and the alerts, and the
+	// lead stayed invisible to Sales for ever. Measured 2026-10-12: 140 of 325
+	// automatic hand-offs had never reached the queue, including all 80 raised that
+	// month — while the alerts told a head about every one of them.
+	//
+	// This is the same failure migration 302's note describes being fixed once before;
+	// it was fixed for the button and never for the path leads actually take.
+	//
+	// COALESCE, not NOW(): re-qualifying a lead that is already with Sales must not
+	// reset its age and make a fortnight-old hand-off look like this morning's work.
+	// The rest of the column set mirrors forwardLeadToSales so the two routes deliver
+	// an identical lead — the only difference being who pressed what.
+	if _, err := db.PGExec(ctx, `
+		UPDATE crm_contacts
+		   SET sales_entered_at = COALESCE(sales_entered_at, NOW()),
+		       sales_source     = COALESCE(sales_source, 'call_centre'),
+		       lead_source      = COALESCE(NULLIF(lead_source, ''), 'call_centre'),
+		       source           = COALESCE(NULLIF(source, ''), 'call_centre'),
+		       last_activity_at = NOW(),
+		       updated_at       = NOW()
+		 WHERE id = $1`, contactID); err != nil {
+		slog.Error("recordCallHandoff: deliver to sales", "contact", contactID, "err", err)
+	}
 	if _, err := db.PGExec(ctx,
 		`INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
 		 VALUES ($1,'forwarded_to_sales',$2,'qualified',$3,$4)`,
@@ -3913,13 +3942,15 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 		slog.Error("recordCallHandoff: timeline event", "contact", contactID, "err", err)
 	}
 
-	// Tell Sales. ccDistribute announces every hand-out, but this path — the one
-	// leads actually take — notified nobody, so a qualified lead could sit unclaimed
-	// indefinitely with nothing escalating. Grouped, so a busy afternoon collapses
-	// into one digest rather than a ping per lead, and fire-and-forget like the rest
-	// of this function.
+	// Tell Sales. ccDistribute announces every hand-out, but this path — the one leads
+	// actually take — told only sales_head, in a digest that said no more than "a lead
+	// was qualified": not which lead, not where, and nothing to the officer who would
+	// work it or the agent who earned it. notifyLeadForwarded addresses all three and
+	// names the customer and the town. Fire-and-forget like the rest of this function:
+	// the hand-off is already recorded, and an alert must never throw at an agent who
+	// has just put the phone down.
 	go NotifyRoles(context.WithoutCancel(ctx), db, []string{"sales_head"}, NotifPayload{
-		EventType: "cc_lead_forwarded",
+		EventType: EvtLeadForwarded,
 		Title:     "Lead Forwarded From the Call Centre",
 		Body:      "A call-centre agent qualified a lead. Assign it in the hand-off tracker.",
 		ActionURL: "/call-center/forwards",
@@ -3927,6 +3958,7 @@ func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64
 		GroupKey:  "cc:forwarded",
 		Priority:  "high",
 	})
+	go notifyLeadForwarded(context.WithoutCancel(ctx), db, leadID, agentID)
 }
 
 // crmLinkLeadToContact gives a worked lead its place in the CRM book: an existing
