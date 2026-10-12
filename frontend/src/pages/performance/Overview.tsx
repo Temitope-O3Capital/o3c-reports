@@ -57,6 +57,10 @@ interface PersonRow {
   avg_business_h: number | string | null
   median_calendar_h: number | string | null
   median_business_h: number | string | null
+  // The closure-timed population, kept apart. Blending the two gave an average of
+  // 148 business hours over a set whose resolution-timed half averages 2.9.
+  closure_avg_business_h: number | string | null
+  closure_median_business_h: number | string | null
   breach_calendar: number
   breach_business: number
 }
@@ -76,6 +80,8 @@ interface HelpdeskPayload {
     completed: number; on_resolution: number; on_closure: number; unattributed: number
     avg_calendar_h: number | string | null; avg_business_h: number | string | null
     median_calendar_h: number | string | null; median_business_h: number | string | null
+    closure_avg_business_h: number | string | null
+    closure_median_business_h: number | string | null
     breach_calendar: number; breach_business: number
   } | null
   backlog: {
@@ -135,13 +141,32 @@ function ninetyDaysAgo(): string {
 
 /* The paired-clock cell: working hours lead, calendar sits underneath in the
    de-emphasised position, because the working figure is the one that describes the
-   work. Both are present so neither is taken on trust. */
-function ClockPair({ business, calendar }: {
+   work. Both are present so neither is taken on trust.
+
+   When no resolution-timed ticket exists for the window, the figure falls back to the
+   closure-timed population and SAYS SO. The two are never averaged together: the
+   closure-timed tickets carry a long administrative lag, and one mean over both
+   describes neither. */
+function ClockPair({ business, calendar, closureBusiness }: {
   business: number | string | null
   calendar: number | string | null
+  closureBusiness?: number | string | null
 }) {
   const b = num(business)
   const c = num(calendar)
+  const onClosure = b === null && num(closureBusiness) !== null
+
+  if (onClosure) {
+    return (
+      <div style={{ minWidth: 0 }}>
+        <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
+          {hrs(closureBusiness)}
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: AMBER }}>timed on closure</div>
+      </div>
+    )
+  }
+
   const ratio = b !== null && c !== null && b > 0 ? c / b : null
   return (
     <div style={{ minWidth: 0 }}>
@@ -221,11 +246,13 @@ export default function PerformanceOverview() {
     },
     {
       key: 'median_business_h', label: 'Median Time', align: 'right', sortable: true, width: 140,
-      render: r => <ClockPair business={r.median_business_h} calendar={r.median_calendar_h} />,
+      render: r => <ClockPair business={r.median_business_h} calendar={r.median_calendar_h}
+        closureBusiness={r.closure_median_business_h} />,
     },
     {
       key: 'avg_business_h', label: 'Average Time', align: 'right', sortable: true, width: 140,
-      render: r => <ClockPair business={r.avg_business_h} calendar={r.avg_calendar_h} />,
+      render: r => <ClockPair business={r.avg_business_h} calendar={r.avg_calendar_h}
+        closureBusiness={r.closure_avg_business_h} />,
     },
     {
       key: 'breach_business', label: 'Past Allowance', align: 'right', sortable: true, width: 150,
@@ -443,9 +470,14 @@ export default function PerformanceOverview() {
               ? `${fmtNum(t?.unattributed)} with no assignee`
               : 'all attributed'}
           icon="task_alt" accent={NAVY} loading={loading && !hd} />
-        <KpiCard label="Median Time to Resolve" value={hrs(t?.median_business_h)}
-          sub={`${hrs(t?.median_calendar_h)} on the calendar clock`}
-          icon="schedule" accent={BLUE} loading={loading && !hd} />
+        <KpiCard label="Median Time to Resolve"
+          value={num(t?.median_business_h) !== null
+            ? hrs(t?.median_business_h) : hrs(t?.closure_median_business_h)}
+          sub={num(t?.median_business_h) !== null
+            ? `${hrs(t?.median_calendar_h)} on the calendar clock`
+            : 'timed on closure — no resolution times in this period'}
+          icon="schedule"
+          accent={num(t?.median_business_h) !== null ? BLUE : AMBER} loading={loading && !hd} />
         <KpiCard label="Past Their Allowance" value={fmtNum(t?.breach_business)}
           sub={`${fmtNum(t?.breach_calendar)} on the calendar clock`}
           icon="running_with_errors"
@@ -459,7 +491,7 @@ export default function PerformanceOverview() {
           date-filtered tiles above rather than appearing to move with them. */}
       {bl && Number(bl.open_tickets) > 0 && (
         <SectionCard title="Open Right Now" style={{ marginBottom: SP[5] }}
-          subtitle="A position rather than a period figure — the date filter above does not apply to it">
+          subtitle="A position rather than a period figure. The date filter above does not apply to it">
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
             gap: SP[4],

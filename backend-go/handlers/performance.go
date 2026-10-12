@@ -246,10 +246,22 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 			       COUNT(*)                                                 AS completed,
 			       COUNT(*) FILTER (WHERE t.on_resolution)                  AS on_resolution,
 			       COUNT(*) FILTER (WHERE NOT t.on_resolution)              AS on_closure,
-			       ROUND(AVG(t.cal_h), 1)                                   AS avg_calendar_h,
-			       ROUND(AVG(t.bus_h), 1)                                   AS avg_business_h,
-			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.cal_h))::numeric, 1) AS median_calendar_h,
-			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.bus_h))::numeric, 1) AS median_business_h,
+			       -- Durations are computed PER BASIS and never blended. Blending them
+			       -- once produced an average of 148 business hours over a population
+			       -- whose resolution-timed half averages 2.9: the closure-timed tickets
+			       -- carry a long administrative lag between the work finishing and
+			       -- somebody closing the record, so one mean over both describes
+			       -- neither. The UI shows the resolution figure where it exists and
+			       -- falls back to the closure figure, labelled.
+			       ROUND(AVG(t.cal_h) FILTER (WHERE t.on_resolution), 1)    AS avg_calendar_h,
+			       ROUND(AVG(t.bus_h) FILTER (WHERE t.on_resolution), 1)    AS avg_business_h,
+			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.cal_h)
+			              FILTER (WHERE t.on_resolution))::numeric, 1)      AS median_calendar_h,
+			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.bus_h)
+			              FILTER (WHERE t.on_resolution))::numeric, 1)      AS median_business_h,
+			       ROUND(AVG(t.bus_h) FILTER (WHERE NOT t.on_resolution), 1) AS closure_avg_business_h,
+			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.bus_h)
+			              FILTER (WHERE NOT t.on_resolution))::numeric, 1)  AS closure_median_business_h,
 			       COUNT(*) FILTER (WHERE t.cal_h > t.allow_h)              AS breach_calendar,
 			       COUNT(*) FILTER (WHERE t.bus_h > t.allow_h)              AS breach_business
 			  FROM t JOIN app.o3c_users u ON u.id = t.assigned_to
@@ -271,10 +283,15 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE on_resolution)        AS on_resolution,
 			       COUNT(*) FILTER (WHERE NOT on_resolution)    AS on_closure,
 			       COUNT(*) FILTER (WHERE assigned_to IS NULL)  AS unattributed,
-			       ROUND(AVG(cal_h), 1)                         AS avg_calendar_h,
-			       ROUND(AVG(bus_h), 1)                         AS avg_business_h,
-			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY cal_h))::numeric, 1) AS median_calendar_h,
-			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY bus_h))::numeric, 1) AS median_business_h,
+			       ROUND(AVG(cal_h) FILTER (WHERE on_resolution), 1) AS avg_calendar_h,
+			       ROUND(AVG(bus_h) FILTER (WHERE on_resolution), 1) AS avg_business_h,
+			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY cal_h)
+			              FILTER (WHERE on_resolution))::numeric, 1) AS median_calendar_h,
+			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY bus_h)
+			              FILTER (WHERE on_resolution))::numeric, 1) AS median_business_h,
+			       ROUND(AVG(bus_h) FILTER (WHERE NOT on_resolution), 1) AS closure_avg_business_h,
+			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY bus_h)
+			              FILTER (WHERE NOT on_resolution))::numeric, 1) AS closure_median_business_h,
 			       COUNT(*) FILTER (WHERE cal_h > allow_h)      AS breach_calendar,
 			       COUNT(*) FILTER (WHERE bus_h > allow_h)      AS breach_business
 			  FROM t`, from, to); len(rows) > 0 {
