@@ -207,18 +207,34 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 		//
 		// allow_h is each ticket's OWN allowance (sla_due_at - created_at), not a
 		// policy lookup, because that is the promise the ticket was actually given.
+		// COMPLETION IS resolved_at OR, FAILING THAT, closed_at.
+		//
+		// Keying on resolved_at alone made this module blind. Zoho's resolvedTime stopped
+		// arriving on 2026-09-11 while closedTime kept flowing — a ticket was closed today
+		// at 16:56 and the newest resolved_at is a month old — so every figure here went
+		// empty for the most recent month while work plainly continued. It also silently
+		// dropped 9,599 tickets that are closed and carry no resolution time at all,
+		// roughly a third of all finished work.
+		//
+		// Falling back to closed_at measures the same thing slightly later: closed is at
+		// or after resolved, so a duration taken this way is an upper bound, never
+		// flattering. Which basis each figure used is counted and reported beside it
+		// rather than blended invisibly.
 		const base = `
 			WITH t AS (
 			  SELECT t.assigned_to,
-			         (EXTRACT(EPOCH FROM (t.resolved_at - t.created_at)) / 3600.0)::numeric AS cal_h,
-			         app.business_hours_between(t.created_at, t.resolved_at)                AS bus_h,
+			         (t.resolved_at IS NOT NULL) AS on_resolution,
+			         (EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, t.closed_at) - t.created_at))
+			            / 3600.0)::numeric AS cal_h,
+			         app.business_hours_between(t.created_at,
+			            COALESCE(t.resolved_at, t.closed_at))                               AS bus_h,
 			         (EXTRACT(EPOCH FROM (t.sla_due_at  - t.created_at)) / 3600.0)::numeric AS allow_h
 			    FROM app.helpdesk_tickets t
-			   WHERE t.resolved_at IS NOT NULL
+			   WHERE COALESCE(t.resolved_at, t.closed_at) IS NOT NULL
 			     AND t.sla_due_at IS NOT NULL
 			     AND t.deleted_at IS NULL
-			     AND t.resolved_at >= $1::date
-			     AND t.resolved_at <  ($2::date + 1)
+			     AND COALESCE(t.resolved_at, t.closed_at) >= $1::date
+			     AND COALESCE(t.resolved_at, t.closed_at) <  ($2::date + 1)
 			)`
 
 		// Per person. Ordered by volume, not by speed: a league table sorted on speed
@@ -227,7 +243,9 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 			SELECT u.id AS user_id,
 			       COALESCE(NULLIF(btrim(u.full_name), ''), 'User ' || u.id) AS name,
 			       COALESCE(NULLIF(btrim(u.department), ''), '')             AS department,
-			       COUNT(*)                                                 AS resolved,
+			       COUNT(*)                                                 AS completed,
+			       COUNT(*) FILTER (WHERE t.on_resolution)                  AS on_resolution,
+			       COUNT(*) FILTER (WHERE NOT t.on_resolution)              AS on_closure,
 			       ROUND(AVG(t.cal_h), 1)                                   AS avg_calendar_h,
 			       ROUND(AVG(t.bus_h), 1)                                   AS avg_business_h,
 			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.cal_h))::numeric, 1) AS median_calendar_h,
@@ -236,7 +254,7 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE t.bus_h > t.allow_h)              AS breach_business
 			  FROM t JOIN app.o3c_users u ON u.id = t.assigned_to
 			 GROUP BY u.id, u.full_name, u.department
-			 ORDER BY resolved DESC`, from, to); err == nil {
+			 ORDER BY completed DESC`, from, to); err == nil {
 			if rows == nil {
 				rows = []core.Row{}
 			}
@@ -249,7 +267,9 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 		// The same figures for the department as a whole, including the tickets that
 		// have no assignee — which no per-person row can show.
 		if rows, _ := db.PGQuery(ctx, base+`
-			SELECT COUNT(*)                                     AS resolved,
+			SELECT COUNT(*)                                     AS completed,
+			       COUNT(*) FILTER (WHERE on_resolution)        AS on_resolution,
+			       COUNT(*) FILTER (WHERE NOT on_resolution)    AS on_closure,
 			       COUNT(*) FILTER (WHERE assigned_to IS NULL)  AS unattributed,
 			       ROUND(AVG(cal_h), 1)                         AS avg_calendar_h,
 			       ROUND(AVG(bus_h), 1)                         AS avg_business_h,
@@ -306,12 +326,13 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 			       COUNT(escalated_at)             AS with_escalation,
 			       COUNT(*) FILTER (WHERE is_flagged) AS flagged,
 			       COUNT(resolved_by)              AS with_resolver,
-			       -- Closed but never marked resolved, so they finished and cannot be
-			       -- timed. They are excluded from every duration above rather than
-			       -- counted as instant.
+			       -- Closed but never marked resolved. These are now timed on closed_at
+			       -- rather than dropped, which is why the figures above cover them --
+			       -- but the basis is different and the count is reported so it shows.
 			       COUNT(*) FILTER (WHERE closed_at IS NOT NULL
 			                          AND resolved_at IS NULL) AS closed_without_resolution,
-			       MAX(resolved_at)::date          AS last_resolution
+			       MAX(resolved_at)::date          AS last_resolution,
+			       MAX(closed_at)::date            AS last_closure
 			  FROM app.helpdesk_tickets`); len(rows) > 0 {
 			out["unmeasurable"] = rows[0]
 		}

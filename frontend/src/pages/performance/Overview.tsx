@@ -48,7 +48,11 @@ interface PersonRow {
   user_id: number
   name: string
   department: string
-  resolved: number
+  completed: number
+  // Which instant the duration was taken from: a real resolution, or the closure
+  // that stood in for one. Reported, never blended away.
+  on_resolution: number
+  on_closure: number
   avg_calendar_h: number | string | null
   avg_business_h: number | string | null
   median_calendar_h: number | string | null
@@ -69,7 +73,7 @@ interface HelpdeskPayload {
   period: { from: string; to: string }
   by_person: PersonRow[]
   totals: {
-    resolved: number; unattributed: number
+    completed: number; on_resolution: number; on_closure: number; unattributed: number
     avg_calendar_h: number | string | null; avg_business_h: number | string | null
     median_calendar_h: number | string | null; median_business_h: number | string | null
     breach_calendar: number; breach_business: number
@@ -83,7 +87,8 @@ interface HelpdeskPayload {
   unmeasurable: {
     tickets: number; with_csat: number; with_first_response: number
     with_escalation: number; flagged: number; with_resolver: number
-    closed_without_resolution: number; last_resolution: string | null
+    closed_without_resolution: number
+    last_resolution: string | null; last_closure: string | null
   } | null
 }
 
@@ -200,8 +205,19 @@ export default function PerformanceOverview() {
       ),
     },
     {
-      key: 'resolved', label: 'Resolved', align: 'right', sortable: true, width: 100,
-      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtNum(r.resolved)}</span>,
+      key: 'completed', label: 'Completed', align: 'right', sortable: true, width: 120,
+      render: r => (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>
+            {fmtNum(r.completed)}
+          </div>
+          {Number(r.on_closure) > 0 && (
+            <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+              {fmtNum(r.on_closure)} timed on closure
+            </div>
+          )}
+        </div>
+      ),
     },
     {
       key: 'median_business_h', label: 'Median Time', align: 'right', sortable: true, width: 140,
@@ -216,7 +232,7 @@ export default function PerformanceOverview() {
       render: r => {
         const b = Number(r.breach_business)
         const c = Number(r.breach_calendar)
-        const pct = Number(r.resolved) > 0 ? (100 * b) / Number(r.resolved) : 0
+        const pct = Number(r.completed) > 0 ? (100 * b) / Number(r.completed) : 0
         return (
           <div style={{ minWidth: 0 }}>
             <div style={{
@@ -420,10 +436,12 @@ export default function PerformanceOverview() {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))',
         gap: SP[3], marginBottom: SP[5],
       }}>
-        <KpiCard label="Tickets Resolved" value={fmtNum(t?.resolved)}
-          sub={Number(t?.unattributed ?? 0) > 0
-            ? `${fmtNum(t?.unattributed)} with no assignee`
-            : 'all attributed'}
+        <KpiCard label="Tickets Completed" value={fmtNum(t?.completed)}
+          sub={Number(t?.on_closure ?? 0) > 0
+            ? `${fmtNum(t?.on_closure)} timed on closure, not resolution`
+            : Number(t?.unattributed ?? 0) > 0
+              ? `${fmtNum(t?.unattributed)} with no assignee`
+              : 'all attributed'}
           icon="task_alt" accent={NAVY} loading={loading && !hd} />
         <KpiCard label="Median Time to Resolve" value={hrs(t?.median_business_h)}
           sub={`${hrs(t?.median_calendar_h)} on the calendar clock`}
@@ -536,8 +554,17 @@ export default function PerformanceOverview() {
                   </li>
                   <li>
                     <strong>{fmtNum(um.closed_without_resolution)} closed tickets carry no
-                    resolution time</strong> and are excluded from the durations above rather than
-                    counted as instant.
+                    resolution time</strong>, so their duration is taken to the moment they were
+                    closed instead. Closure is at or after resolution, so those figures are an
+                    upper bound — never flattering.
+                    {um.last_resolution && um.last_closure
+                      && um.last_resolution < um.last_closure && (
+                      <> The feed stopped supplying resolution times on{' '}
+                        <strong>{fmtDate(um.last_resolution)}</strong> while closures continued to{' '}
+                        {fmtDate(um.last_closure)}, which is why that count matters: without the
+                        fallback this page would be blank for everything since.
+                      </>
+                    )}
                   </li>
                 </ul>
               </div>

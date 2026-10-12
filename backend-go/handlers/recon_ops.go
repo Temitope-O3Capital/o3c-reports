@@ -551,10 +551,19 @@ func reconExceptionResolve(db *core.DB) http.HandlerFunc {
 			status = "written_off"
 		}
 
+		// assigned_to is filled in from the resolver when nobody held the item.
+		//
+		// Without this, recon_exceptions carried assigned_to NULL on all 24,100 rows:
+		// the queue is worked by whoever opens it, and only an explicit assignment ever
+		// wrote the column. That is what made settlement read as unmeasurable in the
+		// staff performance survey — not that nothing was done, but that nothing
+		// recorded who did it. COALESCE so a real assignment is never overwritten by
+		// whoever happened to close the item.
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE recon_exceptions
 			SET status=$1, resolution_code=$2, resolution_note=$3,
-			    resolved_by=$4, resolved_at=NOW(), updated_at=NOW()
+			    resolved_by=$4, resolved_at=NOW(), updated_at=NOW(),
+			    assigned_to=COALESCE(assigned_to, $4)
 			WHERE id=$5 AND status IN ('open','investigating')
 			RETURNING id`, status, b.ResolutionCode, b.Note, user.ID, id)
 		if err != nil || len(rows) == 0 {
