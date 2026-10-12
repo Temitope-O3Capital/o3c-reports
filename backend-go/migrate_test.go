@@ -2,6 +2,7 @@ package main
 
 import (
 	"io/fs"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,6 +21,17 @@ import (
 // problem from growing while several people add migrations on the same day.
 //
 // If this fails: rename YOUR new file to the next free number. Do not add it below.
+//
+// And do not pick the number by hand next time — that is what loses this race. Picking
+// from a directory listing and writing the file minutes later is a window other
+// sessions land in, which is how 358 and 364 were both lost on 2026-10-12:
+//
+//	go run ./cmd/newmigration -name the_thing_it_does   # claims the number atomically
+//	go run ./cmd/newmigration -promote 368              # draft -> live, when ready
+//
+// The claim is the file creation itself (O_EXCL), and it lands as .sql.draft so the
+// number is reserved without the half-written migration becoming runnable. This list
+// should not need another entry.
 var grandfatheredDuplicateMigrations = map[string]bool{
 	"079": true,
 	"110": true,
@@ -123,9 +135,85 @@ var grandfatheredDuplicateMigrations = map[string]bool{
 	// directory within minutes of each other. If it keeps happening, the fix is to
 	// stop numbering by hand, not to keep extending this list.
 	"364": true,
+	// 365_an_approved_payment_names_its_approver and
+	// 365_every_held_lead_has_a_first_action, 2026-10-12. Applied 20:17:05 and 21:02:14.
+	//
+	// The THIRD collision of the same evening, after 358 and 364. Three in one day is
+	// not three mistakes; it is one broken mechanism, and the entry above saying "if it
+	// keeps happening, the fix is to stop numbering by hand" was written forty minutes
+	// before this one happened. So that is now done: cmd/newmigration claims a number by
+	// creating the file with O_EXCL, which is a claim nobody can lose, and lands it as
+	// .sql.draft so reserving a number does not also schedule a half-written migration.
+	// TestNoLiveMigrationTakesAClaimedNumber enforces the reservation, because the
+	// embedded FS the test above reads cannot see a draft.
+	//
+	// This should be the last entry in this list.
+	"365": true,
 }
 
 var migrationNumberRE = regexp.MustCompile(`^(\d+)_`)
+
+// A .sql must not land on a number a .sql.draft has already claimed.
+//
+// This reads the REAL directory rather than migrationFiles, and that is the point:
+// //go:embed migrations/*.sql cannot see a draft, so the collision test above is blind
+// to exactly the reservations that exist to prevent collisions. Without this, claiming
+// a number would be advisory.
+func TestNoLiveMigrationTakesAClaimedNumber(t *testing.T) {
+	entries, err := os.ReadDir("migrations")
+	if err != nil {
+		t.Fatalf("read migrations from disk: %v", err)
+	}
+
+	drafts := map[string]string{}
+	live := map[string][]string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		m := migrationNumberRE.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(name, ".sql.draft"):
+			drafts[m[1]] = name
+		case strings.HasSuffix(name, ".sql"):
+			live[m[1]] = append(live[m[1]], name)
+		}
+	}
+
+	for number, draft := range drafts {
+		if names, clash := live[number]; clash {
+			t.Errorf("%s is claimed by %s but %s also uses it. Claim a fresh number with "+
+				"`go run ./cmd/newmigration -name ...` rather than taking a reserved one.",
+				number, draft, strings.Join(names, ", "))
+		}
+	}
+
+	// Two drafts on one number would mean the atomic claim is not atomic.
+	seen := map[string]string{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".sql.draft") {
+			continue
+		}
+		m := migrationNumberRE.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		if prev, dup := seen[m[1]]; dup {
+			t.Errorf("two drafts claim %s (%s and %s) — the O_EXCL claim in "+
+				"cmd/newmigration should make this impossible", m[1], prev, name)
+		}
+		seen[m[1]] = name
+	}
+
+	if len(drafts) > 0 {
+		t.Logf("%d migration number(s) reserved by a draft", len(drafts))
+	}
+}
 
 func TestMigrationNumbersDoNotCollide(t *testing.T) {
 	entries, err := fs.ReadDir(migrationFiles, "migrations")
@@ -153,7 +241,10 @@ func TestMigrationNumbersDoNotCollide(t *testing.T) {
 	sort.Strings(offenders)
 
 	for _, o := range offenders {
-		t.Errorf("two migrations share a number, rename the newer one to the next free number:\n  %s", o)
+		t.Errorf("two migrations share a number:\n  %s\nRename YOUR new file, and claim the "+
+			"replacement with `go run ./cmd/newmigration -name ...` so it cannot happen "+
+			"again. If BOTH files are already in schema_migrations, renaming would run one "+
+			"a second time — grandfather the number instead and say why.", o)
 	}
 }
 
