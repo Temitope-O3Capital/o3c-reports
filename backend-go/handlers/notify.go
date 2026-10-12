@@ -127,6 +127,9 @@ const (
 	EvtLeadClaimed    = "sales_lead_claimed"  // an officer took a lead out of the pool
 	EvtLeadConverted  = "sales_lead_converted"
 	EvtLeadNoLocation = "lead_no_location" // qualified with nowhere to visit it
+	// The call centre has declined a lead Sales is already working. Its own alert because
+	// the officer has to STOP, and nothing else in the app tells them to.
+	EvtLeadDeclinedAfterHandoff = "cc_lead_declined_after_handoff"
 
 	// Sales planning — the officer's own diary (migration 353's sales_visit_plans).
 	EvtVisitPlanned  = "visit_planned"   // someone put a visit in your diary

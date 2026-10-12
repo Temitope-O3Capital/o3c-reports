@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -245,7 +246,135 @@ func applyStepToLead(ctx context.Context, db *core.DB, leadID int64, code, body 
 	}
 	if _, err := db.PGExec(ctx, applyStepToLeadSQL(), status, label, ccLeadStatusRank[status], leadID); err != nil {
 		slog.Error("customer step: could not update the lead", "lead", leadID, "step", code, "err", err)
+		return
 	}
+	// A DECLINE has to reach Sales. A conversion still must not — see
+	// declineReachesSales for why the two are not the same reach.
+	if declineReachesSales(code) {
+		disqualifyForwardedLead(ctx, db, leadID, label)
+	}
+}
+
+// declineReachesSales reports whether a terminal step must also end the lead on the
+// SALES side, not just on the call-centre board.
+//
+// THE CASE THAT FORCED THIS. Lead 14648, "Sicostar". One call on 2 October, disposition
+// Interested, which correctly qualified the contact and forwarded it. On 6 October
+// somebody moved it to Declined — Not Eligible with the note "BAD CREDIT RECORD WITH
+// OPAY AND NEWEDGE". The lead board closed, as designed. Sales was never told: the
+// contact still read qualified, the hand-off still read open, and on 12 October a bulk
+// distribution handed a lead the business had already declined to a sales officer to go
+// and visit. Sixteen leads were in that state, fifteen of them already with an officer.
+//
+// WHY THIS IS NOT THE REACH applyStepToLead REFUSES. That function deliberately leaves
+// crm_contacts alone, and TestATerminalStepNeverTouchesTheSalesPipeline holds it to it.
+// The reason given there is specific and correct: CONVERTING needs a product line and a
+// CIF that a free-text step does not carry, and marking a lead "customer" without one
+// corrupts every join that assumes a converted customer has a CIF.
+//
+// None of that applies to a decline. Disqualifying needs no CIF, no product and no
+// account reference — only a reason, which the step carries in its own note. So the
+// asymmetry is deliberate: converted stays inside the call centre, declines travel.
+// The harm of not travelling is an officer driving to a customer we have already
+// refused.
+func declineReachesSales(code string) bool {
+	return code == "declined_not_eligible" || code == "dropped_off"
+}
+
+// disqualifyForwardedLeadSQL ends the lead on the Sales side. In its own function, and
+// its own statement, so applyStepToLeadSQL stays provably clear of crm_contacts and the
+// two tests can state the distinction between a decline and a conversion.
+//
+// Three restrictions, each load-bearing:
+//
+//   - it moves only a contact THIS lead was actually forwarded as (the hand-off ledger
+//     is the link, not a phone match), so a step can never disqualify a stranger;
+//   - never over a converted contact. Sales booking a customer outranks a call-centre
+//     note, and reversing a conversion would drop a real customer out of the numbers;
+//   - never over an already-disqualified one, so re-logging the step is a no-op rather
+//     than a second reason overwriting the first.
+func disqualifyForwardedLeadSQL() string {
+	return `
+		UPDATE crm_contacts c
+		   SET lead_stage        = 'disqualified',
+		       disqualify_reason = COALESCE(NULLIF(btrim($2), ''), c.disqualify_reason),
+		       updated_at        = NOW()
+		 WHERE c.id = (SELECT f.contact_id
+		                 FROM call_center_lead_forwards f
+		                WHERE f.lead_id = $1
+		                  AND f.contact_id IS NOT NULL
+		                ORDER BY f.forwarded_at DESC
+		                LIMIT 1)
+		   AND c.lead_stage NOT IN ('converted', 'disqualified')
+	 RETURNING c.id, c.sales_owner_id`
+}
+
+// disqualifyForwardedLead ends the hand-off and tells whoever was working it.
+//
+// The notification is the point. Closing the records silently would fix the reports and
+// leave the officer exactly as wrong as before — still holding the lead, still planning
+// the visit. It goes only to the owner, ungrouped, because "stop work on this one" is
+// not a digest item.
+func disqualifyForwardedLead(ctx context.Context, db *core.DB, leadID int64, reason string) {
+	rows, err := db.PGQuery(ctx, disqualifyForwardedLeadSQL(), leadID, reason)
+	if err != nil {
+		slog.Error("customer step: could not end the hand-off on the sales side",
+			"lead", leadID, "err", err)
+		return
+	}
+	if len(rows) == 0 {
+		return // never forwarded, already closed, or already a customer
+	}
+	contactID := toInt64(rows[0]["id"])
+	if contactID == 0 {
+		return
+	}
+	var owner *int64
+	if id := toInt64(rows[0]["sales_owner_id"]); id != 0 {
+		owner = &id
+	}
+
+	// The stage history has to carry it too, or the lead page shows a disqualified lead
+	// with nothing saying who disqualified it or why.
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO crm_lead_events (contact_id, event, to_stage, note, created_by)
+		VALUES ($1, 'disqualified', 'disqualified', $2, NULL)`,
+		contactID, "Declined by the call centre after the hand-off: "+reason); err != nil {
+		slog.Error("customer step: could not record the disqualification", "contact", contactID, "err", err)
+	}
+
+	markForwardResolved(ctx, db, contactID, "rejected", owner, reason)
+
+	if owner != nil {
+		name := contactDisplayName(ctx, db, contactID)
+		go Notify(context.WithoutCancel(ctx), db, NotifPayload{
+			EventType: EvtLeadDeclinedAfterHandoff,
+			UserID:    *owner,
+			Title:     "Stop Work: " + name + " Has Been Declined",
+			Body: "The call centre has declined this lead since it was handed to you — " +
+				reason + ". It has been taken off your queue; no visit is needed.",
+			ActionURL: fmt.Sprintf("/sales/leads/%d", contactID),
+			EntityRef: fmt.Sprintf("crm_contact:%d", contactID),
+			Priority:  "high",
+		})
+	}
+	slog.Info("hand-off ended on the sales side by a call-centre decline",
+		"lead", leadID, "contact", contactID, "reason", reason)
+}
+
+// contactDisplayName is for the alert’s subject line. A lead with no name on it reads
+// as "This Lead", which is better than an empty gap where a person should be.
+func contactDisplayName(ctx context.Context, db *core.DB, contactID int64) string {
+	rows, err := db.PGQuery(ctx, `
+		SELECT btrim(COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) AS name
+		  FROM crm_contacts WHERE id = $1`, contactID)
+	if err != nil || len(rows) == 0 {
+		return "This Lead"
+	}
+	if n := strings.TrimSpace(str(rows[0]["name"])); n != "" {
+		return n
+	}
+	return "This Lead"
 }
 
 // applyStepToLeadSQL is the UPDATE applyStepToLead runs, pulled into its own function —

@@ -279,3 +279,53 @@ func TestApplyStepToLeadStaysRankGuardedAndInItsOwnBoard(t *testing.T) {
 			"product line and CIF this step does not carry, and belongs to Sales")
 	}
 }
+
+// A DECLINE must travel to Sales even though a CONVERSION must not — and the asymmetry
+// is the whole point, so it is asserted rather than left to the comments.
+//
+// The case: lead 14648 "Sicostar" was qualified by a call on 2 October and forwarded. On
+// 6 October it was moved to Declined — Not Eligible ("BAD CREDIT RECORD WITH OPAY AND
+// NEWEDGE"). The call-centre board closed; Sales was never told; on 12 October a bulk
+// distribution handed an already-declined lead to an officer to go and visit. Sixteen
+// leads were in that state, fifteen already with an officer.
+//
+// Converting needs a product line and a CIF a free-text step cannot carry, which is why
+// TestApplyStepToLeadStaysRankGuardedAndInItsOwnBoard above holds the conversion path
+// out of crm_contacts. Disqualifying needs only a reason, and the step carries one.
+func TestADeclineReachesSalesButAConversionDoesNot(t *testing.T) {
+	if !declineReachesSales("declined_not_eligible") {
+		t.Error("a Declined — Not Eligible step does not reach Sales; an officer will keep " +
+			"working a lead the business has already refused")
+	}
+	if !declineReachesSales("dropped_off") {
+		t.Error("a Dropped Off step does not reach Sales; the customer withdrew and the " +
+			"officer is still holding the lead")
+	}
+	if declineReachesSales("converted") {
+		t.Error("a Converted step reaches into the Sales pipeline — that path needs a " +
+			"product line and a CIF this step does not carry, and marking a lead a " +
+			"customer without one corrupts every join that assumes a CIF")
+	}
+
+	q := disqualifyForwardedLeadSQL()
+	if !strings.Contains(q, "UPDATE crm_contacts") {
+		t.Fatal("the decline does not reach crm_contacts, so Sales is still not told")
+	}
+	// The hand-off ledger is the link. A phone match could disqualify a different person
+	// who happens to share a number.
+	if !strings.Contains(q, "call_center_lead_forwards") {
+		t.Error("the decline does not go through the hand-off ledger — it could reach a " +
+			"contact this lead was never forwarded as")
+	}
+	// Sales booking a customer outranks a call-centre note, and reversing a conversion
+	// would drop a real customer out of the numbers.
+	if !strings.Contains(q, "NOT IN ('converted', 'disqualified')") {
+		t.Error("the decline is not held off converted/disqualified contacts — it could " +
+			"reverse a booked conversion or overwrite the first decline's reason")
+	}
+	// The owner is returned because the alert is the point: closing the records silently
+	// leaves the officer exactly as wrong as before.
+	if !strings.Contains(q, "sales_owner_id") {
+		t.Error("the decline does not return the owner, so nobody can be told to stop")
+	}
+}
