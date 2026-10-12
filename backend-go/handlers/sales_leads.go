@@ -224,6 +224,24 @@ func rescanCustomerLeads(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// distributeOwnerClause is the one definition of WHOSE leads a distribution may move.
+//
+// It was written twice - once for the pool query and once for the UPDATE - with
+// different placeholder numbers, which is the shape of bug that gets found in
+// production: widen the read and forget the write and the run deals nothing, widen the
+// write and forget the read and it silently deals leads the preview never showed.
+//
+// Unowned always. The caller's own leads only when they asked, and never a third
+// party's, which is what keeps the original guard's promise: it exists so that a
+// re-run cannot take work off whoever holds it, and the only person who can consent to
+// that is the holder.
+func distributeOwnerClause(includeMine bool, argIdx int) string {
+	if includeMine {
+		return fmt.Sprintf("AND (sales_owner_id IS NULL OR sales_owner_id = $%d)", argIdx)
+	}
+	return "AND sales_owner_id IS NULL"
+}
+
 type distributeReq struct {
 	OfficerIDs []int64 `json:"officer_ids"`
 	Strategy   string  `json:"strategy"` // "round_robin" (default) | "by_state" | "by_office"
@@ -231,6 +249,24 @@ type distributeReq struct {
 	State      string  `json:"state"`    // optional state filter
 	Limit      int     `json:"limit"`    // optional cap; 0 = every unowned lead
 	DryRun     bool    `json:"dry_run"`  // preview the split without writing
+	// IncludeMine adds the leads the CALLER personally holds to the pool, so a head can
+	// deal their own stack down to their team.
+	//
+	// This is the second half of a hand-off that was designed and never finished.
+	// Migration 317 dealt 185 unowned forwarded leads to the four hub heads, saying so
+	// in as many words: "Handed to the HEADS, per the business: a head takes the state
+	// their team covers and allocates within their own team, which is a decision about
+	// people that belongs to them and not to this migration." Nothing was ever built for
+	// a head to make that allocation. Distribute reads only sales_owner_id IS NULL, so
+	// the moment those leads got an owner they left the pool for good: 161 of them were
+	// still parked on four heads weeks later, two of them holding 72 each, while five
+	// Abuja officers had never been given a single lead.
+	//
+	// Scoped to the caller's OWN leads and nobody else’s. That is what keeps the
+	// sales_owner_id IS NULL guard's promise intact — it exists so a re-run cannot
+	// silently take work off whoever holds it, and the one person who can consent to
+	// that is the holder, who is the one asking.
+	IncludeMine bool `json:"include_mine"`
 }
 
 // distributeLeads load-balances the unowned lead pool across a chosen set of
@@ -367,10 +403,21 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 		             COALESCE(estimated_value_kobo, 0) AS value_kobo
 		        FROM crm_contacts
 		       WHERE sales_entered_at IS NOT NULL
-		         AND sales_owner_id IS NULL
+		         -- A converted or disqualified lead is finished work and must never be
+		         -- dealt to anyone. The preview endpoint already excluded them and this
+		         -- did not, so the two disagreed about the size of the pool: measured on
+		         -- 2026-10-12 the preview offered 1 lead and this would have dealt 2, the
+		         -- second one dead. It matters more with include_mine, where a head
+		         -- dealing their own book would hand teammates leads already closed.
+		         AND lead_stage NOT IN ('converted', 'disqualified')
 		         AND status = 'lead'`
 		args := []any{}
 		n := 1
+		q += " " + distributeOwnerClause(req.IncludeMine, n)
+		if req.IncludeMine {
+			args = append(args, user.ID)
+			n++
+		}
 		if req.Source != "" {
 			q += fmt.Sprintf(" AND lead_source = $%d", n)
 			args = append(args, req.Source)
@@ -492,20 +539,33 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 			// on anything a concurrent request grabbed first — re-running is safe.
 			// lead_owner_id is deliberately untouched: it is the call-centre agent's
 			// own book, and distributing a lead to Sales must not empty it.
+			// Widened by include_mine to the leads the caller holds and no further, so a
+			// second head dealing at the same moment cannot have their stack moved out
+			// from under them. A no-op on anything a concurrent request grabbed first.
+			ownerGuard := distributeOwnerClause(req.IncludeMine, 3)
+			updArgs := []any{id, ids}
+			if req.IncludeMine {
+				updArgs = append(updArgs, user.ID)
+			}
 			if _, err := tx.ExecContext(r.Context(), `
 				UPDATE crm_contacts
 				   SET sales_owner_id = $1,
 				       updated_at     = NOW()
 				 WHERE id = ANY($2)
-				   AND sales_owner_id IS NULL
-				   AND sales_entered_at IS NOT NULL`, id, ids); err != nil {
+				   AND sales_entered_at IS NOT NULL `+ownerGuard, updArgs...); err != nil {
 				respondErrLog(w, 500, "Assignment failed", err)
 				return
 			}
+			note := "Bulk distribution"
+			if req.IncludeMine {
+				// Worth distinguishing on the timeline: this lead did not come out of the
+				// unowned pool, it came off a named person’s own book.
+				note = "Dealt out by the head who held it"
+			}
 			if _, err := tx.ExecContext(r.Context(), `
 				INSERT INTO crm_lead_events (contact_id, event, to_owner, note, created_by)
-				SELECT unnest($1::bigint[]), 'assigned', $2, 'Bulk distribution', $3`,
-				ids, id, user.ID); err != nil {
+				SELECT unnest($1::bigint[]), 'assigned', $2, $4, $3`,
+				ids, id, user.ID, note); err != nil {
 				respondErrLog(w, 500, "Could not record lead events", err)
 				return
 			}

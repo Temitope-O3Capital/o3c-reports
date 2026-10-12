@@ -1048,6 +1048,20 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
   const [preview, setPreview] = useState<{ officer_id: number; full_name: string; count: number }[] | null>(null)
   const [busy, setBusy]       = useState(false)
   const [teamScoped, setTeamScoped] = useState(false)
+  // Leads this head is personally sitting on, and whether to deal them out too.
+  //
+  // Migration 317 handed the unowned backlog to the four hub heads so a named person
+  // would allocate it within their team. Nothing was ever built for them to do that,
+  // because Distribute only ever read the UNOWNED pool - so the leads left the pool the
+  // moment they got an owner and could not be dealt again. 161 were still parked on
+  // four heads weeks later, two of them holding 72 each, while five Abuja officers had
+  // never been given a single lead.
+  //
+  // Off by default: dealing out your own book is a deliberate act, not a side effect of
+  // pressing Distribute. But the count is shown either way, because a head cannot ask
+  // for something they cannot see.
+  const [myHeld, setMyHeld] = useState(0)
+  const [includeMine, setIncludeMine] = useState(false)
 
   // A team head only distributes to their team. Resolve the eligible officer set from
   // the teams this user heads; fall back to all officers (executive / no team).
@@ -1068,6 +1082,18 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
     return () => { cancelled = true }
   }, [officers, meId])
 
+  useEffect(() => {
+    let dead = false
+    apiFetch<{ data?: { my_held?: number }; my_held?: number }>('/api/sales/leads/distribution')
+      .then(r => {
+        if (dead) return
+        const body: any = r
+        setMyHeld(Number(body?.my_held ?? body?.data?.my_held ?? 0) || 0)
+      })
+      .catch(() => { /* no preview - the toggle just does not offer a number */ })
+    return () => { dead = true }
+  }, [])
+
   // When team-scoped, only show the head's own team members as options.
   const options = teamScoped ? officers.filter(o => picked.has(o.id) || false) : officers.filter(o => o.is_active)
   const eligible = teamScoped ? officers.filter(o => picked.has(o.id)) : officers.filter(o => o.is_active)
@@ -1083,6 +1109,7 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
     setBusy(true)
     try {
       const body: any = { officer_ids: ids, strategy, dry_run: dry }
+      if (includeMine) body.include_mine = true
       if (limit && Number(limit) > 0) body.limit = Number(limit)
       const res = await apiPost<{ assigned?: number; would_assign?: number; per_officer: any[]; unroutable?: number }>(
         '/api/sales/leads/distribute', body)
@@ -1155,6 +1182,24 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
           </Select>
           <Input label="Limit (Optional)" type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="All" wrapStyle={{ width: 130 }} />
         </div>
+
+        {myHeld > 0 && (
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer",
+            padding: "9px 11px", borderRadius: RADIUS.md,
+            background: includeMine ? AMBER + "12" : "var(--th-bg)",
+            border: "1px solid " + (includeMine ? AMBER + "55" : "var(--bdr)") }}>
+            <input type="checkbox" checked={includeMine}
+              onChange={e => { setIncludeMine(e.target.checked); setPreview(null) }}
+              style={{ marginTop: 2, cursor: "pointer", accentColor: NAVY }} />
+            <span style={{ fontSize: TEXT.sm, color: "var(--txt)" }}>
+              <b>Also deal out the {myHeld} lead{myHeld === 1 ? "" : "s"} I hold</b>
+              <span style={{ display: "block", fontSize: TEXT.xs, color: "var(--txt3)", marginTop: 2 }}>
+                These were handed to you to allocate within your team. Leave this off and
+                only unowned leads are dealt.
+              </span>
+            </span>
+          </label>
+        )}
 
         {preview && (
           <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 12px' }}>

@@ -151,7 +151,25 @@ func salesLeadDistributionPreview(db *core.DB) http.HandlerFunc {
 				return
 			}
 		}
-		respond(w, map[string]any{"pool": pool, "officers": roster}, "pg")
+		// How many leads the CALLER is personally sitting on.
+		//
+		// Migration 317 dealt the unowned backlog to the four hub heads so that a named
+		// person would allocate it within their own team, and nothing was ever built for
+		// them to do it: Distribute reads only the unowned pool, so those leads left it the
+		// moment they got an owner. 161 were still parked on four heads weeks later, two of
+		// them holding 72 each, while five Abuja officers had never been given a lead.
+		//
+		// Reported here so the Distribute dialog can offer to deal them out by name, rather
+		// than the backlog staying invisible to the one person who can move it.
+		var myHeld int64
+		if rows, herr := db.PGQuery(r.Context(), `
+			SELECT COUNT(*) AS n FROM app.crm_contacts
+			 WHERE sales_owner_id = $1
+			   AND sales_entered_at IS NOT NULL
+			   AND lead_stage NOT IN ('converted', 'disqualified')`, u.ID); herr == nil && len(rows) > 0 {
+			myHeld = toInt64(rows[0]["n"])
+		}
+		respond(w, map[string]any{"pool": pool, "officers": roster, "my_held": myHeld}, "pg")
 	}
 }
 
