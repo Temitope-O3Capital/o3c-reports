@@ -836,6 +836,12 @@ func main() {
 		r.Route("/api/dashboards", func(r chi.Router) {
 			handlers.RegisterDashboards(r, db)
 		})
+		// WhatsApp setup and health. Separate from the PUBLIC /api/whatsapp webhook
+		// above, and gated: it names which credentials the platform holds and can make
+		// an authenticated call to Meta. It reveals no secret values.
+		r.Route("/api/whatsapp-admin", func(r chi.Router) {
+			handlers.RegisterWhatsAppAdmin(r, db)
+		})
 		// Customer Growth & Activity monitor — registrations, transaction activity
 		// and churn. Access is gated per-endpoint (management + operating teams).
 		r.Route("/api/growth", func(r chi.Router) {

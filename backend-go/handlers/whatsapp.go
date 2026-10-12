@@ -21,6 +21,17 @@ import (
 
 const waAPIBase = "https://graph.facebook.com/v19.0"
 
+// waInboundRoute is the path Meta POSTs to, relative to the /api/whatsapp mount in
+// main.go. waWebhookPublicPath is the same thing as a customer of this code sees it —
+// the URL pasted into Meta's webhook configuration.
+//
+// They are one definition because the setup screen advertises the URL and the router
+// serves it, and the first draft of that screen advertised "/api/whatsapp/webhook",
+// which does not exist. Nobody would have found that out until an onboarding session
+// failed with Meta reporting a callback URL it could not verify.
+const waInboundRoute = "/inbound/whatsapp"
+const waWebhookPublicPath = "/api/whatsapp" + waInboundRoute
+
 // waSend is who a message is from and what it is about — the context the transport
 // layer cannot infer and the ledger cannot do without.
 //
@@ -245,8 +256,8 @@ func truncateStr(s string, n int) string {
 // RegisterWhatsAppPublic mounts unauthenticated WhatsApp webhook endpoints.
 // Must be called BEFORE the JWT auth middleware group in main.go.
 func RegisterWhatsAppPublic(r chi.Router, db *core.DB) {
-	r.Get("/inbound/whatsapp", waVerify())
-	r.Post("/inbound/whatsapp", waInbound(db))
+	r.Get(waInboundRoute, waVerify())
+	r.Post(waInboundRoute, waInbound(db))
 }
 
 // waVerify handles Meta's one-time GET challenge for webhook verification.
