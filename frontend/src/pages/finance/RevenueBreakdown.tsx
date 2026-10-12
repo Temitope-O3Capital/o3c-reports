@@ -215,7 +215,7 @@ export default function RevenueBreakdown() {
         loading={loading && !data} emptyText="No Revenue Lines in This Period" />
 
       <div style={{ marginTop: SP[4] }}>
-        <SectionCard title="Blink" subtitle="Standalone FX service — funding, fee split, and realized FX gain/loss">
+        <SectionCard title="Blink" subtitle="Standalone FX service: funding, fee split, and realized FX gain/loss">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: SP[4] }}>
             <div>
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 4 }}>O3's Net Fee Share</div>

@@ -36,7 +36,7 @@ function RunQA({ onDone }: { onDone: () => void }) {
     setRunning(true)
     try {
       await apiFetch(`/api/helpdesk/calls/${id}/qa-run`, { method: 'POST', timeoutMs: 9 * 60_000 })
-      toast.success('QA scored — see the result below')
+      toast.success('QA scored. See the result below')
       setCallId('')
       onDone()
     } catch (e: any) { toast.error(e.message) } finally { setRunning(false) }
@@ -160,13 +160,13 @@ export default function CallQAFlags() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <SectionCard title="Run QA on a Call" subtitle="Transcribes and scores one call's recording against the QA rubric — takes 1-3 minutes">
+      <SectionCard title="Run QA on a Call" subtitle="Transcribes and scores one call's recording against the QA rubric: takes 1-3 minutes">
         <RunQA onDone={load} />
       </SectionCard>
 
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="Call QA Flags" subtitle="A flag is a reason to look, not a verdict — read the transcript before acting on it" badge={rows.length} padding={false}
+      <SectionCard title="Call QA Flags" subtitle="A flag is a reason to look, not a verdict: read the transcript before acting on it" badge={rows.length} padding={false}
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input value={agent} onChange={e => setAgent(e.target.value)} placeholder="Agent name…"

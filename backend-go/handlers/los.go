@@ -2154,7 +2154,7 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 			aid, aname, ateam := actorOf(user)
 			logActivitySafe(r.Context(), db, Activity{
 				ApplicationID: &appID, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-				Type: "document", Subject: "Document uploaded — " + docType, Source: "los",
+				Type: "document", Subject: "Document uploaded: " + docType, Source: "los",
 				EntityType: "los_document", EntityID: strconv.FormatInt(docID, 10),
 				Metadata: map[string]any{"doc_type": docType, "file_name": filename},
 			})

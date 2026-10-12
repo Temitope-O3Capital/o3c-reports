@@ -579,7 +579,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
     // 'Not Interested'. The server refuses it too; this is only so the agent finds out
     // before losing their typing.
     if (dispositionNoteMissing(form.disposition, form.notes, form.resolution)) {
-      toast.error('Choosing Other means telling us what happened — describe it in a sentence the next person can act on')
+      toast.error('Choosing Other means telling us what happened. Describe it in a sentence the next person can act on')
       return
     }
     if (createTicket && !form.ticket_type) {

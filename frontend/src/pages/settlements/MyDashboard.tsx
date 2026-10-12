@@ -297,7 +297,7 @@ export default function SettlementMyDashboard() {
       </MyDaySection>
 
       <SectionCard title="My Queue" padding={false} style={{ marginBottom: SP[4] }}
-        subtitle="Oldest first — the order it should be worked in"
+        subtitle="Oldest first: the order it should be worked in"
         actions={feedGap > 0
           ? <Badge variant="default">{fmtNum(feedGap)} feed gaps excluded</Badge>
           : undefined}>

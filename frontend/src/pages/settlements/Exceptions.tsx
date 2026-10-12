@@ -404,7 +404,7 @@ export default function SettlementExceptions() {
   return (
     <Page
       title="Exceptions"
-      subtitle="Everything that did not tie out, oldest first — age is the signal that matters"
+      subtitle="Everything that did not tie out, oldest first. Age is the signal that matters"
       loading={loading && !rows.length && !failures.length}
       skeletonKpis={4}
       actions={
@@ -552,7 +552,7 @@ export default function SettlementExceptions() {
           </div>
 
           <SectionCard title="Payment Failures" padding={false}
-            subtitle="Attempts Paystack rejected or reversed — money that never moved, as distinct from money that moved and did not tie out">
+            subtitle="Attempts Paystack rejected or reversed: money that never moved, as distinct from money that moved and did not tie out">
             <DataTable
               cols={failCols} rows={failures}
               keyFn={(f, i) => `${f.kind}-${f.ref_id || f.reference || i}`}

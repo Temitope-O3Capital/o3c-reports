@@ -242,7 +242,7 @@ func applyStepToLead(ctx context.Context, db *core.DB, leadID int64, code, body 
 	st, _ := customerStepByCode(code)
 	label := st.Label
 	if strings.TrimSpace(body) != "" {
-		label = st.Label + " — " + strings.TrimSpace(body)
+		label = st.Label + ": " + strings.TrimSpace(body)
 	}
 	if _, err := db.PGExec(ctx, applyStepToLeadSQL(), status, label, ccLeadStatusRank[status], leadID); err != nil {
 		slog.Error("customer step: could not update the lead", "lead", leadID, "step", code, "err", err)
@@ -351,7 +351,7 @@ func disqualifyForwardedLead(ctx context.Context, db *core.DB, leadID int64, rea
 			EventType: EvtLeadDeclinedAfterHandoff,
 			UserID:    *owner,
 			Title:     "Stop Work: " + name + " Has Been Declined",
-			Body: "The call centre has declined this lead since it was handed to you — " +
+			Body: "The call centre has declined this lead since it was handed to you: " +
 				reason + ". It has been taken off your queue; no visit is needed.",
 			ActionURL: fmt.Sprintf("/sales/leads/%d", contactID),
 			EntityRef: fmt.Sprintf("crm_contact:%d", contactID),

@@ -407,7 +407,7 @@ export default function DashboardView() {
         <EmptyState
           icon="dashboard_customize"
           title="This Dashboard Has No Tiles"
-          description="Add a tile from a report you saved in the Report Builder, or a query you saved in the SQL Console. The tile shows that source — it does not copy it, so the figures stay in step."
+          description="Add a tile from a report you saved in the Report Builder, or a query you saved in the SQL Console. The tile shows that source. It does not copy it, so the figures stay in step."
           action={board.is_mine ? { label: 'Add Tile', icon: 'add', onClick: openAdd } : undefined}
         />
       ) : (

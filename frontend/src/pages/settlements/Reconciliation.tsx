@@ -229,7 +229,7 @@ function InterswitchPanel({ from, to }: { from: string; to: string }) {
       <SectionCard>
         <EmptyState icon="upload_file"
           title={`No Interswitch settlement report covers ${fmtDate(from)} – ${fmtDate(to)}`}
-          description="Interswitch has no API — its settlement data arrives as uploaded reports. Upload the report for these dates to reconcile them."
+          description="Interswitch has no API. Its settlement data arrives as uploaded reports. Upload the report for these dates to reconcile them."
           action={{ label: 'Upload Settlement Report', icon: 'upload_file',
             onClick: () => navigate('/reports/uploads/interswitch') }} />
       </SectionCard>
@@ -852,7 +852,7 @@ function PaystackPanel({ from, to }: { from: string; to: string }) {
         </SectionCard>
 
         <SectionCard title="Funding Funnel by Channel" padding={false}
-          subtitle="Where customers abandon or fail — completion is the share of attempts that succeeded">
+          subtitle="Where customers abandon or fail. Completion is the share of attempts that succeeded">
           <DataTable cols={funnelCols} rows={funnel} keyFn={r => r.channel}
             loading={loadingFunnel && !funnelData} skeletonRows={5}
             emptyText={<EmptyState icon="filter_alt" title="No Funding Attempts"

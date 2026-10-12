@@ -363,7 +363,7 @@ export default function CRMContacts() {
 
   return (
     <Page title="Contacts"
-      subtitle="Everyone Sales has dealt with — open, won or lost"
+      subtitle="Everyone Sales has dealt with: open, won or lost"
       loading={loading && contacts.length === 0}
       skeletonKpis={4}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}

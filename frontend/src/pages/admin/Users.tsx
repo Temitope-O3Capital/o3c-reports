@@ -705,7 +705,7 @@ function SuspendModal({ user, onClose, onDone }: { user: User; onClose: () => vo
         onChange={e => setReason(e.target.value)}
         rows={3}
         maxLength={500}
-        placeholder="Why this account is being cut off — the only record of it."
+        placeholder="Why this account is being cut off. This note is the only record of it."
         style={{
           width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: RADIUS.md,
           border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--txt)',

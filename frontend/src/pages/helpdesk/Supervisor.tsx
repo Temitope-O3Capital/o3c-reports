@@ -183,7 +183,7 @@ export default function Supervisor() {
   )
 
   if (view === 'qaflags') return (
-    <Page title="Supervisor" subtitle="AI-assisted call flagging — a triage signal, not a scorecard" actions={viewTabs}>
+    <Page title="Supervisor" subtitle="AI-assisted call flagging: a triage signal, not a scorecard" actions={viewTabs}>
       <CallQAFlags />
     </Page>
   )

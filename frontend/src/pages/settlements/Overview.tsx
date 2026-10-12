@@ -562,7 +562,7 @@ export default function SettlementPosition() {
       <SectionCard style={{ marginBottom: SP[4] }}>
         <SourceHeader
           title="CCS: O3 Card Management System" role="Master" tone={NAVY}
-          sub="Report 620 EODTXN — the book every provider must roll up to."
+          sub="Report 620 EODTXN: the book every provider must roll up to."
           feed={ccs?.totals?.last_day ? `through ${fmtDate(ccs.totals.last_day)}` : undefined}
         />
         <DataTable

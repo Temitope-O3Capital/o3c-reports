@@ -320,7 +320,7 @@ export default function ReportLibrary() {
                   {!blocks.length && !scalars.length && (
                     <SectionCard title="Nothing to Show">
                       <EmptyState icon="inbox" title="The report ran and returned nothing"
-                        description="That is an answer, not a fault — try a wider date range." />
+                        description="That is an answer, not a fault. Try a wider date range." />
                     </SectionCard>
                   )}
                 </>

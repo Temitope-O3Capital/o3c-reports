@@ -163,7 +163,7 @@ func notifyLeadForwarded(ctx context.Context, db *core.DB, leadID int64, agentID
 	if f.Product != "" {
 		product = " · interested in " + f.Product
 	}
-	body := f.Name + " — " + f.where() + product + ". Qualified by a call-centre call."
+	body := f.Name + " (" + f.where() + ")" + product + ". Qualified by a call-centre call."
 
 	if f.OwnerID != 0 {
 		// Addressed to one person about one lead: ungrouped, so it emails every time.
@@ -235,7 +235,7 @@ func notifyLeadForwarded(ctx context.Context, db *core.DB, leadID int64, agentID
 			EventType: EvtLeadForwarded,
 			UserID:    *agentID,
 			Title:     "Your Lead Reached Sales",
-			Body:      f.Name + " — " + f.where() + " — is now with the " + hubOrSales(f.Hub) + " team.",
+			Body:      f.Name + " (" + f.where() + ") is now with the " + hubOrSales(f.Hub) + " team.",
 			ActionURL: "/call-center/forwards",
 			EntityRef: fmt.Sprintf("crm_contact:%d", f.ContactID),
 			GroupKey:  "cc:handoff:landed:" + nowDateKey(ctx, db),

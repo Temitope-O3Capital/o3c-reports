@@ -836,7 +836,7 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
   const total = useMemo(() => rows.reduce((s, r) => s + r.amount_kobo, 0), [rows])
 
   if (repayments.length === 0) {
-    return <EmptyState icon="payments" title="No Repayments Recorded" description="Nothing has been received on this customer's credit yet." />
+    return <EmptyState icon="payments" title="No Repayments Recorded" description="This customer has not repaid anything on their credit yet." />
   }
 
   const counts = {

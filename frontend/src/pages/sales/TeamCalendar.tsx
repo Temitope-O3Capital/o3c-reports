@@ -145,7 +145,7 @@ export function TeamCalendar() {
   return (
     <SectionCard
       title="Team Calendar"
-      subtitle={`${monthLabel} · a square per officer per day — click one to read the day`}
+      subtitle={`${monthLabel} · a square per officer per day. Click one to read the day`}
       padding={false}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

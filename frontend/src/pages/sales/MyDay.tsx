@@ -146,7 +146,7 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
           {/* What happened, latest first */}
           {activities.length === 0 ? (
             <EmptyState icon="event_note" title="Nothing Logged Yet Today"
-              description="Record a visit, a call or a meeting as it happens — it takes a few seconds and it is what your day looks like to your head."
+              description="Record a visit, a call or a meeting as it happens. It takes a few seconds and it is what your day looks like to your head."
               action={{ label: 'Log Activity', icon: 'add', onClick: () => setLogOpen(true) }} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -216,7 +216,7 @@ function DailyReport({ report, activityCount, onSaved }: {
     // Either field on its own is a legitimate note — "what is next" with nothing to report
     // about today is exactly what an officer writes after a quiet day.
     if (!summary.trim() && !plan.trim()) {
-      toast.error('Write something first — this is optional, so an empty note saves nothing.')
+      toast.error('Write something first. This is optional, so an empty note saves nothing.')
       return
     }
     setBusy(true)

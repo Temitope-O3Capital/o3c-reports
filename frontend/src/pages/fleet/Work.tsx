@@ -350,7 +350,7 @@ export default function FleetWork() {
       {nothingYet ? (
         <SectionCard>
           <EmptyState icon="build" title="Nothing Recorded Yet"
-            description="Work and incidents are logged against a vehicle. Open a vehicle from the register and use Log Work or Log Incident — they appear here across the whole fleet."
+            description="Work and incidents are logged against a vehicle. Open a vehicle from the register and use Log Work or Log Incident: they appear here across the whole fleet."
             action={{ label: 'Fleet Register', icon: 'directions_car', onClick: () => navigate('/fleet') }} />
         </SectionCard>
       ) : (
@@ -395,7 +395,7 @@ export default function FleetWork() {
 
           {tab === 'cover' && (
             <SectionCard title="Insurance Cover" padding={false}
-              subtitle="One row per vehicle, worst first. A vehicle with no policy reads “no policy on record” — which is not the same as uninsured">
+              subtitle="One row per vehicle, worst first. A vehicle with no policy reads “no policy on record”: which is not the same as uninsured">
               <DataTable
                 cols={coverCols} rows={cover} keyFn={r => String(r.vehicle_id)}
                 searchKeys={['reg_no', 'insurer', 'policy_no', 'cover_state']}

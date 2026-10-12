@@ -632,7 +632,7 @@ export default function CollectionsAccountDetail() {
           agent_user_id: Number(newAgentId),
           accounts: [{ cif: detail.applicant_cif }],
         })
-        toast.success('Account assigned — it can now be worked')
+        toast.success('Account assigned. It can now be worked')
       }
       setModal(null); setNewAgentId('')
       refreshAll()

@@ -403,7 +403,7 @@ func completeVisitPlan(db *core.DB) http.HandlerFunc {
 			}
 			subject := str(p["title"])
 			if subject == "" {
-				subject = strings.ToUpper(kind[:1]) + kind[1:] + " — " + str(p["contact_name"])
+				subject = strings.ToUpper(kind[:1]) + kind[1:] + ": " + str(p["contact_name"])
 			}
 			notes := strings.TrimSpace(b.Notes)
 			if notes == "" {

@@ -337,7 +337,7 @@ export default function SettlementSupervisor() {
 
       {/* ── Who owns what ── */}
       <SectionCard title="The Desk" padding={false} style={{ marginBottom: SP[4] }}
-        subtitle="Load, age and throughput per officer — backlog alone cannot tell you who is working theirs"
+        subtitle="Load, age and throughput per officer. Backlog alone cannot tell you who is working theirs"
         actions={feedGap && Number(feedGap.n) > 0
           ? <Badge variant="default">{fmtNum(feedGap.n)} feed gaps excluded</Badge>
           : undefined}>
@@ -354,7 +354,7 @@ export default function SettlementSupervisor() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: SP[4], marginBottom: SP[4] }}>
         {/* ── Ageing ── */}
         <SectionCard title="How Old the Queue Is"
-          subtitle="Actionable breaks only — a feed gap that is 90 days old is not a desk 90 days behind">
+          subtitle="Actionable breaks only. A feed gap that is 90 days old is not a desk 90 days behind">
           {agingSorted.length === 0 ? (
             <EmptyState icon="schedule" title="Nothing Outstanding" />
           ) : (
@@ -435,7 +435,7 @@ export default function SettlementSupervisor() {
 
       {/* ── Waiting on a head ── */}
       <SectionCard title="Positions Awaiting Sign-Off" padding={false}
-        subtitle="Sign-off is the record that a human accepted the position — an unsigned run means nobody has">
+        subtitle="Sign-off is the record that a human accepted the position. An unsigned run means nobody has">
         <DataTable
           cols={runCols} rows={unsigned} keyFn={r => r.id}
           loading={loading && !d} skeletonRows={3}

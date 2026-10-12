@@ -1023,7 +1023,7 @@ function NewLeadInline({ initialName, onCancel, onCreated }: {
       // createLead warns rather than blocks on a matching phone — the same person can come
       // back as a fresh opportunity — so surface it instead of swallowing it.
       if (res?.possible_duplicate_of) {
-        toast.warning('Created — but someone with this number already exists. Worth checking.')
+        toast.warning('Created, but someone with this number already exists. Worth checking.')
       } else {
         toast.success(`${name} added to your leads`)
       }

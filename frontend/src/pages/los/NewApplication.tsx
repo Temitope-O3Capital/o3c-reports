@@ -650,7 +650,7 @@ export default function NewApplication() {
 
       toast.success(`Application ${res.data.reference} created`)
       if (failed > 0) {
-        toast.error(`${failed} of ${staged.length} documents did not upload — retry from the application page`)
+        toast.error(`${failed} of ${staged.length} documents did not upload. Retry from the application page`)
       }
       navigate(`/sales/applications/${appID}`)
     } catch (e: any) {

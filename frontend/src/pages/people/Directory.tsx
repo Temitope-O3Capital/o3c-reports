@@ -151,7 +151,7 @@ export default function PeopleDirectory() {
   return (
     <Page
       title="People Directory"
-      subtitle="The staff register — who is on it, what they do, where they sit, and whether they are signing in"
+      subtitle="The staff register: who is on it, what they do, where they sit, and whether they are signing in"
       loading={loading && !summary}
       skeletonKpis={4}
     >

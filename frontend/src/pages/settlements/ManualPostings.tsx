@@ -475,7 +475,7 @@ export default function ManualPostings() {
     setActionSaving(true)
     try {
       await apiPost(`/api/settlements/manual-postings/${reverseRow.id}/reverse`, { reason })
-      toast.success(`Reversal of ${reverseRow.ref} raised — it needs approval like any other entry`)
+      toast.success(`Reversal of ${reverseRow.ref} raised. It needs approval like any other entry`)
       setReverseRow(null)
       load()
     } catch (e: unknown) {
@@ -696,7 +696,7 @@ export default function ManualPostings() {
       <ConfirmModal
         open={confirmApprove !== null}
         title="Approve Posting"
-        body={`Approve ${confirmApprove?.ref ?? ''}? This moves it to the posting stage — a poster will then execute it to the ledger.`}
+        body={`Approve ${confirmApprove?.ref ?? ''}? This moves it to the posting stage. A poster will then execute it to the ledger.`}
         confirmLabel="Approve"
         loading={approveLoading}
         onConfirm={handleApprove}

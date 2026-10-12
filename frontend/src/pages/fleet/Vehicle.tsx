@@ -914,7 +914,7 @@ export default function FleetVehicle() {
 
       {tab === 'insurance' && (
         <SectionCard title="Motor Policies" padding={false}
-          subtitle="Insurer, policy number, sum insured and the cover window — what a claim would actually need"
+          subtitle="Insurer, policy number, sum insured and the cover window: what a claim would actually need"
           actions={canWrite
             ? <Button size="sm" icon="add" onClick={() => setPOpen(true)}>Record Policy</Button>
             : undefined}>
@@ -923,7 +923,7 @@ export default function FleetVehicle() {
             loading={loading && !d} skeletonRows={3} pageSize={25}
             emptyText={
               <EmptyState icon="shield" title="No Policy On Record"
-                description="This is not the same as uninsured — the register simply holds no policy. Record one and its expiry drives the cover warnings on the Fleet Overview and the Work & Incidents page."
+                description="This is not the same as uninsured. The register simply holds no policy. Record one and its expiry drives the cover warnings on the Fleet Overview and the Work & Incidents page."
                 action={canWrite ? { label: 'Record Policy', icon: 'add', onClick: () => setPOpen(true) } : undefined} />
             }
           />
@@ -1023,7 +1023,7 @@ export default function FleetVehicle() {
 
       {tab === 'cards' && (
         <SectionCard title="Cards Held" padding={false}
-          subtitle="A card is held for a period, not forever — closing a window leaves past spend with the vehicle that incurred it">
+          subtitle="A card is held for a period, not forever. Closing a window leaves past spend with the vehicle that incurred it">
           <DataTable
             cols={cardCols} rows={cards} keyFn={r => String(r.id)}
             loading={loading && !d} skeletonRows={3} pageSize={25}
@@ -1266,7 +1266,7 @@ export default function FleetVehicle() {
               onChange={e => setMCost(e.target.value)} />
           </Field>
           <Field label="Odometer at the Time (km)"
-            hint="Captured once, used twice — it joins the distance series too.">
+            hint="Captured once, used twice. It joins the distance series too.">
             <Input inputMode="numeric" value={mOdo} placeholder="e.g. 84500"
               onChange={e => setMOdo(e.target.value)} />
           </Field>

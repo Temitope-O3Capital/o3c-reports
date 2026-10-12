@@ -1175,7 +1175,7 @@ func mrCreate(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "note", Outcome: "created",
-			Subject: "Management report created — " + rep.Name,
+			Subject: "Management report created: " + rep.Name,
 			Source:  "reports", EntityType: "management_report", EntityID: key,
 			Metadata: map[string]any{
 				"template": rep.Template, "audience": rep.Audience, "cadence": rep.Cadence,
@@ -1352,7 +1352,7 @@ func mrUpdate(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "note", Outcome: "updated",
-			Subject: "Management report settings changed — " + str(rows[0]["name"]),
+			Subject: "Management report settings changed: " + str(rows[0]["name"]),
 			Source:  "reports", EntityType: "management_report", EntityID: key,
 			Metadata: meta,
 		})
@@ -1397,7 +1397,7 @@ func mrArchive(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "note", Outcome: "archived",
-			Subject: "Management report deleted — " + str(cur[0]["name"]),
+			Subject: "Management report deleted: " + str(cur[0]["name"]),
 			Source:  "reports", EntityType: "management_report", EntityID: key,
 		})
 		writeJSON(w, map[string]any{"report_key": key, "archived": true})
@@ -1458,7 +1458,7 @@ func mrDuplicate(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "note", Outcome: "duplicated",
-			Subject: "Management report duplicated — " + str(s["name"]) + " as " + rep.Name,
+			Subject: "Management report duplicated: " + str(s["name"]) + " as " + rep.Name,
 			Source:  "reports", EntityType: "management_report", EntityID: newKey,
 			Metadata: map[string]any{"copied_from": key},
 		})
@@ -1590,7 +1590,7 @@ func mrSend(db *core.DB) http.HandlerFunc {
 			logActivitySafe(r.Context(), db, Activity{
 				ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 				Type: "note", Outcome: "test_sent",
-				Subject: "Management report test sent — " + name,
+				Subject: "Management report test sent: " + name,
 				Source:  "reports", EntityType: "management_report", EntityID: key,
 				Metadata: map[string]any{"run_id": id, "to": email, "draft": cfg != nil},
 			})
@@ -1619,7 +1619,7 @@ func mrSend(db *core.DB) http.HandlerFunc {
 				logActivitySafe(r.Context(), db, Activity{
 					ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 					Type: "note", Outcome: "sent",
-					Subject: "Management report sent on demand — " + name,
+					Subject: "Management report sent on demand: " + name,
 					Source:  "reports", EntityType: "management_report", EntityID: key,
 					Metadata: map[string]any{"run_id": id, "recipients": count},
 				})

@@ -236,7 +236,7 @@ export default function FleetCards() {
       )}
 
       <SectionCard title="Candidate Fuel Cards" padding={false}
-        subtitle="Matched on the card name, which is how these are distinguishable — a suggestion, not a restriction">
+        subtitle="Matched on the card name, which is how these are distinguishable: a suggestion, not a restriction">
         <DataTable
           cols={cols} rows={cards} keyFn={r => r.cif}
           searchKeys={['name_on_card', 'cif', 'product_name']}

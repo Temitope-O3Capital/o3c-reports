@@ -87,7 +87,7 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
     // Same rule as the log form: "Other" is worthless without the explanation, and the
     // server refuses it either way.
     if (mode === 'edit' && dispositionNoteMissing(disposition, notes, resolution)) {
-      toast.error('Choosing Other means telling us what happened — describe it in the notes')
+      toast.error('Choosing Other means telling us what happened. Describe it in the notes')
       return
     }
     setSaving(true)

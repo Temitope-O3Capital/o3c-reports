@@ -353,7 +353,7 @@ export default function FleetOverview() {
   return (
     <Page
       title="Fleet"
-      subtitle="Company vehicles — spend read straight from the fuel cards, distance from the odometer"
+      subtitle="Company vehicles: spend read straight from the fuel cards, distance from the odometer"
       loading={loading && !d}
       skeletonKpis={4}
       actions={
@@ -448,7 +448,7 @@ export default function FleetOverview() {
       </div>
 
       <SectionCard title="Cost per Vehicle" padding={false} style={{ marginBottom: SP[4] }}
-        subtitle="Cost per kilometre appears only where distance was measured — it is withheld, never estimated"
+        subtitle="Cost per kilometre appears only where distance was measured. It is withheld, never estimated"
         actions={Number(coverage?.without_card ?? 0) > 0
           ? <Badge variant="warning">{fmtNum(coverage?.without_card)} without a card</Badge>
           : undefined}>
@@ -458,7 +458,7 @@ export default function FleetOverview() {
           loading={loading && !d} skeletonRows={5}
           emptyText={
             <EmptyState icon="directions_car" title="No Vehicles on the Register"
-              description="Add a vehicle, then map its fuel card — the spend is already captured and only needs an owner."
+              description="Add a vehicle, then map its fuel card. The spend is already captured and only needs an owner."
               action={{ label: 'Add Vehicle', icon: 'add', onClick: () => setAddOpen(true) }} />
           }
         />
@@ -491,7 +491,7 @@ export default function FleetOverview() {
 
       {(d?.top_merchants?.length ?? 0) > 0 && (
         <SectionCard title="Where the Money Went" padding={false}
-          subtitle="Merchant as the card feed reports it — often the payment processor rather than the filling station, which is why scope is set by card and not by this name">
+          subtitle="Merchant as the card feed reports it: often the payment processor rather than the filling station, which is why scope is set by card and not by this name">
           <DataTable
             cols={[
               { key: 'merchant', label: 'Merchant', render: (r: MerchantRow) => (
@@ -523,7 +523,7 @@ export default function FleetOverview() {
           </>
         }>
         <Field label="Registration Number" required
-          hint="The business key — what appears on a mechanic's invoice and on a fine.">
+          hint="The business key: what appears on a mechanic's invoice and on a fine.">
           <Input value={regNo} onChange={e => setRegNo(e.target.value)} placeholder="e.g. LAG-123-XY" />
         </Field>
 

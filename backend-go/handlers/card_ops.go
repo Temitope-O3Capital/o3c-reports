@@ -291,7 +291,7 @@ func cardCreateIssuance(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			CIF: req.CIFNumber, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "note", Outcome: "raised",
-			Subject: "Card issuance raised — " + req.CardType, Body: req.Notes,
+			Subject: "Card issuance raised: " + req.CardType, Body: req.Notes,
 			Source: "card_ops", EntityType: "card_issuance",
 			EntityID: fmt.Sprintf("%v", rows[0]["id"]),
 			Metadata: map[string]any{
@@ -351,7 +351,7 @@ func cardAdvanceIssuance(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			CIF: str(urows[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 			Type: "stage_change", Outcome: req.Status,
-			Subject: "Card issuance — " + req.Status, Source: "card_ops",
+			Subject: "Card issuance: " + req.Status, Source: "card_ops",
 			EntityType: "card_issuance", EntityID: strconv.FormatInt(id, 10),
 			Metadata: map[string]any{"card_type": str(urows[0]["card_type"])},
 		})
@@ -598,7 +598,7 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		aid, aname, ateam := actorOf(user)
 		logActivitySafe(ctx, db, Activity{
 			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-			Type: "stage_change", Outcome: req.Status, Subject: "Card dispute — " + req.Status,
+			Type: "stage_change", Outcome: req.Status, Subject: "Card dispute: " + req.Status,
 			Source: "card_ops", EntityType: "card_dispute", EntityID: strconv.FormatInt(id, 10),
 			Metadata: map[string]any{"amount_kobo": disputeAmount},
 		})
@@ -761,7 +761,7 @@ func cardDecideCreditLimit(db *core.DB) http.HandlerFunc {
 			aid, aname, ateam := actorOf(user)
 			logActivitySafe(r.Context(), db, Activity{
 				CIF: str(res[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-				Type: "decision", Outcome: req.Decision, Subject: "Credit-limit review — " + req.Decision,
+				Type: "decision", Outcome: req.Decision, Subject: "Credit-limit review: " + req.Decision,
 				Source: "card_ops", EntityType: "card_limit_review", EntityID: strconv.FormatInt(id, 10),
 				Metadata: map[string]any{"proposed_limit_kobo": toInt64(res[0]["proposed_limit_kobo"]), "card_type": str(res[0]["card_type"])},
 			})

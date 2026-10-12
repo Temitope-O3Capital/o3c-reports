@@ -447,7 +447,7 @@ func losRecordConsent(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		logNote := "Consent captured over " + channel
 		if v := strings.TrimSpace(b.Note); v != "" {
-			logNote += " — " + v
+			logNote += ": " + v
 		}
 		phoenixLogWorkspaceAction(r.Context(), db, id, user.ID, "consent.recorded", logNote)
 		w.Header().Set("Content-Type", "application/json")
@@ -555,7 +555,7 @@ func losCardAction(db *core.DB, action string) http.HandlerFunc {
 			"cancel":   "Card cancelled",
 		}[action]
 		if reason != "" {
-			label += " — " + reason
+			label += ": " + reason
 		}
 		user := core.UserFromCtx(r.Context())
 		phoenixLogWorkspaceAction(r.Context(), db, id, user.ID, "card."+action, label)

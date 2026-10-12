@@ -180,7 +180,7 @@ export default function FeeIncomeCapture() {
   ]
 
   return (
-    <Page title="Fee Income Capture" subtitle="Card and loan fees with no reliable GL source — recorded here, maker-checker, counted in Revenue Breakdown once approved"
+    <Page title="Fee Income Capture" subtitle="Card and loan fees with no reliable GL source: recorded here, maker-checker, counted in Revenue Breakdown once approved"
       back={{ label: 'Finance', to: '/finance' }}>
       <ErrBanner error={error} onRetry={() => { loadCardFees(); loadLoanFees() }} />
 
@@ -205,7 +205,7 @@ export default function FeeIncomeCapture() {
       </SectionCard>
 
       <div style={{ marginTop: SP[4] }}>
-        <SectionCard title="Loan Fees" subtitle="Management vs other — SME/Individual is resolved from the loan account, not entered">
+        <SectionCard title="Loan Fees" subtitle="Management vs other: SME/Individual is resolved from the loan account, not entered">
           <div style={{ display: 'flex', gap: SP[4], alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: SP[4] }}>
             <Input label="Date" type="date" value={loanForm.fee_date} onChange={e => setLoanForm({ ...loanForm, fee_date: e.target.value })} wrapStyle={{ width: 150 }} />
             <Select label="Fee Type" value={loanForm.fee_type} onChange={e => setLoanForm({ ...loanForm, fee_type: e.target.value })} wrapStyle={{ width: 150 }}>

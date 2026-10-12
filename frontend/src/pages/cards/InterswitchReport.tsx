@@ -281,7 +281,7 @@ export default function InterswitchReport() {
   return (
     <Page
       title="Transaction Report"
-      subtitle="ATM, POS, WEB and app transfers by month — the published half-year report"
+      subtitle="ATM, POS, WEB and app transfers by month: the published half-year report"
       loading={loading && !data}
       skeletonKpis={4}
       actions={

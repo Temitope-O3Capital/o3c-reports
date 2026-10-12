@@ -337,7 +337,7 @@ export default function InterswitchSettlement() {
   return (
     <Page
       title="Interswitch Settlement"
-      subtitle="Uploaded daily from the Interswitch portal — POS, ATM, web, bill payment and agency banking"
+      subtitle="Uploaded daily from the Interswitch portal: POS, ATM, web, bill payment and agency banking"
       loading={loading && !d}
       skeletonKpis={4}
       actions={
@@ -519,7 +519,7 @@ export default function InterswitchSettlement() {
       </div>
 
       <SectionCard title="Settlement by Channel" padding={false} style={{ marginBottom: SP[4] }}
-        subtitle="Transactions, not legs — one transaction carries an Amount_Payable leg plus a fee leg per party"
+        subtitle="Transactions, not legs: one transaction carries an Amount_Payable leg plus a fee leg per party"
         actions={
           <SegmentedToggle<'family' | 'session'> value={grain} onChange={setGrain}
             options={[{ value: 'family', label: 'By Channel' }, { value: 'session', label: 'By Session' }]} />
@@ -530,7 +530,7 @@ export default function InterswitchSettlement() {
           loading={loading && !d} skeletonRows={6}
           emptyText={
             <EmptyState icon="upload_file" title="No Settlement Loaded for This Period"
-              description="Interswitch has no API — pull the CSV from their portal and upload it."
+              description="Interswitch has no API. Pull the CSV from their portal and upload it."
               action={{ label: 'Upload CSV', icon: 'upload_file', onClick: focusUpload }} />
           }
         />
@@ -538,7 +538,7 @@ export default function InterswitchSettlement() {
 
       {chartData.length > 0 && (
         <SectionCard title="Daily Settlement" style={{ marginBottom: SP[4] }}
-          subtitle="Stacked by channel — a gap in the bars is a day nobody uploaded">
+          subtitle="Stacked by channel. A gap in the bars is a day nobody uploaded">
           <EBar
             data={chartData} xKey="day" stack height={280}
             valueFmt={fmtKoboExact} axisFmt={nairaAxis}

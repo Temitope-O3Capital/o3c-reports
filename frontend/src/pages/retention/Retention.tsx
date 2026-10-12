@@ -170,7 +170,7 @@ export default function Retention() {
         <KpiCard label="Still Hold a Product" value={fmtNum(workable?.workable_with_open_product ?? 0)} accent={AMBER}
           sub="An open account to build the call on" />
         <KpiCard label="At Risk Now" value={fmtNum(byBucket('at_risk')?.parties ?? 0)} accent={AMBER}
-          sub="61–90 days — still savable" />
+          sub="61–90 days: still savable" />
       </div>
 
       {/* Coverage honesty, stated once and prominently. Without this the buckets read

@@ -91,7 +91,7 @@ export default function Dashboards() {
   return (
     <Page
       title="Dashboards"
-      subtitle="A page of tiles over your saved reports and queries. Sharing shares the layout, not the data — every tile is still checked against the reader's own access."
+      subtitle="A page of tiles over your saved reports and queries. Sharing shares the layout, not the data. Every tile is still checked against the reader's own access."
       actions={<Button icon="add" onClick={() => setCreating(true)}>New Dashboard</Button>}
     >
       {err && <ErrBanner error={err} onRetry={load} />}

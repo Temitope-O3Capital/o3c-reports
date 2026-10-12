@@ -526,7 +526,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           )}
         </SectionCard>
       </div>
-      <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source, ranked by installs. “—” means the figure cannot be computed — hover it for the reason" badge={srcRows.length} padding={false}>
+      <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source, ranked by installs. “—” means the figure cannot be computed: hover it for the reason" badge={srcRows.length} padding={false}>
         <DataTable cols={scoreCols('source')} rows={srcRows} keyFn={r => r.key} emptyText="No Source Data Yet" />
       </SectionCard>
     </>

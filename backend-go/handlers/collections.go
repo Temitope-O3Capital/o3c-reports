@@ -1745,7 +1745,7 @@ func collectionsLogStep(db *core.DB) http.HandlerFunc {
 		}[body.StepType]
 		desc := label
 		if o := strings.TrimSpace(body.Outcome); o != "" {
-			desc += " — " + o
+			desc += ": " + o
 		}
 		if nt := strings.TrimSpace(body.Notes); nt != "" {
 			desc += ": " + nt

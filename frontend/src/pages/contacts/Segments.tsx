@@ -220,7 +220,7 @@ export default function Segments() {
   return (
     <Page
       title="Contact Segments"
-      subtitle="Saved audiences you refresh on demand — a snapshot each time, not a live view"
+      subtitle="Saved audiences you refresh on demand: a snapshot each time, not a live view"
       loading={loading && segments.length === 0}
       actions={
         <button onClick={() => setBuilder({ open: true, editing: null })} style={btnPrimary}>

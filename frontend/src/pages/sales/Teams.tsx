@@ -325,7 +325,7 @@ function UnteamedPanel({ officers, teams, manage, onChanged }: {
 
   return (
     <SectionCard title="Officers On No Team"
-      subtitle="Their leads roll up to nobody — no head sees them, and they are invisible to Team Performance."
+      subtitle="Their leads roll up to nobody. No head sees them, and they are invisible to Team Performance."
       style={{ marginTop: SP[4] }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
         {officers.map(o => (
@@ -388,7 +388,7 @@ function NewTeamModal({ officers, onClose, onDone }: { officers: Officer[]; onCl
           placeholder="e.g. Team Ozioma" autoFocus />
         <SelectMenuField label="Head (Optional)" value={head} onChange={setHead}
           options={headOptions} clearLabel="No head yet" placeholder="Choose a head…"
-          hint="Naming a head is what lets them see this team's leads — no role change needed." />
+          hint="Naming a head is what lets them see this team's leads. No role change needed." />
         <p style={{ margin: 0, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
           You can add officers once the team exists.
         </p>

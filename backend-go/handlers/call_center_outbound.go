@@ -2915,7 +2915,7 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 		// connected call read as a non-connect everywhere. The richer label rides in
 		// notes and on the contact row, so nothing is lost.
 		outcome := ccCallOutcome(disp)
-		notes := strings.TrimSpace(disp.Label + " — " + b.Notes)
+		notes := strings.TrimSpace(disp.Label + ": " + b.Notes)
 		// disposition and lead_id are written HERE, not left blank. Omitting them is
 		// what made a queue "Interested" produce nothing downstream: no CRM stage move,
 		// no hand-off row, no party, and a blank disposition on every export. Live data
