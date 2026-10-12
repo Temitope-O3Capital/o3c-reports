@@ -935,6 +935,25 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
     })
   }, [])
 
+  // The theme tokens also go on :root, not only on the shell div below.
+  //
+  // Everything that renders through createPortal — every SelectMenu dropdown, and any
+  // future popover — mounts on document.body, which is OUTSIDE the shell div that
+  // carries these variables as inline styles. Out there var(--card) resolves to nothing,
+  // so `background: var(--card)` falls back to transparent and the open menu shows the
+  // form straight through itself. It looked like a z-index problem and was not: the
+  // element was on top, it simply had no colour.
+  //
+  // Setting them on documentElement fixes every portal at once and costs nothing — the
+  // shell keeps its own copy, so nested theming still works if it is ever wanted.
+  useEffect(() => {
+    const vars = (dark ? DARK : LIGHT) as Record<string, string>
+    const root = document.documentElement
+    for (const [k, v] of Object.entries(vars)) {
+      if (k.startsWith('--') && typeof v === 'string') root.style.setProperty(k, v)
+    }
+  }, [dark])
+
   useEffect(() => {
     let warnTimer:   ReturnType<typeof setTimeout>
     let logoutTimer: ReturnType<typeof setTimeout>
