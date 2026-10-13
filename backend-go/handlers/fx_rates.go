@@ -142,32 +142,27 @@ func FXRatesHistory(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// FXRatesRefresh scrapes NgnRates.com and inserts fresh rates into fx_parallel_rates.
+// FXRatesRefresh scrapes the parallel market now and inserts the rates.
 // POST /api/finance/fx-rates/refresh  (admin / finance_head only)
+//
+// Shares scrapeFX and insertFXRates with the hourly worker deliberately. When this
+// endpoint had its own copy of the scrape-and-insert it was pinned to NgnRates, so
+// "Refresh Now" could quietly disagree with what the worker had been storing all day.
 func FXRatesRefresh(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		rates, err := scrapeNgnRates(ctx)
+		source, rates, err := scrapeFX(ctx)
 		if err != nil {
 			respondErr(w, 502, "scrape failed: "+err.Error())
 			return
 		}
-
-		inserted := 0
-		for _, rate := range rates {
-			_, err := db.PGExec(ctx,
-				`INSERT INTO fx_parallel_rates (source, currency, buy, sell, scraped_at)
-				 VALUES ($1, $2, $3, $4, NOW())`,
-				"ngnrates", rate.Currency, rate.Buy, rate.Sell)
-			if err == nil {
-				inserted++
-			}
-		}
+		inserted := insertFXRates(ctx, db, source, rates)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"inserted": inserted,
+			"source":   source,
 			"rates":    rates,
 		})
 	}
@@ -285,8 +280,71 @@ func parseNgnRateCell(raw string) (sell, buy float64, err error) {
 	return sell, buy, nil
 }
 
-// StartFXRatesScraper runs an hourly background goroutine that scrapes NgnRates.com
-// and inserts fresh parallel-market rates into fx_parallel_rates.
+// fxSource is one place to scrape, named by the value it writes to the source column.
+type fxSource struct {
+	name  string
+	fetch func(context.Context) ([]fxRate, error)
+}
+
+// fxSources is tried in order and the FIRST one that yields rates wins — Aboki Forex
+// primary, NgnRates as the fallback.
+//
+// Only one source writes per cycle, and that is load-bearing rather than tidy.
+// FXRatesLatest selects DISTINCT ON (currency) ORDER BY scraped_at DESC with no regard
+// for source, so the newest row wins whoever wrote it. Two sources writing every hour
+// would make the displayed rate flip between them according to which finished last. If
+// a second concurrent writer is ever wanted, that query has to choose a source first.
+//
+// Keeping NgnRates behind Aboki is what stops a layout change at Aboki turning into a
+// silently frozen rate: a scraper for a page somebody else controls is not a dependency
+// that can be assumed to keep working, and the staleness flag in the API only tells you
+// after three hours have passed.
+var fxSources = []fxSource{
+	{name: "abokiforex", fetch: scrapeAboki},
+	{name: "ngnrates", fetch: scrapeNgnRates},
+}
+
+// scrapeFX returns rates from the first source that produces any, plus its name.
+func scrapeFX(ctx context.Context) (string, []fxRate, error) {
+	var failures []string
+	for _, src := range fxSources {
+		rates, err := src.fetch(ctx)
+		if err != nil {
+			slog.Warn("FX source failed, trying the next", "source", src.name, "err", err)
+			failures = append(failures, src.name+": "+err.Error())
+			continue
+		}
+		if len(rates) == 0 {
+			slog.Warn("FX source returned nothing, trying the next", "source", src.name)
+			failures = append(failures, src.name+": no rates")
+			continue
+		}
+		if len(failures) > 0 {
+			slog.Warn("FX fell back to a secondary source",
+				"used", src.name, "after", strings.Join(failures, "; "))
+		}
+		return src.name, rates, nil
+	}
+	return "", nil, fmt.Errorf("every FX source failed — %s", strings.Join(failures, "; "))
+}
+
+// insertFXRates writes one scrape's worth of rates and returns how many landed.
+func insertFXRates(ctx context.Context, db *core.DB, source string, rates []fxRate) int {
+	inserted := 0
+	for _, rate := range rates {
+		if _, err := db.PGExec(ctx,
+			`INSERT INTO fx_parallel_rates (source, currency, buy, sell, scraped_at) VALUES ($1, $2, $3, $4, NOW())`,
+			source, rate.Currency, rate.Buy, rate.Sell); err != nil {
+			slog.Error("FX rate insert failed", "source", source, "currency", rate.Currency, "err", err)
+			continue
+		}
+		inserted++
+	}
+	return inserted
+}
+
+// StartFXRatesScraper runs an hourly background goroutine that scrapes the parallel
+// market and inserts fresh rates into fx_parallel_rates.
 // Call as: go handlers.StartFXRatesScraper(db)
 func StartFXRatesScraper(db *core.DB) {
 	runFXScrape(db) // run once immediately on startup
@@ -298,30 +356,23 @@ func StartFXRatesScraper(db *core.DB) {
 }
 
 func runFXScrape(db *core.DB) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	WorkerBeat(ctx, db, "fx_rates", "running", "", "")
 
-	rates, err := scrapeNgnRates(ctx)
+	source, rates, err := scrapeFX(ctx)
 	if err != nil {
 		slog.Error("FX rate scrape failed", "err", err)
 		WorkerBeat(ctx, db, "fx_rates", "error", err.Error(), "")
 		return
 	}
 
-	inserted := 0
-	for _, rate := range rates {
-		_, err := db.PGExec(ctx,
-			`INSERT INTO fx_parallel_rates (source, currency, buy, sell, scraped_at) VALUES ($1, $2, $3, $4, NOW())`,
-			"ngnrates", rate.Currency, rate.Buy, rate.Sell)
-		if err != nil {
-			slog.Error("FX rate insert failed", "currency", rate.Currency, "err", err)
-		} else {
-			inserted++
-		}
-	}
-	slog.Info("FX rates scraped", "inserted", inserted)
-	WorkerBeat(ctx, db, "fx_rates", "ok", fmt.Sprintf("%d rates scraped", inserted), "")
+	inserted := insertFXRates(ctx, db, source, rates)
+	slog.Info("FX rates scraped", "source", source, "inserted", inserted)
+	// The source is in the heartbeat so a silent fallback is visible on the worker page
+	// rather than only in the log.
+	WorkerBeat(ctx, db, "fx_rates", "ok",
+		fmt.Sprintf("%d rates scraped from %s", inserted, source), "")
 }
 
 // fxFloat converts pgx numeric types to float64 for FX rate rows.

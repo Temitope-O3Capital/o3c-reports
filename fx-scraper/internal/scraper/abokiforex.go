@@ -1,8 +1,20 @@
 package scraper
 
-// Aboki Forex parser.
+// SUPERSEDED, AND IT NEVER WORKED. Do not revive this; the live Aboki parser is
+// scrapeAboki in backend-go/handlers/fx_aboki.go.
 //
-// Page structure (as of 2026-07):
+// Two things are wrong with the file below. It keys off hrefs of the form
+// "/usd-to-naira", and the site uses "/dollar-to-naira-black-market" — so the selector
+// matched nothing and Fetch returned "no rates parsed" on every run. And it reads the
+// rate from the span AFTER the one containing "BUY", which is not where the rate sits.
+// Nothing has ever written a row from it: fx_parallel_rates has no 'abokiforex' source
+// older than 2026-10-13, and this binary has no scheduled task on the host.
+//
+// The whole fx-scraper module is unrun. The live FX scrape is an hourly goroutine
+// inside the backend (handlers.StartFXRatesScraper). What is worth salvaging here is
+// the validation-and-alert idea, not the parsing.
+//
+// Page structure BELOW IS STALE (it describes the site as of 2026-07):
 //   Each currency is a card with repeated structure:
 //     <div>
 //       <a href="/[currency]-to-naira-black-market"><img alt="[Currency] currency"></a>

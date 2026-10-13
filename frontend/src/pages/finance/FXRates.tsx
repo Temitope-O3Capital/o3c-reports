@@ -1,14 +1,37 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS, NUM } from '../../lib/design'
-import { Page, SectionCard, Spinner, DateFilter, ErrBanner, DataTable, SegmentedToggle, Button } from '../../components/UI'
+import { Page, SectionCard, Spinner, DateFilter, ErrBanner, DataTable, SegmentedToggle, Select, Button } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { EArea } from '../../components/echarts'
 import { toast } from 'sonner'
 
-const CURRENCIES = ['USD', 'EUR', 'GBP']
-const FLAG: Record<string, string>   = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' }
+// Every currency Aboki Forex quotes on the parallel market. MAJORS keep the big cards
+// at the top of the page, because those are the three finance actually works in; the
+// rest appear in the table and the history picker so they are reachable rather than
+// merely stored.
+const MAJORS     = ['USD', 'GBP', 'EUR']
+const CURRENCIES = [...MAJORS, 'CAD', 'AUD', 'AED', 'CNY', 'GHS', 'ZAR', 'XOF', 'XAF']
+
+// XOF and XAF are shared by eight and six countries respectively, so no single flag is
+// honest for either.
+const FLAG: Record<string, string> = {
+  USD: '🇺🇸', GBP: '🇬🇧', EUR: '🇪🇺', CAD: '🇨🇦', AUD: '🇦🇺', AED: '🇦🇪',
+  CNY: '🇨🇳', GHS: '🇬🇭', ZAR: '🇿🇦', XOF: '🌍', XAF: '🌍',
+}
+
+const CCY_NAME: Record<string, string> = {
+  USD: 'US Dollar', GBP: 'Pound Sterling', EUR: 'Euro', CAD: 'Canadian Dollar',
+  AUD: 'Australian Dollar', AED: 'UAE Dirham', CNY: 'Chinese Yuan', GHS: 'Ghanaian Cedi',
+  ZAR: 'South African Rand', XOF: 'West African CFA Franc', XAF: 'Central African CFA Franc',
+}
+
 const CCY_COLOR: Record<string, string> = { USD: GREEN, EUR: BLUE, GBP: PURPLE }
+
+// Aboki quotes both CFA francs per 1,000 units; they are stored per unit so the buy and
+// sell columns mean the same thing for every currency. Said on the page because anyone
+// checking against the site will otherwise see 2.30 where it shows 2,300.
+const PER_1000_AT_SOURCE = ['XOF', 'XAF']
 
 interface RateLatest {
   currency: string
@@ -27,9 +50,6 @@ interface RateHistory {
   scraped_at: string
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
-
 const fmtTime = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -39,12 +59,47 @@ const fmtTime = (iso: string) =>
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 
+// Decimals follow the size of the rate: two is right for the dollar at 1,370 and loses
+// the difference between a CFA franc at 2.30 and 2.35.
+const fmtRate = (n: number) =>
+  new Intl.NumberFormat('en-NG', {
+    minimumFractionDigits: n < 10 ? 3 : 2,
+    maximumFractionDigits: n < 10 ? 3 : 2,
+  }).format(n)
+
 const historyCols: TableCol<RateHistory>[] = [
   { key: 'scraped_at', label: 'Date / Time', render: r => <span style={{ ...NUM, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTime(r.scraped_at)}</span> },
   { key: 'currency', label: 'Currency', render: r => <span style={{ fontWeight: FW.semibold }}>{FLAG[r.currency]} {r.currency}</span> },
-  { key: 'buy', label: 'Buy (₦)', align: 'right', render: r => <span style={{ ...NUM, color: CCY_COLOR[r.currency] ?? GREEN }}>₦{fmt(Number(r.buy))}</span> },
-  { key: 'sell', label: 'Sell (₦)', align: 'right', render: r => <span style={{ ...NUM, color: NAVY }}>₦{fmt(Number(r.sell))}</span> },
-  { key: 'spread', label: 'Spread', align: 'right', sortable: false, render: r => <span style={NUM}>₦{fmt(Number(r.sell) - Number(r.buy))}</span> },
+  { key: 'buy', label: 'Buy (₦)', align: 'right', render: r => <span style={{ ...NUM, color: CCY_COLOR[r.currency] ?? GREEN }}>₦{fmtRate(Number(r.buy))}</span> },
+  { key: 'sell', label: 'Sell (₦)', align: 'right', render: r => <span style={{ ...NUM, color: NAVY }}>₦{fmtRate(Number(r.sell))}</span> },
+  { key: 'spread', label: 'Spread', align: 'right', sortable: false, render: r => <span style={NUM}>₦{fmtRate(Number(r.sell) - Number(r.buy))}</span> },
+  { key: 'source', label: 'Source', render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.source}</span> },
+]
+
+const allRatesCols: TableCol<RateLatest>[] = [
+  {
+    key: 'currency', label: 'Currency',
+    render: r => (
+      <span style={{ fontWeight: FW.semibold, whiteSpace: 'nowrap' }}>
+        {FLAG[r.currency]} {r.currency}
+        <span style={{ fontWeight: FW.normal, color: 'var(--txt3)', fontSize: TEXT.xs, marginLeft: SP[2] }}>
+          {CCY_NAME[r.currency]}
+          {PER_1000_AT_SOURCE.includes(r.currency) && ' · quoted per 1,000 at source'}
+        </span>
+      </span>
+    ),
+  },
+  { key: 'buy',  label: 'Buy (₦)',  align: 'right', render: r => <span style={{ ...NUM, color: CCY_COLOR[r.currency] ?? GREEN }}>₦{fmtRate(Number(r.buy))}</span> },
+  { key: 'sell', label: 'Sell (₦)', align: 'right', render: r => <span style={{ ...NUM, color: NAVY }}>₦{fmtRate(Number(r.sell))}</span> },
+  { key: 'spread', label: 'Spread', align: 'right', sortable: false, render: r => <span style={NUM}>₦{fmtRate(Number(r.sell) - Number(r.buy))}</span> },
+  {
+    key: 'as_of', label: 'As Of',
+    render: r => (
+      <span style={{ ...NUM, fontSize: TEXT.xs, color: r.is_stale ? AMBER : 'var(--txt2)', whiteSpace: 'nowrap' }}>
+        {fmtTime(r.as_of)}{r.is_stale && ' · stale'}
+      </span>
+    ),
+  },
   { key: 'source', label: 'Source', render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.source}</span> },
 ]
 
@@ -93,8 +148,12 @@ export default function FXRates() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      const res = await apiPost<{ inserted: number }>('/api/finance/fx-rates/refresh', {})
-      toast.success(`Scraped ${res.inserted} rate${res.inserted !== 1 ? 's' : ''} from NgnRates.com`)
+      const res = await apiPost<{ inserted: number; source?: string }>('/api/finance/fx-rates/refresh', {})
+      // The source comes from the response rather than being named here, so a fallback
+      // to NgnRates is visible to whoever pressed the button instead of being reported
+      // as the primary source.
+      const from = res.source ? ` from ${res.source}` : ''
+      toast.success(`Scraped ${res.inserted} rate${res.inserted !== 1 ? 's' : ''}${from}`)
       loadLatest()
     } catch (e: any) {
       toast.error('Refresh failed: ' + (e.message ?? 'unknown error'))
@@ -157,22 +216,56 @@ export default function FXRates() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[6] }}>
 
         {/* ── Rate cards ──────────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[5] }}>
+        {/* auto-fit rather than a fixed three columns, so the row stacks instead of
+            squeezing on a narrow screen. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: SP[5] }}>
           {loadingLatest
-            ? CURRENCIES.map(c => <SkeletonCard key={c} accent={CCY_COLOR[c]} />)
-            : CURRENCIES.map(c => (
+            ? MAJORS.map(c => <SkeletonCard key={c} accent={CCY_COLOR[c]} />)
+            : MAJORS.map(c => (
                 <RateCard key={c} currency={c} rate={latest.find(x => x.currency === c)} />
               ))
           }
         </div>
+
+        {/* ── Every currency ──────────────────────────────────────────── */}
+        <SectionCard title="All Parallel Rates">
+          <DataTable
+            rows={CURRENCIES
+              .map(c => latest.find(x => x.currency === c))
+              .filter((r): r is RateLatest => Boolean(r))}
+            cols={allRatesCols}
+            emptyText="No Rates Yet"
+          />
+          <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[3], marginBottom: 0 }}>
+            Rates are Naira per single unit. Aboki Forex quotes both CFA francs per 1,000,
+            so the figures shown here for XOF and XAF are a thousandth of the ones on its
+            page. The official CBN rate is a separate figure and is not shown here.
+          </p>
+        </SectionCard>
 
         {/* ── History ─────────────────────────────────────────────────── */}
         <SectionCard title="Rate History">
 
           {/* Toolbar */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3], marginBottom: SP[5], alignItems: 'center' }}>
-            <SegmentedToggle value={currency} onChange={setCurrency}
-              options={CURRENCIES.map(c => ({ value: c, label: `${FLAG[c]} ${c}` }))} />
+            {/* The three majors stay a segmented toggle, which is the quickest thing to
+                hit for the currencies anyone looks at daily. The other eight go in a
+                select beside it: eleven segments in one inline-flex control would be
+                ~770px wide and would scroll the page sideways on a phone. */}
+            <SegmentedToggle value={MAJORS.includes(currency) ? currency : ''} onChange={setCurrency}
+              options={MAJORS.map(c => ({ value: c, label: `${FLAG[c]} ${c}` }))} />
+
+            <Select
+              aria-label="Other currency"
+              value={MAJORS.includes(currency) ? '' : currency}
+              onChange={e => { if (e.target.value) setCurrency(e.target.value) }}
+              style={{ width: 'auto', minWidth: 190 }}
+            >
+              <option value="">Other Currency…</option>
+              {CURRENCIES.filter(c => !MAJORS.includes(c)).map(c => (
+                <option key={c} value={c}>{FLAG[c]} {c} · {CCY_NAME[c]}</option>
+              ))}
+            </Select>
 
             <div style={{ marginLeft: 'auto' }}>
               <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
@@ -193,9 +286,9 @@ export default function FXRates() {
                 xKey="date"
                 height={260}
                 endLabel
-                valueFmt={(v) => `₦${fmt(v)}`}
-                endFmt={(v) => `₦${fmt(v)}`}
-                axisFmt={(v) => `₦${fmt(v)}`}
+                valueFmt={(v) => `₦${fmtRate(v)}`}
+                endFmt={(v) => `₦${fmtRate(v)}`}
+                axisFmt={(v) => `₦${fmtRate(v)}`}
                 series={[
                   { key: 'sell', name: 'Sell: You Pay', color: NAVY },
                   { key: 'buy', name: 'Buy: You Receive', color: accentColor },
@@ -228,9 +321,11 @@ export default function FXRates() {
 
         {/* Disclaimer */}
         <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.7, margin: 0 }}>
-          <strong>Disclaimer:</strong> Rates are sourced from community-aggregated BDC quotes (NgnRates.com).
-          They are indicative of the Naira parallel market only. Not a licensed or regulated FX feed.
-          Not suitable for settlement or customer-facing rate quotes without compliance review.
+          <strong>Disclaimer:</strong> Rates are sourced from community-aggregated BDC quotes, primarily
+          Aboki Forex, falling back to NgnRates if that is unreachable. The Source column on each row
+          records which one a rate came from. They are indicative of the Naira parallel market only.
+          Not a licensed or regulated FX feed. Not suitable for settlement or customer-facing rate
+          quotes without compliance review.
         </p>
 
       </div>
@@ -284,7 +379,7 @@ function RateCard({ currency, rate }: { currency: string; rate?: RateLatest }) {
             Buy
           </div>
           <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: accent, ...NUM, lineHeight: 1 }}>
-            ₦{fmt(buy)}
+            ₦{fmtRate(buy)}
           </div>
         </div>
         <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
@@ -292,7 +387,7 @@ function RateCard({ currency, rate }: { currency: string; rate?: RateLatest }) {
             Sell
           </div>
           <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: NAVY, ...NUM, lineHeight: 1 }}>
-            ₦{fmt(sell)}
+            ₦{fmtRate(sell)}
           </div>
         </div>
       </div>
@@ -304,7 +399,7 @@ function RateCard({ currency, rate }: { currency: string; rate?: RateLatest }) {
       }}>
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
           Spread{' '}
-          <span style={{ fontWeight: FW.semibold, color: 'var(--txt2)', ...NUM }}>₦{fmt(spread)}</span>
+          <span style={{ fontWeight: FW.semibold, color: 'var(--txt2)', ...NUM }}>₦{fmtRate(spread)}</span>
           <span style={{ marginLeft: 4 }}>({spreadPct}%)</span>
         </div>
         <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textAlign: 'right' }}>
