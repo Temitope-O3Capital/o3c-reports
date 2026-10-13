@@ -35,7 +35,12 @@ importer that can silently restate how fast people look. Provenance decides:
                          day out, and a correction that an import undoes is not a
                          correction.
   source='arithmetic'    never touched — fixed and Easter dates are derived, not fetched.
-  source='substitution'  recomputed, because a new holiday on a weekend needs one.
+  source='substitution'  RECOMPUTED FROM SCRATCH every run, which means dropped as
+                         well as added: a substitute that no longer follows from a
+                         declared holiday is not a holiday, it is a working day the
+                         office would otherwise never get back. Recomputing rather than
+                         adding to is also what makes the import idempotent — see
+                         substitutesFor for what the first version did instead.
   source='google_ics'
     is_estimated=true    REPLACEABLE. A tentative date that moved is the whole reason
                          this exists.
@@ -92,8 +97,13 @@ type HolidayImport struct {
 	Moved        []feedHoliday `json:"moved"`
 	Removed      []feedHoliday `json:"removed"`
 	Substitutes  []feedHoliday `json:"substitutes"`
-	Applied      bool          `json:"applied"`
-	Skipped      int           `json:"skipped_not_ours"`
+	// Reported separately from Removed because they are a different kind of change: a
+	// removal is a holiday the feed stopped naming, a dropped substitute is a day the
+	// office gets back. Both read as "fewer holidays" and conflating them would hide
+	// which one happened.
+	SubstitutesDropped []feedHoliday `json:"substitutes_dropped"`
+	Applied            bool          `json:"applied"`
+	Skipped            int           `json:"skipped_not_ours"`
 }
 
 var icsDate = regexp.MustCompile(`DTSTART;VALUE=DATE:(\d{8})`)
@@ -181,6 +191,83 @@ func nextWorkingDay(d time.Time, taken map[string]bool) time.Time {
 	}
 }
 
+// substitutesFor applies the weekend rule to a whole set at once, and it takes the
+// DECLARED holidays only — never the substitutes already in the table.
+//
+// That distinction is the entire correctness of this function, and getting it wrong is
+// not a cosmetic bug. The first version allocated against every row in the table, which
+// includes the substitutes the PREVIOUS run created. So a substitute looked like an
+// obstacle to itself: Boxing Day 2026 fell on Saturday, run one observed it on Monday
+// the 28th, run two found the 28th "taken" and observed it again on Tuesday the 29th,
+// run three on the 30th. Two runs nine minutes apart on 2026-10-12 left three Boxing
+// Days and 75 spurious holidays, and the worker runs weekly, so it would have closed
+// the office for another 38 working days every week without anybody authorising a day
+// off. Nothing before 2025 was touched and no ticket spanned the two past dates, so the
+// published figures were unharmed — this was caught before it mattered, not after.
+//
+// Being a pure function of the declared set makes it idempotent by construction: the
+// same input gives the same output no matter how many times it has run before.
+func substitutesFor(declared []feedHoliday) []feedHoliday {
+	sorted := append([]feedHoliday(nil), declared...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Date < sorted[j].Date })
+
+	// Seeded from the declared dates alone. A substitute never blocks a substitute
+	// except within this one allocation, which is what the taken[key] below adds.
+	taken := map[string]bool{}
+	for _, h := range sorted {
+		taken[h.Date] = true
+	}
+
+	var out []feedHoliday
+	for _, h := range sorted {
+		d, err := time.Parse("2006-01-02", h.Date)
+		if err != nil {
+			continue
+		}
+		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+			continue
+		}
+		key := nextWorkingDay(d, taken).Format("2006-01-02")
+		// In date order, so Christmas on a Saturday takes the Monday and Boxing Day on
+		// the Sunday takes the Tuesday, rather than both wanting the Monday.
+		taken[key] = true
+		out = append(out, feedHoliday{Date: key, Name: h.Name + " (observed)"})
+	}
+	return out
+}
+
+// reconcileSubstitutes turns what the table holds into what it should hold. Recomputing
+// means dropping as well as adding, because a substitute that is no longer derivable
+// from a declared holiday is not a holiday — it is a working day the office lost.
+//
+// Keyed on date AND name so a renamed holiday corrects its substitute's label too.
+func reconcileSubstitutes(have, want []feedHoliday) (drop, add []feedHoliday) {
+	key := func(h feedHoliday) string { return h.Date + "\x00" + h.Name }
+
+	wanted := map[string]bool{}
+	for _, h := range want {
+		wanted[key(h)] = true
+	}
+	held := map[string]bool{}
+	for _, h := range have {
+		held[key(h)] = true
+	}
+
+	for _, h := range have {
+		if !wanted[key(h)] {
+			drop = append(drop, h)
+		}
+	}
+	for _, h := range want {
+		if !held[key(h)] {
+			add = append(add, h)
+		}
+	}
+	sort.Slice(drop, func(i, j int) bool { return drop[i].Date < drop[j].Date })
+	sort.Slice(add, func(i, j int) bool { return add[i].Date < add[j].Date })
+	return drop, add
+}
+
 // importNigerianHolidays diffs the feed against the table. With apply=false it changes
 // nothing and reports what it would do, which is the only safe way to look at an
 // importer that writes to this particular table.
@@ -256,6 +343,35 @@ func importNigerianHolidays(ctx context.Context, db *core.DB, apply bool) (*Holi
 
 	sort.Slice(out.Removed, func(i, j int) bool { return out.Removed[i].Date < out.Removed[j].Date })
 
+	// The substitution set is worked out BEFORE the apply/preview fork, so a dry run
+	// reports it. That ordering is not tidiness: the first version computed substitutes
+	// only on the apply path, so the runaway described in substitutesFor could not be
+	// seen in a preview at all. The one thing this importer does that is hard to reason
+	// about was the one thing you could not look at without writing to the table.
+	declared := make([]feedHoliday, 0, len(have))
+	held := make([]feedHoliday, 0, len(have))
+	pendingRemoval := map[string]bool{}
+	for _, h := range out.Removed {
+		pendingRemoval[h.Date] = true
+	}
+	for d, e := range have {
+		if pendingRemoval[d] {
+			continue
+		}
+		switch e.source {
+		case "substitution":
+			held = append(held, feedHoliday{Date: d, Name: e.name})
+		default:
+			declared = append(declared, feedHoliday{Date: d, Name: e.name})
+		}
+	}
+	// Dates about to be inserted are declared holidays for this purpose, so a new Eid on
+	// a Saturday gets its substitute in the same run that adds it.
+	declared = append(declared, out.Added...)
+
+	drop, add := reconcileSubstitutes(held, substitutesFor(declared))
+	out.SubstitutesDropped, out.Substitutes = drop, add
+
 	if !apply {
 		return out, nil
 	}
@@ -276,50 +392,45 @@ func importNigerianHolidays(ctx context.Context, db *core.DB, apply bool) (*Holi
 		}
 	}
 
-	// A holiday the importer just added may fall on a weekend, and then it needs the
-	// substitute working day that migration 367 generated for everything it seeded.
-	subs, err := db.PGQuery(ctx, `
-		SELECT to_char(date,'YYYY-MM-DD') AS d, name
-		  FROM app.public_holidays
-		 WHERE date >= $1::date
-		   AND EXTRACT(ISODOW FROM date) IN (6, 7)
-		 ORDER BY date`, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	taken, err := db.PGQuery(ctx,
-		`SELECT to_char(date,'YYYY-MM-DD') AS d FROM app.public_holidays WHERE date >= $1::date`, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	isTaken := map[string]bool{}
-	for _, r := range taken {
-		isTaken[str(r["d"])] = true
-	}
-	for _, r := range subs {
-		d, perr := time.Parse("2006-01-02", str(r["d"]))
-		if perr != nil {
-			continue
+	// Batched into one statement each because migration 367's rebuild trigger is
+	// statement-level: a row-at-a-time reconcile would rebuild the whole materialised
+	// calendar a hundred-odd times for one import.
+	if len(drop) > 0 {
+		args := make([]any, 0, len(drop))
+		ph := make([]string, 0, len(drop))
+		for i, h := range drop {
+			ph = append(ph, fmt.Sprintf("$%d", i+1))
+			args = append(args, h.Date)
 		}
-		obs := nextWorkingDay(d, isTaken)
-		key := obs.Format("2006-01-02")
-		name := str(r["name"]) + " (observed)"
-		res, err := db.PGExec(ctx, `
+		// source='substitution' in the predicate is the safety rail: this statement can
+		// never reach a declared holiday or a human's correction.
+		if _, err := db.PGExec(ctx, `
+			DELETE FROM app.public_holidays
+			 WHERE source = 'substitution'
+			   AND date IN (`+strings.Join(ph, ",")+`)`, args...); err != nil {
+			return nil, fmt.Errorf("dropping %d stale substitute(s): %w", len(drop), err)
+		}
+	}
+	if len(add) > 0 {
+		args := make([]any, 0, len(add)*2)
+		vals := make([]string, 0, len(add))
+		for i, h := range add {
+			vals = append(vals, fmt.Sprintf("($%d::date, $%d, 'substitution', false)", i*2+1, i*2+2))
+			args = append(args, h.Date, h.Name)
+		}
+		if _, err := db.PGExec(ctx, `
 			INSERT INTO app.public_holidays (date, name, source, is_estimated)
-			VALUES ($1::date, $2, 'substitution', false)
-			ON CONFLICT (date) DO NOTHING`, key, name)
-		if err != nil {
-			return nil, fmt.Errorf("adding substitute %s: %w", key, err)
-		}
-		if n, _ := res.RowsAffected(); n > 0 {
-			isTaken[key] = true
-			out.Substitutes = append(out.Substitutes, feedHoliday{Date: key, Name: name})
+			VALUES `+strings.Join(vals, ",")+`
+			ON CONFLICT (date) DO NOTHING`, args...); err != nil {
+			return nil, fmt.Errorf("adding %d substitute(s): %w", len(add), err)
 		}
 	}
 
 	slog.Info("holiday import applied",
 		"added", len(out.Added), "removed", len(out.Removed),
-		"substitutes", len(out.Substitutes), "left_alone", out.Skipped)
+		"substitutes_added", len(out.Substitutes),
+		"substitutes_dropped", len(out.SubstitutesDropped),
+		"left_alone", out.Skipped)
 	return out, nil
 }
 

@@ -1,0 +1,28 @@
+-- Undo 373. Say what it does NOT undo, and why.
+--
+-- There is nothing here to run, and that is the honest answer rather than an omission.
+--
+-- 373 deleted 71 substitution rows that no declared holiday implies, and corrected 10
+-- more that the importer's runaway had mis-dated or mis-named. Undoing it would mean
+-- re-closing 71 working days that nobody ever declared as holidays — reinstating the
+-- bug, not reverting a decision. The rows it removed were never authorised by anyone;
+-- they were an artefact of the importer treating its own previous output as occupied
+-- dates, and the shape they took depended on how many times the worker happened to have
+-- run. There is no earlier state worth restoring.
+--
+-- WHAT WOULD NEED UNDOING INSTEAD, if the weekend policy itself is what someone wants
+-- reversed. The policy is Temitope's decision of 2026-10-12: a holiday on either
+-- Saturday or Sunday is observed on the next working day. The Public Holidays Act only
+-- provides for Sunday and Saturday substitution is Federal Government discretion, so it
+-- is a policy choice and a later holder of this platform may reasonably choose
+-- differently. Every row it produces carries source = 'substitution', so the whole
+-- policy can be withdrawn with:
+--
+--     DELETE FROM app.public_holidays WHERE source = 'substitution';
+--
+-- The statement-level trigger from migration 367 rebuilds app.business_calendar, so the
+-- days reopen immediately. Also stop handlers/holidays.go recreating them: substitutes
+-- are allocated in substitutesFor and reconciled on every import run, so deleting the
+-- rows without changing the code buys one week at most.
+--
+-- 373 changed no schema. There is no column, index, constraint or trigger to drop.
