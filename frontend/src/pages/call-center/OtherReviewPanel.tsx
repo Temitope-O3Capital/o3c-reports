@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
 import { NAVY, AMBER, GREEN, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { useLiveData } from '../../hooks/useRealtime'
+import { readableNote } from '../../lib/notes'
 
 // The "Other" review — the loop that keeps the escape hatch a backlog rather than a bin.
 //
@@ -89,7 +90,7 @@ export default function OtherReviewPanel({ from, to }: { from: string; to: strin
   return (
     <SectionCard
       title="Other — What The Vocabulary Cannot Say Yet"
-      subtitle="Every call an agent could not describe from the list. Clusters here are the next named outcome."
+      subtitle="Calls the list could not describe. Clusters become new outcomes."
       badge={d ? d.other_calls || undefined : undefined}
       style={{ marginTop: SP[4] }}
     >
@@ -151,7 +152,7 @@ export default function OtherReviewPanel({ from, to }: { from: string; to: strin
                     background: 'var(--bg)', border: '1px solid var(--bdr)',
                   }}>
                     <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.5 }}>
-                      {nt.notes || nt.resolution || <span style={{ color: 'var(--txt3)' }}>(no note — the form should not have allowed this)</span>}
+                      {readableNote(nt.notes) || readableNote(nt.resolution) || <span style={{ color: 'var(--txt3)' }}>(no note — the form should not have allowed this)</span>}
                     </div>
                     {nt.notes && nt.resolution && (
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{nt.resolution}</div>

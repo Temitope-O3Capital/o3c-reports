@@ -10,6 +10,7 @@ import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from
 import { fmtNum, fmtDate } from '../../lib/fmt'
 import { useLiveData } from '../../hooks/useRealtime'
 import { outcomeLabel, useOutcomes } from '../../lib/outcomes'
+import { readableNote } from '../../lib/notes'
 
 // My Day — the officer's own record of what they did.
 //
@@ -146,7 +147,7 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
           {/* What happened, latest first */}
           {activities.length === 0 ? (
             <EmptyState icon="event_note" title="Nothing Logged Yet Today"
-              description="Record a visit, a call or a meeting as it happens. It takes a few seconds and it is what your day looks like to your head."
+              description="Record a visit, call or meeting as it happens."
               action={{ label: 'Log Activity', icon: 'add', onClick: () => setLogOpen(true) }} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -172,7 +173,7 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
                       {a.outcome && <> · {outcomeLabel(a.outcome)}</>}
                     </div>
                     {a.body && (
-                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{a.body}</div>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{readableNote(a.body)}</div>
                     )}
                   </div>
                 </div>

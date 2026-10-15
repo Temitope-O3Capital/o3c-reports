@@ -10,6 +10,8 @@ import { LEAD_STAGES } from '../../lib/leadStages'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import SalesActivityModal from '../../components/SalesActivityModal'
 import { useLiveData } from '../../hooks/useRealtime'
+import { outcomeLabel, useOutcomes } from '../../lib/outcomes'
+import { readableNote } from '../../lib/notes'
 
 // The lead record, opened from the Leads queue.
 //
@@ -116,6 +118,10 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
   // The reference column folds under the history on a narrow screen rather than
   // squeezing both into unreadable widths.
   const isNarrow = useIsMobile()
+  // Which team's entries the history is showing. A lead worked by the call centre and
+  // then by Sales carries both, and "what did WE do" is a question you cannot ask of a
+  // merged list without this.
+  const [teamFilter, setTeamFilter] = useState<string>('all')
 
   // Held in a ref so a parent that re-creates the callback each render does not
   // re-trigger load() and put the page in a fetch loop.
@@ -145,6 +151,8 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
   useEffect(() => { if (leadId) load() }, [leadId, load])
   // Live: everything this record shows is one of these five.
   useLiveData(load, { topics: ['crm', 'activities', 'tasks', 'deals', 'sales_visits'] })
+  // The history merges four teams' vocabularies; this is what resolves them to one.
+  useOutcomes()
 
   const refresh = () => { load(); onChanged() }
 
@@ -158,17 +166,30 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
     catch (e: any) { toast.error(e.message) }
   }
 
+  // Which teams actually appear in this lead's history, busiest first. Built from the
+  // data rather than from the full team list, so the filter never offers a chip that
+  // would empty the card.
+  const teamsPresent = useMemo(() => {
+    const n = new Map<string, number>()
+    timeline.forEach(r => n.set(r.team, (n.get(r.team) ?? 0) + 1))
+    return [...n.entries()].sort((a, b) => b[1] - a[1])
+  }, [timeline])
+
+  const visible = useMemo(
+    () => (teamFilter === 'all' ? timeline : timeline.filter(r => r.team === teamFilter)),
+    [timeline, teamFilter])
+
   // Days, newest first, so a long history reads as "this week / last month" rather than
   // as 40 undifferentiated rows.
   const byDay = useMemo(() => {
     const m = new Map<string, TimelineRow[]>()
-    timeline.forEach(r => {
+    visible.forEach(r => {
       const d = (r.at || '').slice(0, 10)
       if (!m.has(d)) m.set(d, [])
       m.get(d)!.push(r)
     })
     return [...m.entries()]
-  }, [timeline])
+  }, [visible])
 
   return (
     <>
@@ -176,7 +197,7 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}><Spinner size={26} /></div>
       ) : !lead ? (
         <EmptyState icon="person_off" title="Lead Not Found"
-          description="It may have been converted, disqualified or transferred out of your queue." />
+          description="It may have been converted, disqualified or transferred." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
 
@@ -285,10 +306,31 @@ export function LeadDetail({ leadId, officers, meId, canManage, onChanged, onLoa
               title="History"
               subtitle="Every team that has touched this lead, newest first"
               badge={timeline.length || undefined}
+              actions={teamsPresent.length > 1 ? (
+                <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
+                  {[['all', timeline.length] as [string, number], ...teamsPresent].map(([t, n]) => {
+                    const on = teamFilter === t
+                    const c = t === 'all' ? NAVY : teamColor(t)
+                    return (
+                      <button key={t} onClick={() => setTeamFilter(t)} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px',
+                        borderRadius: RADIUS.full,
+                        border: `1px solid ${on ? c : 'var(--bdr)'}`,
+                        background: on ? `${c}14` : 'transparent',
+                        color: on ? c : 'var(--txt3)', cursor: 'pointer',
+                      }}>
+                        {t === 'all' ? 'All' : teamLabel(t)}
+                        <span style={{ ...NUM, fontWeight: FW.bold }}>{n}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : undefined}
             >
               {timeline.length === 0 ? (
                 <EmptyState icon="history" title="Nothing Recorded Yet"
-                  description="Calls, visits and stage changes will appear here as they happen." />
+                  description="Calls, visits and stage changes appear here." />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
                   {byDay.map(([day, rows]) => (
@@ -480,7 +522,7 @@ function TagEditor({ leadId, tags, onChanged }: {
               if (e.key === 'Escape') { setDraft(''); setAdding(false) }
             }}
             placeholder="e.g. corporate, price objection, callback dec"
-            hint="Stored lowercase so the same label cannot exist twice. Enter to add, Escape to cancel." />
+            hint="Enter to add, Escape to cancel." />
           {unused.length > 0 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: SP[2], alignItems: 'center' }}>
               <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Already in use:</span>
@@ -700,11 +742,14 @@ function TimelineEntry({ row }: { row: TimelineRow }) {
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>
           {row.detail || humanise(row.type)}
           {row.outcome && (
-            <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}> · {humanise(row.outcome)}</span>
+            // outcomeLabel, not humanise: the activity stream stores outcome CODES while
+            // the call ledger stores labels, and this list shows both. humanise would
+            // title-case the code and disagree with the same outcome elsewhere.
+            <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}> · {outcomeLabel(row.outcome)}</span>
           )}
         </div>
-        {row.note && (
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, whiteSpace: 'pre-wrap' }}>{row.note}</div>
+        {readableNote(row.note) && (
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.45 }}>{readableNote(row.note)}</div>
         )}
         <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2 }}>
           {row.actor} · <span style={{ color: c }}>{teamLabel(row.team)}</span> ·{' '}

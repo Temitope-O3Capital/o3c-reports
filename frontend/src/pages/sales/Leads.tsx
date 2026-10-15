@@ -530,7 +530,7 @@ export default function SalesLeads() {
       loading={loading && leads.length === 0}
       skeletonKpis={4}
       title="Leads"
-      subtitle="Capture, qualify and convert: from Business Development, campaigns, the call centre or your own prospecting"
+      subtitle="Capture, qualify and convert"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
@@ -1002,7 +1002,7 @@ export default function SalesLeads() {
             )}
 
             {action === 'disqualify' && (
-              <Field label="Reason" hint="Required: it is what makes the source conversion rates meaningful">
+              <Field label="Reason" hint="Required for source conversion rates">
                 <textarea
                   value={actionNote} onChange={e => setActionNote(e.target.value)} rows={3}
                   placeholder="e.g. Not eligible, no longer interested, duplicate"

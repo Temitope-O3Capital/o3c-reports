@@ -7,6 +7,7 @@ import { fmtDate, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, BLUE, PURPLE, NUM, MONO, FW, SP, TEXT } from '../../lib/design'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
 import { useIsMobile } from '../../hooks/useMediaQuery'
+import { useLiveData } from '../../hooks/useRealtime'
 
 const num = (v: any) => Number(v ?? 0) || 0
 function fmtDur(s: number | null | undefined) {
@@ -63,6 +64,9 @@ export default function PerformancePanel({ range }: { range?: PanelRange }) {
     catch (e: any) { setErr(e.message) }
   }, [from, to])
   useEffect(() => { load() }, [load])
+  // Both pages that render this panel are watched all day, so it followed the floor
+  // only if someone reloaded. Logging a call moves these numbers.
+  useLiveData(load, { topics: ['calls', 'activities'] })
 
   const s = d?.summary ?? {}
   const total = num(s.total)

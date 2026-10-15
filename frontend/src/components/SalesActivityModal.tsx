@@ -83,7 +83,7 @@ interface JourneyStep {
 const JOURNEY: JourneyStep[] = [
   { stage: 'new',                   label: 'New' },
   { stage: 'contacted',             label: 'Contacted' },
-  { stage: 'qualified',             label: 'Interested',             kind: 'interested',            hint: 'They have said yes in principle. This is the step that qualifies the lead.' },
+  { stage: 'qualified',             label: 'Interested',             kind: 'interested',            hint: 'They have said yes in principle. This qualifies the lead.' },
   { stage: 'handed_to_sales',       label: 'Handed to Sales',        kind: 'handed_to_sales',       hint: 'Passed to a sales officer to carry forward.' },
   { stage: 'documents_requested',   label: 'Documents Requested',    kind: 'documents_requested',   hint: 'You have asked them for what you need to proceed.' },
   { stage: 'application_submitted', label: 'Application Submitted',  kind: 'application_submitted', hint: 'Their application is in and with the credit team.' },
@@ -113,7 +113,7 @@ const RECORD_KINDS: { kind: string; label: string; icon: string }[] = [
 // What an officer can log against their own day rather than against a lead. Matches
 // salesActivityTypes in backend-go/handlers/sales_activity.go.
 const DAY_KINDS: { kind: string; label: string; icon: string; blurb: string }[] = [
-  { kind: 'visit',   label: 'Visit',   icon: 'directions_walk', blurb: 'You went somewhere. Record where — it is what makes a field day legible to your head.' },
+  { kind: 'visit',   label: 'Visit',   icon: 'directions_walk', blurb: 'You went somewhere. Record where you went.' },
   { kind: 'call',    label: 'Call',    icon: 'call',            blurb: 'A call that was not against a lead you own.' },
   { kind: 'meeting', label: 'Meeting', icon: 'groups',          blurb: 'A meeting, internal or external.' },
   { kind: 'note',    label: 'Note',    icon: 'sticky_note_2',   blurb: 'Anything else worth having on your day.' },
@@ -537,7 +537,7 @@ export default function SalesActivityModal({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
               <Input label="When Did This Happen?" type="datetime-local" value={when}
                 onChange={e => setWhen(e.target.value)}
-                hint="Defaults to now. Back-date up to a week if you are catching up." />
+                hint="Defaults to now. Back-date up to a week." />
               {dispsForKind.length > 0 && (
                 <SelectMenuField
                   label="What Came Of It?"
@@ -701,7 +701,7 @@ export default function SalesActivityModal({
               }}>
                 <Input label="When Did This Happen?" type="datetime-local" value={when}
                   onChange={e => setWhen(e.target.value)}
-                  hint="Defaults to now. Back-date up to a week if you are catching up." />
+                  hint="Defaults to now. Back-date up to a week." />
                 {dispsForKind.length > 0 && (
                   <SelectMenuField
                     label="What Came Of It?"

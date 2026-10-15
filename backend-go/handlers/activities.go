@@ -475,11 +475,23 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 					actorID = &u.ID
 				}
 				applyTerminalStep(context.WithoutCancel(r.Context()), db, st, a.ContactID, a.Phone, actorID)
-				// Keep the Leads board in harmony with the step just recorded — see
-				// applyStepToLead for why this stops at call_center_leads and does not
-				// reach into crm_contacts.
-				if a.LeadID != nil && *a.LeadID > 0 {
-					applyStepToLead(context.WithoutCancel(r.Context()), db, *a.LeadID, a.Outcome, a.Body)
+				// Keep the Leads board in harmony with the step just recorded.
+				//
+				// The lead is resolved from the CIF or phone when the caller did not name
+				// one, so a step recorded from the outbound queue or Customer 360 - neither
+				// of which knows a lead id - moves the board exactly as the same step
+				// recorded from the Leads page does. Without it the step was written to the
+				// timeline and changed nothing, which is the gap the step type exists to
+				// close.
+				leadID := int64(0)
+				if a.LeadID != nil {
+					leadID = *a.LeadID
+				}
+				if leadID == 0 {
+					leadID = ccLeadIDForStep(r.Context(), db, a.CIF, a.Phone)
+				}
+				if leadID > 0 {
+					applyStepToLead(context.WithoutCancel(r.Context()), db, leadID, a.Outcome, a.Body)
 				}
 			}
 		}

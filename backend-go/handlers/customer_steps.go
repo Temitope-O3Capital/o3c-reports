@@ -198,11 +198,57 @@ func applyTerminalStep(ctx context.Context, db *core.DB, st customerStep, contac
 	}
 }
 
-// leadStatusFromStep maps a terminal step to the SAME status vocabulary
-// leadStatusFromCall uses for a call disposition (see call_center_outbound.go)
-// — so a step and a call move the Leads board the same way, rather than
-// inventing a second vocabulary that drifts from the first the way the call-log
-// and disposition lists once did.
+// ccLeadIDForStep finds the lead a step belongs to when the screen that recorded it
+// does not know one — the outbound queue and Customer 360 both anchor on a CIF or a
+// phone, never a lead id.
+//
+// CIF first because it is an identity; the phone is a fallback and is matched on the
+// last ten digits, which app.norm_phone renders as '' rather than NULL for anything
+// unparseable — so a blank would match every blank-phoned lead. Length 10 is the
+// validity test. See [[o3c-phone-normalisation]].
+//
+// Returns the most recently updated match, and 0 when the match is not unique enough to
+// act on. Moving the wrong customer's lead is worse than moving none.
+func ccLeadIDForStep(ctx context.Context, db *core.DB, cif, phone string) int64 {
+	if c := strings.TrimSpace(cif); c != "" {
+		rows, err := db.PGQuery(ctx, `
+			SELECT id FROM call_center_leads
+			 WHERE btrim(customer_cif) = $1
+			 ORDER BY updated_at DESC NULLS LAST LIMIT 1`, c)
+		if err == nil && len(rows) > 0 {
+			return toInt64(rows[0]["id"])
+		}
+	}
+	np := normalizePhone(phone)
+	if len(np) != 10 {
+		return 0
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT id FROM call_center_leads
+		 WHERE app.norm_phone(customer_phone) = $1
+		 ORDER BY updated_at DESC NULLS LAST LIMIT 1`, np)
+	if err != nil || len(rows) == 0 {
+		return 0
+	}
+	return toInt64(rows[0]["id"])
+}
+
+// leadStatusFromStep maps a step to the SAME status vocabulary leadStatusFromCall uses
+// for a call disposition (see call_center_outbound.go) — so a step and a call move the
+// Leads board the same way, rather than inventing a second vocabulary that drifts from
+// the first the way the call-log and disposition lists once did.
+//
+// MID-JOURNEY STEPS MOVE THE BOARD TOO, as of 15 Oct 2026. They used to be deliberately
+// inert: only the three terminal steps mapped and everything else was recorded on the
+// timeline and nowhere else. That is wrong for the case this type exists to serve.
+// Progress often happens without a call — we WhatsApp the terms, they send documents
+// back, an agent meets them at a branch — and with no mapping the lead stayed at
+// 'no_answer', kept its place in the dial queue, got re-dialled, and never counted as
+// interested however far along it actually was. The only way to record real progress was
+// to log a call that never happened.
+//
+// The rank guard in applyStepToLeadSQL still makes every move forward-only, so a step
+// cannot knock back a lead a later call has already carried further.
 func leadStatusFromStep(code string) (status string, ok bool) {
 	switch code {
 	case "converted":
@@ -215,6 +261,25 @@ func leadStatusFromStep(code string) (status string, ok bool) {
 		// They withdrew — same bucket a customer-initiated churn gets on a call
 		// ("Left Over...", "No Longer Needs...").
 		return "closed", true
+
+	// ── Progress without a call ──────────────────────────────────────────────
+	// Everyone below is demonstrably engaging with us, which is what 'interested'
+	// means in this vocabulary — and what qualifies a lead.
+	case "customer_reviewing", "documents_requested", "documents_received",
+		"met_customer", "application_started", "sent_to_risk":
+		return "interested", true
+
+	case "information_sent":
+		// Weaker on purpose: we sent something out, we do not yet know they engaged
+		// with it. 'called' is the bucket for "contact made, nothing established",
+		// which is exactly this — and it stops the lead reading as never worked.
+		return "called", true
+
+	case "customer_went_quiet":
+		// Its own hint says "not a refusal", so it must close nothing. It is also a
+		// move BACKWARD, which the rank guard would refuse anyway, so a mapping here
+		// would be a no-op that merely looked meaningful.
+		return "", false
 	}
 	return "", false
 }
@@ -252,6 +317,20 @@ func applyStepToLead(ctx context.Context, db *core.DB, leadID int64, code, body 
 	// declineReachesSales for why the two are not the same reach.
 	if declineReachesSales(code) {
 		disqualifyForwardedLead(ctx, db, leadID, label)
+		return
+	}
+
+	// PROGRESS has to reach Sales as well, or the lead qualifies on the call-centre
+	// board and the sales pipeline still reads 'new'. This is the same call a call
+	// disposition makes, so a WhatsApp exchange that got documents back lands in the
+	// same place a phone call would have.
+	//
+	// Only for the mid-journey steps. 'converted' is still withheld deliberately:
+	// marking a contact converted needs a product line and a CIF that a free-text step
+	// does not carry, and a converted contact without one corrupts every join that
+	// assumes it has one. That asymmetry is the whole point of declineReachesSales.
+	if !st.Terminal {
+		syncCRMContactStage(ctx, db, leadID, status, st.Label, nil)
 	}
 }
 

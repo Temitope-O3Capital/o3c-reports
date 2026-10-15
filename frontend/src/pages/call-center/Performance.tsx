@@ -26,7 +26,7 @@ export default function CallCenterPerformance() {
   return (
     <Page
       title="Call Center Performance"
-      subtitle="Agent performance, call volumes, connect rates & QA: from live call activity"
+      subtitle="Volumes, connect rates and QA"
       actions={<DateFilter from={from} to={to} onChange={onChange} align="right" />}
     >
       <PerformancePanel range={{ from, to, onChange }} />

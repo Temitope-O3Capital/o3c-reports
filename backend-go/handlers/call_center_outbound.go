@@ -1883,6 +1883,10 @@ func ccLeadsTeam(db *core.DB) http.HandlerFunc {
 			}
 			campFilter = " AND l.campaign_id IN (" + strings.Join(placeholders, ",") + ")"
 		}
+		// Count the same book the Leads list counts. It drops numbers we may not call;
+		// this did not, so the wallboard's floor total sat 84 above the lead count on the
+		// page beside it with nothing explaining the gap.
+		campFilter += " AND " + ccNotOnDNCExpr("l.customer_phone")
 		agents, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT u.id, u.full_name,
 			       COALESCE(u.helpdesk_status,'offline')                 AS status,
@@ -2589,10 +2593,29 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 
 		// Derived flags travel with each row so the UI can badge a contact without
 		// re-deriving the thresholds and drifting from the ordering below.
-		sel := fmt.Sprintf(`SELECT id, customer_name, phone, cif, product_name, state,
+		// Where the customer is. call_center_contacts.state is blank on all 15,218 rows —
+		// nothing has ever written it — so an agent asking "where is this person?" had no
+		// answer on the page. app.customers knows, by CIF, for 1,388 of the 1,413
+		// collections contacts. Correlated subqueries rather than a JOIN on purpose:
+		// customers shares cif/state/source/phone/party_id with this table, and the
+		// filters below reference those columns unqualified.
+		//
+		// Marketing leads come from Zoho with no location at all and cannot be recovered
+		// by phone (1 of 13,579 matches), so those rows will still read "—". That is the
+		// truth about the data, not a bug in the query.
+		const custState = `(SELECT NULLIF(btrim(cu.state), '') FROM app.customers cu
+		                     WHERE cu.cif = call_center_contacts.cif
+		                       AND COALESCE(btrim(call_center_contacts.cif), '') <> '' LIMIT 1)`
+		const custCity = `(SELECT NULLIF(btrim(cu.city), '') FROM app.customers cu
+		                    WHERE cu.cif = call_center_contacts.cif
+		                      AND COALESCE(btrim(call_center_contacts.cif), '') <> '' LIMIT 1)`
+		sel := fmt.Sprintf(`SELECT id, customer_name, phone, cif, product_name,
+		             COALESCE(NULLIF(btrim(state), ''), `+custState+`) AS state,
+		             `+custCity+` AS city,
 		             priority, outstanding_kobo, dpd, is_existing_customer,
 		             loan_product, next_payment_date, last_disposition, last_called_at,
 		             attempts, connects, last_call_outcome, disposition_code, callback_at,
+		             created_at,
 		             COALESCE(last_called_at > NOW() - INTERVAL '%d days', FALSE) AS is_cooling,
 		             (attempts >= %d AND connects = 0)                             AS is_exhausted,
 		             (callback_at IS NOT NULL AND callback_at <= NOW())            AS callback_due,
@@ -3490,7 +3513,7 @@ func leadEndsHandoffOnCall(outcome string, disposition *string) bool {
 func advanceLeadStatus(ctx context.Context, db *core.DB, leadID int64, status, disposition string, calledAt any) {
 	// Stamps last_disposition (durably) + last_called_at; stamping last_called_at is
 	// also what drops the lead out of the worker's candidate query on the next sweep.
-	if _, err := db.PGExec(ctx,
+	res, err := db.PGExec(ctx,
 		`UPDATE call_center_leads
 		    SET status           = $1,
 		        last_disposition = COALESCE(NULLIF($4,''), last_disposition),
@@ -3498,11 +3521,29 @@ func advanceLeadStatus(ctx context.Context, db *core.DB, leadID int64, status, d
 		        callback_at      = CASE WHEN $1 IN ('callback','not_ready') THEN callback_at ELSE NULL END,
 		        updated_at       = NOW()
 		  WHERE id = $3 AND status = 'pending'`,
-		status, calledAt, leadID, disposition); err != nil {
+		status, calledAt, leadID, disposition)
+	if err != nil {
 		// The rescue worker advances thousands of leads per sweep; a discarded error
 		// here meant a systematic failure (a bad cast, a constraint) looked exactly
 		// like "nothing needed advancing".
 		slog.Error("advanceLeadStatus: update lead", "lead", leadID, "status", status, "err", err)
+		return
+	}
+
+	// Tell Sales, which is the half this function was missing.
+	//
+	// It was "the light half of syncLeadFromCall" and the weight it left out was the
+	// only part Sales can see: syncLeadFromCall ends by calling syncCRMContactStage,
+	// this did not, so every lead the rescue worker advanced moved on the call-centre
+	// board and nowhere else. 755 worked leads had no crm_contacts row at all — 98 of
+	// them in October alone — and 747 of those would have linked or been created
+	// without any ambiguity. To Sales they simply did not exist.
+	//
+	// Only when the UPDATE actually moved a row: the status='pending' guard makes most
+	// sweeps a no-op, and syncing those would re-stage thousands of already-worked
+	// leads on every pass.
+	if n, _ := res.RowsAffected(); n > 0 {
+		syncCRMContactStage(ctx, db, leadID, status, disposition, nil)
 	}
 }
 

@@ -450,7 +450,7 @@ function TaskForm({
         onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
         clearLabel="Unassigned"
         options={toOptions(users, u => u.id, u => u.full_name)}
-        hint="Who is going to do this. Defaults to nobody, which means it will chase no one." />
+        hint="Who will do this. Unassigned chases nobody." />
       <Input label="Note (Optional)" value={form.description}
         onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
         placeholder="Context worth having when this comes back up" />

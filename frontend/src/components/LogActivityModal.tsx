@@ -38,7 +38,7 @@ const TYPES: { v: ActType; label: string; icon: string; blurb: string }[] = [
   // to record later developments — 43 calls had their outcome overwritten days after the
   // call, one of them Interested → Converted — because there was no way to say "this has
   // happened since". This is that way.
-  { v: 'step',     label: 'Step',      icon: 'timeline',      blurb: 'Where this customer has got to. Dated when it happened, and it leaves the call logs alone.' },
+  { v: 'step',     label: 'Step',      icon: 'timeline',      blurb: 'Where this customer has got to. Leaves the call logs alone.' },
   { v: 'note',     label: 'Note',      icon: 'sticky_note_2', blurb: 'Written to the timeline. Nobody is notified.' },
   { v: 'handoff',  label: 'Hand Off',  icon: 'swap_horiz',    blurb: 'The team is notified and it stays open until they answer.' },
   { v: 'document', label: 'Document',  icon: 'description',   blurb: 'Stored against this person and opens from the timeline.' },

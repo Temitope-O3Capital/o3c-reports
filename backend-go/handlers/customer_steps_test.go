@@ -225,14 +225,26 @@ func TestConvertedIsBothADispositionAndAStepWithoutCollision(t *testing.T) {
 // disposition does — see leadStatusFromCall. Two vocabularies for the same board is
 // exactly how the call-log and disposition lists drifted apart before.
 func TestStepLeadStatusUsesTheCallVocabulary(t *testing.T) {
+	// Progress recorded without a call moves the board too, as of 15 Oct 2026. This
+	// test previously asserted the opposite — that only a terminal step may move it —
+	// and that was changed on the business's instruction: an agent who WhatsApps the
+	// terms and gets documents back had no way to show it except by logging a call that
+	// never happened, and the lead sat in the dial queue reading "no answer".
 	for code, want := range map[string]string{
 		"converted":             "converted",
 		"declined_not_eligible": "closed",
 		"dropped_off":           "closed",
+		"information_sent":      "called",
+		"customer_reviewing":    "interested",
+		"documents_requested":   "interested",
+		"documents_received":    "interested",
+		"met_customer":          "interested",
+		"application_started":   "interested",
+		"sent_to_risk":          "interested",
 	} {
 		got, ok := leadStatusFromStep(code)
 		if !ok {
-			t.Errorf("terminal step %q has no lead status mapping", code)
+			t.Errorf("step %q has no lead status mapping", code)
 			continue
 		}
 		if got != want {
@@ -244,15 +256,13 @@ func TestStepLeadStatusUsesTheCallVocabulary(t *testing.T) {
 				"comparable to the rank a concurrent call might also be writing", code, got)
 		}
 	}
-	// A mid-journey step must not carry a lead-status mapping — only a terminal step
-	// closes the board's own record of where the lead stands.
-	for _, code := range []string{"information_sent", "customer_reviewing",
-		"documents_requested", "documents_received", "met_customer",
-		"application_started", "sent_to_risk", "customer_went_quiet"} {
-		if _, ok := leadStatusFromStep(code); ok {
-			t.Errorf("mid-journey step %q has a lead status mapping — only a terminal "+
-				"step should move the board", code)
-		}
+	// "Customer Went Quiet" is the one step that must stay inert. Its own hint says it
+	// is not a refusal, so it may not close anything, and it describes a move backward
+	// that the rank guard would refuse in any case — a mapping would be a no-op
+	// dressed up as a decision.
+	if _, ok := leadStatusFromStep("customer_went_quiet"); ok {
+		t.Error("customer_went_quiet maps to a lead status — it is explicitly not a " +
+			"refusal and must close nothing")
 	}
 	if _, ok := leadStatusFromStep("not_a_step"); ok {
 		t.Error("an unrecognised step code mapped to a lead status")

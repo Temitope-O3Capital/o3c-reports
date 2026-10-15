@@ -6,6 +6,7 @@ import { TICKET_TYPES } from '../lib/ticketTypes'
 import { toast } from 'sonner'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from './CustomerSearch'
 import { humanLabel } from '../lib/labels'
+import { readableNote } from '../lib/notes'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // One Log-a-Call modal, shared by the Call Log and the agent My-Dashboard so the
@@ -994,7 +995,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         {/* Write-up — labels & prompts mapped to the DISPOSITION the agent picked */}
         <div>
           <label style={labelSt}>{copy.notesLabel}</label>
-          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+          <textarea spellCheck data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
             rows={3} placeholder={copy.notesPh}
             style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.5 }} />
         </div>

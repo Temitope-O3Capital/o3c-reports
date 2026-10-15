@@ -45,6 +45,20 @@ type exportFilter struct {
 	Expr    string           `json:"-"`
 }
 
+// ccForwardOwnerExpr names the sales owner of a hand-off, for the lead_handoffs
+// dataset (alias lf).
+//
+// The ledger's sales_owner_name is a denormalised copy written only when a supervisor
+// pre-assigns at forward time or when the team router fills it, so it is NULL on 327 of
+// 346 rows — 295 of which have a perfectly good owner on the contact. The on-screen
+// tracker has always fallen back to the live owner; the export did not, so it printed
+// blank and its Sales Owner filter silently dropped every one of those rows.
+const ccForwardOwnerExpr = `COALESCE(NULLIF(btrim(lf.sales_owner_name), ''),
+	(SELECT u.full_name
+	   FROM app.crm_contacts cc
+	   JOIN app.o3c_users u ON u.id = cc.sales_owner_id
+	  WHERE cc.id = lf.contact_id))`
+
 // exportDataset is one exportable view of the warehouse.
 type exportDataset struct {
 	Key     string         `json:"key"`
@@ -1855,7 +1869,7 @@ var exportDatasets = []exportDataset{
 			{Key: "customer_cif", Label: "CIF", Type: colText, Expr: "lf.customer_cif"},
 			{Key: "product_interest", Label: "Product Interest", Type: colText, Expr: "lf.product_interest"},
 			{Key: "forwarded_by_name", Label: "Forwarded By", Type: colText, Expr: "lf.forwarded_by_name"},
-			{Key: "sales_owner_name", Label: "Sales Owner", Type: colText, Expr: "lf.sales_owner_name"},
+			{Key: "sales_owner_name", Label: "Sales Owner", Type: colText, Expr: ccForwardOwnerExpr},
 			{Key: "status", Label: "Status", Type: colText, Expr: "lf.status"},
 			{Key: "outcome", Label: "Outcome", Type: colText, Expr: "lf.outcome"},
 			{Key: "notes", Label: "Notes", Type: colText, Expr: "lf.notes"},
@@ -1864,7 +1878,7 @@ var exportDatasets = []exportDataset{
 		Filters: []exportFilter{
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "lf.status = ?"},
 			{Key: "outcome", Label: "Outcome", Kind: filterText, Expr: "lf.outcome = ?"},
-			{Key: "sales_owner_name", Label: "Sales Owner", Kind: filterText, Expr: "lf.sales_owner_name ILIKE '%' || ? || '%'"},
+			{Key: "sales_owner_name", Label: "Sales Owner", Kind: filterText, Expr: ccForwardOwnerExpr + " ILIKE '%' || ? || '%'"},
 		},
 	},
 	{

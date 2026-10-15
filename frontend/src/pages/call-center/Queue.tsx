@@ -12,7 +12,9 @@ import { toast } from 'sonner'
 import CallLogEditModal, { type EditableCall } from '../../components/CallLogEditModal'
 import { RecordingModal } from '../../components/RecordingPlayer'
 import { CallLogForm } from '../../components/LogCallModal'
+import LogActivityModal from '../../components/LogActivityModal'
 import { isCallCentreSupervisor } from '../../lib/roles'
+import { readableNote } from '../../lib/notes'
 
 // Dial through the in-app softphone (CallWidget listens for 'o3c:dial'), the same way
 // the Inbound page calls back. A tel: link handed the number to the OS, so the call
@@ -33,7 +35,11 @@ interface CallCenterContact {
   phone: string
   cif: string | null
   product_name: string | null
+  // Where the customer is. Nothing ever wrote call_center_contacts.state, so both now
+  // resolve from app.customers by CIF — known for collections, never for a Zoho lead.
   state: string | null
+  city: string | null
+  created_at: string | null
   priority: 'High' | 'Medium' | 'Low'
   outstanding_kobo: number
   dpd: number
@@ -99,6 +105,15 @@ function hasCollectionsContext(c: CallCenterContact): boolean {
 function isGenericProduct(p: string | null): boolean {
   const v = (p || '').trim().toLowerCase()
   return v === '' || v === 'zoho lead'
+}
+
+// "Lekki, Lagos" from whichever halves we have. Values are shown as stored — the book
+// mixes "Lagos" with "ABUJA" and re-casing data is how real place names get mangled.
+function placeOf(c: CallCenterContact): string | null {
+  const parts = [c.city, c.state].map(v => (v || '').trim()).filter(Boolean)
+  if (!parts.length) return null
+  // A record holding "FCT" as both city and state should say it once.
+  return [...new Set(parts.map(p => p.toUpperCase()))].length === 1 ? parts[0] : parts.join(', ')
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -248,7 +263,7 @@ function CallHistoryList({ calls, contact, onEdit, onPlay }: {
                   )}
                 </span>
               </div>
-              {c.notes && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.4 }}>{c.notes}</div>}
+              {readableNote(c.notes) && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.4 }}>{readableNote(c.notes)}</div>}
               <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2 }}>
                 {c.agent_name || 'Agent'}{c.recording_url ? ' · recorded' : ''}
               </div>
@@ -302,6 +317,7 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
   const [calls, setCalls] = useState<CallEntry[]>([])
   const [callKey, setCallKey] = useState(0)
   const [logOpen, setLogOpen] = useState(false)
+  const [actOpen, setActOpen] = useState(false)
   useEffect(() => {
     let cancelled = false
     apiFetch<{ data: CallEntry[] }>(`/api/call-center/contacts/${contact.id}/calls`)
@@ -367,6 +383,23 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
             </div>
           </div>
 
+          {/* Not every touch is a call. An agent who texted or met this customer had no
+              way to say so from this page, so the only way to record it was to log a
+              call that never happened. */}
+          <button
+            onClick={() => setActOpen(true)}
+            title="Record something that happened without a call"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '9px 14px', background: 'var(--card)', color: 'var(--txt2)',
+              borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
+              border: '1px solid var(--bdr)', cursor: 'pointer', fontFamily: INTER, flexShrink: 0,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>timeline</span>
+            Log Activity
+          </button>
+
           {/* Call button */}
           <button
             onClick={() => dialNumber(contact.phone)}
@@ -383,12 +416,62 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
         </div>
       </div>
 
+      <LogActivityModal
+        open={actOpen}
+        about={contact.customer_name || contact.phone}
+        // No lead id on this page — the queue works its own book. The server resolves
+        // the lead from the CIF or phone so a step logged here moves the Leads board
+        // exactly as the same step logged from the Leads page does.
+        anchor={{ contact_id: contact.id, cif: contact.cif ?? undefined, phone: contact.phone }}
+        onClose={() => setActOpen(false)}
+        onSaved={() => { setActOpen(false); setCallKey(k => k + 1); onRefresh() }}
+      />
+
+      {/* ── Why this call ────────────────────────────────────────────────────
+          One line, before the detail, so the agent knows what they are ringing about
+          without reading the grid below. A collections agent needs the money, the age
+          of the debt and where the customer is; a marketing agent needs the list the
+          name came off. */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
+        padding: '10px 24px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)',
+      }}>
+        {hasCollectionsContext(contact) ? (
+          <>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Owes</span>
+            <span style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: dpdBg(contact.dpd) }}>
+              {fmtKobo(contact.outstanding_kobo)}
+            </span>
+            <DpdBadge dpd={contact.dpd} />
+            {contact.next_payment_date && (
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                Next payment {fmtDate(contact.next_payment_date)}
+              </span>
+            )}
+          </>
+        ) : contact.purpose === 'marketing' ? (
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            Marketing call from{' '}
+            <span style={{ fontWeight: FW.bold, color: BLUE }}>{contact.ref || 'an unnamed list'}</span>
+            {contact.created_at && <> · added {fmtDate(contact.created_at)}</>}
+          </span>
+        ) : (
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            {isGenericProduct(contact.product_name) ? 'Support call' : `About ${contact.product_name}`}
+          </span>
+        )}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.sm, color: placeOf(contact) ? 'var(--txt)' : 'var(--txt3)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>location_on</span>
+          {placeOf(contact) ?? 'No location on file'}
+        </span>
+      </div>
+
       {/* ── Contact info (one scroll, like the Leads page — no tabs) ─────── */}
       <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--bdr)' }}>
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Contact Info</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
           <InfoField label="CIF" value={contact.cif} />
-          <InfoField label="State" value={contact.state} />
+          <InfoField label="Location" value={placeOf(contact)} />
           {contact.purpose === 'marketing'
             ? <InfoField label="Campaign List" value={contact.ref || 'Unlisted'} />
             : <InfoField label="Product" value={isGenericProduct(contact.product_name) ? null : contact.product_name} />}
@@ -1025,22 +1108,22 @@ export default function CallCenterQueue() {
               <StatChip
                 label="Ready" value={summary?.ready ?? 0} color={GREEN}
                 active={bucket === 'ready'} onClick={() => setBucket(bucket === 'ready' ? '' : 'ready')}
-                title="Ready to call. Cold dials: never called, or rested past the 7-day cooldown, and not exhausted"
+                title="Ready to dial now"
               />
               <StatChip
                 label="Uncalled" value={summary?.uncalled ?? 0} color={BLUE}
                 active={bucket === 'uncalled'} onClick={() => setBucket(bucket === 'uncalled' ? '' : 'uncalled')}
-                title="Never called: no call to this number exists in the call ledger"
+                title="No call has ever been made to this number"
               />
               <StatChip
                 label="Cooling" value={summary?.cooling ?? 0} color={AMBER}
                 active={bucket === 'cooling'} onClick={() => setBucket(bucket === 'cooling' ? '' : 'cooling')}
-                title="Called within the last 7 days, resting before the next attempt"
+                title="Called in the last 7 days, resting"
               />
               <StatChip
                 label="Exhausted" value={summary?.exhausted ?? 0} color={RED}
                 active={bucket === 'exhausted'} onClick={() => setBucket(bucket === 'exhausted' ? '' : 'exhausted')}
-                title="6+ attempts and never once answered. Consider skipping these"
+                title="6+ attempts, never answered"
               />
             </div>
 
@@ -1187,6 +1270,12 @@ export default function CallCenterQueue() {
                               {fmtKobo(item.outstanding_kobo)}
                             </span>
                             <DpdBadge dpd={item.dpd} />
+                            {placeOf(item) && (
+                              <span title="Where the customer is" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+                                <span className="material-symbols-rounded" style={{ fontSize: 11 }}>location_on</span>
+                                {placeOf(item)}
+                              </span>
+                            )}
                           </>
                         ) : item.purpose === 'marketing' ? (
                           <span title="Campaign list" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: item.ref ? `${BLUE}14` : 'var(--chip-bg)', color: item.ref ? BLUE : 'var(--txt3)' }}>

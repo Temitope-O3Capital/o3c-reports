@@ -8,6 +8,7 @@ import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { currentUser, allRoles, hasPage } from '../../hooks/useAuth'
 import { MGMT } from '../../lib/roles'
+import { readableNote } from '../../lib/notes'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -262,7 +263,7 @@ export default function ContactDetail() {
             </div>
             {contact.notes && (
               <div style={{ marginTop:12, padding:'10px 12px', background:'var(--row-hvr)', borderRadius:RADIUS.md, fontSize:TEXT.base, color:'var(--txt2)' }}>
-                {contact.notes}
+                {readableNote(contact.notes)}
               </div>
             )}
           </SectionCard>

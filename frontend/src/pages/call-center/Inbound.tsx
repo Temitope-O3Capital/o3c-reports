@@ -414,7 +414,7 @@ export default function CallCenterInbound() {
           </button>
           <button
             onClick={() => setLogFor(c)}
-            title="Write up this call: disposition, notes, and link it to the customer"
+            title="Disposition, notes, and the customer it belongs to"
             style={{
               fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '3px 9px',
               borderRadius: RADIUS.full, border: '1px solid var(--bdr)',
@@ -453,7 +453,7 @@ export default function CallCenterInbound() {
   return (
     <Page
       title="Inbound Calls"
-      subtitle="Who rang us, who we answered, and who is still owed a call back"
+      subtitle="Calls in, answered, and call-backs owed"
       loading={loading && !summary}
       skeletonKpis={6}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
@@ -517,7 +517,7 @@ export default function CallCenterInbound() {
 
       <SectionCard
         title="Inbound Calls"
-        subtitle="A missed call counts as returned once an outbound call reaches the same number within 48 hours"
+        subtitle="Returned once we ring the same number back within 48 hours"
         badge={rows.length}
         padding={false}
       >

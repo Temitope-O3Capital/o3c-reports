@@ -328,7 +328,7 @@ function UnteamedPanel({ officers, teams, manage, onChanged }: {
 
   return (
     <SectionCard title="Officers On No Team"
-      subtitle="Their leads roll up to nobody. No head sees them, and they are invisible to Team Performance."
+      subtitle="Their leads roll up to nobody and miss Team Performance."
       style={{ marginTop: SP[4] }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
         {officers.map(o => (

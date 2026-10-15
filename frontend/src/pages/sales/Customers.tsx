@@ -455,7 +455,7 @@ export default function CRMContacts() {
         <SelectMenuField label="Officer" value={assignTo} onChange={setAssignTo}
           options={toOptions(users, u => u.id, u => u.full_name)}
           placeholder="Select an officer"
-          hint="Sets the sales owner, which is what decides whose Leads page it appears on." />
+          hint="Sets the sales owner, and whose Leads page it shows on." />
       </Modal>
 
       <ConfirmModal

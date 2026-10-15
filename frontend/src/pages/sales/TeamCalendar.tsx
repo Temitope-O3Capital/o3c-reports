@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { NAVY, GREEN, RED, AMBER, PURPLE, BLUE, TEXT, FW, RADIUS, SP, NUM } from '../../lib/design'
 import { fmtNum, fmtDate } from '../../lib/fmt'
 import { useLiveData } from '../../hooks/useRealtime'
+import { readableNote } from '../../lib/notes'
 
 // The team calendar — a month of the floor, one row per officer.
 //
@@ -160,7 +161,7 @@ export function TeamCalendar() {
       ) : officers.length === 0 ? (
         <div style={{ padding: SP[4] }}>
           <EmptyState icon="groups" title="No Officers to Show"
-            description="You are not set as head of a team yet, so there is no floor to display. Teams are set up on the Teams page." />
+            description="You do not head a team yet. Set one up on the Teams page." />
         </div>
       ) : (
         <>
@@ -368,7 +369,7 @@ function DayDrawer({ officerId, day, onClose }: { officerId: number; day: string
                         {a.outcome || a.type}
                       </div>
                       {a.body && (
-                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{a.body}</div>
+                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{readableNote(a.body)}</div>
                       )}
                     </div>
                   </div>

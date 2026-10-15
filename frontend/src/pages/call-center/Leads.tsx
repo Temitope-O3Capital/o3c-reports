@@ -18,6 +18,7 @@ import { RecordingModal } from '../../components/RecordingPlayer'
 import { PRODUCT_LINES, PRODUCT_SUBS } from '../../lib/products'
 import { isCallCentreSupervisor } from '../../lib/roles'
 import { humanLabel } from '../../lib/labels'
+import { readableNote } from '../../lib/notes'
 
 // Heads/supervisors distribute and (re)assign leads; agents only work their own book.
 // Answered once for the whole module in lib/roles — the regex this replaced matched on
@@ -90,17 +91,23 @@ function leadOutcomeLabel(lead: Lead): string {
 interface CCCampaign { id: number; name: string }
 interface CCAgent    { id: number; full_name: string }
 
-// Real, whole-scope status totals for the KPI cards (not per-page). distributable =
+// Real, whole-scope status totals for the status chips (not per-page). distributable =
 // unassigned+pending (gates Distribute); recallable = assigned+pending (gates Recall).
+//
+// Every status in the book is counted. The four "warm" ones used to be the only ones
+// declared here, so the server's figures for the other six were thrown away on arrival
+// and the chips accounted for 375 of 20,587 leads.
 interface LeadSummary {
   pending: number; interested: number; callbacks: number; converted: number
-  // A converted lead naming no customer. customer_cif was blank on every lead, so a real
-  // conversion and a claimed one looked identical; this is the backlog for the agents who
-  // logged them, not an alert.
-  converted_unverified?: number
+  called: number; no_answer: number; not_ready: number
+  closed: number; invalid: number; dnc: number
   unassigned: number; distributable: number; recallable: number
 }
-const ZERO_SUMMARY: LeadSummary = { pending: 0, interested: 0, callbacks: 0, converted: 0, converted_unverified: 0, unassigned: 0, distributable: 0, recallable: 0 }
+const ZERO_SUMMARY: LeadSummary = {
+  pending: 0, interested: 0, callbacks: 0, converted: 0,
+  called: 0, no_answer: 0, not_ready: 0, closed: 0, invalid: 0, dnc: 0,
+  unassigned: 0, distributable: 0, recallable: 0,
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -875,7 +882,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                           {a.outcome && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{humanLabel(a.outcome)}</span>}
                           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>{fmtDatetime(a.occurred_at)}</span>
                         </div>
-                        {a.body && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{a.body}</div>}
+                        {readableNote(a.body) && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{readableNote(a.body)}</div>}
                         {isTask && a.due_at && (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 4, fontSize: TEXT.xs, color: overdue ? RED : 'var(--txt2)', fontWeight: overdue ? FW.semibold : FW.normal }}>
                             <span className="material-symbols-rounded" style={{ fontSize: 14 }}>event</span>
@@ -1601,12 +1608,19 @@ export default function CallCenterLeads() {
       setLeads(fresh)
       setTotal(Array.isArray(res) ? fresh.length : (res?.total ?? fresh.length))
       // Real totals from the server. Fall back to per-page counts only if an older
-      // build didn't send them, so the cards degrade rather than vanish.
+      // build didn't send them, so the chips degrade rather than vanish.
+      const byStatus = (s: string) => fresh.filter(l => l.status === s).length
       setSummary(!Array.isArray(res) && res?.summary ? res.summary : {
-        pending:       fresh.filter(l => l.status === 'pending').length,
-        interested:    fresh.filter(l => l.status === 'interested').length,
-        callbacks:     fresh.filter(l => l.status === 'callback').length,
-        converted:     fresh.filter(l => l.status === 'converted').length,
+        pending:       byStatus('pending'),
+        interested:    byStatus('interested'),
+        callbacks:     byStatus('callback'),
+        converted:     byStatus('converted'),
+        called:        byStatus('called'),
+        no_answer:     byStatus('no_answer'),
+        not_ready:     byStatus('not_ready'),
+        closed:        byStatus('closed'),
+        invalid:       byStatus('invalid'),
+        dnc:           byStatus('dnc'),
         unassigned:    fresh.filter(l => !l.assigned_to).length,
         distributable: fresh.filter(l => !l.assigned_to && l.status === 'pending').length,
         recallable:    fresh.filter(l => l.assigned_to && l.status === 'pending').length,
@@ -1835,15 +1849,32 @@ export default function CallCenterLeads() {
     }
   }
 
-  // KPI cards read the server summary (whole scope), not the current page.
-  const { pending, interested, callbacks, converted, unassigned, distributable, recallable } = summary
+  // The chips read the server summary (whole scope), not the current page.
+  const { unassigned, distributable, recallable } = summary
+
+  // One chip per status: its real count, and clicking it filters. This used to be two
+  // rows — five count tiles that could not be clicked above ten filter chips that showed
+  // no counts — which is why the numbers on screen never matched the lead total beside
+  // them. Work-first order: what to dial, then what was dialled, then what is finished.
+  const STATUS_CHIPS: { value: string; label: string; color: string; count: number }[] = [
+    { value: 'pending',    label: 'Pending',    color: '#6B7280',             count: summary.pending },
+    { value: 'callback',   label: 'Callback',   color: AMBER,                 count: summary.callbacks },
+    { value: 'interested', label: 'Interested', color: '#0D9488',            count: summary.interested },
+    { value: 'not_ready',  label: 'Not Ready',  color: '#6366F1',            count: summary.not_ready },
+    { value: 'called',     label: 'Called',     color: BLUE,                  count: summary.called },
+    { value: 'no_answer',  label: 'No Answer',  color: RED,                   count: summary.no_answer },
+    { value: 'converted',  label: 'Converted',  color: GREEN,                 count: summary.converted },
+    { value: 'closed',     label: 'Closed',     color: STATUS_COLOR.closed,   count: summary.closed },
+    { value: 'invalid',    label: 'Invalid',    color: STATUS_COLOR.invalid,  count: summary.invalid },
+    { value: 'dnc',        label: 'DNC',        color: PURPLE,                count: summary.dnc },
+  ]
 
   const selectedCampaignName = campaignIds.length === 0 ? 'All Campaigns'
     : campaignIds.length === 1 ? (campaigns.find(c => String(c.id) === campaignIds[0])?.name ?? 'All Campaigns')
     : `${campaignIds.length} selected campaigns`
 
   return (
-    <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns, or uploaded here" noPad
+    <Page title="Leads" subtitle="From campaigns and uploads" noPad
       actions={
         isHead ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
@@ -1916,28 +1947,14 @@ export default function CallCenterLeads() {
               )}
             </div>
 
-            {/* Mini stats */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              {[
-                { label: 'Pending',    value: pending,    color: '#6B7280' },
-                { label: 'Interested', value: interested, color: '#0D9488' },
-                { label: 'Callbacks',  value: callbacks,  color: AMBER },
-                { label: 'Converted',  value: converted,  color: GREEN },
-                { label: 'Unassigned', value: unassigned, color: RED },
-              ].map(s => (
-                <div key={s.label} style={{ flex: 1, textAlign: 'center', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '6px 2px' }}>
-                  <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{s.label}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* A conversion that names no customer used to be called out here as a backlog to
-                chase. It is not one: the CIF sweep resolves it on its own as soon as the
-                customer appears in the core book, and until then "converted" is already the
-                truth of what the agent did. Converted is converted. The ones that HAVE a
-                customer get a Customer 360 link on the row instead, which is the useful half
-                of the same information. */}
+            {/* Unassigned is a different question from status — a lead can be unassigned at
+                any status — so it reads as a line here rather than competing with the chips. */}
+            {unassigned > 0 && (
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 8 }}>
+                <span style={{ ...NUM, fontWeight: FW.bold, color: RED }}>{fmtCount(unassigned)}</span> unassigned
+                {distributable > 0 && <> · <span style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{fmtCount(distributable)}</span> ready to hand out</>}
+              </div>
+            )}
 
             {/* Search */}
             <TblSearch value={search} onChange={setSearch}
@@ -1962,30 +1979,30 @@ export default function CallCenterLeads() {
               </div>
             )}
 
-            {/* Status chips */}
+            {/* Status chips — count and filter in one control. The counts are whole-scope
+                (they follow campaign, agent and search, but not the status click itself),
+                so picking one narrows the list without blanking its neighbours. */}
             <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
-              {[
-                { value: 'pending',    label: 'Pending',       color: '#6B7280' },
-                { value: 'interested', label: 'Interested',    color: '#0D9488' },
-                { value: 'not_ready',  label: 'Not Ready Yet', color: '#6366F1' },
-                { value: 'called',     label: 'Called',        color: BLUE },
-                { value: 'callback',   label: 'Callback',      color: AMBER },
-                { value: 'no_answer',  label: 'No Answer',     color: RED },
-                { value: 'converted',  label: 'Converted',     color: GREEN },
-                { value: 'dnc',        label: 'DNC',           color: PURPLE },
-                // closed and invalid are set by the backend (a decline on our side, and
-                // a bad number) — without chips those leads could never be filtered to.
-                { value: 'closed',     label: 'Closed',        color: STATUS_COLOR.closed },
-                { value: 'invalid',    label: 'Invalid',       color: STATUS_COLOR.invalid },
-              ].map(({ value, label, color }) => {
+              {STATUS_CHIPS.map(({ value, label, color, count }) => {
                 const on = status === value
+                const empty = count === 0
                 return (
-                  <button key={value} onClick={() => setStatus(on ? '' : value)} style={{
-                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
-                    border: `1px solid ${on ? color : 'var(--bdr)'}`,
-                    background: on ? `${color}18` : 'transparent',
-                    color: on ? color : 'var(--txt3)', cursor: 'pointer',
-                  }}>{label}</button>
+                  <button key={value} onClick={() => setStatus(on ? '' : value)}
+                    title={`${fmtCount(count)} ${label.toLowerCase()}`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
+                      border: `1px solid ${on ? color : 'var(--bdr)'}`,
+                      background: on ? `${color}18` : 'transparent',
+                      color: on ? color : empty ? 'var(--txt3)' : 'var(--txt2)',
+                      opacity: empty && !on ? 0.55 : 1,
+                      cursor: 'pointer',
+                    }}>
+                    {label}
+                    <span style={{ ...NUM, fontWeight: FW.bold, color: on ? color : empty ? 'var(--txt3)' : color }}>
+                      {fmtCount(count)}
+                    </span>
+                  </button>
                 )
               })}
               {(status || search || campaignIds.length > 0 || agentId) && (
