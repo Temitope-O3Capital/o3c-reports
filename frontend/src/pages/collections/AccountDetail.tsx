@@ -10,6 +10,7 @@
 // facility by facility with a schedule under each one.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLiveData } from '../../hooks/useRealtime'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Page, SectionCard, Spinner, ErrBanner, Modal, EmptyState } from '../../components/UI'
@@ -525,6 +526,14 @@ export default function CollectionsAccountDetail() {
   }, [cif])
 
   const refreshAll = useCallback(() => { loadDetail(); reloadCredit() }, [loadDetail, reloadCredit])
+
+  // The 10-second poll below refreshes loadDetail and ONLY loadDetail. The credit
+  // dossier — the facilities, the schedules and the repayment ledger, which is the
+  // half that comes from Udara — was never in it, so a repayment landing from the
+  // hourly capture left exactly the figures an officer is reading mid-call stale until
+  // they navigated away and back. refreshAll reloads both, and the repayments topic
+  // fires on the Udara capture: loan legs, journal receipts and GL postings alike.
+  useLiveData(refreshAll, { topics: ['collections', 'loans', 'repayments'] })
 
   useEffect(() => {
     loadDetail()

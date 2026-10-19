@@ -198,17 +198,22 @@ func main() {
 	// snapshot tables shortly after boot, then every CBS_SYNC_INTERVAL (default 1h).
 	go handlers.StartCBSSyncWorker(cbsClient, db)
 
-	// Udara360 GL — capture actual loan repayment postings from the call-over
-	// ledger into app.loan_repayments, hourly (CBS_REPAYMENT_INTERVAL). Until
-	// this ran, app.loan_repayments held 0 rows and every arrears figure in the
-	// product was model output — the schedule's expectation minus the snapshot's
-	// balance — with nothing recording what was actually paid. Insert-only and
-	// keyed on the GL entry, so the overlapping hourly windows never double-count.
-	go cbssync.StartRepaymentWorker(cbsClient, db)
-	// Branch-tagged capture of the WHOLE call-over ledger (loans, FDs, fees, journals —
-	// not just the repayment legs above), for the branch-split finance model. See
-	// cbssync/gl_postings.go.
-	go cbssync.StartGLPostingsWorker(cbsClient, db)
+	// Udara360 GL — one hourly walk of the call-over ledger (CBS_REPAYMENT_INTERVAL),
+	// written twice: the loan repayment legs and journal receipts into
+	// app.loan_repayments / app.cbs_journal_receipts, and every leg of both sides into
+	// app.cbs_gl_postings for the branch-split finance model.
+	//
+	// Until this ran at all, app.loan_repayments held 0 rows and every arrears figure in
+	// the product was model output — the schedule's expectation minus the snapshot's
+	// balance — with nothing recording what was actually paid. Insert-only and keyed on
+	// the GL entry, so overlapping windows never double-count.
+	//
+	// This was two workers until 2026-10-19, each walking the SAME report over the same
+	// window an hour apart: 7,511 rows fetched twice an hour from the slowest endpoint
+	// Udara has, and the traffic behind most of the `context deadline exceeded` errors.
+	// One fetch now feeds both writers, which stay independently fallible and keep their
+	// own heartbeats. See cbssync/ledger_capture.go.
+	go cbssync.StartLedgerCaptureWorker(cbsClient, db)
 	// Blink FX event parsing reads cbs_gl_postings (the sync above), so it runs after a
 	// longer settle delay and on the same cadence — cheap and idempotent (see
 	// cbssync/blink_fx_parse.go).

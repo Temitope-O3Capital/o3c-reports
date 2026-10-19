@@ -7,6 +7,7 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKoboExact, fmtKoboWhole, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
 import { type Tier, TIER_META, TIER_ORDER, TierBadge, PctBar } from '../../components/TierBadge'
+import { useLiveData } from '../../hooks/useRealtime'
 
 interface TierRow {
   cif: string
@@ -60,6 +61,9 @@ export default function PaymentTiers() {
   }, [search, fTier, delinquentOnly])
 
   useEffect(() => { load() }, [load])
+  // Every tier on this page is computed from what has actually been paid, so a Udara
+  // capture moves all of them. This screen had no live subscription at all.
+  useLiveData(() => load(), { topics: ['collections', 'repayments'] })
 
   const byTier = useMemo(() => {
     const m: Record<string, TierSummary> = {}

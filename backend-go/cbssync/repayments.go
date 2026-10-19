@@ -78,7 +78,7 @@ package cbssync
 //	FDPP/FDPL/FDPR/FDI*             fixed deposits, not loans
 //	JRNL/IBRH/WHTP/CSHW/BCSH        journals, inter-branch, WHT, cash
 //
-// WINDOWING — WHY THE LOOKBACK IS 45 DAYS AND NOT 7
+// WINDOWING — WHY THE LOOKBACK IS WIDE (180 DAYS) AND NOT 7
 // -------------------------------------------------
 // financialDate is the value date; transactionDate is when the entry actually
 // appeared. They are far apart on this system. Measured over all 5,682 rows the
@@ -225,76 +225,6 @@ type ledgerLeg struct {
 
 // ── the hourly job ───────────────────────────────────────────────────────────
 
-// StartRepaymentWorker runs SyncRepayments shortly after boot and then every
-// CBS_REPAYMENT_INTERVAL (default 1h). Registered from main.go with `go`.
-//
-// It deliberately does NOT run the backfill. BackfillRepayments walks the whole
-// history and is a one-off; it only runs when CBS_REPAYMENT_BACKFILL=1 is set
-// explicitly, which it is not in any committed configuration.
-func StartRepaymentWorker(c *udara.Client, db *core.DB) {
-	if c == nil || !c.IsConfigured() {
-		slog.Info("CBS repayment capture disabled (Udara360 not configured)")
-		return
-	}
-	interval := repaymentInterval()
-	if interval <= 0 {
-		slog.Info("CBS repayment capture disabled (CBS_REPAYMENT_INTERVAL <= 0)")
-		return
-	}
-
-	runOnce := func(backfill bool) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-		defer cancel()
-		repaymentBeat(ctx, db, "running", "", "")
-
-		var (
-			res RepaymentResult
-			err error
-		)
-		if backfill {
-			res, err = BackfillRepayments(ctx, c, db)
-		} else {
-			res, err = SyncRepayments(ctx, c, db)
-		}
-		if err != nil {
-			slog.Error("CBS repayment capture failed",
-				"backfill", backfill, "pages", res.Pages, "scanned", res.Scanned,
-				"legs", res.Legs, "err", err)
-			repaymentBeat(ctx, db, "error", "", err.Error())
-			return
-		}
-		detail := fmt.Sprintf("%d legs, %d new, %d already held, %d unmatched; principal %d kobo, interest %d kobo (%s..%s)",
-			res.Legs, res.Inserted, res.Duplicate, res.Unmatched,
-			res.PrincipalKobo, res.InterestKobo, res.OldestDate, res.NewestDate)
-		slog.Info("CBS repayment capture ok",
-			"backfill", backfill, "pages", res.Pages, "scanned", res.Scanned,
-			"legs", res.Legs, "inserted", res.Inserted, "duplicate", res.Duplicate,
-			"unmatched", res.Unmatched, "principal_kobo", res.PrincipalKobo,
-			"interest_kobo", res.InterestKobo, "window", res.OldestDate+".."+res.NewestDate)
-		repaymentBeat(ctx, db, "ok", detail, "")
-	}
-
-	// Let the server settle, and let the CBS book sync land first — capture
-	// resolves loan accounts against cbs_loans, which StartCBSSyncWorker fills
-	// 30s after boot.
-	time.Sleep(90 * time.Second)
-
-	if envBool("CBS_REPAYMENT_BACKFILL") {
-		slog.Warn("CBS repayment BACKFILL requested by CBS_REPAYMENT_BACKFILL=1 — " +
-			"walking the full per-account history once before the hourly window takes over")
-		runOnce(true)
-	}
-	runOnce(false)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for range ticker.C {
-		runOnce(false)
-	}
-}
-
-// SyncRepayments captures the bounded recent window: it walks the global
-// call-over feed newest-first and stops as soon as it is past the lookback
 // cutoff. This is the hourly path.
 func SyncRepayments(ctx context.Context, c *udara.Client, db *core.DB) (RepaymentResult, error) {
 	var res RepaymentResult
@@ -319,15 +249,31 @@ func SyncRepayments(ctx context.Context, c *udara.Client, db *core.DB) (Repaymen
 	// account, and 91 of those worth 1,029,965,072.55 naira were captured by nothing
 	// until now. Stored separately because a receipt and its application to a facility
 	// are different events -- see migration 371.
-	//
-	// A failure here must not cost us the loan legs, which are the older and more
-	// load-bearing half, so it is logged and the walk still writes them.
+	return applyRepaymentRows(ctx, db, rows, cutoff, loans, &res)
+}
+
+// applyRepaymentRows classifies and writes the repayment half of a call-over walk.
+//
+// Split out of SyncRepayments so the scheduled path can run it over rows ALREADY
+// fetched, instead of fetching the same window a second time — see ledger_capture.go.
+// SyncRepayments still exists and still does its own walk, because cmd/liveverify calls
+// it standalone and should keep being able to.
+func applyRepaymentRows(
+	ctx context.Context,
+	db *core.DB,
+	rows []map[string]any,
+	cutoff string,
+	loans loanIndex,
+	res *RepaymentResult,
+) (RepaymentResult, error) {
+	// A failure on the receipt side must not cost us the loan legs, which are the older
+	// and more load-bearing half, so it is logged and the legs are still written.
 	if n, jerr := writeJournalReceipts(ctx, db, classifyJournalReceipts(rows)); jerr != nil {
 		slog.Warn("cbs repayment capture: journal receipts not written", "err", jerr)
 	} else {
 		res.JournalReceipts = n
 	}
-	return writeLegs(ctx, db, resolveLegs(classifyLegs(rows, &res), loans, &res), &res, cutoff)
+	return writeLegs(ctx, db, resolveLegs(classifyLegs(rows, res), loans, res), res, cutoff)
 }
 
 // classifyJournalReceipts picks out the journal credits that are repayment money

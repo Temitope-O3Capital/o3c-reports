@@ -71,53 +71,6 @@ type GLPostingsResult struct {
 	NewestDate string
 }
 
-// StartGLPostingsWorker runs SyncGLPostings shortly after boot and then on the same
-// interval as the repayment capture (CBS_REPAYMENT_INTERVAL, default 1h) -- both jobs hit
-// the same endpoint under the same windowing assumptions, so one knob governs both rather
-// than inventing a second that would need to be kept in step by hand.
-func StartGLPostingsWorker(c *udara.Client, db *core.DB) {
-	if c == nil || !c.IsConfigured() {
-		slog.Info("CBS GL postings capture disabled (Udara360 not configured)")
-		return
-	}
-	interval := glPostingsInterval()
-	if interval <= 0 {
-		slog.Info("CBS GL postings capture disabled (CBS_GL_POSTINGS_INTERVAL <= 0)")
-		return
-	}
-
-	runOnce := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-		defer cancel()
-		glPostingsBeat(ctx, db, "running", "", "")
-
-		res, err := SyncGLPostings(ctx, c, db)
-		if err != nil {
-			slog.Error("CBS GL postings capture failed",
-				"pages", res.Pages, "scanned", res.Scanned, "err", err)
-			glPostingsBeat(ctx, db, "error", "", err.Error())
-			return
-		}
-		detail := fmt.Sprintf("%d scanned, %d new, %d already held (%s..%s)",
-			res.Scanned, res.Inserted, res.Duplicate, res.OldestDate, res.NewestDate)
-		slog.Info("CBS GL postings capture ok",
-			"pages", res.Pages, "scanned", res.Scanned, "inserted", res.Inserted,
-			"duplicate", res.Duplicate, "window", res.OldestDate+".."+res.NewestDate)
-		glPostingsBeat(ctx, db, "ok", detail, "")
-	}
-
-	// Let the repayment worker's 90s settle period pass first; both hit the same endpoint
-	// and there is no reason to race it on every boot.
-	time.Sleep(150 * time.Second)
-	runOnce()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for range ticker.C {
-		runOnce()
-	}
-}
-
 // SyncGLPostings walks the global call-over feed newest-first over the configured
 // lookback window and writes every leg (both debit and credit) it finds.
 func SyncGLPostings(ctx context.Context, c *udara.Client, db *core.DB) (GLPostingsResult, error) {
@@ -131,13 +84,30 @@ func SyncGLPostings(ctx context.Context, c *udara.Client, db *core.DB) (GLPostin
 	if err != nil {
 		return res, err
 	}
-	return writeGLPostings(ctx, db, classifyGLRows(rows), &res)
+	return applyGLRows(ctx, db, rows, &res)
 }
 
-// glWalkWindow mirrors repayments.go's walkWindow exactly (same endpoint, same ordering,
-// same "empty page 1 is a failed fetch" guard) -- duplicated rather than shared because
-// the two files are independent capture jobs with independent failure/backfill stories,
-// and sharing a helper across them would couple their windowing behaviour by accident.
+// applyGLRows classifies and writes the GL half of a call-over walk.
+//
+// Split out of SyncGLPostings so the scheduled path can run it over rows ALREADY
+// fetched rather than walking the same window a second time — see ledger_capture.go,
+// which explains why the two captures now share one fetch and still write separately.
+func applyGLRows(ctx context.Context, db *core.DB, rows []map[string]any, res *GLPostingsResult) (GLPostingsResult, error) {
+	return writeGLPostings(ctx, db, classifyGLRows(rows), res)
+}
+
+// glWalkWindow mirrors repayments.go's walkWindow (same endpoint, same ordering, same
+// "empty page 1 is a failed fetch" guard).
+//
+// THE SCHEDULED PATH NO LONGER USES THIS. It remains for SyncGLPostings standalone,
+// which cmd/liveverify calls. The hourly worker walks the report ONCE through
+// ledger_capture.go and writes both captures from that single pass -- this comment used
+// to argue the duplication was deliberate, on the grounds that sharing a helper would
+// couple the two jobs' windowing by accident. The measurement overtook the argument:
+// 7,511 rows were being fetched twice an hour from the slowest endpoint Udara has, and
+// most of the `context deadline exceeded` errors were this traffic. What is shared now
+// is only the fetch, which was already identical in both files; the classification,
+// writes and guards stay separate and independently fallible.
 func glWalkWindow(ctx context.Context, c *udara.Client, cutoff string, res *GLPostingsResult) ([]map[string]any, error) {
 	var all []map[string]any
 	for page := 1; page <= glPostingsMaxPages; page++ {
