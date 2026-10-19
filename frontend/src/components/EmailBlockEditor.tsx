@@ -28,6 +28,7 @@ export interface EmailBlock {
   unsubscribe?: boolean
   theme?: string; title?: string; body?: string; icon?: string
   cols?: Array<{ value: string; label: string; color: string }>
+  links?: Array<{ platform: string; url: string }>; iconSize?: number
 }
 
 export interface EmailSettings { background?: string; contentWidth?: number; preheader?: string; fullBleed?: boolean }
@@ -59,7 +60,28 @@ const DEF: Record<string, () => EmailBlock> = {
   footer:  () => ({ id: uid(), type: 'footer',  text: '© 2026 O3 Capital Financial Services Ltd · Lagos, Nigeria', unsubscribe: true }),
   callout: () => ({ id: uid(), type: 'callout', theme: 'warning', icon: '⚠️', title: 'Important Notice', body: 'Enter your callout message here. This block draws attention to critical information.' }),
   stats:   () => ({ id: uid(), type: 'stats',   cols: [{ value: '₦{{amount|—}}', label: 'Outstanding Balance', color: RED }, { value: '{{due_date|—}}', label: 'Payment Due', color: '#D97706' }] }),
+  social:  () => ({ id: uid(), type: 'social',  align: 'center', iconSize: 24, links: [
+    { platform: 'website',   url: '' },
+    { platform: 'instagram', url: '' },
+    { platform: 'linkedin',  url: '' },
+  ] }),
 }
+
+// The icon set lives in /uploads/social-icons and is CID-inlined at send time like any
+// other local image, so it renders for external recipients with no public hostname.
+// 48px files shown at 24px, so they stay sharp on a retina phone; 37 KB for all ten.
+export const SOCIAL_PLATFORMS = [
+  { key: 'website',    label: 'Website' },
+  { key: 'instagram',  label: 'Instagram' },
+  { key: 'facebook',   label: 'Facebook' },
+  { key: 'x',          label: 'X' },
+  { key: 'linkedin',   label: 'LinkedIn' },
+  { key: 'youtube',    label: 'YouTube' },
+  { key: 'tiktok',     label: 'TikTok' },
+  { key: 'whatsapp',   label: 'WhatsApp' },
+  { key: 'appstore',   label: 'App Store' },
+  { key: 'googleplay', label: 'Google Play' },
+]
 
 const PALETTE = [
   { type: 'header',  label: 'Header',  icon: 'web_asset' },
@@ -71,6 +93,7 @@ const PALETTE = [
   { type: 'divider', label: 'Divider', icon: 'horizontal_rule' },
   { type: 'spacer',  label: 'Spacer',  icon: 'height' },
   { type: 'two_col', label: '2 Cols',  icon: 'view_column' },
+  { type: 'social',  label: 'Social',  icon: 'share' },
   { type: 'footer',  label: 'Footer',  icon: 'bottom_navigation' },
 ]
 
@@ -137,6 +160,24 @@ function blockToHtml(b: EmailBlock): string {
     case 'two_col': {
       const [l, r] = (b.split || '50/50').split('/').map(Number)
       return wrap(`<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td width="${l}%" valign="top" style="padding-right:16px;font-size:14px;color:#374151;line-height:1.75;font-family:${FONT};">${b.leftHtml || ''}</td><td width="${r}%" valign="top" style="padding-left:16px;font-size:14px;color:#374151;line-height:1.75;font-family:${FONT};">${b.rightHtml || ''}</td></tr></table>`, '12px 32px')
+    }
+    case 'social': {
+      // Only links that were actually filled in. An icon linking nowhere is worse
+      // than no icon: it looks clickable and does nothing.
+      const links = (b.links || []).filter(l => (l.url || '').trim())
+      if (!links.length) return ''
+      const px = b.iconSize || 24
+      // A table of cells rather than inline-block spans, because Outlook's word
+      // engine collapses inline spacing unpredictably. Each cell is one icon.
+      const tds = links.map(l => {
+        const p = (l.platform || 'website').replace(/[^a-z0-9]/gi, '').toLowerCase()
+        const label = (SOCIAL_PLATFORMS.find(s => s.key === p)?.label) || p
+        return `<td style="padding:0 7px;"><a href="${l.url}" target="_blank" style="text-decoration:none;"` +
+          ` title="${label}"><img src="/uploads/social-icons/${p}.png" alt="${label}" width="${px}"` +
+          ` height="${px}" style="width:${px}px;height:${px}px;display:block;border:0;" /></a></td>`
+      }).join('')
+      return wrap(`<table cellpadding="0" cellspacing="0" border="0" align="${b.align || 'center'}"` +
+        ` style="margin:0 auto;"><tr>${tds}</tr></table>`, '10px 32px')
     }
     case 'footer':
       return `<tr><td style="background:#F9FAFB;border-top:1px solid #E5E7EB;padding:24px 40px;text-align:center;font-family:${FONT};"><p style="margin:0 0 6px;font-size:11px;color:#9CA3AF;">${b.text || '© 2026 O3 Capital'}</p>${b.unsubscribe ? `<p style="margin:0;font-size:10px;color:#D1D5DB;">You received this email as an O3 Capital customer. <a href="{{unsubscribe_url}}" style="color:#D1D5DB;">Unsubscribe</a></p>` : ''}</td></tr>`
@@ -403,6 +444,44 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
             </div></PPField>
           </div>
         ))}</>
+    }
+    case 'social': {
+      const sl = block.links || []
+      const set = (next: Array<{ platform: string; url: string }>) => onUpdate({ links: next })
+      return <>
+        <PPField label="Icon Size">
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[20, 24, 28].map(n => { const on = (block.iconSize || 24) === n; return (
+              <button key={n} type="button" onClick={() => onUpdate({ iconSize: n })}
+                style={{ flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{n}px</button>
+            )})}
+          </div>
+        </PPField>
+        {sl.map((l, i) => (
+          <div key={i} style={{ marginBottom: 10, padding: '10px 12px', background: '#F8FAFC', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <img src={`/uploads/social-icons/${l.platform || 'website'}.png`} alt="" width={18} height={18} style={{ display: 'block' }} />
+              <select value={l.platform} onChange={e => { const n = [...sl]; n[i] = { ...n[i], platform: e.target.value }; set(n) }}
+                style={{ ...fi, flex: 1, height: 28, padding: '0 6px' }}>
+                {SOCIAL_PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              <button type="button" onClick={() => set(sl.filter((_, j) => j !== i))} title="Remove"
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', padding: 2 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>close</span>
+              </button>
+            </div>
+            <PPInp value={l.url} placeholder="https://…" onChange={e => { const n = [...sl]; n[i] = { ...n[i], url: e.target.value }; set(n) }} />
+          </div>
+        ))}
+        <button type="button" onClick={() => set([...sl, { platform: 'website', url: '' }])}
+          style={{ width: '100%', padding: '8px 0', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: '1.5px dashed rgba(0,0,0,0.16)', background: 'transparent', color: '#64748b' }}>
+          + Add Link
+        </button>
+        <p style={{ fontSize: 10.5, color: '#94a3b8', lineHeight: 1.5, marginTop: 10 }}>
+          Icons with no URL are left out of the email. An icon that links nowhere looks
+          clickable and does nothing.
+        </p>
+      </>
     }
     default: return <p style={{ fontSize: 12, color: '#94a3b8' }}>No properties for this block.</p>
   }
@@ -865,6 +944,21 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
                 <div style={{ fontSize: 22, fontWeight: 800, color: col.color || NAVY, lineHeight: 1.2 }}>{col.value}</div>
                 <div style={{ fontSize: 10.5, color: '#6B7280', marginTop: 7, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col.label}</div>
               </div>
+            ))}
+          </div>
+        </div>
+      }
+      case 'social': {
+        const links = block.links || []
+        if (!links.length) return <div style={{ padding: '16px 32px', textAlign: 'center', color: '#9CA3AF', fontSize: 12 }}>Add social links in the properties panel</div>
+        const px = block.iconSize || 24
+        return <div style={{ padding: '10px 32px', textAlign: (block.align as any) || 'center' }}>
+          <div style={{ display: 'inline-flex', gap: 14, alignItems: 'center' }}>
+            {links.map((l, i) => (
+              <img key={i} src={`/uploads/social-icons/${l.platform || 'website'}.png`}
+                alt={l.platform} width={px} height={px}
+                title={l.url || 'No link set — this icon will be left out'}
+                style={{ display: 'block', opacity: (l.url || '').trim() ? 1 : 0.3 }} />
             ))}
           </div>
         </div>
