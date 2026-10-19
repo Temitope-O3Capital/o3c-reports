@@ -189,9 +189,12 @@ func csvSafe(s string) string {
 
 // ── Filename ──────────────────────────────────────────────────────────────────
 
-// exportFilename builds a safe, dated filename. The header value is quoted, so a
-// name containing a quote or newline could otherwise inject response headers.
-func exportFilename(base string, f exportFormat) string {
+// exportSafeFilename reduces a name to letters, digits, dash and underscore, and dates
+// it. Everything that attaches a file shares this, because the Content-Disposition
+// header value is quoted — a name carrying a quote or a newline could otherwise inject
+// response headers — and because an attachment named by a customer-supplied string is a
+// filename somebody's mail client has to survive. Returns the stem, with no extension.
+func exportSafeFilename(base string) string {
 	safe := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
@@ -205,7 +208,12 @@ func exportFilename(base string, f exportFormat) string {
 	if safe == "" {
 		safe = "export"
 	}
-	return fmt.Sprintf("%s_%s.%s", safe, time.Now().UTC().Format("20060102-150405"), f.ext())
+	return fmt.Sprintf("%s_%s", safe, time.Now().UTC().Format("20060102-150405"))
+}
+
+// exportFilename builds a safe, dated filename for one of the export formats.
+func exportFilename(base string, f exportFormat) string {
+	return exportSafeFilename(base) + "." + f.ext()
 }
 
 // ── The writer ────────────────────────────────────────────────────────────────

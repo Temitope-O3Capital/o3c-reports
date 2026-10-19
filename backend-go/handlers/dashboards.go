@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -63,6 +66,119 @@ func RegisterDashboards(r chi.Router, db *core.DB) {
 	r.With(access).Put("/tiles/{tid}", dashTileUpdate(db))
 	r.With(access).Delete("/tiles/{tid}", dashTileDelete(db))
 	r.With(access).Get("/tiles/{tid}/data", dashTileData(db))
+	r.With(access).Post("/{id}/email", dashEmail(db))
+}
+
+// dashEmail renders the dashboard as a PDF and emails it.
+//
+// The PDF is produced by printing the real page as the REQUESTER (see dashboard_pdf.go),
+// so a board whose tiles render differently for different people emails what the sender
+// sees — not what the most privileged viewer would see. That is the honest reading of a
+// per-tile access model: the person pressing Send is the person vouching for the figures.
+//
+// Recipients go through the same company-domain rule as a report, because a dashboard is
+// a report with a layout and there is no argument for it being looser.
+func dashEmail(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Recipients []string `json:"recipients"`
+		Subject    string   `json:"subject"`
+		Message    string   `json:"message"`
+		// NoAttach sends the note alone. Pointless for a dashboard, whose whole content
+		// is the attachment, so it is NOT offered — the field would only let a caller
+		// send an empty email. Kept out deliberately rather than forgotten.
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		u := core.UserFromCtx(ctx)
+		id := chi.URLParam(r, "id")
+
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		to := cleanRecipients(b.Recipients)
+		if len(to) == 0 {
+			respondErr(w, 400, "Add at least one valid recipient email")
+			return
+		}
+		if bad := reportRecipientsNotAllowed(ctx, db, u, to); len(bad) > 0 {
+			respondErr(w, 422, reportRecipientsDeniedMessage(bad))
+			return
+		}
+
+		// Read it the same way dashGet does, so "not shared with you" and "does not
+		// exist" stay indistinguishable here too.
+		boards, err := db.PGQuery(ctx, `
+			SELECT d.id, d.name FROM app.dashboards d
+			 WHERE d.id = $1 AND (d.is_shared OR d.created_by = $2)`, id, u.ID)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if len(boards) == 0 {
+			respondErr(w, 404, "Dashboard not found")
+			return
+		}
+		name := str(boards[0]["name"])
+		if name == "" {
+			name = "Dashboard"
+		}
+
+		pdf, err := renderDashboardPDF(ctx, id, u)
+		if err != nil {
+			// The renderer's messages are written to be read by the person who pressed
+			// the button ("took too long", "set CHROME_PATH"), so they are passed through
+			// rather than replaced with something generic.
+			respondErrLog(w, 502, err.Error(), err)
+			return
+		}
+		if enc := base64.StdEncoding.EncodedLen(len(pdf)); enc > reportMailMaxBytes {
+			respondErr(w, 422, fmt.Sprintf(
+				"This dashboard comes to %d MB as a PDF and a message can carry %d MB. "+
+					"Remove a tile or two, or send the tiles as separate reports.",
+				enc>>20, reportMailMaxBytes>>20))
+			return
+		}
+
+		subject := clampRunes(strings.TrimSpace(b.Subject), reportSubjectMaxRunes)
+		if subject == "" {
+			subject = fmt.Sprintf("Dashboard: %s (%s)", name, time.Now().In(reportTZ).Format("2006-01-02"))
+		}
+		intro := ""
+		if msg := strings.TrimSpace(b.Message); msg != "" {
+			intro = `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111827">` +
+				html.EscapeString(msg) + `</p>`
+		}
+		stamp := time.Now().In(reportTZ).Format("2006-01-02 15:04")
+		htmlBody := fmt.Sprintf(`<div style="font-family:Segoe UI,Arial,sans-serif;color:#111827">`+
+			`<h2 style="color:#0E2841;margin:0 0 4px">%s</h2>`+
+			`<p style="font-size:13px;color:#6B7280;margin:0 0 12px">O3 Capital Workspace · dashboard · %s</p>`+
+			`%s`+
+			`<p style="font-size:12px;color:#9CA3AF;margin-top:16px">The attached PDF is this dashboard as it stood when the email was sent.</p>`+
+			`</div>`, html.EscapeString(name), stamp, intro)
+		textBody := fmt.Sprintf("%s\n\nDashboard as at %s. The PDF is attached.\n", name, stamp)
+
+		addrs := make([]MailAddress, 0, len(to))
+		for _, e := range to {
+			addrs = append(addrs, MailAddress{Email: e})
+		}
+		result := SendMail(ctx, db, SendMailOptions{
+			To: addrs, Subject: subject, HTMLBody: htmlBody, TextBody: textBody,
+			Kind: "report", Category: "dashboard_pdf", CreatedBy: u.ID,
+			Attachments: []MailAttachment{{
+				Filename:    exportSafeFilename(name) + ".pdf",
+				ContentType: "application/pdf",
+				Content:     base64.StdEncoding.EncodeToString(pdf),
+				Disposition: "attachment",
+			}},
+		})
+		if !result.OK && result.Error != "" {
+			respondErrLog(w, 502, "Could not send the dashboard", fmt.Errorf("%s", result.Error))
+			return
+		}
+		respond(w, map[string]any{"ok": true, "recipients": len(to), "bytes": len(pdf)}, "json")
+	}
 }
 
 // ── Access helpers ────────────────────────────────────────────────────────────

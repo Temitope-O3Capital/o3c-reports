@@ -216,6 +216,11 @@ export default function DashboardView() {
   const [removing, setRemoving] = useState<Tile | null>(null)
   const [renaming, setRenaming] = useState<Tile | null>(null)
   const [newTitle, setNewTitle] = useState('')
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailNote, setEmailNote] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => {
@@ -354,6 +359,28 @@ export default function DashboardView() {
     }
   }
 
+  // Rendering runs a real browser server-side, so this is slow by nature — a few
+  // seconds for a board of charts. The button shows a spinner rather than the page
+  // pretending something instant happened.
+  async function sendDashboard() {
+    const to = emailTo.split(',').map(s => s.trim()).filter(Boolean)
+    if (!to.length) return
+    setEmailBusy(true)
+    try {
+      const r = unwrap<any>(await apiPost(`/api/dashboards/${id}/email`, {
+        recipients: to, subject: emailSubject, message: emailNote,
+      }))
+      const n = typeof r?.recipients === 'number' ? r.recipients : to.length
+      toast.success(`Dashboard emailed to ${n} recipient${n === 1 ? '' : 's'}`)
+      setEmailOpen(false)
+      setEmailTo(''); setEmailSubject(''); setEmailNote('')
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not email the dashboard')
+    } finally {
+      setEmailBusy(false)
+    }
+  }
+
   async function setViz(t: Tile, viz: Tile['viz']) {
     try {
       await apiPut(`/api/dashboards/tiles/${t.id}`, { viz })
@@ -376,10 +403,13 @@ export default function DashboardView() {
       actions={
         <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }} className="dash-actions">
           {board.is_shared && <Badge variant="info">Shared</Badge>}
-          {/* Print is the PDF route: the browser's own dialog writes a better PDF than a
-              server-side renderer would, it needs no new dependency, and what you see is
-              what you get. The print stylesheet below is what makes it page-shaped. */}
+          {/* Two routes to the same PDF, and they share the print stylesheet below.
+              Print opens the browser's own dialog for the person looking at the board.
+              Email asks the server to print it headlessly and attach it — the same page,
+              the same stylesheet, rendered as the sender so it can never show a
+              recipient more than the sender can see. */}
           <Button variant="secondary" icon="print" onClick={() => window.print()}>Export PDF</Button>
+          <Button variant="secondary" icon="mail" onClick={() => setEmailOpen(true)}>Email</Button>
           {board.is_mine && (
             <>
               <Button variant={editing ? 'primary' : 'secondary'}
@@ -564,6 +594,27 @@ export default function DashboardView() {
           <strong>{removing?.title}</strong> comes off this dashboard. The report or query it
           reads is not touched.
         </p>
+      </Modal>
+
+      <Modal open={emailOpen} onClose={() => setEmailOpen(false)} title="Email This Dashboard"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEmailOpen(false)}>Cancel</Button>
+            <Button loading={emailBusy} disabled={!emailTo.trim()} onClick={sendDashboard}>Send Now</Button>
+          </>
+        }>
+        <p style={{ fontSize: TEXT.sm, lineHeight: 1.6, marginTop: 0 }}>
+          The server prints this dashboard and attaches it as a PDF. It renders as{' '}
+          <strong>you</strong>, so a recipient sees exactly the tiles you can see — a tile
+          whose data you cannot open is not in the file.
+        </p>
+        <Input label="Recipients" value={emailTo} onChange={e => setEmailTo(e.target.value)}
+          hint="Separate several with commas." autoFocus />
+        <Input label="Subject (Optional)" value={emailSubject} maxLength={200}
+          onChange={e => setEmailSubject(e.target.value)}
+          placeholder={`Dashboard: ${board.name}`} />
+        <Input label="Note (Optional)" value={emailNote} onChange={e => setEmailNote(e.target.value)}
+          hint="Appears above the attachment in the email." />
       </Modal>
     </Page>
   )

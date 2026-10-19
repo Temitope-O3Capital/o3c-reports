@@ -471,6 +471,12 @@ func main() {
 	r.Get("/t/o/{tracking_id}", handlers.TrackOpen(db))
 	r.Get("/t/c/{tracking_id}", handlers.TrackClick(db))
 
+	// The headless browser's way in when rendering a dashboard to PDF. Unauthenticated
+	// by necessity — it exchanges a single-use nonce this process minted seconds earlier
+	// for the session cookie — and it is the only route that does so. See
+	// handlers/dashboard_pdf.go for why the credential is not in the URL.
+	handlers.RegisterDashboardPrint(r)
+
 	// Uploaded campaign images served as static files.
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(handlers.UploadRoot()))))
 
