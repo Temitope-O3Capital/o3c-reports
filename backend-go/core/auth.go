@@ -886,7 +886,12 @@ func buildRolePages() map[string][]string {
 	// staff_performance belongs here for the same reason people_directory does: HR
 	// monitors how the company's people are doing. It is a read page and records no
 	// judgement, so it carries none of the appraisal risk of a write grant.
-	m["hr"] = []string{"people_directory", "kpi_dashboard", "staff_performance"}
+	// leave_admin is HR's first WRITE grant, and the only one: it sets entitlements
+	// and confirms the approval a line manager has already given. The rest of leave
+	// deliberately carries no page key — every member of staff requests their own,
+	// and every manager decides their own reports' — so this grant covers the
+	// company's half of the decision and not the personal half.
+	m["hr"] = []string{"people_directory", "kpi_dashboard", "staff_performance", "leave_admin"}
 
 	// ── Internal Control ──
 	// Head of Internal Control audits the business, so it holds every page in the

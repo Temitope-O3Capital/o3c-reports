@@ -116,6 +116,12 @@ var PageCatalog = []CatalogModule{
 		// measure at all. Read-only by design: the business asked for "visibility
 		// now, appraisal later", so no page key here records a judgement.
 		{"staff_performance", "Staff Performance"},
+		// Leave ADMINISTRATION only — setting entitlements, confirming an approval,
+		// and the two gap lists. Requesting your own leave and approving your own
+		// reports' leave carry NO page key on purpose: holding a page is not what
+		// makes leave yours, and being somebody's approver is a fact in
+		// o3c_users.manager_user_id rather than a grant. See handlers/leave.go.
+		{"leave_admin", "Leave Administration"},
 	}},
 	// Fleet splits read from write the way settlement/reconciliation does. Plenty of
 	// people need to see what a vehicle costs; changing the register — above all

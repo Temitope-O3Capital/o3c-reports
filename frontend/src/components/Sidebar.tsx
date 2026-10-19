@@ -526,6 +526,16 @@ const SECTIONS: Section[] = [
         icon: 'speed', label: 'Staff Performance', to: '/performance',
         vis: ['hr', 'coo', 'head_ops'],
       },
+      // Leave is visible to everybody, like Hand-Offs, and for the same reason: every
+      // member of staff has their own, and the page is scoped to the caller by the
+      // server. There is deliberately NO entry in PAGE_FOR for /leave — gating it on a
+      // page key would mean only the people granted that key could request leave,
+      // which is the opposite of what it is for. The Administration tab inside the
+      // page is the only gated part, on leave_admin, enforced on the endpoints.
+      {
+        icon: 'beach_access', label: 'Leave', to: '/leave',
+        vis: 'all',
+      },
     ],
   },
   {

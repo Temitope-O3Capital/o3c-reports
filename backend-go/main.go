@@ -727,6 +727,15 @@ func main() {
 		r.Route("/api/people", func(r chi.Router) {
 			handlers.RegisterPeople(r, db)
 		})
+		// Leave. NO mount-level gate, and that is the design rather than an omission:
+		// every member of staff must be able to request their own leave and every line
+		// manager to decide their reports', so the self and manager routes are scoped
+		// in SQL to the caller's own id and to routed_to_manager = me. Only the HR
+		// half — entitlements, and confirming an approval a manager already gave —
+		// carries a page key, leave_admin, applied inside the file.
+		r.Route("/api/leave", func(r chi.Router) {
+			handlers.RegisterLeave(r, db)
+		})
 		// Nigerian public holidays, which every reported duration is computed against.
 		// Admin-gated rather than filed under People, because the People Directory is
 		// read-only by design and this writes the business clock.

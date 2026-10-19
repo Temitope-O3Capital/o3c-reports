@@ -12,22 +12,29 @@ import (
 /*
 PEOPLE — the staff register, read-only.
 
-WHAT THIS IS BUILT ON, AND WHY THAT IS THE WHOLE STORY. O3C holds no HR data. There
-is no payroll table in any schema and no payroll module — the three pages that once
-claimed to be one were deleted on 2026-10-12 because nothing was behind them — no
-leave or attendance record, and no staff data source in the report builder. The only
-staff data that exists is app.o3c_users, the sign-in table. So "people monitoring"
-here means exactly what that table can honestly answer:
+WHAT THIS IS BUILT ON, AND WHY THAT IS THE WHOLE STORY. There is still no payroll
+table in any schema and no payroll module — the three pages that once claimed to be
+one were deleted on 2026-10-12 because nothing was behind them — and no attendance
+record. So "people monitoring" here means what app.o3c_users can honestly answer:
 
     who is on the register, what they do, where they sit, are they active or
     suspended, how long their account has existed, and are they actually signing in.
 
-Note what is NOT in that list: a hire date. o3c_users has created_at (when the
-account was made) and nothing about employment, so no figure here is named "joiners",
-"leavers" or "tenure" — 50 of the 52 live accounts were created in the last 90 days
-because the workspace is new, and a "joiners (90 days): 50" tile would be a flatly
-false HR number. Anything further (leave, appraisals, per-person performance KPIs)
-needs data the company does not yet capture, and this file does not pretend otherwise.
+Note what is NOT in that list: a hire date. The column now EXISTS — migration 374
+added o3c_users.hire_date and manager_user_id — but it is nullable and unpopulated,
+and every figure on this page is still derived from created_at, which is when the
+ACCOUNT was made. So nothing here is named "joiners", "leavers" or "tenure": 50 of
+the 52 live accounts were created in the last 90 days because the workspace is new,
+and a "joiners (90 days): 50" tile would be a flatly false HR number. The day
+hire_date is actually filled in, tenure becomes computable — from hire_date, never
+from created_at — and this comment is the thing to revisit.
+
+LEAVE IS NO LONGER ABSENT, AND IS NOT HERE. Migration 374 made the workspace the
+first book of record for staff leave, and handlers/leave.go serves it. It is
+deliberately a separate module rather than a section of the register: requesting
+leave is something every member of staff does for themselves, so it carries no page
+key at all, while this page is gated on people_directory. Appraisals and per-person
+performance KPIs still need data the company does not capture.
 
 READ-ONLY, AND A DIFFERENT PAGE FROM admin_users. This reads the same table the User
 Management page writes, which is why it is a separate page key. admin_users grants

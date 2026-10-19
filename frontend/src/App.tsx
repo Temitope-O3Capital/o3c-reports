@@ -285,6 +285,11 @@ const MobileAnalytics      = lazy(() => import('./pages/mobile/MobileAnalytics')
 // People — the staff register (read-only). Separate from User Management, which is
 // the same table but the page that grants roles and resets passwords.
 const PeopleDirectory = lazy(() => import('./pages/people/Directory'))
+// Leave. NOT wrapped in RequireAccess: every member of staff requests their own leave
+// and every line manager decides their reports', so the page itself is open and each
+// tab's data is scoped by the API to the caller. The HR tab is the only gated part,
+// on leave_admin, and the gate is on the endpoints rather than on the route.
+const LeavePage = lazy(() => import('./pages/people/Leave'))
 
 // Compliance
 const ComplianceMyDashboard    = lazy(() => import('./pages/compliance/MyDashboard'))
@@ -1371,6 +1376,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* People */}
 
                   <Route path="/people"                           element={<RequireAccess page="people_directory" user={user}><PageErrorBoundary><PeopleDirectory /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/leave"                            element={<PageErrorBoundary><LeavePage /></PageErrorBoundary>} />
 
                   {/* Intelligence */}
                   <Route path="/reports/my-dashboard" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsMyDashboard /></PageErrorBoundary></RequireAccess>} />

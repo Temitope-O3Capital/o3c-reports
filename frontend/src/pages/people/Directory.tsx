@@ -10,16 +10,18 @@ import { NAVY, BLUE, GREEN, AMBER, SP, TEXT, FW } from '../../lib/design'
 
 // PEOPLE DIRECTORY — the staff register, read-only.
 //
-// Built on app.o3c_users, which is the sign-in table and the only staff data O3C
-// holds: there is no payroll table in any schema, no leave or attendance record, and
-// no staff data source in the report builder. So this page answers exactly what that
-// table can answer honestly, and says so on its face rather than dressing account
-// administration up as HR reporting.
+// Built on app.o3c_users, the sign-in table. There is still no payroll table in any
+// schema and no attendance record, so this page answers exactly what that table can
+// answer honestly rather than dressing account administration up as HR reporting.
+// Staff LEAVE is now recorded — see pages/people/Leave.tsx — and is deliberately its
+// own page: leave is something every member of staff has, while this register is
+// gated on people_directory.
 //
-// Above all it does NOT claim a hire date. created_at is when an ACCOUNT was made —
-// 50 of the 52 live accounts were created inside the last 90 days because the
-// workspace itself is new — so every date here is labelled as an account date and
-// there is no "joiners", "leavers" or "tenure" figure anywhere on the page.
+// Above all it does NOT claim a hire date. The column exists as of migration 374 but
+// is unpopulated, and every date on this page still comes from created_at, which is
+// when an ACCOUNT was made — 50 of the 52 live accounts were created inside the last
+// 90 days because the workspace itself is new — so every date here is labelled as an
+// account date and there is no "joiners", "leavers" or "tenure" figure anywhere.
 //
 // Administering an account (granting a role, resetting a password, suspending
 // someone) is NOT here. That is User Management, behind the admin_users page. This
