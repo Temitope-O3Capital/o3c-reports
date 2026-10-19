@@ -553,11 +553,28 @@ export default function DashboardView() {
       <Modal open={adding} onClose={() => setAdding(false)} title="Add a Tile" width={640}>
         {!sources ? <Sk h={120} /> : (
           <div style={{ display: 'grid', gap: SP[5] }}>
+            {/* A TILE POINTS AT SOMETHING ALREADY SAVED — it never carries a query of its
+                own, which is what stops a shared dashboard becoming a way to run anything
+                under whatever access the dashboard happened to have. So there is no list
+                of data sources here, and the honest thing is to say so and hand over the
+                one control that gets you one, rather than leave an empty panel that reads
+                as a missing feature. */}
+            <div style={{
+              border: '1px solid var(--bdr)', borderRadius: 8, padding: SP[3],
+              display: 'flex', gap: SP[3], alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
+                Tiles are built from saved reports, not from a data source directly. Choose the
+                data, columns and chart in the Report Builder, save it, and it appears here.
+              </div>
+              <Button variant="secondary" icon="add_chart"
+                onClick={() => nav('/reports/builder')}>Build a Report</Button>
+            </div>
             <AddFrom
               heading="From a Saved Report"
               note="Built in the Report Builder. The tile follows the report, so a change there shows here."
               items={sources.reports.map(r => ({ id: r.id, name: r.name, sub: r.dataset }))}
-              empty="You have no saved reports yet. Build one in the Report Builder and save it."
+              empty="No saved reports yet. Build one in the Report Builder and save it — it shows up here straight away."
               onPick={(sid, viz) => addTile('report', sid, viz)}
             />
             <AddFrom
