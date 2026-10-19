@@ -1989,6 +1989,45 @@ func sanitizeAttachmentName(name string) string {
 	return name
 }
 
+// attachmentAudit is what mail_messages keeps about an attachment: everything except
+// the attachment itself.
+//
+// WHY. createMailMessage used to marshal the whole MailAttachment, Content included,
+// which is the base64 payload. There is one row per RECIPIENT, so a campaign stored
+// its image once per person. Campaign 10 carried a 3,522 kB JPEG to 9,307 recipients:
+// it wrote 4.8 GB in 53 minutes, took app.mail_messages to 6.7 GB (80% of the whole
+// database, against 26 MB of actual rows), filled the disk and PANICked Postgres on
+// 2026-10-16 at 15:54:17. Unchecked, that one send needed 31 GB.
+//
+// The payload has no business in this table. This is the audit trail of what was sent;
+// the bytes are needed only to hand to the provider at send time, and a campaign's HTML
+// already references its image by URL. What a reader of the trail needs is which file
+// went, of what type, and how big, which is what this keeps.
+type attachmentAudit struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type,omitempty"`
+	Disposition string `json:"disposition,omitempty"`
+	ContentID   string `json:"content_id,omitempty"`
+	// Decoded size, so "how big was it" survives without the thing itself.
+	Bytes int `json:"bytes"`
+}
+
+func auditAttachments(in []MailAttachment) []attachmentAudit {
+	out := make([]attachmentAudit, 0, len(in))
+	for _, a := range in {
+		// base64 carries 3 bytes per 4 characters. Close enough for a size column, and
+		// it never decodes megabytes merely to measure them.
+		out = append(out, attachmentAudit{
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Disposition: a.Disposition,
+			ContentID:   a.ContentID,
+			Bytes:       len(a.Content) / 4 * 3,
+		})
+	}
+	return out
+}
+
 func createMailMessage(ctx context.Context, db *core.DB, opt SendMailOptions) int64 {
 	recipients, _ := json.Marshal(map[string]any{
 		"to":  mailAddresses(opt.To),
@@ -1997,7 +2036,7 @@ func createMailMessage(ctx context.Context, db *core.DB, opt SendMailOptions) in
 	})
 	attachmentsJSON := "[]"
 	if len(opt.Attachments) > 0 {
-		if b, err := json.Marshal(opt.Attachments); err == nil {
+		if b, err := json.Marshal(auditAttachments(opt.Attachments)); err == nil {
 			attachmentsJSON = string(b)
 		}
 	}
