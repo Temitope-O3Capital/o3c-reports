@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { NAVY, BLUE, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import EmailBlockEditor, { blocksToHtml, parseEditorValue, type Block, type EmailSettings } from '../../components/EmailBlockEditor'
+import { htmlToPlainText } from '../../lib/emailText'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -242,7 +243,7 @@ export default function CampaignTemplateEditor() {
         body.email_subject = form.email_subject
         const emailHtml = blocksToHtml(form.email_blocks, form.email_settings)
         body.email_body_html = emailHtml
-        body.email_body_text = emailHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+        body.email_body_text = htmlToPlainText(emailHtml)
         // The { blocks, settings } envelope — the same shape campaigns persist, so
         // the page look round-trips instead of resetting to the defaults on reload.
         body.email_blocks = { blocks: form.email_blocks, settings: form.email_settings }

@@ -882,6 +882,24 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 
 const (
 	maxImageSize = 5 << 20 // 5 MB
+
+	// maxEmailImageSize is the limit that actually matters, and it sits far below the
+	// 5 MB one above.
+	//
+	// A campaign image is not uploaded once and linked to. inlineLocalImages embeds
+	// every /uploads image into the message as a CID attachment — it has to, because
+	// this server has no public hostname and a linked image would never load for an
+	// external recipient. So the file is pushed to the provider once PER RECIPIENT.
+	//
+	// Campaign 10 carried a 2.58 MB JPEG to 9,307 people: ~23 GB to SendGrid for one
+	// send, 1.55s added to every message (2.95s against 1.40s for mail with no
+	// attachment, both measured), and it was the direct cause of the disk exhaustion
+	// that took the database down for 67 hours on 2026-10-16.
+	//
+	// 1.5 MB is deliberately generous. An email body renders at ~600px; exported at
+	// 1200px for retina and compressed sanely, even a tall full-length creative lands
+	// well under 1 MB. Above this is an unoptimised export, not a design requirement.
+	maxEmailImageSize = 1536 << 10 // 1.5 MB
 )
 
 func UploadRoot() string {
@@ -907,6 +925,21 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 			return
 		}
 		defer file.Close()
+
+		// Refused here rather than at send time, because at send time it is already in
+		// front of thousands of people. See maxEmailImageSize.
+		if header.Size > maxEmailImageSize {
+			respondErr(w, 400, fmt.Sprintf(
+				"That image is %.1f MB. It gets embedded in every single email, so a "+
+					"9,000-recipient send would push %.0f GB to the mail provider and add "+
+					"seconds to each message — and most clients will not display an image "+
+					"that large. Export it at 1200px wide at quality 80-85, which keeps it "+
+					"sharp on phones and usually lands under 1 MB. The limit is %.1f MB.",
+				float64(header.Size)/(1<<20),
+				float64(header.Size)*9000/(1<<30),
+				float64(maxEmailImageSize)/(1<<20)))
+			return
+		}
 
 		// Validate MIME type
 		buf := make([]byte, 512)

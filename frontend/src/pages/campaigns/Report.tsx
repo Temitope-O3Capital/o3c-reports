@@ -1,5 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, SectionCard, KpiCard, ErrBanner, Modal,
@@ -18,6 +18,7 @@ import PersonalizeMenu from '../../components/PersonalizeMenu'
 import { rate, isOk, fmtM } from '../../lib/measure'
 import SequenceBuilder from './SequenceBuilder'
 import { renderSample, smsInfo, subjectHints, insertToken, QUICK_EMOJIS } from '../../lib/personalize'
+import { htmlToPlainText, plainTextIsUseless } from '../../lib/emailText'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1103,7 +1104,7 @@ export default function CampaignDetail() {
       p.email_blocks_json = JSON.stringify(emailBlocks)
       const html = exportToHtml(emailBlocks.blocks, emailBlocks.settings)
       p.email_body_html   = html
-      p.email_body_text   = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      p.email_body_text   = htmlToPlainText(html)
       p.from_name  = fromName  || null
       p.from_email = fromEmail || null
     }
@@ -1243,6 +1244,23 @@ export default function CampaignDetail() {
       ? contentChannel
       : activeEmail ? 'email' : activeSMS ? 'sms' : 'whatsapp'
 
+  // What the email would actually look like to a recipient whose client blocks
+  // images, and whether anything in it can be clicked.
+  //
+  // Campaign 10 went to 2,235 people as a single 2.58 MB image with no alt text and
+  // no links: the App Store buttons, the website and the Unsubscribe line were all
+  // pixels, and the text alternative was the stylesheet. These three checks are the
+  // cheapest place to catch that — before the send, not after it.
+  const emailQuality = useMemo(() => {
+    if (!activeEmail) return { text: '', hasLink: false, imagesMissingAlt: 0 }
+    const html = exportToHtml(emailBlocks.blocks, emailBlocks.settings)
+    const hasLink = /<a\b[^>]*\bhref\s*=\s*["'](?!#|javascript:)[^"']+["']/i.test(html)
+    const imagesMissingAlt = emailBlocks.blocks.filter(
+      (b: any) => b?.type === 'image' && !String(b?.alt ?? '').trim(),
+    ).length
+    return { text: htmlToPlainText(html), hasLink, imagesMissingAlt }
+  }, [activeEmail, emailBlocks])
+
   const checks = [
     { label: 'Campaign Name',   ok: name.trim().length > 0,                   hint: 'Enter a name in Setup' },
     { label: 'Contact List',    ok: listId !== '',                            hint: 'Choose a list in Setup' },
@@ -1254,6 +1272,24 @@ export default function CampaignDetail() {
     ...(activeEmail ? [
       { label: 'Email Subject', ok: emailSubject.trim().length > 0, hint: 'Enter a subject in Content' },
       { label: 'Email Body',   ok: emailBlocks.blocks.length > 0,  hint: 'Build your email in Content' },
+      {
+        label: 'Readable With Images Off',
+        ok: !plainTextIsUseless(emailQuality.text),
+        hint: 'Outlook blocks images by default, and this email would arrive blank. ' +
+              'Add real text blocks rather than putting the whole message in a picture.',
+      },
+      {
+        label: 'Something To Click',
+        ok: emailQuality.hasLink,
+        hint: 'No link anywhere in this email, so nothing can be acted on and there is ' +
+              'no Unsubscribe. Add links to the buttons and the footer in Content.',
+      },
+      {
+        label: 'Images Described',
+        ok: emailQuality.imagesMissingAlt === 0,
+        hint: `${emailQuality.imagesMissingAlt} image(s) have no alt text. It is what ` +
+              'shows when images are blocked, and what a screen reader reads.',
+      },
     ] : []),
   ]
   const allChecksPass = checks.every(c => c.ok)
