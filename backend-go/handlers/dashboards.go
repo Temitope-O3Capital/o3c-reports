@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"html"
 	"net/http"
 	"strings"
 	"time"
@@ -145,19 +144,18 @@ func dashEmail(db *core.DB) http.HandlerFunc {
 		if subject == "" {
 			subject = fmt.Sprintf("Dashboard: %s (%s)", name, time.Now().In(reportTZ).Format("2006-01-02"))
 		}
-		intro := ""
-		if msg := strings.TrimSpace(b.Message); msg != "" {
-			intro = `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111827">` +
-				html.EscapeString(msg) + `</p>`
+		// The same house sheet and the same body as a report email: a dashboard is a
+		// report with a layout, and there is no reason for the two to land in the same
+		// inbox looking like different systems. The unit is "tiles" because that is what
+		// a dashboard's size is.
+		tiles, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM app.dashboard_tiles WHERE dashboard_id = $1`, id)
+		tileCount := 0
+		if len(tiles) > 0 {
+			tileCount = int(toInt64(tiles[0]["n"]))
 		}
-		stamp := time.Now().In(reportTZ).Format("2006-01-02 15:04")
-		htmlBody := fmt.Sprintf(`<div style="font-family:Segoe UI,Arial,sans-serif;color:#111827">`+
-			`<h2 style="color:#0E2841;margin:0 0 4px">%s</h2>`+
-			`<p style="font-size:13px;color:#6B7280;margin:0 0 12px">O3 Capital Workspace · dashboard · %s</p>`+
-			`%s`+
-			`<p style="font-size:12px;color:#9CA3AF;margin-top:16px">The attached PDF is this dashboard as it stood when the email was sent.</p>`+
-			`</div>`, html.EscapeString(name), stamp, intro)
-		textBody := fmt.Sprintf("%s\n\nDashboard as at %s. The PDF is attached.\n", name, stamp)
+		htmlBody, textBody := reportMailBody(name, b.Message,
+			"The attached PDF is this dashboard as it stood when the email was sent.",
+			tileCount, "tiles", u, time.Now().In(reportTZ))
 
 		addrs := make([]MailAddress, 0, len(to))
 		for _, e := range to {

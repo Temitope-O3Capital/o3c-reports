@@ -612,6 +612,7 @@ func savedEmailReport(db *core.DB) http.HandlerFunc {
 		}
 		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, reportMailOpts{
 			Subject: b.Subject, Message: b.Message, Format: b.Format, NoAttach: b.NoAttach,
+			Sender: u,
 		})
 		if err != nil {
 			var big reportTooBig
@@ -695,6 +696,7 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 		}
 		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, reportMailOpts{
 			Subject: b.Subject, Message: b.Message, Format: b.Format, NoAttach: b.NoAttach,
+			Sender: u,
 		})
 		if err != nil {
 			var big reportTooBig
@@ -746,38 +748,16 @@ func renderReportBytes(rep renderedReport, format exportFormat) ([]byte, error) 
 	return buf.Bytes(), err
 }
 
-// reportHTMLTable renders up to `limit` rows as an inline HTML table so the
-// recipient sees the figures in the mail body, with the full set attached.
-func reportHTMLTable(cols []exportCol, rows []map[string]any, limit int) string {
-	var b strings.Builder
-	b.WriteString(`<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px;margin-top:8px">`)
-	b.WriteString(`<thead><tr>`)
-	for _, c := range cols {
-		b.WriteString(`<th style="text-align:left;padding:6px 12px;border-bottom:2px solid #0E2841;color:#0E2841;white-space:nowrap">` + html.EscapeString(c.Label) + `</th>`)
-	}
-	b.WriteString(`</tr></thead><tbody>`)
-	shown := 0
-	for _, row := range rows {
-		if shown >= limit {
-			break
-		}
-		b.WriteString(`<tr>`)
-		for _, c := range cols {
-			align := "left"
-			if exportNumeric(c.Type) {
-				align = "right"
-			}
-			b.WriteString(`<td style="padding:5px 12px;border-bottom:1px solid #E5E7EB;text-align:` + align + `;white-space:nowrap">` + html.EscapeString(exportValue(row[c.Key], c.Type)) + `</td>`)
-		}
-		b.WriteString(`</tr>`)
-		shown++
-	}
-	b.WriteString(`</tbody></table>`)
-	if len(rows) > limit {
-		b.WriteString(fmt.Sprintf(`<p style="font-size:12px;color:#6B7280;margin-top:6px">Showing %d of %d rows. The full report is attached.</p>`, limit, len(rows)))
-	}
-	return b.String()
-}
+// THE INLINE PREVIEW TABLE IS GONE, DELIBERATELY.
+//
+// A report email used to paste the first 100 rows into the body. It made every report
+// mail enormous and ragged — a hundred rows of nowrap cells in a 680px sheet is a
+// horizontal scrollbar in most clients and a wall of grey on a phone — and it duplicated
+// the attachment it sat above. The figures belong in the file; the email's job is to say
+// what arrived, from whom, and over what period.
+//
+// If a short summary in the body is ever wanted again, it should be a handful of lines
+// built from the report's own totals, not a dump of its first page.
 
 // reportMailOpts carries the sender's choices about the message itself, as opposed to
 // what is in the report. It is a struct rather than four more positional parameters
@@ -790,6 +770,90 @@ func reportHTMLTable(cols []exportCol, rows []map[string]any, limit int) string 
 // reportSubjectMaxRunes matches the CHECK on pivot_report_schedules.subject, so a
 // subject accepted by an ad-hoc send is one a schedule can also store.
 const reportSubjectMaxRunes = 200
+
+// reportMailBody builds the email. Pure — no database, no clock of its own — so what a
+// recipient sees can be asserted in a test and dumped to a file to look at, which is how
+// the layout gets reviewed without sending anybody an email.
+//
+// THE HOUSE SHEET, like every other email O3C sends. This mail used to build its own
+// navy-and-grey layout, which is why it read as a different system from the management
+// reports landing in the same inbox. o3Sheet supplies the paper ground, the brass rule,
+// the wordmark and the Georgia headline; everything here is the body of the letter.
+//
+// The dateline carries the date and the count, so there is no second line announcing
+// that software generated this. The reader can see that, and saying it is most of what
+// made the old version feel machine-written.
+func reportMailBody(name, message, fileNote string, count int, unit string, sender *core.Claims, now time.Time) (string, string) {
+	dateline := fmt.Sprintf("%s &middot; %s %s",
+		now.Format("Monday, 2 January 2006"), formatThousands(count), unit)
+
+	var body strings.Builder
+	if msg := strings.TrimSpace(message); msg != "" {
+		body.WriteString(`<p style="margin:0 0 16px;font-family:` + shSans +
+			`;font-size:14.5px;line-height:23px;color:` + shInk + `">` +
+			html.EscapeString(msg) + `</p>`)
+	}
+	body.WriteString(`<p style="margin:0;font-family:` + shSans +
+		`;font-size:13.5px;line-height:21px;color:` + shInk2 + `">` +
+		html.EscapeString(fileNote) + `</p>`)
+	if from := reportSenderLine(sender); from != "" {
+		body.WriteString(`<p style="margin:18px 0 0;font-family:` + shSans +
+			`;font-size:13px;line-height:20px;color:` + shInk2 + `">` + from + `</p>`)
+	}
+
+	// The footer says who to reply to rather than that replies are ignored, because for
+	// a report they are not: Reply-To is the person who sent it.
+	footer := `Sent from the O3 Capital Workspace.`
+	if sender != nil && strings.TrimSpace(sender.Sub) != "" {
+		footer = `Reply to this email to reach <strong>` +
+			html.EscapeString(strings.TrimSpace(sender.Sub)) + `</strong>.`
+	}
+
+	htmlBody := o3Sheet(
+		html.EscapeString(name)+" · "+now.Format("2 Jan"),
+		html.EscapeString(name), dateline, body.String(), footer)
+	textBody := fmt.Sprintf("%s\n%s\n\n%s\n", name,
+		strings.ReplaceAll(dateline, "&middot;", "·"), fileNote)
+	return htmlBody, textBody
+}
+
+// reportSenderLine names the person the report came from, inside the body, because the
+// display name in the inbox is not always what a forwarded copy keeps.
+func reportSenderLine(s *core.Claims) string {
+	if s == nil {
+		return ""
+	}
+	name := strings.TrimSpace(s.FullName)
+	if name == "" {
+		return ""
+	}
+	out := "Sent by " + html.EscapeString(name)
+	if dept := strings.TrimSpace(s.Department); dept != "" {
+		out += ", " + html.EscapeString(dept)
+	}
+	return out + "."
+}
+
+// formatThousands groups a count with commas. A report that says "1812 records" reads
+// like a log line; "1,812 records" reads like a sentence somebody wrote.
+func formatThousands(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	lead := len(s) % 3
+	if lead > 0 {
+		b.WriteString(s[:lead])
+	}
+	for i := lead; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
 
 // clampRunes cuts a string to at most n CHARACTERS. Counted in runes, not bytes, both
 // because Postgres length() counts characters — so a byte-based cap would disagree with
@@ -807,9 +871,15 @@ func clampRunes(s string, n int) string {
 
 type reportMailOpts struct {
 	Subject  string // blank: generate "Report: <name> (<date>)" as before
-	Message  string // blank: no note above the preview
+	Message  string // blank: no note above the attachment
 	Format   string // blank: emailFormat's default, xlsx
 	NoAttach bool   // false: attach the file, as before
+	// Sender is the person the report is going out on behalf of: the one who pressed
+	// Email, or the owner of the schedule. Without it the mail leaves as the default
+	// sender, which is the Care mailbox — so a report a department head sent to their
+	// own team arrived looking like customer support had sent it, and a reply went to
+	// Care rather than to them.
+	Sender *core.Claims
 }
 
 // emailReport writes a rendered report to a file, builds an HTML body with an inline
@@ -840,12 +910,7 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 		uid = u.ID
 	}
 
-	stamp := time.Now().In(reportTZ).Format("2006-01-02 15:04")
-	safeName := html.EscapeString(name)
-	intro := ""
-	if strings.TrimSpace(message) != "" {
-		intro = `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111827">` + html.EscapeString(message) + `</p>`
-	}
+	now := time.Now().In(reportTZ)
 	unit := "records"
 	if rep.Summary {
 		unit = "lines"
@@ -866,15 +931,7 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 	default:
 		fileNote = fmt.Sprintf("The attached %s file holds the complete report.", strings.ToUpper(f.ext()))
 	}
-	htmlBody := fmt.Sprintf(`<div style="font-family:Segoe UI,Arial,sans-serif;color:#111827">`+
-		`<h2 style="color:#0E2841;margin:0 0 4px">%s</h2>`+
-		`<p style="font-size:13px;color:#6B7280;margin:0 0 12px">O3 Capital Workspace · generated %s · %d rows</p>`+
-		`%s%s`+
-		`<p style="font-size:12px;color:#9CA3AF;margin-top:16px">This report was generated from the Report Builder. %s</p>`+
-		`</div>`,
-		safeName, stamp, rep.RecordCount(), intro, reportHTMLTable(rep.Cols, rep.Rows, 100), html.EscapeString(fileNote))
-
-	textBody := fmt.Sprintf("%s\n\nGenerated %s · %d rows.\n%s", name, stamp, rep.RecordCount(), fileNote)
+	htmlBody, textBody := reportMailBody(name, message, fileNote, rep.RecordCount(), unit, opts.Sender, now)
 
 	// The sender's subject wins; otherwise the generated one, unchanged. Trimmed and
 	// length-capped to match the CHECK on pivot_report_schedules.subject, so a schedule
@@ -893,7 +950,12 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 			Disposition: "attachment",
 		}}
 	}
-	result := SendMail(ctx, db, SendMailOptions{
+	// WHO IT COMES FROM. FromEmail is left alone on purpose: it has to stay an address
+	// the domain is authenticated to send from, and swapping in a personal one is how a
+	// report starts failing SPF and landing in spam. What changes is the two things a
+	// recipient actually reads and uses — the display name, which is what the inbox
+	// shows, and Reply-To, which is where their answer goes.
+	sendOpts := SendMailOptions{
 		To:          to,
 		Subject:     subject,
 		HTMLBody:    htmlBody,
@@ -902,7 +964,17 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 		Category:    "pivot_report",
 		CreatedBy:   uid,
 		Attachments: attachments,
-	})
+	}
+	if s := opts.Sender; s != nil {
+		if n := strings.TrimSpace(s.FullName); n != "" {
+			sendOpts.FromName = n + " · O3 Capital"
+			sendOpts.ReplyToName = n
+		}
+		if e := strings.TrimSpace(s.Sub); e != "" {
+			sendOpts.ReplyToEmail = e
+		}
+	}
+	result := SendMail(ctx, db, sendOpts)
 	if !result.OK && result.Error != "" {
 		return 0, fmt.Errorf("%s", result.Error)
 	}
@@ -1464,6 +1536,10 @@ func deliverScheduledReport(ctx context.Context, db *core.DB, s core.Row, owner 
 		Message:  str(s["message"]),
 		Format:   str(s["format"]),
 		NoAttach: noAttach,
+		// A scheduled report goes out as the person whose schedule it is — the same
+		// claims this delivery already re-checks access against, so the name on the
+		// email and the access it was rendered with cannot disagree.
+		Sender: owner,
 	})
 	if err != nil {
 		return "error: " + err.Error()

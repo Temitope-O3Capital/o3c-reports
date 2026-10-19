@@ -83,9 +83,19 @@ function Recipients({ id, r }: { id: string; r: RecipientsState }) {
         ))}
         <input id={id} value={r.text} onChange={e => { r.setText(e.target.value); if (bad.length) r.setRejected([]) }}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); r.commit() } }}
-          onBlur={() => r.commit()} placeholder={r.list.length ? '' : 'name@o3cards.com, …'}
+          onBlur={() => r.commit()}
+          // A PLACEHOLDER EVEN WHEN THERE ARE ADDRESSES, which is half of the fix. The
+          // field blanked it once anything had been added, so whenever the typing area
+          // wrapped below the pills it became an empty strip inside the box with no
+          // border, no text and nothing to say it was an input — it read as a stray
+          // rectangle rather than somewhere to type.
+          placeholder={r.list.length ? 'Add another…' : 'name@o3cards.com, …'}
           aria-invalid={bad.length > 0 || undefined} aria-describedby={bad.length ? errId : undefined}
-          style={{ flex: 1, minWidth: 160, border: 'none', outline: 'none', background: 'transparent', color: 'var(--txt)', fontSize: TEXT.sm, fontFamily: 'inherit' }} />
+          // And the other half: it has to be allowed to shrink. Measured in a 418px
+          // field, two addresses leave 82px, so a 96px minimum wrapped every time and a
+          // 160px one — what this was — never stood a chance. 72px still shows enough to
+          // type into, and the row only breaks now when it is genuinely full.
+          style={{ flex: '1 1 72px', minWidth: 72, border: 'none', outline: 'none', background: 'transparent', color: 'var(--txt)', fontSize: TEXT.sm, fontFamily: 'inherit' }} />
       </div>
       {bad.length > 0 && (
         <div id={errId} role="alert" className="rb-hint" style={{ color: RED, marginTop: 4 }}>
