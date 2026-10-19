@@ -9,6 +9,7 @@ import { NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { canManageScripts } from '../../hooks/useAuth'
 import MailRichEditor from '../../components/MailRichEditor'
 import { toast } from 'sonner'
+import { htmlToPlainText } from '../../lib/emailText'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,13 @@ const MERGE_TAGS = ['{{customer_name}}', '{{first_name}}', '{{ticket_ref}}', '{{
 
 // Plain-text fallback derived from the rich HTML body — mail clients / search that
 // cannot render HTML fall back to this.
-function htmlToText(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-}
+//
+// The third copy of the same naive conversion, now using the shared one. Stripping
+// tags while keeping <style> CONTENTS is what shipped a stylesheet as the plain-text
+// half of nine campaigns; this body is less likely to carry one, but the other two
+// faults applied here too — the whole reply collapsed to a single line, and every
+// link destination was dropped from the one copy a text-only client gets.
+const htmlToText = htmlToPlainText
 
 
 // ── Canned form ────────────────────────────────────────────────────────────────
