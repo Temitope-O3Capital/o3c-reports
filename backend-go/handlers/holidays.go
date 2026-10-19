@@ -489,9 +489,16 @@ func ScheduleHolidayImport(db *core.DB) {
 			slog.Warn("holiday import skipped", "err", err)
 			WorkerBeat(ctx, db, "holiday_import", "error", "", err.Error())
 		default:
-			WorkerBeat(ctx, db, "holiday_import", "ok", "",
-				fmt.Sprintf("added %d, moved %d, substitutes %d",
-					len(res.Added), len(res.Removed), len(res.Substitutes)))
+			// The summary goes in detail, not in the error slot: WorkerBeat's 'ok'
+			// branch writes $2 (detail) and discards errStr, so passing it the other
+			// way round left the Workers page showing a green row with nothing on it.
+			// A run that changes nothing is the expected outcome here, so "added 0,
+			// moved 0" is the line that proves the recomputation is stable — losing
+			// it is losing the only reason to look at this worker at all.
+			WorkerBeat(ctx, db, "holiday_import", "ok",
+				fmt.Sprintf("added %d, moved %d, substitutes +%d/-%d",
+					len(res.Added), len(res.Removed),
+					len(res.Substitutes), len(res.SubstitutesDropped)), "")
 		}
 		time.Sleep(7 * 24 * time.Hour)
 	}
