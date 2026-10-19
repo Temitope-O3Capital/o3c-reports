@@ -74,3 +74,22 @@ describe('the social block', () => {
     }
   })
 })
+
+describe('the callout icon', () => {
+  const callout = (extra: Partial<Block>): Block =>
+    ({ id: 'c', type: 'callout', theme: 'info', title: 'Take the Next Step', body: 'Body.', ...extra } as Block)
+
+  it('keeps the warning default for a block that was never edited', () => {
+    expect(exportToHtml([callout({})])).toContain('⚠️ Take the Next Step')
+  })
+
+  it('honours an icon the author deliberately cleared', () => {
+    const html = exportToHtml([callout({ icon: '' })])
+    expect(html).not.toContain('⚠️')
+    expect(html).toContain('>Take the Next Step<')
+  })
+
+  it('uses whatever icon was chosen', () => {
+    expect(exportToHtml([callout({ icon: '→' })])).toContain('→ Take the Next Step')
+  })
+})

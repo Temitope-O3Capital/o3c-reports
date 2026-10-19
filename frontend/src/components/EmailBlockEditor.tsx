@@ -36,6 +36,14 @@ interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
+/** A callout's icon, honouring an author who deliberately cleared it.
+ *
+ *  It used to be `b.icon || '⚠️'`, so emptying the field put a warning triangle back.
+ *  A "Take the Next Step" invitation headed by a warning sign tells the reader the
+ *  opposite of what it means, and there was no way to turn it off. Undefined still
+ *  gets the default, since that is a block that has never been edited. */
+const calloutIcon = (b: EmailBlock) => (b.icon === undefined ? '⚠️ ' : b.icon ? `${b.icon} ` : '')
+
 const CT: Record<string, { bg: string; border: string; tc: string; bc: string }> = {
   warning: { bg: '#FEF3C7', border: '#D97706', tc: '#92400E', bc: '#78350F' },
   info:    { bg: '#DBEAFE', border: BLUE,       tc: '#1E40AF', bc: '#1D4ED8' },
@@ -183,7 +191,7 @@ function blockToHtml(b: EmailBlock): string {
       return `<tr><td style="background:#F9FAFB;border-top:1px solid #E5E7EB;padding:24px 40px;text-align:center;font-family:${FONT};"><p style="margin:0 0 6px;font-size:11px;color:#9CA3AF;">${b.text || '© 2026 O3 Capital'}</p>${b.unsubscribe ? `<p style="margin:0;font-size:10px;color:#D1D5DB;">You received this email as an O3 Capital customer. <a href="{{unsubscribe_url}}" style="color:#D1D5DB;">Unsubscribe</a></p>` : ''}</td></tr>`
     case 'callout': {
       const ct = CT[b.theme || 'warning']
-      return wrap(`<table width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${ct.bg};border-left:4px solid ${ct.border};border-radius:6px;padding:16px 20px;"><p style="margin:0 0 6px;font-size:14px;font-weight:700;color:${ct.tc};font-family:${FONT};">${b.icon || '⚠️'} ${b.title || 'Notice'}</p><p style="margin:0;font-size:13px;color:${ct.bc};line-height:1.65;font-family:${FONT};">${b.body || ''}</p></td></tr></table>`, '6px 32px')
+      return wrap(`<table width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${ct.bg};border-left:4px solid ${ct.border};border-radius:6px;padding:16px 20px;"><p style="margin:0 0 6px;font-size:14px;font-weight:700;color:${ct.tc};font-family:${FONT};">${calloutIcon(b)}${b.title || 'Notice'}</p><p style="margin:0;font-size:13px;color:${ct.bc};line-height:1.65;font-family:${FONT};">${b.body || ''}</p></td></tr></table>`, '6px 32px')
     }
     case 'stats': {
       const cols = b.cols || []; if (!cols.length) return ''
