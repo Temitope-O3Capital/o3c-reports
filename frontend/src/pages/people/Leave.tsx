@@ -120,6 +120,9 @@ export default function Leave() {
   const [showRequest, setShowRequest] = useState(false)
   const [decide, setDecide] = useState<{ req: Request; stage: 'manager' | 'hr' } | null>(null)
   const [showEntitlement, setShowEntitlement] = useState(false)
+  // The person whose reporting line or hire date is being set. Null means closed,
+  // so there is no separate boolean that could disagree with the payload.
+  const [employ, setEmploy] = useState<any | null>(null)
 
   async function loadMe() {
     setError(null)
@@ -368,7 +371,30 @@ export default function Leave() {
             {unmanaged.length === 0 ? (
               <EmptyState icon="verified" title="Every active member of staff has a line manager" />
             ) : (
-              <DataTable rows={unmanaged} cols={unmanagedCols} keyFn={(r: any) => String(r.user_id)} />
+              <DataTable rows={unmanaged} cols={unmanagedCols(setEmploy)} keyFn={(r: any) => String(r.user_id)} />
+            )}
+          </SectionCard>
+
+          {/* Changing a line that already EXISTS, which the list above stops being
+              able to do the moment it empties. A reporting line is not org-chart
+              decoration here: it decides who can approve somebody's leave at all,
+              so it has to stay editable after the initial data entry is finished. */}
+          <SectionCard
+            title="Reporting Lines And Hire Dates"
+            subtitle="Who approves whose leave, and the date pro-rata entitlements are calculated from"
+            style={{ marginBottom: SP[4] }}
+          >
+            {staff.length === 0 ? (
+              <EmptyState icon="account_tree" title="No active staff" />
+            ) : (
+              <DataTable
+                rows={staff}
+                cols={reportingLineCols(setEmploy)}
+                keyFn={(r: any) => String(r.id)}
+                searchKeys={['full_name', 'department', 'manager_name']}
+                searchPlaceholder="Search by name, department or manager"
+                pageSize={15}
+              />
             )}
           </SectionCard>
 
@@ -440,6 +466,17 @@ export default function Leave() {
         staff={staff}
         types={types}
         onDone={() => { setShowEntitlement(false); loadAdmin() }}
+      />
+
+      {/* onDone reloads /api/leave/me as well as the admin lists, because setting
+          somebody's line manager can change whether the signed-in person can submit
+          at all — the blocking card on My Leave has to clear without a refresh. */}
+      <EmploymentModal
+        person={employ}
+        staff={staff}
+        unmanaged={unmanaged}
+        onClose={() => setEmploy(null)}
+        onDone={() => { setEmploy(null); loadMe(); loadAdmin() }}
       />
     </Page>
   )
@@ -562,16 +599,55 @@ function adminRequestCols(onDecide: (r: Request) => void): TableCol<Request>[] {
   ]
 }
 
-const unmanagedCols: TableCol<any>[] = [
-  { key: 'full_name', label: 'Name', sortable: true, width: 220, render: r => <NameCell name={r.full_name} sub={r.department ?? undefined} /> },
-  { key: 'department', label: 'Department', sortable: true, width: 170, render: r => r.department ?? '—' },
-  {
-    key: 'hire_date_missing', label: 'Hire Date', sortable: true, width: 160,
-    render: r => r.hire_date
-      ? fmtDate(r.hire_date)
-      : <Pill label="Not recorded" color={AMBER} bg="rgba(245,158,11,.12)" />,
-  },
-]
+// Takes the editor callback, because the list that blocks the entire module should
+// also be where it gets cleared. Until /admin/employment existed this table could
+// only report the problem — there was no writer for manager_user_id anywhere.
+function unmanagedCols(onEdit: (r: any) => void): TableCol<any>[] {
+  return [
+    { key: 'full_name', label: 'Name', sortable: true, width: 220, render: r => <NameCell name={r.full_name} sub={r.department ?? undefined} /> },
+    { key: 'department', label: 'Department', sortable: true, width: 170, render: r => r.department ?? '—' },
+    {
+      key: 'hire_date_missing', label: 'Hire Date', sortable: true, width: 160,
+      render: r => r.hire_date
+        ? fmtDate(r.hire_date)
+        : <Pill label="Not recorded" color={AMBER} bg="rgba(245,158,11,.12)" />,
+    },
+    {
+      key: 'fix', label: '', width: 170,
+      render: r => (
+        <Button size="sm" icon="person_add" onClick={() => onEdit(r)}>Set Manager</Button>
+      ),
+    },
+  ]
+}
+
+// Every active member of staff and the two employment facts leave runs on. Separate
+// from the unmanaged list above because that one empties as the work gets done,
+// while a reporting line still has to be CHANGEABLE afterwards — people move teams,
+// and a manager who has left cannot approve anything.
+function reportingLineCols(onEdit: (r: any) => void): TableCol<any>[] {
+  return [
+    { key: 'full_name', label: 'Name', sortable: true, width: 210, render: r => <NameCell name={r.full_name} sub={r.department ?? undefined} /> },
+    {
+      key: 'manager_name', label: 'Reports To', sortable: true, width: 200,
+      render: r => r.manager_name
+        ? <NameCell name={r.manager_name} />
+        : <Pill label="Nobody" color={AMBER} bg="rgba(245,158,11,.12)" />,
+    },
+    {
+      key: 'hire_date', label: 'Hire Date', sortable: true, width: 150,
+      render: r => r.hire_date
+        ? fmtDate(r.hire_date)
+        : <span style={{ color: 'var(--txt3)' }}>Not recorded</span>,
+    },
+    {
+      key: 'edit', label: '', width: 110,
+      render: r => (
+        <Button size="sm" variant="secondary" icon="edit" onClick={() => onEdit(r)}>Edit</Button>
+      ),
+    },
+  ]
+}
 
 const entitlementCols: TableCol<any>[] = [
   { key: 'full_name', label: 'Name', sortable: true, width: 200, render: r => <NameCell name={r.full_name} /> },
@@ -872,6 +948,140 @@ function EntitlementModal({ open, onClose, staff, types, onDone }: {
 
       <Textarea label="Notes" rows={2} value={notes} onChange={e => setNotes(e.target.value)}
         hint="Why this differs from the standard, if it does" />
+    </Modal>
+  )
+}
+
+/* ── Employment basics ──────────────────────────────────────────────────────── */
+
+// EMPLOYMENT MODAL — the line manager and the hire date, the two facts the rest of
+// this page depends on and the two nothing else in the product could write.
+//
+// WHY THE SELECT IS PRE-FILLED WITH THE CURRENT MANAGER. The save always sends
+// set_manager, so what the form shows is what gets written. If the field started
+// empty, opening this on somebody who already has a manager and pressing Save would
+// silently clear it — and clearing a reporting line stops that person requesting
+// leave at all. So the blank option is labelled with its consequence rather than
+// left to look like "no change".
+//
+// WHY THE DEPARTMENT OPTION SETS ONLY THE MANAGER. A whole department usually does
+// report to one person, so assigning them together is the difference between a job
+// somebody finishes and a job somebody abandons at row nine of fifty. A shared HIRE
+// DATE, though, would be a fabrication — so when the group option is on, the hire
+// date field is disabled and set_hire_date is false, which is exactly the case the
+// API's two flags exist to express.
+function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
+  person: any | null
+  staff: any[]
+  unmanaged: any[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [manager, setManager] = useState('')
+  const [hire, setHire] = useState('')
+  const [bulk, setBulk] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  // The rows come from two different endpoints with two different id names:
+  // /admin/unmanaged returns user_id, /admin/lookups returns id.
+  const id: number | null = person ? Number(person.user_id ?? person.id) : null
+  const dept: string = ((person?.department ?? '') as string).trim()
+
+  useEffect(() => {
+    setErr(null); setBulk(false)
+    setManager(person?.manager_user_id ? String(person.manager_user_id) : '')
+    setHire(person?.hire_date ? String(person.hire_date).slice(0, 10) : '')
+  }, [person])
+
+  // Other people with no manager in the same department — the ones it is reasonable
+  // to assign in the same stroke. A blank department is not treated as a group:
+  // "unassigned" is a data gap, not a team.
+  const peers = useMemo(() => {
+    if (!person || !dept) return []
+    return unmanaged.filter(u =>
+      Number(u.user_id) !== id && ((u.department ?? '') as string).trim() === dept)
+  }, [person, unmanaged, id, dept])
+
+  const groupIDs = bulk ? [id as number, ...peers.map(p => Number(p.user_id))] : [id as number]
+
+  // Somebody cannot manage themselves, and cannot manage a group they are inside.
+  // The API refuses both, but the cycle trigger fires before the self-check and
+  // reports "would form a cycle", so keeping them out of the list is kinder.
+  const managerOptions = staff.filter(s => !groupIDs.includes(Number(s.id)))
+
+  async function save() {
+    if (!id) return
+    setBusy(true); setErr(null)
+    try {
+      await apiFetch('/api/leave/admin/employment', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_ids: groupIDs,
+          set_manager: true,
+          manager_user_id: manager ? Number(manager) : null,
+          set_hire_date: !bulk,
+          hire_date: bulk ? null : (hire || null),
+        }),
+      })
+      onDone()
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not save')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Modal
+      open={!!person}
+      onClose={onClose}
+      title={person ? `Employment Details — ${person.full_name}` : 'Employment Details'}
+      width={560}
+      footer={
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} loading={busy}>Save</Button>
+        </div>
+      }>
+      {err && <div style={{ color: RED, marginBottom: SP[3], fontSize: 13 }}>{err}</div>}
+
+      <Select label="Line Manager" value={manager} onChange={e => setManager(e.target.value)}
+        hint="Whoever approves this person's leave first. HR confirms afterwards.">
+        <option value="">Nobody — this person cannot request leave</option>
+        {managerOptions.map(s => (
+          <option key={s.id} value={s.id}>
+            {s.full_name}{s.department ? ` — ${s.department}` : ''}
+          </option>
+        ))}
+      </Select>
+
+      <Input
+        label="Hire Date"
+        type="date"
+        value={hire}
+        disabled={bulk}
+        onChange={e => setHire(e.target.value)}
+        hint={bulk
+          ? 'Not applied when assigning a whole department — a shared hire date would be invented'
+          : 'Pro-rata entitlements are calculated from this. Leave blank if it is not known.'}
+      />
+
+      {peers.length > 0 && (
+        <>
+          <Divider />
+          <label style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={bulk} onChange={e => setBulk(e.target.checked)}
+              style={{ marginTop: 3 }} />
+            <span>
+              Give the same line manager to the <strong>{peers.length}</strong> other{' '}
+              {peers.length === 1 ? 'person' : 'people'} in <strong>{dept}</strong> with no
+              manager recorded.
+              <span style={{ display: 'block', color: 'var(--txt3)', marginTop: 2 }}>
+                {peers.map(p => p.full_name).join(', ')}
+              </span>
+            </span>
+          </label>
+        </>
+      )}
     </Modal>
   )
 }

@@ -106,6 +106,12 @@ func RegisterLeave(r chi.Router, db *core.DB) {
 	r.With(admin).Post("/admin/entitlements", leaveSetEntitlement(db))
 	r.With(admin).Get("/admin/gaps", leaveGaps(db))
 	r.With(admin).Get("/admin/unmanaged", leaveUnmanaged(db))
+	// The write that makes the two lists above actionable. Nothing else in the
+	// codebase sets manager_user_id or hire_date, so without this the 412 on
+	// submission was a dead end: HR could see all 50 names and had no way to give
+	// any of them a manager. Employment facts rather than leave facts, kept here
+	// because HR owns them and leave is what consumes them.
+	r.With(admin).Post("/admin/employment", leaveSetEmployment(db))
 	r.With(admin).Get("/admin/drift", leaveDrift(db))
 	r.With(admin).Get("/admin/lookups", leaveLookups(db))
 }
@@ -954,5 +960,139 @@ func leaveCalendar(db *core.DB) http.HandlerFunc {
 		}
 		respond(w, map[string]any{"from": from, "to": to, "absences": rows},
 			"app.v_leave_calendar")
+	}
+}
+
+/* ── Employment basics: the two facts leave depends on ──────────────────────── */
+
+// leaveSetEmployment writes o3c_users.manager_user_id and hire_date. It is the ONLY
+// writer of either column anywhere in the codebase.
+//
+// WHY IT EXISTS. Submission is refused when nobody manages you, and the entitlement
+// gap list derives its pro-rata suggestion from hire_date. Both columns were readable
+// and neither was settable, which made that refusal a dead end rather than a prompt:
+// HR could see all 50 names on /admin/unmanaged and had no way to clear a single one.
+// A gate nothing can satisfy is worse than no gate at all.
+//
+// WHY A PAGE KEY HERE WHEN MOST OF LEAVE HAS NONE. Who reports to whom is a company
+// decision, like an entitlement, so it sits behind leave_admin alongside HR's other
+// write. Admin reaches it as well, because core.RequirePages short-circuits for the
+// super-user.
+//
+// WHY set_manager / set_hire_date RATHER THAN JUST THE VALUES. A null manager has to
+// mean two different things — "clear it" and "leave it alone" — and JSON cannot tell
+// an absent field from a null one. The flags make the caller state which decision
+// they are making, so a form that only touches the reporting line cannot silently
+// wipe a hire date somebody else entered.
+//
+// It takes a LIST because the opening state is 50 people with no manager, and a
+// chore done one request at a time is the kind that gets abandoned half finished.
+// Self-management, a cycle and a departed manager are refused by migration 374's
+// constraint, FK and trigger respectively; leaveWriteErr turns those into English.
+// The id-in-list check below exists only so the bulk case names the problem before
+// the database rejects the whole statement.
+type leaveEmploymentBody struct {
+	UserIDs       []int64 `json:"user_ids"`
+	SetManager    bool    `json:"set_manager"`
+	ManagerUserID *int64  `json:"manager_user_id"`
+	SetHireDate   bool    `json:"set_hire_date"`
+	HireDate      *string `json:"hire_date"`
+}
+
+func leaveSetEmployment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+		var b leaveEmploymentBody
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+		if len(b.UserIDs) == 0 {
+			respondErr(w, http.StatusBadRequest, "user_ids is required")
+			return
+		}
+		if len(b.UserIDs) > 200 {
+			respondErr(w, http.StatusBadRequest, "that is more than 200 people in one request")
+			return
+		}
+		if !b.SetManager && !b.SetHireDate {
+			respondErr(w, http.StatusBadRequest,
+				"nothing to change — set set_manager or set_hire_date")
+			return
+		}
+
+		if b.SetManager && b.ManagerUserID != nil {
+			for _, id := range b.UserIDs {
+				if id == *b.ManagerUserID {
+					respondErr(w, http.StatusBadRequest,
+						"Somebody cannot be their own line manager, and they are in the list you are assigning")
+					return
+				}
+			}
+			// Checked before the UPDATE so the message names the real problem. The FK
+			// catches an id that does not exist, but NOT one belonging to somebody who
+			// has left — a leaver can still be referenced, and then nobody can approve.
+			mgr, err := db.PGQuery(r.Context(), `
+				SELECT full_name FROM app.o3c_users
+				 WHERE id = $1 AND is_active AND deleted_at IS NULL`, *b.ManagerUserID)
+			if err != nil {
+				respondErrLog(w, http.StatusInternalServerError, "could not check the line manager", err)
+				return
+			}
+			if len(mgr) == 0 {
+				respondErr(w, http.StatusBadRequest,
+					"That line manager is not an active member of staff")
+				return
+			}
+		}
+
+		// nil stays nil deliberately: set_hire_date with no date is how a wrong date
+		// gets cleared, which is different from not touching the column at all.
+		var hire any
+		if b.SetHireDate && b.HireDate != nil && strings.TrimSpace(*b.HireDate) != "" {
+			d, err := time.Parse(leaveDateFmt, strings.TrimSpace(*b.HireDate))
+			if err != nil {
+				respondErr(w, http.StatusBadRequest, "hire_date must be YYYY-MM-DD")
+				return
+			}
+			// A start date in the future is legitimate — somebody joining next month —
+			// so it is allowed. Anything far out is far likelier a mistyped year.
+			if d.Year() < 1970 || d.After(time.Now().AddDate(1, 0, 0)) {
+				respondErr(w, http.StatusBadRequest,
+					"hire_date must be a real date, and not more than a year ahead")
+				return
+			}
+			hire = d.Format(leaveDateFmt)
+		}
+
+		// One guarded UPDATE. The CASE arms are what make the flags work: a column the
+		// caller did not ask to change is written back to itself rather than nulled.
+		// Restricted to live staff, so an id that has left is skipped rather than
+		// quietly given a reporting line — and the rows returned show what landed.
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE app.o3c_users u
+			   SET manager_user_id = CASE WHEN $2::boolean THEN $3::bigint
+			                              ELSE u.manager_user_id END,
+			       hire_date       = CASE WHEN $4::boolean THEN $5::date
+			                              ELSE u.hire_date END,
+			       updated_at      = NOW()
+			 WHERE u.id = ANY($1::bigint[])
+			   AND u.is_active AND u.deleted_at IS NULL
+			RETURNING u.id, u.full_name, u.hire_date, u.manager_user_id`,
+			b.UserIDs, b.SetManager, b.ManagerUserID, b.SetHireDate, hire)
+		if err != nil {
+			leaveWriteErr(w, err)
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, http.StatusNotFound,
+				"None of those accounts are active members of staff")
+			return
+		}
+		respond(w, rows, "app.o3c_users")
 	}
 }
