@@ -52,6 +52,27 @@ if (Test-Path $live) { Copy-Item $live $backup -Force }
 Move-Item $new $live -Force
 Write-Host "     previous binary kept at $backup"
 
+# These backups were write-only: every deploy added one and nothing ever removed them.
+# By 2026-10-07 that was 26 binaries plus 26 copies of the served frontend from an
+# earlier version of this script, ~9 GB, and C: was down to 5.6 GB free. Three is
+# enough to step back past a bad deploy; keeping the entire history of them is what
+# filled the disk. Pruning is deliberately non-fatal — a locked old backup is not a
+# reason to fail a deploy that has already swapped the binary.
+#
+# Sort by Name, not LastWriteTime. The stamp is yyyyMMdd-HHmmss, so the name sorts
+# lexically into true age order, while a directory's LastWriteTime tracks the last
+# change to its contents and would happily rank a stale backup as the newest.
+$keepBackups = 3
+foreach ($pattern in @('o3c-backend.exe.bak-*', 'frontend-dist.bak-*')) {
+    Get-ChildItem $be -Filter $pattern -Force -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        Select-Object -Skip $keepBackups |
+        ForEach-Object {
+            Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path $_.FullName)) { Write-Host "     pruned old backup $($_.Name)" }
+        }
+}
+
 Write-Host '5/5  Waiting for the keep-alive task to restart it...' -ForegroundColor Cyan
 $up = $false
 foreach ($i in 1..24) {
