@@ -663,6 +663,16 @@ func dashTileData(db *core.DB) http.HandlerFunc {
 				return
 			}
 		}
+		// A tile over a report that reaches related data needs the same expansion, and
+		// the same access check: the relationship is re-checked against THIS VIEWER, so a
+		// shared dashboard refuses a tile whose related dataset they cannot open rather
+		// than rendering it. That is the per-tile rule dashSourceReadable already applies
+		// to the base dataset, extended to the edge.
+		d, relErr := datasetWithRelations(d, cfg.Relations, u)
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
+			return
+		}
 		now := time.Now()
 
 		if cfg.View == "table" {

@@ -82,6 +82,19 @@
 .rb-field-zones button { padding: 4px 0; border: 1px solid var(--bdr); border-radius: 5px; background: var(--card); color: var(--txt); font-size: 11.5px; cursor: pointer; }
 .rb-field-zones button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .rb-field-zones button:disabled { color: var(--txt3); cursor: default; }
+
+/* Related data — the curated relationships a source can reach. Deliberately BELOW the
+   source's own fields and visually quieter: reaching into another dataset is the less
+   common thing to want, and a joined field should not compete with a native one. */
+.rb-rel { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--bdr); }
+.rb-rel-group { display: flex; flex-direction: column; gap: 3px; }
+.rb-rel-body { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 6px 6px; }
+.rb-rel-field { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; padding: 4px 8px; border: 1px solid var(--bdr); border-radius: 5px; background: var(--card); color: var(--txt); font-size: 12px; text-align: left; cursor: pointer; }
+.rb-rel-field > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-rel-field:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.rb-rel-field:disabled { color: var(--txt3); cursor: default; }
+.rb-rel-field i { flex-shrink: 0; color: var(--txt3); font-family: var(--font-mono); font-size: 10.5px; font-style: normal; }
+.rb-rel .rb-hint { margin: 0 0 4px; }
 .rb-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 14px; }
 
 /* Pill strips */

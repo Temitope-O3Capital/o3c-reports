@@ -15,6 +15,18 @@ export interface DsFilter { key: string; label: string; kind: 'text' | 'select';
 export interface Dataset {
   key: string; label: string; module: string; description: string
   columns: DsColumn[]; filters?: DsFilter[]; date_label?: string; date_required?: boolean; max_rows?: number
+  // Curated relationships this data source can reach, already filtered by the server to
+  // the ones this person may use, with every column key and label pre-prefixed exactly
+  // as the server will name them. Never build a joined key here.
+  relations?: DsRelation[]
+}
+
+export interface DsRelation {
+  key: string
+  label: string
+  note: string
+  requires: string
+  columns: DsColumn[]
 }
 
 export interface ColFilter {
@@ -50,6 +62,11 @@ export interface ReportState {
   // Both
   filters: Record<string, string>
   colFilters: ColFilter[]
+  // Keys of the curated relationships this report brings in. Every request carries them
+  // (via queryBase) because the server resolves them per render rather than trusting
+  // what was saved — so a report stops reaching related data the day its owner loses
+  // access to that dataset.
+  relations: string[]
   win: string
   from: string
   to: string
@@ -290,6 +307,9 @@ export function queryBase(s: ReportState, ds: Dataset, exceptColumn?: string) {
     date_to: dated ? r.to : '',
     filters: Object.fromEntries(Object.entries(s.filters).filter(([, v]) => String(v ?? '').trim() !== '')),
     col_filters: s.colFilters.filter(filterComplete).filter(f => !(exceptColumn && f.column === exceptColumn && f.op === 'in')),
+    // On every request, including the column-values menu: a joined column has no
+    // distinct values to offer unless its relationship is joined for that query too.
+    relations: s.relations,
   }
 }
 
@@ -300,7 +320,7 @@ export function emptyReport(): ReportState {
   return {
     view: 'table', columns: [], totals: [], tableSort: [],
     rows: [], cols: [], values: [], grains: {}, headerLabels: {}, hiddenCols: [], summarySort: [], topN: null,
-    filters: {}, colFilters: [], win: 'last_30_days', from: r.from, to: r.to,
+    filters: {}, colFilters: [], relations: [], win: 'last_30_days', from: r.from, to: r.to,
     chart: { view: 'table', kind: 'bar' },
   }
 }
@@ -347,6 +367,7 @@ export function toConfig(s: ReportState) {
     ...(s.topN ? { top_n: s.topN } : {}),
     filters: s.filters,
     col_filters: s.colFilters.filter(filterComplete),
+    relations: s.relations,
     date_window: s.win,
     date_from: s.from,
     date_to: s.to,
@@ -382,6 +403,7 @@ export function fromConfig(raw: unknown): ReportState {
     topN: c.top_n && Number(c.top_n.n) > 0 ? { measure: Number(c.top_n.measure) || 0, n: Number(c.top_n.n) } : null,
     filters: c.filters ?? {},
     colFilters: arr<ColFilter>(c.col_filters),
+    relations: arr<string>(c.relations),
     win: c.date_window || base.win,
     from: c.date_from || base.from,
     to: c.date_to || base.to,

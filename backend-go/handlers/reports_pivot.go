@@ -60,6 +60,7 @@ type pivotRequest struct {
 	Grains     map[string]string `json:"grains,omitempty"`     // temporal dim key → date|time|datetime
 	DimLabels  map[string]string `json:"dim_labels,omitempty"` // row/col column key → display override
 	Limit      int               `json:"limit"`
+	Relations  []string          `json:"relations"` // curated join edges; see export_joins.go
 }
 
 // pivotSpec is the resolved shape runPivot executes. It is the request minus the
@@ -450,6 +451,12 @@ func exportPivot(db *core.DB) http.HandlerFunc {
 				respondErr(w, 400, "invalid JSON")
 				return
 			}
+		}
+
+		d, relErr := datasetWithRelations(d, pr.Relations, core.UserFromCtx(r.Context()))
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
+			return
 		}
 
 		// Reuse the flat export's validation (date-required, from ≤ to, format).

@@ -43,6 +43,9 @@ type exportRequest struct {
 	Filters    map[string]string `json:"filters"` // declared, dataset-specific filters (legacy)
 	ColFilters []colFilter       `json:"col_filters"`
 	Limit      int               `json:"limit"` // preview only
+	// Relations are curated join edges (export_joins.go) to bring in. Their columns
+	// become selectable, filterable and groupable like any other once joined.
+	Relations []string `json:"relations"`
 }
 
 // colFilter is a filter on ANY column, chosen at build time (drag a column into the
@@ -93,6 +96,10 @@ func exportListDatasets(db *core.DB) http.HandlerFunc {
 				continue
 			}
 			d.MaxRows = d.maxRows() // surface the effective cap, not the zero default
+			// Only the relationships this person may actually use: an edge whose other
+			// dataset is outside their departments is not offered, rather than offered
+			// and then refused.
+			d.Relations = joinEdgesFor(d.Key, u)
 			out = append(out, d)
 		}
 		respond(w, out, "static")
@@ -388,6 +395,11 @@ func exportPreview(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, err.Error())
 			return
 		}
+		d, relErr := datasetWithRelations(d, req.Relations, core.UserFromCtx(r.Context()))
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
+			return
+		}
 		// A preview is a sanity check, not an extract, so d.DateRequired is
 		// deliberately not enforced here — an operator should be able to see the
 		// shape of a large table before committing to a date range for the file.
@@ -469,6 +481,11 @@ func exportDownload(db *core.DB) http.HandlerFunc {
 		req, err := decodeExportRequest(r, key)
 		if err != nil {
 			respondErr(w, 400, err.Error())
+			return
+		}
+		d, relErr := datasetWithRelations(d, req.Relations, core.UserFromCtx(r.Context()))
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
 			return
 		}
 		if err := validateExportRequest(d, req); err != nil {

@@ -87,6 +87,13 @@ type exportDataset struct {
 
 	// MaxRows caps the result. Every dataset gets one; see exportDefaultMaxRows.
 	MaxRows int `json:"max_rows"`
+
+	// Relations is filled per-request by exportListDatasets from the curated join
+	// registry (export_joins.go), already filtered to what the caller may use. It is not
+	// declared on the dataset literals below — a relationship belongs to the pair, not
+	// to one side of it, and declaring it here would mean editing two datasets to add one
+	// edge.
+	Relations []joinEdge `json:"relations,omitempty"`
 }
 
 const exportDefaultMaxRows = 100000

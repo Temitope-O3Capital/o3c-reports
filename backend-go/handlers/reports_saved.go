@@ -49,6 +49,9 @@ type savedPivotConfig struct {
 	Values     []pivotValue      `json:"values"`
 	Filters    map[string]string `json:"filters"`
 	ColFilters []colFilter       `json:"col_filters"`
+	// Relations persist with the report, so a saved report and its schedule keep
+	// reaching the related data they were built on.
+	Relations  []string          `json:"relations,omitempty"`
 	Grains     map[string]string `json:"grains"`
 	DimLabels  map[string]string `json:"dim_labels,omitempty"` // row/col column key → display override
 	DateWindow string            `json:"date_window"`          // "" | custom | today | last_7_days | ...
@@ -520,7 +523,17 @@ func loadReportSpec(ctx context.Context, db *core.DB, id string, u *core.Claims)
 	if !ok {
 		return exportDataset{}, savedPivotConfig{}, "", 422, fmt.Errorf("This report's data source no longer exists")
 	}
-	return d, parseSavedConfig(rep["config"]), str(rep["name"]), 200, nil
+	cfg := parseSavedConfig(rep["config"])
+	// Related data is resolved here, which is the single place every saved-report path
+	// passes through — the screen, the file, the ad-hoc email, the schedule and Send Now.
+	// It is re-checked on every render rather than trusted from when the report was
+	// saved, so a schedule stops reaching the related dataset the day its owner loses
+	// access to it, exactly as it already stops reaching the base one.
+	d, relErr := datasetWithRelations(d, cfg.Relations, u)
+	if relErr != nil {
+		return exportDataset{}, savedPivotConfig{}, "", 403, relErr
+	}
+	return d, cfg, str(rep["name"]), 200, nil
 }
 
 // ── Export (download) ───────────────────────────────────────────────────────────

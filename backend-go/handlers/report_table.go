@@ -425,7 +425,8 @@ func reportTable(db *core.DB) http.HandlerFunc {
 		Offset     int               `json:"offset"`
 		// SkipTotals is set when only the page changed: the count and sums are the same as
 		// the page before, so they aren't worked out again.
-		SkipTotals bool `json:"skip_totals"`
+		SkipTotals bool     `json:"skip_totals"`
+		Relations  []string `json:"relations"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -445,6 +446,12 @@ func reportTable(db *core.DB) http.HandlerFunc {
 				respondErr(w, 400, "invalid JSON")
 				return
 			}
+		}
+		// Before validate, so a date or filter naming a joined column resolves.
+		d, relErr := datasetWithRelations(d, b.Relations, u)
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
+			return
 		}
 		if err := validateExportRequest(d, exportRequest{DateFrom: b.DateFrom, DateTo: b.DateTo}); err != nil {
 			respondErr(w, 400, err.Error())
@@ -493,6 +500,7 @@ func reportUniques(db *core.DB) http.HandlerFunc {
 		ColFilters []colFilter       `json:"col_filters"`
 		Search     string            `json:"search"`
 		Limit      int               `json:"limit"`
+		Relations  []string          `json:"relations"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -501,7 +509,8 @@ func reportUniques(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Unknown dataset: "+key)
 			return
 		}
-		if !reportDatasetAllowed(core.UserFromCtx(r.Context()), key) {
+		u := core.UserFromCtx(r.Context())
+		if !reportDatasetAllowed(u, key) {
 			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
@@ -511,6 +520,13 @@ func reportUniques(db *core.DB) http.HandlerFunc {
 				respondErr(w, 400, "invalid JSON")
 				return
 			}
+		}
+		// The header menu lists a joined column's distinct values too, so this needs the
+		// same expansion: without it, filtering on related data would offer no values.
+		d, relErr := datasetWithRelations(d, b.Relations, u)
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
+			return
 		}
 		if err := validateExportRequest(d, exportRequest{DateFrom: b.DateFrom, DateTo: b.DateTo}); err != nil {
 			respondErr(w, 400, err.Error())
@@ -573,6 +589,11 @@ func reportFile(db *core.DB) http.HandlerFunc {
 		u := core.UserFromCtx(ctx)
 		if !reportDatasetAllowed(u, d.Key) {
 			respondErr(w, 403, reportDatasetDenied)
+			return
+		}
+		d, relErr := datasetWithRelations(d, b.Config.Relations, u)
+		if relErr != nil {
+			respondErr(w, 403, relErr.Error())
 			return
 		}
 		rep, err := renderReport(ctx, db, d, b.Config, time.Now(), d.maxRows())
