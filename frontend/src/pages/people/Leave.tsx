@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrapList } from '../../lib/api'
 import { fmtDate, fmtNum } from '../../lib/fmt'
-import { NAVY, BLUE, GREEN, AMBER, RED, SP, FW } from '../../lib/design'
+import { NAVY, BLUE, GREEN, AMBER, RED, SP, FW, TEXT } from '../../lib/design'
 
 // LEAVE — requesting time off, approving it, and the days somebody was available.
 //
@@ -96,12 +96,70 @@ interface Me {
   can_administer?: boolean
 }
 
+// /api/availability?state=unavailable — one row per person who cannot take new work
+// today, with the reason and who covers. Shape mirrors app.v_staff_availability.
+interface AwayRow {
+  user_id: number
+  full_name: string
+  role: string | null
+  department: string | null
+  available: boolean
+  unavailable_kind: string | null
+  unavailable_until: string | null
+  unavailable_reason: string | null
+  cover_user_id: number | null
+  cover_name: string | null
+}
+
+// /api/availability/held — what is sitting on the people above, split by whether a
+// clock is running on it. The clocked columns are the ones worth acting on; the
+// unclocked are shown so the picture is complete, NOT because they should be moved.
+interface HeldRow {
+  user_id: number
+  full_name: string
+  unavailable_kind: string | null
+  unavailable_until: string | null
+  cover_name: string | null
+  forwarded_leads: number
+  callbacks_due: number
+  promises_due: number
+  open_tickets: number
+  follow_ups_due: number
+  collections_rows: number
+  recovery_cases: number
+  customers_owned: number
+  leave_approvals_waiting: number
+}
+
+const UNAVAILABLE_KINDS = [
+  { value: 'emergency', label: 'Emergency' },
+  { value: 'sick', label: 'Off Sick' },
+  { value: 'field_work', label: 'Field Work' },
+  { value: 'reassigned', label: 'Reassigned To Other Work' },
+  { value: 'training', label: 'Training' },
+  { value: 'personal', label: 'Personal' },
+  { value: 'other', label: 'Other' },
+]
+
+const KIND_LABEL: Record<string, string> = {
+  ...Object.fromEntries(UNAVAILABLE_KINDS.map(k => [k.value, k.label])),
+  'on leave': 'On Leave',
+  'no longer active': 'No Longer Active',
+}
+
 const PENDING = ['pending_manager', 'pending_hr']
 
 export default function Leave() {
   const [me, setMe] = useState<Me | null>(null)
   const [types, setTypes] = useState<LeaveType[]>([])
   const [tab, setTab] = useState('mine')
+  // Availability is a different fact from leave: leave is requested and approved, this
+  // is "he is not in today, and nobody filed anything". Same page because both answer
+  // the same question for whoever is looking, and separating them would mean checking
+  // two screens to find out whether a person is in.
+  const [away, setAway] = useState<AwayRow[]>([])
+  const [held, setHeld] = useState<HeldRow[]>([])
+  const [showAway, setShowAway] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -169,11 +227,32 @@ export default function Leave() {
     } catch (e: any) { setError(e?.message ?? 'Could not load leave administration') }
   }
 
+  // Two calls, because they answer two questions: who is away, and what of theirs is
+  // now at risk. The second is deliberately a report — nothing on this page reassigns
+  // anybody's work, because moving a customer moves commission and moving a lead can
+  // move conversion credit.
+  async function loadAway() {
+    try {
+      const [a, h] = await Promise.all([
+        apiFetch<any>('/api/availability?state=unavailable'),
+        apiFetch<any>('/api/availability/held'),
+      ])
+      setAway(unwrapList<AwayRow>(a))
+      setHeld(unwrapList<HeldRow>(h))
+    } catch (e: any) { setError(e?.message ?? 'Could not load availability') }
+  }
+
   useEffect(() => { loadMe() }, [])
   useEffect(() => {
     if (tab === 'approvals') loadApprovals()
     if (tab === 'admin') loadAdmin()
+    if (tab === 'away') loadAway()
   }, [tab])
+
+  // Loaded on first render as well as on the tab, because the tab's badge is the only
+  // hint that anybody is away — and a badge that appears only once you have opened the
+  // tab tells you nothing you did not already know.
+  useEffect(() => { loadAway() }, [])
 
   const noManager = !!me?.me && me.me.manager_user_id == null
   const av = me?.availability
@@ -187,9 +266,13 @@ export default function Leave() {
     if ((me?.direct_reports ?? 0) > 0 || (me?.as_manager?.routed_to_me_ever ?? 0) > 0) {
       t.push({ key: 'approvals', label: 'Approvals', badge: me?.as_manager?.awaiting_my_decision || undefined } as any)
     }
+    // Everybody gets this tab. The whole point of the ad-hoc record is that a person
+    // can say "I am not in" without waiting for a manager to be found, so gating it
+    // would defeat the feature it exists to deliver.
+    t.push({ key: 'away', label: 'Who Is Away', badge: away.length || undefined } as any)
     if (me?.can_administer) t.push({ key: 'admin', label: 'Administration' })
     return t
-  }, [me])
+  }, [me, away.length])
 
   return (
     <Page
@@ -440,6 +523,53 @@ export default function Leave() {
           </SectionCard>
         </>
       )}
+
+      {tab === 'away' && (
+        <>
+          {/* The whole reason this tab exists: an emergency should be recordable in one
+              click by the person it happens to, without finding a manager first. */}
+          <SectionCard
+            title="Who Is Away"
+            subtitle="Approved leave and ad-hoc absence in one list. Anyone can mark themselves unavailable; a line manager, department head or HR can mark somebody else."
+            actions={<Button icon="event_busy" onClick={() => setShowAway(true)}>Mark Unavailable</Button>}
+            style={{ marginBottom: SP[4] }}
+          >
+            {away.length === 0 ? (
+              <EmptyState icon="verified" title="Everybody is available today"
+                description="Nobody is on approved leave or marked unavailable." />
+            ) : (
+              <DataTable rows={away} cols={awayCols} keyFn={(r: AwayRow) => String(r.user_id)} />
+            )}
+          </SectionCard>
+
+          {/* Deliberately a report. Nothing here moves work: of what a person holds,
+              the unclocked majority loses nothing by waiting and a great deal by being
+              churned for a two-day absence — moving a customer moves commission, and
+              moving a lead can move conversion credit. The clocked columns are the ones
+              to act on, and they are deliberately the smaller numbers. */}
+          {held.length > 0 && (
+            <SectionCard
+              title="What Is Sitting On Them"
+              subtitle="Clocked work has a promise with a time on it and decays while nobody is looking. Unclocked work merely waits — it is shown for completeness, not because it should be moved."
+            >
+              <DataTable rows={held} cols={heldCols} keyFn={(r: HeldRow) => String(r.user_id)} />
+              <div style={{ padding: `${SP[3]} ${SP[4]}`, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+                Nothing on this page reassigns anybody&rsquo;s work. Where a cover is
+                recorded, time-critical items should go to them; everything else stays
+                with its owner so that attribution and the customer relationship hold.
+              </div>
+            </SectionCard>
+          )}
+        </>
+      )}
+
+      <AwayModal
+        open={showAway}
+        onClose={() => setShowAway(false)}
+        staff={staff}
+        me={me?.me?.id ?? null}
+        onDone={() => { setShowAway(false); loadAway(); loadMe() }}
+      />
 
       <RequestModal
         open={showRequest}
@@ -1082,6 +1212,203 @@ function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
           </label>
         </>
       )}
+    </Modal>
+  )
+}
+
+/* ── Availability ───────────────────────────────────────────────────────────── */
+
+const awayCols: TableCol<AwayRow>[] = [
+  {
+    key: 'full_name', label: 'Who', sortable: true, width: 210,
+    render: r => <NameCell name={r.full_name} sub={r.department ?? r.role ?? undefined} />,
+  },
+  {
+    key: 'unavailable_kind', label: 'Why', sortable: true, width: 170,
+    render: r => {
+      const k = r.unavailable_kind ?? ''
+      // Leave and a departed account read differently from an ad-hoc absence: the
+      // first two are formal states, the third is somebody saying "not today".
+      const formal = k === 'on leave' || k === 'no longer active'
+      return <Pill label={KIND_LABEL[k] ?? k ?? 'Unavailable'}
+        color={formal ? NAVY : AMBER}
+        bg={formal ? 'rgba(30,58,95,.10)' : 'rgba(245,158,11,.12)'} />
+    },
+  },
+  {
+    key: 'unavailable_until', label: 'Back', sortable: true, width: 130,
+    // No date means the account itself is gone, which is not a date question.
+    render: r => r.unavailable_until
+      ? fmtDate(r.unavailable_until)
+      : <span style={{ color: 'var(--txt3)' }}>&mdash;</span>,
+  },
+  {
+    key: 'unavailable_reason', label: 'Note', width: 240,
+    render: r => r.unavailable_reason
+      ? <span style={{ fontSize: TEXT.sm }}>{r.unavailable_reason}</span>
+      : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>&mdash;</span>,
+  },
+  {
+    key: 'cover_name', label: 'Cover', sortable: true, width: 190,
+    // A missing cover is the actionable gap on this row, so it is called out rather
+    // than left as a dash. It is the difference between "away" and "away, and nobody
+    // is picking up the half with a clock on it".
+    render: r => r.cover_name
+      ? <NameCell name={r.cover_name} />
+      : <Pill label="No cover named" color={AMBER} bg="rgba(245,158,11,.12)" />,
+  },
+]
+
+// A count that renders only when there is one, so a quiet row reads as quiet rather
+// than as a wall of noughts.
+function Count({ n, urgent }: { n: number; urgent?: boolean }) {
+  const v = Number(n ?? 0)
+  if (v === 0) return <span style={{ color: 'var(--txt3)' }}>&mdash;</span>
+  return <span style={{ fontWeight: FW.semibold, color: urgent ? AMBER : 'var(--txt1)' }}>{fmtNum(v)}</span>
+}
+
+const heldCols: TableCol<HeldRow>[] = [
+  {
+    key: 'full_name', label: 'Who', sortable: true, width: 190,
+    render: r => <NameCell name={r.full_name}
+      sub={r.cover_name ? 'cover: ' + r.cover_name : 'no cover named'} />,
+  },
+  // Clocked: a promise with a time on it. These decay unobserved, because three of the
+  // five existing reminders go to the absent person and nobody else.
+  {
+    key: 'forwarded_leads', label: 'Forwarded Leads', align: 'right', sortable: true, width: 150,
+    render: r => <Count n={r.forwarded_leads} urgent />,
+  },
+  {
+    key: 'callbacks_due', label: 'Callbacks Due', align: 'right', sortable: true, width: 140,
+    render: r => <Count n={r.callbacks_due} urgent />,
+  },
+  {
+    key: 'promises_due', label: 'Promises Due', align: 'right', sortable: true, width: 135,
+    render: r => <Count n={r.promises_due} urgent />,
+  },
+  {
+    key: 'open_tickets', label: 'Open Tickets', align: 'right', sortable: true, width: 130,
+    render: r => <Count n={r.open_tickets} urgent />,
+  },
+  {
+    key: 'follow_ups_due', label: 'Follow-Ups Due', align: 'right', sortable: true, width: 145,
+    render: r => <Count n={r.follow_ups_due} urgent />,
+  },
+  // Blocking: nobody else may act on these at all, so this absence stops OTHER
+  // people's work rather than merely delaying their own.
+  {
+    key: 'leave_approvals_waiting', label: 'Leave To Approve', align: 'right', sortable: true, width: 155,
+    render: r => <Count n={r.leave_approvals_waiting} urgent />,
+  },
+  // Unclocked: ownership that waits. Shown for completeness, not as a prompt to move it.
+  {
+    key: 'collections_rows', label: 'Collections', align: 'right', sortable: true, width: 120,
+    render: r => <Count n={r.collections_rows} />,
+  },
+  {
+    key: 'recovery_cases', label: 'Recovery', align: 'right', sortable: true, width: 115,
+    render: r => <Count n={r.recovery_cases} />,
+  },
+  {
+    key: 'customers_owned', label: 'Customers', align: 'right', sortable: true, width: 120,
+    render: r => <Count n={r.customers_owned} />,
+  },
+]
+
+// AWAY MODAL — recording that somebody is not in.
+//
+// Defaults to the signed-in person and to today, because that is the case this exists
+// for: an emergency recorded in one click by the person it happened to. Marking
+// somebody else uses the same form, and the SERVER decides whether you may (self,
+// their line manager, their department head, or HR). The form does not try to predict
+// that answer, so a refusal arrives as a plain sentence rather than as a hidden option.
+function AwayModal({ open, onClose, staff, me, onDone }: {
+  open: boolean
+  onClose: () => void
+  staff: any[]
+  me: number | null
+  onDone: () => void
+}) {
+  const [userID, setUserID] = useState('')
+  const [kind, setKind] = useState('emergency')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [reason, setReason] = useState('')
+  const [cover, setCover] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setErr(null); setKind('emergency'); setReason(''); setCover('')
+    setUserID(me ? String(me) : '')
+    const today = new Date().toISOString().slice(0, 10)
+    setFrom(today); setTo(today)
+  }, [open, me])
+
+  const subject = Number(userID || 0)
+
+  async function save() {
+    setBusy(true); setErr(null)
+    try {
+      await apiFetch('/api/availability', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: subject || undefined,
+          from_date: from,
+          to_date: to,
+          kind,
+          reason,
+          cover_user_id: cover ? Number(cover) : null,
+        }),
+      })
+      onDone()
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not record the absence')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Mark Unavailable" width={560}
+      footer={
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} loading={busy} disabled={!from || !to}>Record</Button>
+        </div>
+      }>
+      {err && <div style={{ color: RED, marginBottom: SP[3], fontSize: 13 }}>{err}</div>}
+
+      <Select label="Who" value={userID} onChange={e => setUserID(e.target.value)}
+        hint="Defaults to you. You can mark somebody else if you are their line manager, their department head, or HR.">
+        <option value="">Me</option>
+        {staff.map(s => (
+          <option key={s.id} value={s.id}>
+            {s.full_name}{s.department ? ' — ' + s.department : ''}
+          </option>
+        ))}
+      </Select>
+
+      <Select label="Why" required value={kind} onChange={e => setKind(e.target.value)}>
+        {UNAVAILABLE_KINDS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+      </Select>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+        <Input label="From" type="date" required value={from} onChange={e => setFrom(e.target.value)} />
+        <Input label="Until" type="date" required value={to} onChange={e => setTo(e.target.value)}
+          hint="The same day is fine, and is the common case." />
+      </div>
+
+      <Select label="Cover" value={cover} onChange={e => setCover(e.target.value)}
+        hint="Who picks up anything time-critical. Optional, and better left blank than guessed.">
+        <option value="">Nobody named</option>
+        {staff.filter(s => Number(s.id) !== subject).map(s => (
+          <option key={s.id} value={s.id}>{s.full_name}</option>
+        ))}
+      </Select>
+
+      <Textarea label="Note" rows={2} value={reason} onChange={e => setReason(e.target.value)}
+        hint="Shown to whoever is about to assign them work, so be specific: at the Ikeja branch all day beats unavailable." />
     </Modal>
   )
 }

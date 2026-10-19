@@ -70,6 +70,13 @@ func routeHandoffToTeam(ctx context.Context, db *core.DB, contactID int64) int64
 		          WHERE t.is_active
 		            AND u.is_active
 		            AND u.deleted_at IS NULL
+		            -- THE CASE THIS WAS ADDED FOR. A head who is away was still the
+		            -- least-busy head -- being away is precisely what keeps your book
+		            -- small -- so the balancing actively PREFERRED them. One Lagos head
+		            -- accumulated 21 accepted-but-unworked forwards averaging 3.4 days
+		            -- against a four-hour pickup promise. Nobody chooses here, so there
+		            -- is nobody to warn: the only correct behaviour is to skip them.
+		            AND NOT app.is_unavailable(u.id)
 		            AND app.sales_hub_for_office(u.office_location)
 		                = app.sales_hub_for_state(c.state)
 		          -- The team's whole live book: the head plus every member. Balancing on

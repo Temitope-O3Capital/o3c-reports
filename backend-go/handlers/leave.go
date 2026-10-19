@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -440,6 +441,29 @@ func leaveSubmit(db *core.DB) http.HandlerFunc {
 			out["entitlement_missing"] = true
 		}
 
+		// TELL THE APPROVER. This was missing from the day this file was written, and it
+		// is the worst omission in it. The chain routes every request to ONE named
+		// manager, no peer may act on it by design, there is no due date on the row and
+		// nothing sweeps it — so with no notification a request simply waited until its
+		// own start date passed, and the person went away unapproved or did not go.
+		//
+		// Addressed to the snapshotted routed_to_manager rather than the requester's
+		// current manager_user_id, matching the rule in leaveManagerDecision: otherwise
+		// a reorganisation would notify somebody whose guarded UPDATE cannot match.
+		Notify(ctx, db, NotifPayload{
+			EventType: "leave_request",
+			UserID:    *managerID,
+			Title:     "Leave request awaiting your decision",
+			Body: fmt.Sprintf("%s has requested %s from %s to %s. You are their line manager; HR confirms after you.",
+				user.FullName, typeName, b.StartDate, b.EndDate),
+			ActionURL: "/leave",
+			EntityRef: fmt.Sprintf("leave_request:%v", created["id"]),
+			// Grouped per approver: a manager whose six reports all book Christmas off
+			// should get one live item saying so, not six they stop reading.
+			GroupKey: fmt.Sprintf("leave_pending:%d", *managerID),
+			Priority: "high",
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
@@ -599,11 +623,91 @@ func leaveManagerDecision(db *core.DB) http.HandlerFunc {
 				"That request is not awaiting your decision — it may already have been decided")
 			return
 		}
+		// Tell the person, and on approval tell HR that something is now waiting on
+		// them. Without this the requester had to keep reopening the page to find out,
+		// and HR had no signal at all that the queue had grown.
+		leaveNotifyDecision(r.Context(), db, chi.URLParam(r, "id"), next, user.FullName, strings.TrimSpace(b.Note), "manager")
 		if next == "rejected" {
 			respondOK(w, "Leave request rejected")
 			return
 		}
 		respondOK(w, "Approved and passed to HR to confirm")
+	}
+}
+
+// leaveNotifyDecision tells the people a decision affects.
+//
+// Called after the guarded UPDATE has already succeeded, so it describes something that
+// definitely happened. Best-effort throughout: a notification that fails must never turn
+// a recorded decision into an error the approver sees, because the decision is the fact
+// and the message is only its announcement.
+//
+// stage is "manager" or "hr", and it decides who hears:
+//
+//	manager approve  the requester (it moved on), and HR (something now waits on them)
+//	manager reject   the requester only — HR never needs to see what did not reach them
+//	hr      either   the requester, and the manager who approved it. The manager matters
+//	                 on approval because from that moment app.on_leave starts excluding
+//	                 their report from automatic distribution, which changes their team's
+//	                 capacity whether or not they are watching.
+func leaveNotifyDecision(ctx context.Context, db *core.DB, reqID, next, actorName, note, stage string) {
+	rows, err := db.PGQuery(ctx, `
+		SELECT r.user_id, r.routed_to_manager, r.start_date, r.end_date, t.name AS leave_type
+		  FROM app.leave_requests r
+		  JOIN app.leave_types t ON t.id = r.leave_type_id
+		 WHERE r.id = $1::bigint`, reqID)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	row := rows[0]
+	requester := toInt64(row["user_id"])
+	manager := toInt64(row["routed_to_manager"])
+	window := fmt.Sprintf("%v to %v", row["start_date"], row["end_date"])
+	typeName := fmt.Sprintf("%v", row["leave_type"])
+
+	outcome := "approved"
+	if next == "rejected" {
+		outcome = "declined"
+	}
+	body := fmt.Sprintf("%s %s your %s request for %s.", actorName, outcome, typeName, window)
+	if note != "" {
+		body += " Note: " + note
+	}
+	if next != "rejected" && stage == "manager" {
+		body += " It now waits on HR to confirm."
+	}
+
+	Notify(ctx, db, NotifPayload{
+		EventType: "leave_request",
+		UserID:    requester,
+		Title:     "Your leave request was " + outcome,
+		Body:      body,
+		ActionURL: "/leave",
+		EntityRef: "leave_request:" + reqID,
+		Priority:  "high",
+	})
+
+	if stage == "manager" && next != "rejected" {
+		NotifyRole(ctx, db, "hr", NotifPayload{
+			EventType: "leave_request",
+			Title:     "Leave approved by a manager, awaiting your confirmation",
+			Body:      fmt.Sprintf("%s for %s, approved by %s.", typeName, window, actorName),
+			ActionURL: "/leave",
+			EntityRef: "leave_request:" + reqID,
+			// One live item however many are queued, for the same reason the approver's
+			// own notification is grouped: a per-request ping stops being read.
+			GroupKey: "leave_pending_hr",
+		})
+	}
+	if stage == "hr" && manager != 0 && manager != requester {
+		Notify(ctx, db, NotifPayload{
+			EventType: "leave_request",
+			UserID:    manager,
+			Title:     "HR " + outcome + " leave you approved",
+			Body:      body,
+			ActionURL: "/leave",
+			EntityRef: "leave_request:" + reqID,
+		})
 	}
 }
 
@@ -661,6 +765,10 @@ func leaveHRDecision(db *core.DB) http.HandlerFunc {
 				"That request is not awaiting HR confirmation")
 			return
 		}
+		// The final word, so it goes to the requester and to the manager who approved
+		// it — the manager needs to know their report is actually off, because from
+		// here app.on_leave starts excluding that person from automatic distribution.
+		leaveNotifyDecision(r.Context(), db, chi.URLParam(r, "id"), next, user.FullName, strings.TrimSpace(b.Note), "hr")
 		if next == "rejected" {
 			respondOK(w, "Leave request rejected")
 			return

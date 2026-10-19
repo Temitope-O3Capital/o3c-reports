@@ -1458,6 +1458,10 @@ func onlineAgentIDs(ctx context.Context, db *core.DB) []int64 {
 		SELECT id FROM o3c_users
 		 WHERE deleted_at IS NULL
 		   AND role IN ('call_center_agent','call_center_head')
+		   -- Presence says they have the console open; availability says they are not
+		   -- on leave or away today. Both, because they answer different questions and
+		   -- a console left logged in overnight passes the first on its own.
+		   AND NOT app.is_unavailable(id)
 		   AND COALESCE(helpdesk_status,'offline') = 'available'
 		   AND helpdesk_last_seen IS NOT NULL
 		   AND helpdesk_last_seen > NOW() - INTERVAL '5 minutes'
@@ -1477,6 +1481,10 @@ func allCCAgentIDs(ctx context.Context, db *core.DB) []int64 {
 	rows, _ := db.PGQuery(ctx, `
 		SELECT id FROM o3c_users
 		 WHERE deleted_at IS NULL AND role IN ('call_center_agent','call_center_head')
+		   -- This is the fallback pool used when presence finds nobody online, so it
+		   -- must still exclude people who are away -- otherwise the fallback quietly
+		   -- undoes the filter on the pool above it.
+		   AND NOT app.is_unavailable(id)
 		 ORDER BY id`)
 	out := make([]int64, 0, len(rows))
 	for _, r := range rows {

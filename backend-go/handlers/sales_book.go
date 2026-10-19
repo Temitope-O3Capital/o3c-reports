@@ -569,16 +569,33 @@ func bookCustomer(db *core.DB) http.HandlerFunc {
 // rest of the module already treats as officers.
 func listSalesOfficers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// AVAILABILITY IS RETURNED, NOT FILTERED. This one query feeds nine screens'
+		// assignee pickers, and the decision taken on 2026-10-19 is that a person
+		// assigning by hand sees the absence and may still assign deliberately.
+		// Dropping the row would mean a whole team being away leaves work with nowhere
+		// to go, and would hide a name the head went looking for. Automatic
+		// distribution excludes instead — see distributableOfficers (the no-explicit-
+		// list branch) and routeHandoffToTeam.
+		//
+		// Ordered so whoever is available sorts first: the nudge that costs nothing.
+		// The unavailable are still listed, below, with the reason and their cover.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT u.id, u.full_name, u.email, u.role, u.is_active,
 			       COUNT(o.cif) AS book_size,
 			       (u.role IN ('sales_officer','sales_head','bd_officer','bd_head')
-			        OR COUNT(o.cif) > 0) AS already_officer
+			        OR COUNT(o.cif) > 0) AS already_officer,
+			       COALESCE(av.available, TRUE) AS available,
+			       av.unavailable_kind, av.unavailable_until, av.unavailable_reason,
+			       av.cover_user_id, av.cover_name
 			  FROM o3c_users u
 			  LEFT JOIN customer_officers o ON o.officer_id = u.id
+			  LEFT JOIN app.v_staff_availability av ON av.user_id = u.id
 			 WHERE u.deleted_at IS NULL AND u.is_active
-			 GROUP BY u.id, u.full_name, u.email, u.role, u.is_active
-			 ORDER BY already_officer DESC, book_size DESC, u.full_name`)
+			 GROUP BY u.id, u.full_name, u.email, u.role, u.is_active,
+			          av.available, av.unavailable_kind, av.unavailable_until,
+			          av.unavailable_reason, av.cover_user_id, av.cover_name
+			 ORDER BY COALESCE(av.available, TRUE) DESC,
+			          already_officer DESC, book_size DESC, u.full_name`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return

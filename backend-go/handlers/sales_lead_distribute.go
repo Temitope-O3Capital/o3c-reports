@@ -89,6 +89,10 @@ func distributableOfficers(r *http.Request, db *core.DB, u *core.Claims, want []
 	}
 	out := []int64{}
 	if len(want) > 0 {
+		// The head named these people, and that is a human choice. The decision taken
+		// on 2026-10-19 is that a human may deal to somebody who is away, deliberately,
+		// with the absence shown beside the name. Filtering here would silently drop a
+		// name the head had just ticked — worse than letting them do what they asked.
 		for _, id := range want {
 			if allowed[id] {
 				out = append(out, id)
@@ -96,8 +100,25 @@ func distributableOfficers(r *http.Request, db *core.DB, u *core.Claims, want []
 		}
 		return out, nil
 	}
+	// No explicit list means "deal to the whole team", and from here the machine decides
+	// who gets which lead. Nobody is choosing a recipient, so there is nobody to warn and
+	// nothing to override: people who are away come out of the pool. Same split as
+	// everywhere else in this change — warn a person, exclude a machine — which is why
+	// the filter sits on this branch and not above it.
+	ids := make([]int64, 0, len(allowed))
 	for id := range allowed {
-		out = append(out, id)
+		ids = append(ids, id)
+	}
+	rows, err := db.PGQuery(r.Context(), `
+		SELECT id FROM app.o3c_users
+		 WHERE id = ANY($1::bigint[]) AND NOT app.is_unavailable(id)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if id := toInt64(row["id"]); id != 0 {
+			out = append(out, id)
+		}
 	}
 	return out, nil
 }

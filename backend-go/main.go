@@ -767,6 +767,15 @@ func main() {
 		r.Route("/api/leave", func(r chi.Router) {
 			handlers.RegisterLeave(r, db)
 		})
+		// Availability — "this person is away today", which is a different fact from
+		// leave and from soft-phone presence. No mount-level gate for the same reason
+		// leave has none: anybody must be able to mark THEMSELVES unavailable in an
+		// emergency, and whether you may mark somebody ELSE away depends on your
+		// relationship to them (self, their line manager, their department head, HR),
+		// which is data rather than a grant. Checked per subject inside the file.
+		r.Route("/api/availability", func(r chi.Router) {
+			handlers.RegisterAvailability(r, db)
+		})
 		// Nigerian public holidays, which every reported duration is computed against.
 		// Admin-gated rather than filed under People, because the People Directory is
 		// read-only by design and this writes the business clock.

@@ -1943,6 +1943,14 @@ func hdEligibleAgents(ctx context.Context, db *core.DB) []hdAgentLoad {
 		  ON t.assigned_to = u.id AND t.status NOT IN ('resolved','closed')
 		WHERE u.deleted_at IS NULL AND u.is_active = TRUE
 		  AND u.role ILIKE '%call_center%'
+		  -- Nobody is choosing here, so there is nobody to warn: this pool feeds
+		  -- ticket auto-assign at intake, the Zoho import cron and /tickets/distribute,
+		  -- all of which pick the least-loaded agent on their own. The comment above
+		  -- this function used to claim "load self-corrects as agents go on leave" --
+		  -- it did not, because the only filter was is_active, and an agent on approved
+		  -- leave kept being handed new tickets. app.is_unavailable (migration 378)
+		  -- folds approved leave, ad-hoc absence and account state into one answer.
+		  AND NOT app.is_unavailable(u.id)
 		GROUP BY u.id
 		ORDER BY open_cnt ASC, u.id ASC`)
 	if err != nil {
