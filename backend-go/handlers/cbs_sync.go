@@ -44,7 +44,24 @@ func StartCBSSyncWorker(c *udara.Client, db *core.DB) {
 	}
 
 	runOnce := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		// 20 minutes, not 5. The loan-schedule walk inside doSync is allowed up to ten
+		// minutes of its own (cbssync.loanScheduleTimeout) because it issues one serial
+		// GET per open loan, and the parent has to be able to COVER that child rather
+		// than expire underneath it.
+		//
+		// The first attempt at that gave the child its own context from
+		// context.Background(), detached from this one. That is a worse bug than the
+		// one it fixed, by inspection rather than by observation: doSync is sequential,
+		// so a walk running past the parent's deadline leaves everything after it — the
+		// reconcile, and SyncAll's own closing UPDATE of cbs_sync_runs — executing on an
+		// already-cancelled context. Those writes fail, and the run row then sits at
+		// 'running' until the 30-minute stranded sweep relabels it 'interrupted'. Every
+		// slow run would have looked interrupted while actually having succeeded.
+		//
+		// Trading a mid-walk timeout for silently broken bookkeeping is not a fix. So
+		// the budget covers the work, and the child derives from this context (see
+		// sync.go) — one cancellation tree, with the child still bounded.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
 		if _, err := cbssync.SyncAll(ctx, c, db, "scheduled", sql.NullInt64{}); err != nil {
 			slog.Error("scheduled CBS sync failed", "err", err)
@@ -297,12 +314,15 @@ func cbsWriteJSON(w http.ResponseWriter, code int, v any) {
 //
 // 'interrupted' rather than 'error': the sync did not fail, it was stopped, and
 // conflating the two would make the failure rate read far worse than it is.
-// Scoped to runs older than 30 minutes — six times the 5-minute sync context — so a
-// genuinely in-flight run is never touched. There is at most one in flight: the loop is
-// sequential and, since the manual trigger was removed, nothing else starts a run.
-// (This comment used to say the scope WAS the 5-minute timeout, while the query has
-// always said 30 minutes. The query is the behaviour; the margin is deliberate, because
-// a run killed by a host outage must not be reaped as merely slow.)
+// Scoped to runs older than 30 minutes, which is the per-run context (20 minutes) plus
+// half of it again, so a genuinely in-flight run is never reaped as merely slow. There
+// is at most one in flight: the loop is sequential and, since the manual trigger was
+// removed, nothing else starts a run.
+//
+// Keep this comfortably ABOVE the run budget in StartCBSSyncWorker. It previously said
+// the scope WAS the 5-minute timeout while the query has always said 30 minutes — and
+// the margin is what makes the sweep safe, because a run killed by a host outage must
+// not be confused with one that is still working.
 func reconcileStrandedCBSRuns(db *core.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

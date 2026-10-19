@@ -324,7 +324,13 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	if due, since := loanScheduleDue(); !due {
 		slog.Debug("cbs loan schedules skipped (not due)", "since_last", since.String())
 	} else {
-		schedCtx, schedCancel := context.WithTimeout(context.Background(), loanScheduleTimeout)
+		// Derived from ctx, NOT from context.Background(). Detaching it meant a slow
+		// walk outlived the parent's deadline and every write after this point —
+		// including SyncAll's closing status UPDATE — ran on a cancelled context and
+		// failed silently, leaving the run row stuck at 'running'. The parent's budget
+		// is now 20 minutes so it can cover this child; the child keeps its own
+		// shorter deadline so it still cannot run away.
+		schedCtx, schedCancel := context.WithTimeout(ctx, loanScheduleTimeout)
 		n, err := syncLoanSchedules(schedCtx, c, db, loans)
 		schedCancel()
 		if err != nil {
