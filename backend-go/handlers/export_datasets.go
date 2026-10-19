@@ -327,7 +327,12 @@ var exportDatasets = []exportDataset{
 			{Key: "gender", Label: "Gender", Type: colText, Expr: "c.gender"},
 			{Key: "birthday", Label: "Date of Birth", Type: colDate, Expr: "c.birthday"},
 			{Key: "city", Label: "City", Type: colText, Expr: "c.city"},
-			{Key: "state", Label: "State", Type: colText, Expr: "c.state"},
+			// Canonicalised (migration 376). Raw, app.customers holds 173 distinct spellings
+			// of 99 states — Delta arrives six ways ('delta', 'Delta', 'DELTA', 'Delta
+			// state', 'Delta State', 'DELTA STATE') and the capital five. Any report that
+			// grouped customers by state was therefore splitting Delta six ways and
+			// understating all six, which reads as a plausible regional breakdown.
+			{Key: "state", Label: "State", Type: colText, Expr: "app.canon_state(c.state)"},
 			{Key: "country", Label: "Country", Type: colText, Expr: "c.country"},
 			{Key: "full_address", Label: "Address", Type: colText, Expr: "c.full_address"},
 			{Key: "job_title", Label: "Job Title", Type: colText, Expr: "c.job_title"},
@@ -355,7 +360,8 @@ var exportDatasets = []exportDataset{
 			{Key: "phone_was_fake", Label: "Phone Flagged As Fake", Type: colBool, Expr: "c.phone_was_fake"},
 		},
 		Filters: []exportFilter{
-			{Key: "state", Label: "State", Kind: filterText, Expr: "c.state ILIKE ?"},
+			{Key: "state", Label: "State", Kind: filterText,
+				Expr: `app.canon_state(c.state) ILIKE '%' || COALESCE(app.canon_state(?), '') || '%'`},
 			{Key: "account_status", Label: "Account Status", Kind: filterText, Expr: "c.account_status = ?"},
 			{Key: "cif", Label: "CIF", Kind: filterText, Expr: "c.cif = ?"},
 		},
@@ -384,7 +390,8 @@ var exportDatasets = []exportDataset{
 			{Key: "occupation", Label: "Occupation", Type: colText, Expr: "k.occupation"},
 			{Key: "income_range", Label: "Income Range", Type: colText, Expr: "k.income_range"},
 			{Key: "estimated_value", Label: "Estimated Value (NGN)", Type: colKobo, Expr: "k.estimated_value_kobo"},
-			{Key: "state", Label: "State", Type: colText, Expr: "k.state"},
+			// Canonicalised for grouping (migration 376): 8 spellings of 4 states here.
+			{Key: "state", Label: "State", Type: colText, Expr: "app.canon_state(k.state)"},
 			{Key: "city", Label: "City", Type: colText, Expr: "k.city"},
 			// Two owners, as two columns rather than one ambiguous "Lead Owner". This
 			// dataset covers the whole contact store, where one row can be worked by a
@@ -520,8 +527,22 @@ var exportDatasets = []exportDataset{
 		DateCol:   "cp.payment_date",
 		DateLabel: "Payment Date",
 		Cols: []exportCol{
+			// THE NAME NEEDS THE ASSIGNMENT AS A FALLBACK, NOT JUST THE CUSTOMER MASTER.
+			//
+			// app.customers resolves 1,719 of 1,812 payments. The missing 93 are
+			// crm_import rows whose account_cif is a 'W0000…' or 'UD-…' id that belongs
+			// to no cards CIF at all — and none of them resolve through app.cbs_customers
+			// either, so the Udara route does not rescue them. The collections assignment
+			// carries a name for all 93, which takes this column to 1,812 of 1,812.
+			//
+			// The assignment is second, not first, because it holds a denormalised copy
+			// written at assignment time; the customer master is the live record.
 			{Key: "customer_name", Label: "Customer", Type: colText,
-				Expr: `(SELECT cu.full_name FROM app.customers cu WHERE cu.cif = cp.account_cif LIMIT 1)`},
+				Expr: `COALESCE(
+					(SELECT NULLIF(btrim(cu.full_name),'') FROM app.customers cu WHERE cu.cif = cp.account_cif LIMIT 1),
+					(SELECT NULLIF(btrim(ca.customer_name),'') FROM app.collection_assignments ca
+					  WHERE ca.account_cif = cp.account_cif
+					  ORDER BY ca.id DESC LIMIT 1))`},
 			{Key: "account_cif", Label: "Customer ID", Type: colText, Expr: "cp.account_cif"},
 			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "cp.amount_kobo"},
 			{Key: "payment_date", Label: "Payment Date", Type: colDate, Expr: "cp.payment_date"},
@@ -1119,6 +1140,66 @@ var exportDatasets = []exportDataset{
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "s.payment_status = ?"},
 		},
 	},
+	{
+		Key:    "loan_repayments",
+		Label:  "Loan Repayments (Received)",
+		Module: "Collections",
+		Desc: "Money ACTUALLY RECEIVED against Udara loans, one row per posting. This is the " +
+			"counterpart to the Loan Repayment Schedule, which is only what was due. " +
+			"Do not measure repayment as a fall in outstanding principal: that counts a " +
+			"restructure as a payment and an interest-only payment as nothing. Measured " +
+			"2026-10-19: 89 postings across 33 loan accounts.",
+		From:      "app.loan_repayments lr",
+		OrderBy:   "lr.payment_date DESC, lr.id DESC",
+		KeyCol:    "lr.id",
+		DateCol:   "lr.payment_date",
+		DateLabel: "Payment Date",
+		Cols: []exportCol{
+			{Key: "loan_account", Label: "Loan Account", Type: colText, Expr: "lr.cbs_loan_account"},
+			// Same rule as the repayment schedule, and the reason this dataset did not
+			// simply reuse app.customers: of 300 Udara customer ids, 275 also exist as a
+			// card CIF and all 275 belong to a DIFFERENT PERSON. The borrower is reached
+			// through the loan account — an account number, which carries no namespace
+			// collision — and then app.cbs_customers on Udara's own id. Resolves 89 of 89.
+			{Key: "borrower_name", Label: "Borrower", Type: colText,
+				Expr: `(SELECT cu.name FROM app.cbs_loans l
+				          JOIN app.cbs_customers cu ON cu.cbs_customer_id = l.cbs_customer_id
+				         WHERE l.cbs_account_number = lr.cbs_loan_account LIMIT 1)`},
+			{Key: "cif", Label: "Udara ID", Type: colText,
+				Expr: `(SELECT l.cbs_customer_id FROM app.cbs_loans l
+				         WHERE l.cbs_account_number = lr.cbs_loan_account LIMIT 1)`},
+			{Key: "product_name", Label: "Product", Type: colText,
+				Expr: `(SELECT l.product_name FROM app.cbs_loans l
+				         WHERE l.cbs_account_number = lr.cbs_loan_account LIMIT 1)`},
+			// Left untrimmed deliberately: app.cbs_officer_map was seeded with Udara's
+			// trailing spaces and btrim-ing one side of that comparison makes NGN 11bn of
+			// officer attribution vanish. This is a display column.
+			{Key: "officer_name", Label: "Account Officer", Type: colText,
+				Expr: `(SELECT l.officer_name FROM app.cbs_loans l
+				         WHERE l.cbs_account_number = lr.cbs_loan_account LIMIT 1)`},
+			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "lr.amount_kobo"},
+			{Key: "principal", Label: "Principal (NGN)", Type: colKobo, Expr: "lr.principal_kobo"},
+			{Key: "interest", Label: "Interest (NGN)", Type: colKobo, Expr: "lr.interest_kobo"},
+			{Key: "payment_date", Label: "Payment Date", Type: colDate, Expr: "lr.payment_date"},
+			{Key: "financial_date", Label: "Financial Date", Type: colDate, Expr: "lr.financial_date"},
+			{Key: "posted_at", Label: "Posted At", Type: colDateTime, Expr: "lr.posted_at"},
+			{Key: "component", Label: "Component", Type: colText, Expr: "lr.component"},
+			{Key: "entry_code", Label: "Entry Code", Type: colText, Expr: "lr.entry_code"},
+			{Key: "channel", Label: "Channel", Type: colText, Expr: "lr.channel"},
+			{Key: "payment_method", Label: "Payment Method", Type: colText, Expr: "lr.payment_method"},
+			{Key: "reference", Label: "Reference", Type: colText, Expr: "lr.reference"},
+			{Key: "posting_reference", Label: "Posting Reference", Type: colText, Expr: "lr.posting_reference"},
+			{Key: "instrument_number", Label: "Instrument No", Type: colText, Expr: "lr.instrument_number"},
+			{Key: "casa_account", Label: "CASA Account", Type: colText, Expr: "lr.cbs_casa_account"},
+			{Key: "notes", Label: "Notes", Type: colText, Expr: "lr.notes"},
+		},
+		Filters: []exportFilter{
+			{Key: "channel", Label: "Channel", Kind: filterText, Expr: "lr.channel = ?"},
+			{Key: "component", Label: "Component", Kind: filterText, Expr: "lr.component = ?"},
+			{Key: "loan_account", Label: "Loan Account", Kind: filterText,
+				Expr: "lr.cbs_loan_account ILIKE '%' || ? || '%'"},
+		},
+	},
 
 	// ── Compliance ────────────────────────────────────────────────────────────
 	{
@@ -1454,7 +1535,7 @@ var exportDatasets = []exportDataset{
 			{Key: "status", Label: "Status", Kind: filterSelect, Expr: "wm.status = ?",
 				Options: []string{"accepted", "sent", "delivered", "read", "failed", "received"}},
 			{Key: "from_ads", Label: "From An Ad", Kind: filterSelect,
-				Expr: "(wm.ctwa_clid IS NOT NULL) = (? = 'true')",
+				Expr:    "(wm.ctwa_clid IS NOT NULL) = (? = 'true')",
 				Options: []string{"true", "false"}},
 			{Key: "campaign_name", Label: "Campaign", Kind: filterText,
 				Expr: "cmp.name ILIKE '%' || ? || '%'"},
@@ -1482,13 +1563,17 @@ var exportDatasets = []exportDataset{
 			{Key: "phone", Label: "Phone", Type: colText, Expr: "lm.phone"},
 			{Key: "email", Label: "Email", Type: colText, Expr: "lm.email"},
 			{Key: "cif_number", Label: "CIF", Type: colText, Expr: "lm.cif_number"},
-			{Key: "state", Label: "State", Type: colText, Expr: "lm.state"},
+			// Canonicalised (376) for consistency with the other state columns. No
+			// collision in this table today (2 spellings, 2 states) — the point is that a
+			// list loaded tomorrow from a different CSV cannot introduce one.
+			{Key: "state", Label: "State", Type: colText, Expr: "app.canon_state(lm.state)"},
 			{Key: "status", Label: "Status", Type: colText, Expr: "lm.status"},
 		},
 		Filters: []exportFilter{
 			{Key: "list_name", Label: "List", Kind: filterText, Expr: "cl.name ILIKE '%' || ? || '%'"},
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "lm.status = ?"},
-			{Key: "state", Label: "State", Kind: filterText, Expr: "lm.state ILIKE ?"},
+			{Key: "state", Label: "State", Kind: filterText,
+				Expr: `app.canon_state(lm.state) ILIKE '%' || COALESCE(app.canon_state(?), '') || '%'`},
 		},
 	},
 
@@ -1857,7 +1942,14 @@ var exportDatasets = []exportDataset{
 			"who passed it, who received it and what became of it. This is the trail " +
 			"migrations 250-253 created and migration 298 backfilled, and it is the only " +
 			"place the call-centre-to-Sales boundary is recorded.",
-		From:      "app.call_center_lead_forwards lf",
+		// The ledger itself holds only who-passed-what-to-whom. Everything about the
+		// LEAD — where they are, how they were reached, how hard anyone tried — lives on
+		// call_center_leads and crm_contacts, so the ledger alone cannot answer "which
+		// states are converting". Both joins are to a primary key via a nullable FK, so
+		// they are strictly 1:1 and cannot multiply a row.
+		From: `app.call_center_lead_forwards lf
+		    LEFT JOIN app.call_center_leads lcl ON lcl.id = lf.lead_id
+		    LEFT JOIN app.crm_contacts lct ON lct.id = lf.contact_id`,
 		OrderBy:   "lf.forwarded_at DESC",
 		KeyCol:    "lf.id",
 		DateCol:   "lf.forwarded_at",
@@ -1867,18 +1959,61 @@ var exportDatasets = []exportDataset{
 			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "lf.customer_name"},
 			{Key: "customer_phone", Label: "Phone", Type: colText, Expr: "lf.customer_phone"},
 			{Key: "customer_cif", Label: "CIF", Type: colText, Expr: "lf.customer_cif"},
+			// STATE COMES OFF THE CONTACT FIRST, AND THAT ORDER IS THE WHOLE POINT.
+			// Measured on all 364 hand-offs: the contact carries a state on 325 of them
+			// and the lead on 41, and the 41 are a subset of the 325. Reading the lead
+			// first — the obvious choice on a table called *lead*_forwards — would have
+			// delivered an 11%-populated column that looks broken rather than sparse.
+			//
+			// Wrapped in app.canon_state (migration 376) because this column exists to be
+			// GROUPED, and raw it does not group: the 364 rows carry Lagos as both 'Lagos'
+			// and 'LAGOS', and the capital as 'FCT', 'ABUJA', 'Abuja' and 'FCT, Abuja'. A
+			// summary by State would split one state over several rows and understate each
+			// of them, which is a wrong answer rather than a missing one. An unrecognised
+			// value comes back exactly as typed.
+			{Key: "state", Label: "State", Type: colText,
+				Expr: `app.canon_state(COALESCE(NULLIF(btrim(lct.state), ''), NULLIF(btrim(lcl.state), '')))`},
+			{Key: "city", Label: "City", Type: colText,
+				Expr: `COALESCE(NULLIF(btrim(lct.city), ''), NULLIF(btrim(lcl.city), ''))`},
 			{Key: "product_interest", Label: "Product Interest", Type: colText, Expr: "lf.product_interest"},
+			{Key: "lead_source", Label: "Lead Source", Type: colText,
+				Expr: `COALESCE(NULLIF(btrim(lcl.source), ''), NULLIF(btrim(lct.lead_source), ''))`},
+			{Key: "lead_score", Label: "Lead Score", Type: colInt, Expr: "lcl.lead_score"},
+			{Key: "last_disposition", Label: "Last Disposition", Type: colText, Expr: "lcl.last_disposition"},
+			{Key: "attempts", Label: "Call Attempts", Type: colInt, Expr: "lcl.attempts"},
+			{Key: "connects", Label: "Connects", Type: colInt, Expr: "lcl.connects"},
+			{Key: "cc_campaign_name", Label: "Call Centre Campaign", Type: colText,
+				Expr: `(SELECT k.name FROM app.call_center_campaigns k WHERE k.id = lf.cc_campaign_id)`},
+			{Key: "marketing_campaign_name", Label: "Marketing Campaign", Type: colText,
+				Expr: `(SELECT m.name FROM app.campaigns m WHERE m.id = lf.marketing_campaign_id)`},
 			{Key: "forwarded_by_name", Label: "Forwarded By", Type: colText, Expr: "lf.forwarded_by_name"},
 			{Key: "sales_owner_name", Label: "Sales Owner", Type: colText, Expr: ccForwardOwnerExpr},
 			{Key: "status", Label: "Status", Type: colText, Expr: "lf.status"},
 			{Key: "outcome", Label: "Outcome", Type: colText, Expr: "lf.outcome"},
 			{Key: "notes", Label: "Notes", Type: colText, Expr: "lf.notes"},
+			// party_id is the customer identity other datasets key on, so exposing it is
+			// what lets a hand-off be lined up against anything else in the warehouse.
+			{Key: "party_id", Label: "Party ID", Type: colInt, Expr: "COALESCE(lcl.party_id, lct.party_id)"},
 			{Key: "resolved_at", Label: "Resolved", Type: colDateTime, Expr: "lf.resolved_at"},
+			{Key: "updated_at", Label: "Last Updated", Type: colDateTime, Expr: "lf.updated_at"},
 		},
 		Filters: []exportFilter{
-			{Key: "status", Label: "Status", Kind: filterText, Expr: "lf.status = ?"},
+			{Key: "status", Label: "Status", Kind: filterSelect, Expr: "lf.status = ?",
+				Options: []string{"forwarded", "accepted", "assigned", "converted", "rejected", "closed"}},
 			{Key: "outcome", Label: "Outcome", Kind: filterText, Expr: "lf.outcome = ?"},
 			{Key: "sales_owner_name", Label: "Sales Owner", Kind: filterText, Expr: ccForwardOwnerExpr + " ILIKE '%' || ? || '%'"},
+			// BOTH SIDES ARE CANONICALISED, which is what makes the filter agree with the
+			// column. Canonicalising only the column would leave "Abuja" matching nothing,
+			// because those rows now read 'FCT' — the filter would look broken precisely
+			// on the alias the canonicalisation exists to fix. Running the typed value
+			// through the same function makes "Abuja", "abuja" and "FCT" one query, and
+			// leaves a partial like "Lag" untouched so it still finds Lagos. A blank is
+			// never submitted (exports.go skips empty filter values), so the COALESCE is
+			// belt-and-braces rather than a wildcard.
+			{Key: "state", Label: "State", Kind: filterText,
+				Expr: `app.canon_state(COALESCE(NULLIF(btrim(lct.state), ''), NULLIF(btrim(lcl.state), ''))) ILIKE '%' || COALESCE(app.canon_state(?), '') || '%'`},
+			{Key: "lead_source", Label: "Lead Source", Kind: filterText,
+				Expr: `COALESCE(NULLIF(btrim(lcl.source), ''), NULLIF(btrim(lct.lead_source), '')) ILIKE '%' || ? || '%'`},
 		},
 	},
 	{

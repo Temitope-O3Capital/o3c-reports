@@ -315,10 +315,10 @@ export default function ReportBuilder() {
     } catch (e: any) { toast.error(e.message) } finally { setExporting(false) }
   }
 
-  const sendEmail = async (recipients: string[], format: string, message: string) => {
+  const sendEmail = async (recipients: string[], format: string, message: string, subject: string, noAttach: boolean) => {
     setBusy(true)
     try {
-      const r = unwrap<any>(await apiPost('/api/reports/pivot-email', { name: title, dataset: dsKey, config, recipients, format, message }))
+      const r = unwrap<any>(await apiPost('/api/reports/pivot-email', { name: title, dataset: dsKey, config, recipients, format, message, subject, no_attach: noAttach }))
       // The server counts the addresses it actually sent to, after dropping duplicates.
       const n = typeof r?.recipients === 'number' ? r.recipients : recipients.length
       toast.success(`Report emailed to ${n} recipient${n === 1 ? '' : 's'}`, r?.truncated ? { description: capNote } : undefined)

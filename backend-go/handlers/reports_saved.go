@@ -565,7 +565,9 @@ func savedEmailReport(db *core.DB) http.HandlerFunc {
 	type body struct {
 		Recipients []string `json:"recipients"`
 		Format     string   `json:"format"`
+		Subject    string   `json:"subject"`
 		Message    string   `json:"message"`
+		NoAttach   bool     `json:"no_attach"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -595,7 +597,9 @@ func savedEmailReport(db *core.DB) http.HandlerFunc {
 			respondReportErr(w, err)
 			return
 		}
-		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, b.Format, b.Message)
+		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, reportMailOpts{
+			Subject: b.Subject, Message: b.Message, Format: b.Format, NoAttach: b.NoAttach,
+		})
 		if err != nil {
 			var big reportTooBig
 			if errors.As(err, &big) {
@@ -627,7 +631,9 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 		DateTo     string            `json:"date_to"`
 		Recipients []string          `json:"recipients"`
 		Format     string            `json:"format"`
+		Subject    string            `json:"subject"`
 		Message    string            `json:"message"`
+		NoAttach   bool              `json:"no_attach"`
 		// Config is the whole report definition, as the builder sends it now. A tab
 		// opened before Table view sends the Summary fields above instead.
 		Config *savedPivotConfig `json:"config"`
@@ -674,7 +680,9 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 		if name == "" {
 			name = d.Label + " report"
 		}
-		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, b.Format, b.Message)
+		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, reportMailOpts{
+			Subject: b.Subject, Message: b.Message, Format: b.Format, NoAttach: b.NoAttach,
+		})
 		if err != nil {
 			var big reportTooBig
 			if errors.As(err, &big) {
@@ -758,18 +766,56 @@ func reportHTMLTable(cols []exportCol, rows []map[string]any, limit int) string 
 	return b.String()
 }
 
+// reportMailOpts carries the sender's choices about the message itself, as opposed to
+// what is in the report. It is a struct rather than four more positional parameters
+// because emailReport already takes seven.
+//
+// NoAttach is phrased negatively ON PURPOSE. The zero value of this struct has to mean
+// "behave exactly as this code did before it had options" — subject generated, no note,
+// file attached — and an `Attach bool` would make the zero value mean "send nothing but
+// a preview", so any caller that forgot the field would silently stop attaching.
+// reportSubjectMaxRunes matches the CHECK on pivot_report_schedules.subject, so a
+// subject accepted by an ad-hoc send is one a schedule can also store.
+const reportSubjectMaxRunes = 200
+
+// clampRunes cuts a string to at most n CHARACTERS. Counted in runes, not bytes, both
+// because Postgres length() counts characters — so a byte-based cap would disagree with
+// the CHECK on any non-ASCII subject — and because slicing bytes can cut a multi-byte
+// character in half and emit invalid UTF-8 into a mail header.
+func clampRunes(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	if rs := []rune(s); len(rs) > n {
+		return string(rs[:n])
+	}
+	return s
+}
+
+type reportMailOpts struct {
+	Subject  string // blank: generate "Report: <name> (<date>)" as before
+	Message  string // blank: no note above the preview
+	Format   string // blank: emailFormat's default, xlsx
+	NoAttach bool   // false: attach the file, as before
+}
+
 // emailReport writes a rendered report to a file, builds an HTML body with an inline
 // preview, and sends it. Returns the number of recipients.
-func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, dataset string, rep renderedReport, recipients []string, format, message string) (int, error) {
-	f := emailFormat(format)
-	data, err := renderReportBytes(rep, f)
-	if err != nil {
-		return 0, err
-	}
-	if enc := base64.StdEncoding.EncodedLen(len(data)); enc > reportMailMaxBytes {
-		return 0, reportTooBig{fmt.Sprintf(
-			"This report is too large to email: %d records come to %d MB attached, and a message can carry %d MB. Download it instead, or add a filter to narrow it down.",
-			rep.RecordCount(), enc>>20, reportMailMaxBytes>>20)}
+func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, dataset string, rep renderedReport, recipients []string, opts reportMailOpts) (int, error) {
+	f := emailFormat(opts.Format)
+	message := opts.Message
+	var data []byte
+	if !opts.NoAttach {
+		var err error
+		data, err = renderReportBytes(rep, f)
+		if err != nil {
+			return 0, err
+		}
+		if enc := base64.StdEncoding.EncodedLen(len(data)); enc > reportMailMaxBytes {
+			return 0, reportTooBig{fmt.Sprintf(
+				"This report is too large to email: %d records come to %d MB attached, and a message can carry %d MB. Download it instead, send it without the attachment, or add a filter to narrow it down.",
+				rep.RecordCount(), enc>>20, reportMailMaxBytes>>20)}
+		}
 	}
 	to := make([]MailAddress, 0, len(recipients))
 	for _, e := range recipients {
@@ -787,14 +833,25 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 	if strings.TrimSpace(message) != "" {
 		intro = `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111827">` + html.EscapeString(message) + `</p>`
 	}
-	fileNote := fmt.Sprintf("The attached %s file holds the complete report.", strings.ToUpper(f.ext()))
-	if rep.Truncated {
+	unit := "records"
+	if rep.Summary {
+		unit = "lines"
+	}
+	var fileNote string
+	switch {
+	case opts.NoAttach && rep.Truncated:
+		// Without a file, "the report has more" is the only honest thing to say — there
+		// is nothing attached for the reader to go and check.
+		fileNote = fmt.Sprintf("This shows the first %d %s of a longer report; open it in the "+
+			"Report Builder for the rest.", rep.RecordCount(), unit)
+	case opts.NoAttach:
+		fileNote = "Sent without an attachment: the figures above are the whole report."
+	case rep.Truncated:
 		// The number actually attached: a Summary can stop at its line limit before the file cap.
-		unit := "records"
-		if rep.Summary {
-			unit = "lines"
-		}
-		fileNote = fmt.Sprintf("The attached %s file holds the first %d %s; the report has more.", strings.ToUpper(f.ext()), rep.RecordCount(), unit)
+		fileNote = fmt.Sprintf("The attached %s file holds the first %d %s; the report has more.",
+			strings.ToUpper(f.ext()), rep.RecordCount(), unit)
+	default:
+		fileNote = fmt.Sprintf("The attached %s file holds the complete report.", strings.ToUpper(f.ext()))
 	}
 	htmlBody := fmt.Sprintf(`<div style="font-family:Segoe UI,Arial,sans-serif;color:#111827">`+
 		`<h2 style="color:#0E2841;margin:0 0 4px">%s</h2>`+
@@ -806,21 +863,32 @@ func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, datase
 
 	textBody := fmt.Sprintf("%s\n\nGenerated %s · %d rows.\n%s", name, stamp, rep.RecordCount(), fileNote)
 
-	fname := exportFilename(name, f)
-	result := SendMail(ctx, db, SendMailOptions{
-		To:        to,
-		Subject:   fmt.Sprintf("Report: %s (%s)", name, time.Now().In(reportTZ).Format("2006-01-02")),
-		HTMLBody:  htmlBody,
-		TextBody:  textBody,
-		Kind:      "report",
-		Category:  "pivot_report",
-		CreatedBy: uid,
-		Attachments: []MailAttachment{{
-			Filename:    fname,
+	// The sender's subject wins; otherwise the generated one, unchanged. Trimmed and
+	// length-capped to match the CHECK on pivot_report_schedules.subject, so a schedule
+	// and an ad-hoc send cannot disagree about what is acceptable.
+	subject := clampRunes(strings.TrimSpace(opts.Subject), reportSubjectMaxRunes)
+	if subject == "" {
+		subject = fmt.Sprintf("Report: %s (%s)", name, time.Now().In(reportTZ).Format("2006-01-02"))
+	}
+
+	var attachments []MailAttachment
+	if !opts.NoAttach {
+		attachments = []MailAttachment{{
+			Filename:    exportFilename(name, f),
 			ContentType: f.contentType(),
 			Content:     base64.StdEncoding.EncodeToString(data),
 			Disposition: "attachment",
-		}},
+		}}
+	}
+	result := SendMail(ctx, db, SendMailOptions{
+		To:          to,
+		Subject:     subject,
+		HTMLBody:    htmlBody,
+		TextBody:    textBody,
+		Kind:        "report",
+		Category:    "pivot_report",
+		CreatedBy:   uid,
+		Attachments: attachments,
 	})
 	if !result.OK && result.Error != "" {
 		return 0, fmt.Errorf("%s", result.Error)
@@ -856,7 +924,8 @@ func savedListSchedules(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(ctx, `
 			SELECT s.id, s.report_id, p.name AS report_name, p.dataset,
 			       s.frequency, s.hour, s.day_of_week, s.day_of_month,
-			       s.recipients, s.format, s.is_active, s.last_run_at, s.next_run_at,
+			       s.recipients, s.format, s.subject, s.message, s.attach,
+			       s.is_active, s.last_run_at, s.next_run_at,
 			       s.last_status, s.created_at, s.created_by, p.created_by AS report_created_by,
 			       u.full_name AS created_by_name
 			FROM pivot_report_schedules s
@@ -899,6 +968,9 @@ func savedCreateSchedule(db *core.DB) http.HandlerFunc {
 		DayOfMonth int      `json:"day_of_month"`
 		Recipients []string `json:"recipients"`
 		Format     string   `json:"format"`
+		Subject    string   `json:"subject"`
+		Message    string   `json:"message"`
+		NoAttach   bool     `json:"no_attach"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -956,12 +1028,19 @@ func savedCreateSchedule(db *core.DB) http.HandlerFunc {
 		if u != nil {
 			uid = u.ID
 		}
+		// Stored as NULL rather than '' when blank, so "no subject set" is one state in
+		// the column instead of two the reader has to remember to treat alike.
+		subject := nullIfBlank(clampRunes(strings.TrimSpace(b.Subject), reportSubjectMaxRunes))
+		message := nullIfBlank(strings.TrimSpace(b.Message))
 		rows, err := db.PGQuery(ctx, `
 			INSERT INTO pivot_report_schedules
-				(report_id, frequency, hour, day_of_week, day_of_month, recipients, format, next_run_at, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
-			RETURNING id, report_id, frequency, hour, day_of_week, day_of_month, recipients, format, is_active, next_run_at, created_at`,
-			id, freq, b.Hour, b.DayOfWeek, b.DayOfMonth, string(recip), f, next, uid)
+				(report_id, frequency, hour, day_of_week, day_of_month, recipients, format,
+				 subject, message, attach, next_run_at, created_by)
+			VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12)
+			RETURNING id, report_id, frequency, hour, day_of_week, day_of_month, recipients, format,
+			          subject, message, attach, is_active, next_run_at, created_at`,
+			id, freq, b.Hour, b.DayOfWeek, b.DayOfMonth, string(recip), f,
+			subject, message, !b.NoAttach, next, uid)
 		if err != nil {
 			respondErrLog(w, 500, "Could not create the schedule", err)
 			return
@@ -979,6 +1058,11 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 		DayOfMonth *int      `json:"day_of_month"`
 		Recipients *[]string `json:"recipients"`
 		Format     *string   `json:"format"`
+		// Pointers, like every other field here, so that omitting one leaves it alone
+		// and sending "" deliberately clears it back to the generated subject.
+		Subject  *string `json:"subject"`
+		Message  *string `json:"message"`
+		NoAttach *bool   `json:"no_attach"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -1063,6 +1147,15 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 			add("day_of_month", dom)
 			timingChanged = true
 		}
+		if b.Subject != nil {
+			add("subject", nullIfBlank(clampRunes(strings.TrimSpace(*b.Subject), reportSubjectMaxRunes)))
+		}
+		if b.Message != nil {
+			add("message", nullIfBlank(strings.TrimSpace(*b.Message)))
+		}
+		if b.NoAttach != nil {
+			add("attach", !*b.NoAttach)
+		}
 		if b.Recipients != nil {
 			to := cleanRecipients(*b.Recipients)
 			if len(to) == 0 {
@@ -1123,7 +1216,8 @@ func savedRunScheduleNow(db *core.DB) http.HandlerFunc {
 		u := core.UserFromCtx(ctx)
 		sid := chi.URLParam(r, "sid")
 		rows, err := db.PGQuery(ctx, `
-			SELECT s.id, s.report_id, s.recipients, s.format, p.name, p.dataset, p.config, p.is_public, p.created_by,
+			SELECT s.id, s.report_id, s.recipients, s.format, s.subject, s.message, s.attach,
+			       p.name, p.dataset, p.config, p.is_public, p.created_by,
 			       p.created_by AS report_created_by, s.created_by AS sched_created_by,
 			       COALESCE(s.created_by, p.created_by) AS owner_id
 			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id = s.report_id
@@ -1206,7 +1300,8 @@ func StartReportScheduleWorker(db *core.DB) {
 		WorkerBeat(ctx, db, "report_schedules", "running", "", "")
 		rows, err := db.PGQuery(ctx, `
 			SELECT s.id, s.report_id, s.frequency, s.hour, s.day_of_week, s.day_of_month,
-			       s.recipients, s.format, s.next_run_at, p.name, p.dataset, p.config,
+			       s.recipients, s.format, s.subject, s.message, s.attach,
+			       s.next_run_at, p.name, p.dataset, p.config,
 			       p.is_public, p.created_by AS report_created_by,
 			       COALESCE(s.created_by, p.created_by) AS owner_id
 			FROM pivot_report_schedules s
@@ -1341,7 +1436,22 @@ func deliverScheduledReport(ctx context.Context, db *core.DB, s core.Row, owner 
 	if err != nil {
 		return "error: " + err.Error()
 	}
-	n, err := emailReport(ctx, db, nil, str(s["name"]), d.Key, rep, to, str(s["format"]), "")
+	// The subject and note the person set when they created the schedule. This used to
+	// pass "" for the message because there was nowhere to store one, so a report put on
+	// a schedule silently lost the note its ad-hoc sends carried.
+	//
+	// attach is read with a default of TRUE rather than taking the zero value: a row
+	// written before migration 377 has no opinion, and the behaviour it had was to attach.
+	noAttach := false
+	if v, ok := s["attach"].(bool); ok {
+		noAttach = !v
+	}
+	n, err := emailReport(ctx, db, nil, str(s["name"]), d.Key, rep, to, reportMailOpts{
+		Subject:  str(s["subject"]),
+		Message:  str(s["message"]),
+		Format:   str(s["format"]),
+		NoAttach: noAttach,
+	})
 	if err != nil {
 		return "error: " + err.Error()
 	}

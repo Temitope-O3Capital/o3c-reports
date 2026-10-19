@@ -52,7 +52,10 @@ var reportDatasetPages = map[string][]string{
 	// Collections & Recovery
 	"collections_assignments": {"collections"},
 	"collections_payments":    {"collections"},
-	"recovery_cases":          {"recovery_assign", "recovery_write_off"},
+	// Received repayments carry the same audience as the schedule they settle: Credit
+	// needs them against the book, Collections needs them against the arrears.
+	"loan_repayments": {"credit_portfolio", "loans", "collections"},
+	"recovery_cases":  {"recovery_assign", "recovery_write_off"},
 	// Settlement & Reconciliation
 	"paystack_transactions": {"settlement", "reconciliation", "finance"},
 	"paystack_transfers":    {"settlement", "reconciliation", "finance"},

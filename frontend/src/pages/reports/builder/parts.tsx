@@ -13,6 +13,9 @@ export interface Schedule {
   id: number; report_id: number; report_name: string; dataset: string
   frequency: string; hour: number; day_of_week: number; day_of_month: number
   recipients: any; format: string; is_active: boolean
+  // Added by migration 377. Null on any schedule that predates it, so read them with a
+  // fallback: no subject means the generated one, attach null means it attaches.
+  subject?: string | null; message?: string | null; attach?: boolean | null
   last_run_at?: string; next_run_at?: string; last_status?: string; created_by_name?: string
   can_manage?: boolean // false → set up by someone else: view only
 }
@@ -264,31 +267,47 @@ export function SchedulesTab({ schedules, onToggle, onEdit, onRunNow, onDelete }
 
 // ── Email ───────────────────────────────────────────────────────────────────
 
+// SUBJECT_MAX matches reportSubjectMaxRunes in Go and the CHECK on
+// pivot_report_schedules.subject. Counted in characters, like both of those.
+export const SUBJECT_MAX = 200
+
 export function EmailModal({ open, onClose, name, onSend, busy, restricted }: {
   open: boolean; onClose: () => void; name: string
-  onSend: (recipients: string[], format: string, message: string) => void; busy: boolean; restricted: boolean
+  onSend: (recipients: string[], format: string, message: string, subject: string, noAttach: boolean) => void
+  busy: boolean; restricted: boolean
 }) {
   const rec = useRecipients()
+  // 'none' is a choice of attachment, not a format, so it lives in the same select the
+  // sender already uses to pick one — asking them to find a separate toggle to express
+  // "don't attach anything" would be the odd arrangement.
   const [format, setFormat] = useState('xlsx')
   const [message, setMessage] = useState('')
+  const [subject, setSubject] = useState('')
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (open) { rec.reset([]); setMessage('') } }, [open])
+  useEffect(() => { if (open) { rec.reset([]); setMessage(''); setSubject(''); setFormat('xlsx') } }, [open])
+  const noAttach = format === 'none'
   const send = () => {
     const to = rec.commit()
-    if (to?.length) onSend(to, format, message)
+    if (to?.length) onSend(to, noAttach ? 'xlsx' : format, message, subject, noAttach)
   }
   return (
     <Modal open={open} onClose={onClose} title="Email This Report"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} disabled={!rec.ready} onClick={send}>Send Now</Button></>}>
       <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: SP[3] }}>
-        Sends <b>{name}</b> exactly as it looks now, attached as a spreadsheet and previewed in the email.
+        Sends <b>{name}</b> exactly as it looks now{noAttach ? ', previewed in the email with no file attached.' : ', attached as a spreadsheet and previewed in the email.'}
         {restricted && ' Reports on your department’s data go to company email addresses only.'}
       </div>
       <Labeled label="Recipients" htmlFor="rb-email-recipients"><Recipients id="rb-email-recipients" r={rec} /></Labeled>
+      <Labeled label="Subject (Optional)" htmlFor="rb-email-subject">
+        <input id="rb-email-subject" type="text" value={subject} maxLength={SUBJECT_MAX}
+          onChange={e => setSubject(e.target.value)}
+          placeholder={`Report: ${name}`} style={field} />
+      </Labeled>
       <Labeled label="Attachment" htmlFor="rb-email-format">
         <select id="rb-email-format" value={format} onChange={e => setFormat(e.target.value)} style={field}>
           <option value="xlsx">Excel (.xlsx)</option>
           <option value="csv">CSV (.csv)</option>
+          <option value="none">No Attachment (Preview Only)</option>
         </select>
       </Labeled>
       <Labeled label="Note (Optional)" htmlFor="rb-email-note">
@@ -300,7 +319,12 @@ export function EmailModal({ open, onClose, name, onSend, busy, restricted }: {
 
 // ── Schedule ────────────────────────────────────────────────────────────────
 
-interface ScheduleInitial { frequency: string; hour: number; day_of_week: number; day_of_month: number; format: string; recipients: any }
+interface ScheduleInitial {
+  frequency: string; hour: number; day_of_week: number; day_of_month: number; format: string; recipients: any
+  // Null on any schedule created before migration 377, which is why every read below
+  // coalesces rather than assuming a string.
+  subject?: string | null; message?: string | null; attach?: boolean | null
+}
 
 export function ScheduleModal({ open, onClose, needsSave, unsavedChanges, onSaveFirst, onSubmit, busy, initial, restricted, period }: {
   open: boolean; onClose: () => void; needsSave: boolean; unsavedChanges: boolean; onSaveFirst: () => void
@@ -314,21 +338,35 @@ export function ScheduleModal({ open, onClose, needsSave, unsavedChanges, onSave
   const [dow, setDow] = useState(1)
   const [dom, setDom] = useState(1)
   const [format, setFormat] = useState('xlsx')
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
   const rec = useRecipients()
   useEffect(() => {
     if (!open) return
     if (initial) {
       setFrequency(initial.frequency ?? 'daily'); setHour(initial.hour ?? 7)
       setDow(initial.day_of_week ?? 1); setDom(initial.day_of_month ?? 1)
-      setFormat(initial.format ?? 'xlsx'); rec.reset(recipientList(initial.recipients))
+      // attach is read with a default of TRUE: a pre-377 row has no value and the
+      // behaviour it had was to attach, so `=== false` rather than a falsy check.
+      setFormat(initial.attach === false ? 'none' : (initial.format ?? 'xlsx'))
+      setSubject(initial.subject ?? ''); setMessage(initial.message ?? '')
+      rec.reset(recipientList(initial.recipients))
     } else {
-      setFrequency('daily'); setHour(7); setDow(1); setDom(1); setFormat('xlsx'); rec.reset([])
+      setFrequency('daily'); setHour(7); setDow(1); setDom(1); setFormat('xlsx')
+      setSubject(''); setMessage(''); rec.reset([])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial])
+  const noAttach = format === 'none'
   const submit = () => {
     const to = rec.commit()
-    if (to?.length) onSubmit({ frequency, hour, day_of_week: dow, day_of_month: dom, recipients: to, format })
+    if (to?.length) onSubmit({
+      frequency, hour, day_of_week: dow, day_of_month: dom, recipients: to,
+      // When nothing is attached the stored format is irrelevant, but it is NOT NULL in
+      // the table, so send a valid one rather than 'none'.
+      format: noAttach ? 'xlsx' : format,
+      subject, message, no_attach: noAttach,
+    })
   }
 
   return (
@@ -388,14 +426,24 @@ export function ScheduleModal({ open, onClose, needsSave, unsavedChanges, onSave
                 {Array.from({ length: 24 }, (_, i) => i).map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
               </select>
             </Labeled>
-            <Labeled label="Format" htmlFor="rb-sched-format" style={{ flex: 1 }}>
+            <Labeled label="Attachment" htmlFor="rb-sched-format" style={{ flex: 1 }}>
               <select id="rb-sched-format" value={format} onChange={e => setFormat(e.target.value)} style={field}>
                 <option value="xlsx">Excel</option>
                 <option value="csv">CSV</option>
+                <option value="none">None</option>
               </select>
             </Labeled>
           </div>
           <Labeled label="Recipients" htmlFor="rb-sched-recipients"><Recipients id="rb-sched-recipients" r={rec} /></Labeled>
+          <Labeled label="Subject (Optional)" htmlFor="rb-sched-subject">
+            <input id="rb-sched-subject" type="text" value={subject} maxLength={SUBJECT_MAX}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Report: the report’s name and today’s date" style={field} />
+          </Labeled>
+          <Labeled label="Note (Optional)" htmlFor="rb-sched-note">
+            <textarea id="rb-sched-note" value={message} onChange={e => setMessage(e.target.value)} rows={2}
+              placeholder="Sent with every email…" style={{ ...field, resize: 'vertical' }} />
+          </Labeled>
         </>
       )}
     </Modal>
