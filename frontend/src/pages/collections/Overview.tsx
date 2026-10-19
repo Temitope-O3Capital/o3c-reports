@@ -19,6 +19,12 @@ interface PortfolioKPIs {
   current_rate_pct: number
   collected_kobo: number
   collected_count: number
+  // Money that arrived and that Udara has not applied to any facility. The API has
+  // returned both of these since the receipt capture was built; until now no screen
+  // declared them, so the figure crossed the wire and was dropped on the floor.
+  // Optional because an older backend will not send them.
+  received_unapplied_kobo?: number
+  received_unapplied_count?: number
 }
 
 interface DPDTrendPoint {
@@ -141,7 +147,7 @@ export default function CollectionsOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans','repayments'] })
 
   const kpiLoading = loading && !kpis
   // Collected in the selected period from the real payments ledger (not summed off the
@@ -198,6 +204,39 @@ export default function CollectionsOverview() {
           loading={kpiLoading}
         />
       </div>
+
+      {/* Money that arrived and that Udara has not applied to any facility.
+          Deliberately NOT a fifth KPI card and not folded into "Collected": nothing
+          ties these receipts to a loan except the borrower's name in free text, and
+          guessing is the one thing this module refuses to do. It is a work queue, so
+          it reads as a prompt rather than as a score. Hidden entirely when nil, so a
+          clean desk shows nothing rather than a reassuring zero. */}
+      {Number(kpis?.received_unapplied_kobo ?? 0) > 0 && (
+        <div style={{
+          display: 'flex', gap: SP[3], alignItems: 'flex-start',
+          padding: `${SP[3]} ${SP[4]}`, marginBottom: SP[5],
+          background: 'var(--th-bg)', borderRadius: 8,
+          border: `1px solid ${AMBER}`, borderLeft: `3px solid ${AMBER}`,
+          fontSize: TEXT.sm,
+        }}>
+          <span className="material-symbols-rounded"
+            style={{ fontSize: 20, color: AMBER, flexShrink: 0 }}>account_balance_wallet</span>
+          <div>
+            <div style={{ fontWeight: FW.semibold, color: 'var(--txt1)', marginBottom: 2 }}>
+              {fmtKoboWhole(kpis?.received_unapplied_kobo)} received and not yet applied
+              {' · '}
+              {fmtNum(kpis?.received_unapplied_count ?? 0)}
+              {Number(kpis?.received_unapplied_count ?? 0) === 1 ? ' receipt' : ' receipts'}
+            </div>
+            <div style={{ color: 'var(--txt2)' }}>
+              Money Udara credited to a customer&rsquo;s account without applying it to any
+              facility. It is <strong>not</strong> counted in Collected above, because only the
+              account name links it to a borrower. Each one needs applying to a loan or
+              explaining.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chart row: stacked DPD trend + DPD bucket distribution */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[4], marginBottom: SP[5] }}>

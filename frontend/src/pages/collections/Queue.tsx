@@ -1086,7 +1086,7 @@ export default function CollectionsQueue() {
   }, [items])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans','repayments'] })
 
   const groups: FilterGroupDef[] = [
     {

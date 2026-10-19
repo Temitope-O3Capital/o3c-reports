@@ -155,7 +155,7 @@ export default function CollectionsSupervisor() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections', 'recovery', 'loans'] })
+  useLiveData(() => load(true), { topics: ['collections', 'recovery', 'loans', 'repayments'] })
 
   async function handleGenerate() {
     setGenLoading(true)

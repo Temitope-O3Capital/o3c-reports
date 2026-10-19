@@ -19,7 +19,20 @@ import (
 var liveTopics = []struct{ Name, SQL string }{
 	{"tickets", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM helpdesk_tickets`},
 	{"loans", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM loan_applications`},
-	{"repayments", `SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM loan_repayments`},
+	// Udara's money arrives in three tables, not one, and this watched only the first.
+	// A capture run that writes a JOURNAL RECEIPT and no loan leg — which is the common
+	// case, more than half of the receipts captured so far are not linked to any
+	// facility — moved nothing in loan_repayments, so the topic never fired and every
+	// collections screen stayed stale until someone clicked away and back. Widened
+	// rather than split into a new topic, the way `cards` and `fixed_deposits` were, so
+	// existing subscribers pick it up with no frontend change.
+	//
+	// cbs_gl_postings contributes MAX(id) rather than a count: the id is monotonic so it
+	// moves on every insert exactly as a count would, and it comes off the primary key
+	// instead of scanning the ledger every few seconds (the lesson from `calls` below).
+	{"repayments", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM loan_repayments)
+	                    ||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_journal_receipts)
+	                    ||'|'||(SELECT COALESCE(MAX(id),0)::text FROM cbs_gl_postings)`},
 	{"settlements", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM settlement_batches`},
 	{"settlement_exceptions", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM settlement_exceptions`},
 	{"manual_postings", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM manual_postings`},

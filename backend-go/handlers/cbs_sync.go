@@ -76,15 +76,13 @@ func StartCBSSyncWorker(c *udara.Client, db *core.DB) {
 	}
 }
 
-// RegisterCBSSync mounts sync trigger/status endpoints under /api/cbs.
-// The manual trigger is admin-gated; status is available to any authenticated
-// core-banking user.
+// RegisterCBSSync mounts the READ-ONLY core-banking endpoints under /api/cbs.
+//
+// There is no sync trigger here any more, and that is the design: the book is polled
+// every three minutes by StartCBSSyncWorker and there is no manual path into Udara at
+// all. See the note above cbsSyncStatus for why the trigger and the probes went.
 func RegisterCBSSync(r chi.Router, c *udara.Client, db *core.DB) {
-	r.With(core.RequirePages("admin")).Post("/sync", cbsSyncTrigger(c, db))
 	r.Get("/sync/status", cbsSyncStatus(db))
-	r.With(core.RequirePages("admin")).Get("/probe", cbsProbe(c))
-	r.With(core.RequirePages("admin")).Get("/probe-all", cbsProbeAll(c))
-	r.With(core.RequirePages("admin")).Get("/probe-detail", cbsProbeDetail(c))
 	// Live core-banking account activity for Customer 360 — the real posting ledger
 	// (disbursements, repayments, interest, fees) that the card feed never carries.
 	r.Get("/customer/{cif}/statement", cbsCustomerStatement(c, db))
@@ -209,76 +207,25 @@ func urlValues(kv ...string) url.Values {
 	return v
 }
 
-// cbsProbeDetail hunts for a per-account detail endpoint (the real repayment schedule).
-func cbsProbeDetail(c *udara.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !c.IsConfigured() {
-			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
-		defer cancel()
-		cbsWriteJSON(w, http.StatusOK, cbssync.ProbeDetail(ctx, c))
-	}
-}
-
-// cbsProbeAll enumerates the whole Udara API surface — every reachable endpoint,
-// its record count, and field shape — so we can see all data Udara exposes.
-func cbsProbeAll(c *udara.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !c.IsConfigured() {
-			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
-		defer cancel()
-		cbsWriteJSON(w, http.StatusOK, cbssync.ProbeAll(ctx, c))
-	}
-}
-
-// cbsProbe hits the Udara Search endpoints directly and reports the raw
-// recordCount vs the number of items each page returns, plus whether a second
-// page yields more — proof of whether the book size (e.g. 28 loans / 236 FDs) is
-// the true total or a capped/paginated view.
-func cbsProbe(c *udara.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !c.IsConfigured() {
-			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-		defer cancel()
-		cbsWriteJSON(w, http.StatusOK, cbssync.Probe(ctx, c))
-	}
-}
-
-func cbsSyncTrigger(c *udara.Client, db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !c.IsConfigured() {
-			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
-			return
-		}
-		var triggeredBy sql.NullInt64
-		if u := core.UserFromCtx(r.Context()); u != nil && u.ID != 0 {
-			triggeredBy = sql.NullInt64{Int64: u.ID, Valid: true}
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-		defer cancel()
-		res, err := cbssync.SyncAll(ctx, c, db, "manual", triggeredBy)
-		if err != nil {
-			cbsWriteJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-			return
-		}
-		cbsWriteJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"products":  res.Products,
-			"loans":     res.Loans,
-			"fds":       res.FDs,
-			"matched":   res.Matched,
-			"unmatched": res.Unmatched,
-		})
-	}
-}
+// THE MANUAL SYNC TRIGGER AND THE THREE PROBE ENDPOINTS WERE REMOVED, DELIBERATELY.
+//
+// The trigger (POST /api/cbs/sync) ran the same SyncAll the scheduler runs, sharing no
+// lock with it, and both do DELETE-then-INSERT on cbs_loans and cbs_fixed_deposits —
+// so a click during a scheduled run left only the database transaction standing between
+// two writers of the same tables. With the book polled every three minutes there was
+// nothing a manual run could achieve except that race: the worst case for "I need fresh
+// data now" is a 180-second wait, and the Worker Hub already shows when the last run
+// finished. Removing the button fixes the concurrency hazard without needing a lock,
+// which is the cheaper half of the same repair.
+//
+// The probes (GET /probe, /probe-all, /probe-detail) enumerated a 24-endpoint candidate
+// list of which 21 do not exist — guesses from before the real surface was found. They
+// were admin-only and read-only, so they were harmless, but they advertised an API that
+// is not there and invited somebody to build on it. The same capability survives as a
+// read-only developer CLI, `go run ./cmd/probe`, which is where a one-off diagnostic
+// belongs rather than mounted in the product.
+//
+// Nothing in the product triggers a Udara read by hand any more. Every path is a worker.
 
 func cbsSyncStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -350,8 +297,12 @@ func cbsWriteJSON(w http.ResponseWriter, code int, v any) {
 //
 // 'interrupted' rather than 'error': the sync did not fail, it was stopped, and
 // conflating the two would make the failure rate read far worse than it is.
-// Scoped to runs older than the 5-minute sync timeout so a genuinely in-flight
-// run — there is at most one, the loop is sequential — is never touched.
+// Scoped to runs older than 30 minutes — six times the 5-minute sync context — so a
+// genuinely in-flight run is never touched. There is at most one in flight: the loop is
+// sequential and, since the manual trigger was removed, nothing else starts a run.
+// (This comment used to say the scope WAS the 5-minute timeout, while the query has
+// always said 30 minutes. The query is the behaviour; the margin is deliberate, because
+// a run killed by a host outage must not be reaped as merely slow.)
 func reconcileStrandedCBSRuns(db *core.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

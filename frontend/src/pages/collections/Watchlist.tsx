@@ -327,7 +327,7 @@ export default function Watchlist() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections', 'loans'] })
+  useLiveData(() => load(true), { topics: ['collections', 'loans', 'repayments'] })
 
   // ── KPIs (derived client-side — no dedicated KPI endpoint) ────────────────────
 

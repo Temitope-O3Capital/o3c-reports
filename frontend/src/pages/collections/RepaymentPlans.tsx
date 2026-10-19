@@ -442,7 +442,7 @@ export default function RepaymentPlans() {
   }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans','repayments'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return rows

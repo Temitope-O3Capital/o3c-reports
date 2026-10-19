@@ -147,7 +147,19 @@ const (
 	// The cost is pages, not risk. walkWindow stops as soon as a page falls entirely past the
 	// cutoff, and the ceiling above is 30,000 rows against a ledger roughly a fifth of that, so
 	// 120 days still finishes in a dozen pages.
-	defaultLookbackDays = 120
+	//
+	// RAISED AGAIN 120 -> 180 on 2026-10-19, for the same reason and off the same kind of
+	// measurement. The tail moved: the worst observed publish lag is now 105 days, not 38,
+	// so a 120-day window had 15 days of headroom left against a case already seen. The
+	// median is still 5-7 days and the average 26 (measured on rows captured after the
+	// 2026-10-06 backfill; including that backfill reads 47 and is an artefact of the window
+	// widening, not of Udara publishing late — do not re-derive this figure without
+	// excluding it).
+	//
+	// 180 days is chosen against the observed worst case plus most of its own size again,
+	// because the failure is silent and permanent while the cost is a handful of extra
+	// pages: at ~7,500 ledger rows the walk uses about 16 of its 60-page ceiling.
+	defaultLookbackDays = 180
 
 	// repaymentChannel tags every row this file writes, so ledger-observed
 	// repayments are separable from manual/collections/card ones.
@@ -1083,8 +1095,16 @@ func repaymentInterval() time.Duration {
 	return d
 }
 
-// lookbackDays reads CBS_REPAYMENT_LOOKBACK_DAYS. Default 45 — see the header
-// for why a short window silently loses most repayments on this system.
+// RepaymentInterval is the scheduled cadence of the repayment and GL captures,
+// exported so the Worker Hub can label the row from the same function the worker
+// schedules on instead of a literal that drifts. The core-banking row carried
+// "Every 1 min" for months while the sync ran every three.
+func RepaymentInterval() time.Duration { return repaymentInterval() }
+
+// lookbackDays reads CBS_REPAYMENT_LOOKBACK_DAYS, defaulting to
+// defaultLookbackDays — see the header for why a short window silently loses
+// repayments on this system. (This comment said "Default 45" long after the
+// default became 120.)
 func lookbackDays() int {
 	n := envInt("CBS_REPAYMENT_LOOKBACK_DAYS", defaultLookbackDays)
 	if n <= 0 {

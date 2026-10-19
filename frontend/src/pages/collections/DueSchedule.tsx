@@ -185,7 +185,7 @@ export default function CollectionsDueSchedule() {
 
   useEffect(() => { if (tab === 'week') loadDue() }, [tab, loadDue])
   useEffect(() => { if (tab === 'overdue' && overdue === null) loadOverdue() }, [tab, overdue, loadOverdue])
-  useLiveData(() => { if (tab === 'week') loadDue(true); else loadOverdue(true) }, { topics: ['collections', 'loans'] })
+  useLiveData(() => { if (tab === 'week') loadDue(true); else loadOverdue(true) }, { topics: ['collections', 'loans', 'repayments'] })
 
   // Per-day aggregates for the calendar.
   const byDay = useMemo(() => {

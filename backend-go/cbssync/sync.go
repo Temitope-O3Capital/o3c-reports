@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/o3c/workspace/core"
@@ -44,6 +45,79 @@ type Result struct {
 	CustomerMaster   int // Udara customer-master records mirrored into cbs_customers
 	ProfilesEnriched int // workspace profiles that gained contact detail from the master
 	CustomersLinked  int // Udara customers given a workspace party + crosswalk link this run
+
+	// Degraded names the post-commit steps that failed on an otherwise successful
+	// run. Everything after doSync's transaction — the customer master, enrichment,
+	// party linking, officer assignment, reconcile — is best-effort, and used to be
+	// logged at warn and then forgotten. So a run could report success while the
+	// officer attribution that feeds sales targets and commission had silently not
+	// happened. Recorded on the run row (cbs_sync_runs.degraded_steps, migration 375)
+	// rather than turned into a new status, because the freshness monitor reads
+	// status='ok' to mean "the book transaction committed" — which stays true.
+	Degraded []string
+}
+
+// degrade records a post-commit step that failed. Called everywhere a warn is logged
+// for a best-effort step, so that "this run did less than it claims" becomes a fact on
+// the row instead of a line in a log nobody greps.
+func (r *Result) degrade(step string) { r.Degraded = append(r.Degraded, step) }
+
+// ── Loan-schedule cadence ────────────────────────────────────────────────────
+//
+// The schedule walk is one serial GET per open loan, so it does not belong on the
+// book's three-minute tick. An amortisation table is written when a loan is disbursed
+// or restructured and is otherwise immutable, so half-hourly is already far more often
+// than it can change.
+//
+// In-process state, not a database column, on purpose: the gate only needs to stop ONE
+// sequential loop from doing expensive work every tick, there is exactly one such loop
+// in the process, and a restart re-running the walk once is harmless (it is idempotent
+// and guarded). A table would add a write and a failure mode to save nothing.
+const (
+	loanScheduleDefaultEvery = 30 * time.Minute
+	loanScheduleTimeout      = 10 * time.Minute
+)
+
+var (
+	loanScheduleMu   sync.Mutex
+	loanScheduleLast time.Time
+)
+
+// loanScheduleEvery reads CBS_SCHEDULE_INTERVAL; <=0 means "every sync", which is the
+// old behaviour and is still available for a one-off catch-up.
+func loanScheduleEvery() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("CBS_SCHEDULE_INTERVAL"))
+	if raw == "" {
+		return loanScheduleDefaultEvery
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		slog.Warn("cbs sync: bad CBS_SCHEDULE_INTERVAL, using default",
+			"value", raw, "default", loanScheduleDefaultEvery.String())
+		return loanScheduleDefaultEvery
+	}
+	return d
+}
+
+// loanScheduleDue reports whether the schedule walk is due, and how long it has been.
+// The first call after boot is always due, so a restart never skips it.
+func loanScheduleDue() (bool, time.Duration) {
+	every := loanScheduleEvery()
+	loanScheduleMu.Lock()
+	defer loanScheduleMu.Unlock()
+	if loanScheduleLast.IsZero() {
+		return true, 0
+	}
+	since := time.Since(loanScheduleLast)
+	return every <= 0 || since >= every, since
+}
+
+// markLoanScheduleRun is called only after a SUCCESSFUL walk, so a failure retries on
+// the next tick instead of waiting out the interval.
+func markLoanScheduleRun() {
+	loanScheduleMu.Lock()
+	loanScheduleLast = time.Now()
+	loanScheduleMu.Unlock()
 }
 
 // envelope is the standard Udara360 response wrapper: {"data":[...], "message":..., "status":...}.
@@ -77,13 +151,27 @@ func SyncAll(ctx context.Context, c *udara.Client, db *core.DB, kind string, tri
 		return res, err
 	}
 
+	// status stays 'ok' whenever the transaction committed, because that is exactly
+	// what the freshness monitor's 'cbs' arm reads it to mean. degraded_steps carries
+	// the post-commit steps that did NOT run, so a half-done sync is no longer
+	// indistinguishable from a clean one on the row. NULL when everything ran.
+	degraded := strings.Join(res.Degraded, ", ")
 	_, _ = db.PG.ExecContext(ctx,
 		`UPDATE cbs_sync_runs SET finished_at = NOW(), status = 'ok',
-		    products_n = $2, loans_n = $3, fds_n = $4, matched_n = $5, unmatched_n = $6
+		    products_n = $2, loans_n = $3, fds_n = $4, matched_n = $5, unmatched_n = $6,
+		    degraded_steps = NULLIF($7,'')
 		 WHERE id = $1`,
-		runID, res.Products, res.Loans, res.FDs, res.Matched, res.Unmatched)
-	slog.Info("cbs sync ok", "run_id", runID, "products", res.Products, "loans", res.Loans,
-		"fds", res.FDs, "matched", res.Matched, "unmatched", res.Unmatched)
+		runID, res.Products, res.Loans, res.FDs, res.Matched, res.Unmatched, degraded)
+	if degraded != "" {
+		// Error level rather than info: the book is fresh, but something people are
+		// measured on quietly did not happen — and the reason this is being recorded
+		// at all is that for as long as it was only a warn, nobody noticed.
+		slog.Error("cbs sync completed with steps degraded", "run_id", runID,
+			"degraded", degraded, "products", res.Products, "loans", res.Loans, "fds", res.FDs)
+	} else {
+		slog.Info("cbs sync ok", "run_id", runID, "products", res.Products, "loans", res.Loans,
+			"fds", res.FDs, "matched", res.Matched, "unmatched", res.Unmatched)
+	}
 	return res, nil
 }
 
@@ -134,11 +222,13 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	// books. Logged at Error so it is visible rather than silently stale.
 	if _, err := db.PG.ExecContext(ctx, `SELECT app.compute_fd_rollover_links()`); err != nil {
 		slog.Error("cbs sync: FD rollover lineage rebuild failed — counts are stale", "err", err)
+		res.degrade("FD rollover lineage")
 	}
 	// Same for loan restructures (migration 277): refreshLoans clears cbs_loans the same
 	// way, so which facility is an existing debt on new terms cannot be stored on it.
 	if _, err := db.PG.ExecContext(ctx, `SELECT app.compute_loan_restructure_links()`); err != nil {
 		slog.Error("cbs sync: loan restructure lineage rebuild failed — counts are stale", "err", err)
+		res.degrade("loan restructure lineage")
 	}
 
 	res.Products, res.Loans, res.FDs = len(products), len(loans), len(fds)
@@ -150,9 +240,11 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	// atomic loan/FD refresh, so a customer-endpoint hiccup never breaks the money sync.
 	if custRows, err := fetchCustomers(ctx, c); err != nil {
 		slog.Warn("cbs customer master fetch failed", "err", err)
+		res.degrade("customer master fetch")
 	} else if len(custRows) > 0 {
 		if n, err := refreshCBSCustomers(ctx, db, custRows); err != nil {
 			slog.Warn("cbs customer master upsert failed", "err", err)
+			res.degrade("customer master upsert")
 		} else {
 			res.CustomerMaster = n
 			// Give every Udara customer a workspace party (CUST) + crosswalk link, so a
@@ -161,6 +253,7 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 			// (see app.link_cbs_customers, migration 227).
 			if linked, err := linkCBSCustomers(ctx, db); err != nil {
 				slog.Warn("cbs customer linking failed", "err", err)
+				res.degrade("party linking")
 			} else if linked > 0 {
 				res.CustomersLinked = linked
 				slog.Info("cbs sync linked customers to parties", "count", linked)
@@ -170,6 +263,7 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 			// cif join (Udara customerID and the card-feed cif are different namespaces).
 			if enr, err := enrichCustomersFromCBS(ctx, db); err != nil {
 				slog.Warn("cbs profile enrichment failed", "err", err)
+				res.degrade("profile enrichment")
 			} else {
 				res.ProfilesEnriched = enr
 			}
@@ -184,10 +278,12 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	// customer.
 	if created, err := upsertUdaraCustomers(ctx, db); err != nil {
 		slog.Warn("cbs customer upsert failed", "err", err)
+		res.degrade("customer profile upsert")
 	} else if created > 0 {
 		res.CustomersCreated = created
 		if _, err := db.PG.ExecContext(ctx, `SELECT app.assign_parties()`); err != nil {
 			slog.Warn("assign_parties after cbs customer upsert failed", "err", err)
+			res.degrade("assign_parties")
 		}
 		slog.Info("cbs sync created customer profiles", "count", created)
 	}
@@ -197,6 +293,7 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	// manual assignment is never overwritten — so this is safe to run every sync.
 	if assigned, err := assignCBSOfficers(ctx, db); err != nil {
 		slog.Warn("cbs officer assignment failed", "err", err)
+		res.degrade("officer assignment")
 	} else if assigned > 0 {
 		res.OfficersAssigned = assigned
 		slog.Info("cbs sync assigned account officers", "count", assigned)
@@ -207,17 +304,44 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	// paymentSchedules null, so this pulls each non-closed loan's schedule separately.
 	// Best-effort and self-contained: isolated from the atomic refresh above, so a
 	// schedule-fetch failure never breaks the loan/FD sync.
-	if n, err := syncLoanSchedules(ctx, c, db, loans); err != nil {
-		// A fetch/DB hiccup stays best-effort, but a guard refusal is a data-integrity
-		// event: it means this run would have destroyed the schedule book, and it must
-		// surface as an 'error' run rather than a green 'ok'. Nothing was deleted — the
-		// transaction rolled back — so the existing snapshot is intact.
-		if errors.Is(err, errBookShrank) {
-			return res, err
-		}
-		slog.Warn("cbs loan schedule sync failed", "err", err)
+	//
+	// RATE-LIMITED, AND ON ITS OWN DEADLINE. This issues one serial GET per non-closed
+	// loan. At 59 loans that is already the slowest thing in the sync — runs average
+	// 40s but peak at 299s against a 180s interval — and it was running every three
+	// minutes for a table that only changes when a loan is disbursed or restructured:
+	// roughly 28,000 requests a day to re-fetch yesterday's amortisation tables.
+	//
+	// Worse, it shared the sync's 5-minute context. A deadline landing mid-walk
+	// returns a SHORT schedule set, which trips the shrink guard, which is promoted to
+	// a failed run — and that is exactly the one guard refusal in the production
+	// history: "loan schedules fetch returned 0 rows while the snapshot holds 223".
+	// The guard was right and the cause was our own timeout, not Udara.
+	//
+	// So: its own context, so a slow walk cannot be killed by the parent's remaining
+	// budget, and a cadence gate so it runs on the half hour rather than every tick.
+	// Both are deliberately generous — this is the piece that breaks first as the book
+	// grows, and it is the piece least in a hurry.
+	if due, since := loanScheduleDue(); !due {
+		slog.Debug("cbs loan schedules skipped (not due)", "since_last", since.String())
 	} else {
-		slog.Info("cbs loan schedules synced", "installments", n)
+		schedCtx, schedCancel := context.WithTimeout(context.Background(), loanScheduleTimeout)
+		n, err := syncLoanSchedules(schedCtx, c, db, loans)
+		schedCancel()
+		if err != nil {
+			// A fetch/DB hiccup stays best-effort, but a guard refusal is a
+			// data-integrity event: it means this run would have destroyed the
+			// schedule book, and it must surface as an 'error' run rather than a
+			// green 'ok'. Nothing was deleted — the transaction rolled back — so the
+			// existing snapshot is intact.
+			if errors.Is(err, errBookShrank) {
+				return res, err
+			}
+			slog.Warn("cbs loan schedule sync failed", "err", err)
+			res.degrade("loan schedules")
+		} else {
+			markLoanScheduleRun()
+			slog.Info("cbs loan schedules synced", "installments", n)
+		}
 	}
 
 	// Reconcile against workspace records (best-effort; unmatched are surfaced, not forced).
@@ -592,31 +716,26 @@ func Probe(ctx context.Context, c *udara.Client) map[string]any {
 // record — plus a swagger/openapi discovery check. Read-only. This answers "what
 // data can we actually get from Udara, and how much of each?"
 func ProbeAll(ctx context.Context, c *udara.Client) map[string]any {
+	// THE REAL SURFACE, not a wish list. This was 24 candidates of which 21 do not
+	// exist — guesses from before the API had been mapped, kept for so long that the
+	// Udara funnel audit of 2026-10-19 had to re-derive which were fiction. A probe
+	// whose output is mostly 404 teaches nobody anything and invites somebody to plan
+	// against an endpoint that was never there.
+	//
+	// What actually answers: the five Search endpoints, plus the per-loan schedule and
+	// the call-over report, which are not Search-shaped and so are listed separately
+	// below. Removed as confirmed-absent: Customer, CustomerAccount, Account/Search,
+	// SavingsAccount, CurrentAccount, TermDepositAccount, DepositAccount, Transaction,
+	// AccountTransaction, AccountStatement, Branch, GLAccount, GeneralLedger, Teller,
+	// Loan, LoanRepayment, RepaymentSchedule, Collateral, Guarantor, User, Staff.
+	//
+	// If the vendor adds something, add it here WITH the probe result that proved it.
 	endpoints := []string{
-		"/api/Customer/v1/Search",
-		"/api/CustomerAccount/v1/Search",
-		"/api/Account/v1/Search",
-		"/api/SavingsAccount/v1/Search",
-		"/api/CurrentAccount/v1/Search",
 		"/api/LoanAccount/v1/Search",
 		"/api/FixedDepositAccount/v1/Search",
-		"/api/TermDepositAccount/v1/Search",
-		"/api/DepositAccount/v1/Search",
-		"/api/Transaction/v1/Search",
-		"/api/AccountTransaction/v1/Search",
-		"/api/AccountStatement/v1/Search",
+		"/api/Account/v1/SearchIndividualCustomers",
+		"/api/Account/v1/SearchGroupCustomers",
 		"/api/Product/v1/SearchProducts",
-		"/api/Branch/v1/Search",
-		"/api/GLAccount/v1/Search",
-		"/api/GeneralLedger/v1/Search",
-		"/api/Teller/v1/Search",
-		"/api/Loan/v1/Search",
-		"/api/LoanRepayment/v1/Search",
-		"/api/RepaymentSchedule/v1/Search",
-		"/api/Collateral/v1/Search",
-		"/api/Guarantor/v1/Search",
-		"/api/User/v1/Search",
-		"/api/Staff/v1/Search",
 	}
 	out := map[string]any{}
 	for _, p := range endpoints {

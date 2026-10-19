@@ -188,7 +188,7 @@ export default function CollectionsPortfolio() {
   }, [dq, scope])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans','repayments'] })
 
   // Collection agents for the bulk-assign picker.
   useEffect(() => {

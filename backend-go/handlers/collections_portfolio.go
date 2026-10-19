@@ -163,6 +163,23 @@ WITH assign AS (
            -- amount-and-party test below, which cannot fire at all on the many uploaded
            -- rows carrying no party_id. It is checked first; the original test stays as
            -- a fallback so nothing already deduplicated on this page can regress.
+           --
+           -- AUDITED 2026-10-19 AND DELIBERATELY LEFT ALONE. The amount-and-party test
+           -- is unbounded: N uploaded rows of the same amount on one party are all
+           -- suppressed by a SINGLE Udara facility of that amount, so in principle a
+           -- genuine second facility can vanish. Measured against the live book before
+           -- touching it: 14 party+amount groups match a Udara facility, 13 of them
+           -- one-to-one, and the only group with two uploaded rows (party 708783,
+           -- 5,000,000.00) holds two IDENTICAL rows — same account_cif, same mandate
+           -- reference, both closed. They are one loan uploaded twice, so suppressing
+           -- both is right.
+           --
+           -- Bounding the test by rank (suppress only as many uploaded rows as there
+           -- are matching facilities) would therefore un-suppress that second row and
+           -- CREATE a 5,000,000.00 double-count today, to protect against a case the
+           -- book does not contain. Re-run the measurement before changing it: the
+           -- query is in the Udara funnel audit, and the signal to watch for is a
+           -- party+amount group whose uploaded rows differ from each other.
            (u.duplicate_of_cbs_id IS NOT NULL
             OR EXISTS (SELECT 1 FROM cbs_loans cl2
                       JOIN udara_owner o2 ON o2.cbs_customer_id = cl2.cbs_customer_id

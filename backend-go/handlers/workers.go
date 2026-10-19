@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/o3c/workspace/cbssync"
 	"github.com/o3c/workspace/core"
 )
 
@@ -64,8 +65,26 @@ type workerDef struct {
 
 var workerRegistry = []workerDef{
 	// ── Data syncs (external system → our DB) ──
-	{"cbs", "Udara · Core Banking", "Data Sync", "Every 1 min",
-		"Spools the Udara360 loan, fixed-deposit and product books into the snapshot tables.", "cbs", "/api/cbs/sync"},
+	// Cadence is read from the same function the worker schedules on, and the manual
+	// trigger is gone: POST /api/cbs/sync was removed because it shared no lock with
+	// the scheduler and both delete-then-insert the same two tables. See the note in
+	// handlers/cbs_sync.go.
+	{"cbs", "Udara · Core Banking", "Data Sync", cadenceLabel(cbsSyncInterval()),
+		"Spools the Udara360 loan, fixed-deposit and product books into the snapshot tables. Polls on a fixed interval; there is no manual run.", "cbs", ""},
+	// ── Udara money capture ──
+	// These three wrote heartbeats from the day they were built and had no registry
+	// row, so the page that exists to show whether a worker is alive did not list
+	// them. They are the jobs behind the branch P&L, the balance sheet, the cash flow
+	// statement and every collections figure, and their failure mode is reporting
+	// "0 new" for ever — which here is indistinguishable from a quiet week, because
+	// Udara publishes a posting a median of 5-7 days after its value date. Migration
+	// 375 registers the matching freshness sources so the silence is alarmed too.
+	{"cbs_repayment_capture", "Udara · Repayment Capture", "Data Sync", cadenceLabel(cbssync.RepaymentInterval()),
+		"Walks Udara's transaction call-over report and records loan repayment legs and journal receipts. Captures hourly, but Udara publishes a posting days after its value date, so the newest weeks always fill in later.", "heartbeat", ""},
+	{"cbs_gl_postings_capture", "Udara · GL Postings Capture", "Data Sync", cadenceLabel(cbssync.RepaymentInterval()),
+		"Records every leg of both sides of the Udara general ledger. Feeds the branch P&L, the balance sheet and the cash flow statement.", "heartbeat", ""},
+	{"blink_fx_parse", "Blink FX Events", "Data Sync", "Hourly",
+		"Derives currency-exchange events from GL postings already captured, so it can never be fresher than the postings themselves.", "heartbeat", ""},
 	{"customer_feed", "Customer Feed · cust_file", "Data Sync", "Every 15 min",
 		"Ingests the cust_file drops into the customer master — where new customers come from.", "customer_feed", "/api/customer-feed/ingest"},
 	{"feed_accounts", "Account Feed · acct_file", "Data Sync", "Every 15 min",
@@ -206,11 +225,46 @@ func cadenceSecs(cadence string) int {
 		return 21600
 	case "Continuous":
 		return 90
+	case "Disabled":
+		return 0
 	default:
 		if len(cadence) >= 5 && cadence[:5] == "Daily" {
 			return 86400
 		}
+		// Labels produced by cadenceLabel have to round-trip, or a worker whose
+		// interval comes from configuration renders no countdown at all. Parsed
+		// rather than enumerated so that changing an interval never needs a second
+		// edit here — which is how the core-banking row claimed "Every 1 min" while
+		// the sync actually ran every three.
+		var n int
+		if _, err := fmt.Sscanf(cadence, "Every %d min", &n); err == nil && n > 0 {
+			return n * 60
+		}
+		if _, err := fmt.Sscanf(cadence, "Every %d sec", &n); err == nil && n > 0 {
+			return n
+		}
+		if _, err := fmt.Sscanf(cadence, "Every %dh", &n); err == nil && n > 0 {
+			return n * 3600
+		}
 		return 0 // On demand / Always on
+	}
+}
+
+// cadenceLabel renders a worker's real interval as a Hub cadence string. Pair it with
+// the very function the worker calls — never with a literal — so that the page and the
+// scheduler cannot drift apart.
+func cadenceLabel(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return "Disabled"
+	case d < time.Minute:
+		return fmt.Sprintf("Every %d sec", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("Every %d min", int(d.Minutes()))
+	case d == time.Hour:
+		return "Hourly"
+	default:
+		return fmt.Sprintf("Every %dh", int(d.Hours()))
 	}
 }
 
@@ -238,10 +292,18 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 		}
 
 		cbs := map[string]st{}
-		if rows, _ := db.PGQuery(ctx, `SELECT status, COALESCE(finished_at, started_at) AS last_run, error, products_n, loans_n, fds_n
+		if rows, _ := db.PGQuery(ctx, `SELECT status, COALESCE(finished_at, started_at) AS last_run, error, products_n, loans_n, fds_n, degraded_steps
 			FROM cbs_sync_runs ORDER BY id DESC LIMIT 1`); len(rows) > 0 {
 			x := rows[0]
 			d := "products " + str(x["products_n"]) + " · loans " + str(x["loans_n"]) + " · FDs " + str(x["fds_n"])
+			// A run whose transaction committed but whose post-commit steps did not
+			// is 'ok' on the row by design (the freshness monitor reads status='ok'
+			// to mean the book refreshed). Say so in the detail, or the Hub shows a
+			// clean green row for a sync that skipped the officer attribution that
+			// feeds sales targets. See migration 375.
+			if ds := str(x["degraded_steps"]); ds != "" {
+				d += " · did NOT run: " + ds
+			}
 			cbs["cbs"] = st{norm(str(x["status"])), tsPtr(x["last_run"]), tsPtr(x["last_run"]), strPtr(x["error"]), &d}
 		}
 		feed := map[string]st{}

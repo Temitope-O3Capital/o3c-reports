@@ -46,6 +46,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -55,8 +56,8 @@ import (
 )
 
 const (
-	glPostingsPageSize = 500
-	glPostingsMaxPages = 60
+	glPostingsPageSize  = 500
+	glPostingsMaxPages  = 60
 	glPostingsWorkerKey = "cbs_gl_postings_capture"
 )
 
@@ -380,6 +381,25 @@ func glPostingsBeat(ctx context.Context, db *core.DB, phase, detail, errStr stri
 	}
 }
 
+// glPostingsInterval reads CBS_GL_POSTINGS_INTERVAL, falling back to the repayment
+// capture's interval (CBS_REPAYMENT_INTERVAL, default 1h) when it is unset.
+//
+// It used to ignore CBS_GL_POSTINGS_INTERVAL entirely and just return
+// repaymentInterval(), while the disable log line in StartGLPostingsWorker names that
+// very variable as the thing to set — so the one documented way to turn this worker
+// off did nothing at all, silently. Either wire the knob or stop advertising it. This
+// wires it: the two captures walk the same report, and being able to slow or stop one
+// without the other is the obvious thing to want when Udara is timing out.
 func glPostingsInterval() time.Duration {
-	return repaymentInterval() // same knob family; CBS_REPAYMENT_INTERVAL governs both
+	raw := strings.TrimSpace(os.Getenv("CBS_GL_POSTINGS_INTERVAL"))
+	if raw == "" {
+		return repaymentInterval()
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		slog.Warn("cbs gl postings capture: bad CBS_GL_POSTINGS_INTERVAL, falling back to the repayment interval",
+			"value", raw, "err", err)
+		return repaymentInterval()
+	}
+	return d
 }

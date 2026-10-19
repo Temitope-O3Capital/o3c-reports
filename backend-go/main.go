@@ -210,13 +210,33 @@ func main() {
 	// cbssync/gl_postings.go.
 	go cbssync.StartGLPostingsWorker(cbsClient, db)
 	// Blink FX event parsing reads cbs_gl_postings (the sync above), so it runs after a
-	// longer settle delay and on the same cadence — cheap and idempotent, no separate
-	// heartbeat/backfill story needed (see cbssync/blink_fx_parse.go).
+	// longer settle delay and on the same cadence — cheap and idempotent (see
+	// cbssync/blink_fx_parse.go).
+	//
+	// It DOES need a heartbeat, contrary to what this comment used to say. Cheap and
+	// idempotent means a failure costs nothing to retry; it does not mean a failure is
+	// VISIBLE. Without a beat this loop could fail every hour for a month with only a
+	// log line to show it, while app.blink_fx_events quietly stopped — and the Worker
+	// Hub listed nothing for it at all. Migration 375 registers a freshness source for
+	// these events, and that source needs a run timestamp to measure, so the key here
+	// matches the one the migration and the registry use.
 	go func() {
 		time.Sleep(4 * time.Minute)
 		for {
-			if _, err := cbssync.ParseBlinkFXEvents(context.Background(), db); err != nil {
+			ctx := context.Background()
+			handlers.WorkerBeat(ctx, db, "blink_fx_parse", "running", "", "")
+			res, err := cbssync.ParseBlinkFXEvents(ctx, db)
+			if err != nil {
 				slog.Error("blink fx parse failed", "err", err)
+				handlers.WorkerBeat(ctx, db, "blink_fx_parse", "error", "", err.Error())
+			} else {
+				// Scanned-vs-captured, in the same shape as the capture workers'
+				// detail line: a run that scans plenty and captures nothing is the
+				// signature of a narration format change, and no threshold on the
+				// events table can see that.
+				handlers.WorkerBeat(ctx, db, "blink_fx_parse", "ok",
+					fmt.Sprintf("%d posting(s) scanned, %d rate(s) parsed, %d captured, %d skipped",
+						res.PostingsScanned, res.RatesFound, res.Captured, res.Skipped), "")
 			}
 			time.Sleep(time.Hour)
 		}
