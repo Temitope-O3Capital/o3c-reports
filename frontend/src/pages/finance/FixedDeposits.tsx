@@ -42,6 +42,24 @@ interface LadderBucket { bucket: string; count: number; principal_kobo: number; 
 interface TrendPoint { date: string; active_count: number; principal_kobo: number; ledger_kobo: number }
 // /api/fd-book/by-product → WRAPPED array
 interface ProductRow { product: string; count: number; principal_kobo: number; accrued_interest_kobo: number; avg_rate: number; annual_interest_kobo: number }
+// /api/fd-book/by-officer → WRAPPED array. Built, correct, and called by nothing until
+// now. It aggregates the book per relationship officer through app.v_fd_officer, the
+// resolver that honours account- and party-level corrections — never cbs_officer_map
+// directly, where repointing a NAME would move every record that officer holds.
+// /api/fd-book/kpis has also been returning officer_count and unmapped_officer_count
+// that no screen rendered, so the page was already paying for officer data it discarded.
+interface OfficerRow {
+  officer: string
+  officer_user_id: number | null
+  count: number
+  unique_customers: number
+  principal_kobo: number
+  accrued_interest_kobo: number
+  avg_rate: number
+  maturing_30d_count: number
+  maturing_30d_kobo: number
+  past_due_count: number
+}
 // /api/fd-book/tenor-distribution → WRAPPED array
 interface TenorBucket { bucket: string; count: number; principal_kobo: number }
 // /api/cbs/reports/fd-book → BARE object { summary, by_status, by_product,
@@ -127,6 +145,39 @@ const PRODUCT_COLS: TableCol<ProductRow>[] = [
   { key: 'annual_interest_kobo', label: 'Annual Interest', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: AMBER }}>{fmtKoboExact(r.annual_interest_kobo)}</span> },
 ]
 
+const OFFICER_COLS: TableCol<OfficerRow>[] = [
+  {
+    key: 'officer', label: 'Officer',
+    // An officer the resolver could not name is shown as itself, not folded into a
+    // total. The deposits page has an Officer Corrections tab precisely because this
+    // mapping needs fixing by hand, and a blank here is the prompt to go and do it.
+    render: r => r.officer
+      ? <span style={{ fontWeight: FW.medium }}>{r.officer}</span>
+      : <span style={{ color: AMBER, fontWeight: FW.medium }}>Unmapped</span>,
+  },
+  { key: 'count', label: 'Deposits', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtCount(r.count)}</span> },
+  { key: 'unique_customers', label: 'Customers', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtCount(r.unique_customers)}</span> },
+  { key: 'principal_kobo', label: 'Principal', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(r.principal_kobo)}</span> },
+  { key: 'avg_rate', label: 'Avg Rate', align: 'right', render: r => <span style={NUM}>{fmtPct(r.avg_rate)}</span> },
+  {
+    // Two numbers that make this a working list rather than a league table: what is
+    // about to mature on this officer's book, and what has already run past its date.
+    key: 'maturing_30d_kobo', label: 'Maturing 30d', align: 'right', sortable: true,
+    render: r => (
+      <div style={{ minWidth: 0 }}>
+        <div style={NUM}>{fmtKoboExact(r.maturing_30d_kobo)}</div>
+        <div style={{ ...NUM, fontSize: 11, color: 'var(--txt3)' }}>{fmtCount(r.maturing_30d_count)} deposits</div>
+      </div>
+    ),
+  },
+  {
+    key: 'past_due_count', label: 'Past Due', align: 'right', sortable: true,
+    render: r => Number(r.past_due_count) > 0
+      ? <span style={{ ...NUM, color: AMBER, fontWeight: FW.semibold }}>{fmtCount(r.past_due_count)}</span>
+      : <span style={{ ...NUM, color: 'var(--txt3)' }}>0</span>,
+  },
+]
+
 type TabKey = 'overview' | 'register' | 'accrual' | 'officers'
 const TAB_KEYS: TabKey[] = ['overview', 'register', 'accrual', 'officers']
 const isTabKey = (v: string | null): v is TabKey => !!v && (TAB_KEYS as string[]).includes(v)
@@ -170,6 +221,7 @@ export default function FixedDeposits() {
   const [ladder, setLadder] = useState<LadderBucket[]>([])
   const [trend, setTrend] = useState<TrendPoint[]>([])
   const [byProduct, setByProduct] = useState<ProductRow[]>([])
+  const [byOfficer, setByOfficer] = useState<OfficerRow[]>([])
   const [tenor, setTenor] = useState<TenorBucket[]>([])
 
   const [loading, setLoading] = useState(true)
@@ -188,18 +240,20 @@ export default function FixedDeposits() {
   const loadOverview = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [k, l, t, p, tn] = await Promise.all([
+      const [k, l, t, p, tn, o] = await Promise.all([
         apiFetch('/api/fd-book/kpis'),
         apiFetch('/api/fd-book/maturity-ladder'),
         apiFetch('/api/fd-book/book-trend'),
         apiFetch('/api/fd-book/by-product'),
         apiFetch('/api/fd-book/tenor-distribution'),
+        apiFetch('/api/fd-book/by-officer'),
       ])
       setKpis(unwrap<FDKpis>(k))
       setLadder(unwrapList<LadderBucket>(l))
       setTrend(unwrapList<TrendPoint>(t))
       setByProduct(unwrapList<ProductRow>(p))
       setTenor(unwrapList<TenorBucket>(tn))
+      setByOfficer(unwrapList<OfficerRow>(o))
     } catch (e: any) {
       setError(e?.message || 'Failed to load deposit book')
     } finally {
@@ -313,6 +367,27 @@ export default function FixedDeposits() {
 
           <SectionCard title="Book by Product" subtitle="Active deposits split by FD product" padding={false}>
             <DataTable cols={PRODUCT_COLS} rows={byProduct} keyFn={(r, i) => r.product ?? i} loading={loading} emptyText="No Products in the Deposit Book" pageSize={10} />
+          </SectionCard>
+
+          {/* Book by officer. The endpoint for this has existed and been correct for as
+              long as the page has, and nothing called it — the officer view was being
+              recomputed client-side from the register instead. Officers are resolved
+              through app.v_fd_officer, so an account- or party-level correction made on
+              the Officers tab shows up here rather than Udara's raw name winning. */}
+          <SectionCard
+            title="Book by Officer"
+            subtitle="Active deposits by relationship officer, with what is maturing on each book"
+            padding={false}
+            style={{ marginTop: SP[5] }}
+          >
+            <DataTable
+              cols={OFFICER_COLS}
+              rows={byOfficer}
+              keyFn={(r, i) => (r.officer_user_id ?? r.officer ?? i)}
+              loading={loading}
+              emptyText="No Officers on the Deposit Book"
+              pageSize={10}
+            />
           </SectionCard>
         </>
       )}

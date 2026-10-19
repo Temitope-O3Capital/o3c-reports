@@ -29,7 +29,6 @@ func RegisterRisk(r chi.Router, db *core.DB) {
 
 	// PortfolioHealth
 	r.With(access).Get("/portfolio-kpis", riskPortfolioKPIs(db))
-	r.With(access).Get("/par-trend", riskPARTrend(db))
 	r.With(access).Get("/band-distribution", riskBandDistribution(db))
 	r.With(access).Get("/dpd-distribution", riskDpdDistribution(db))
 	r.With(access).Get("/disbursements", riskDisbursements(db))
@@ -828,43 +827,16 @@ func riskEmptyPortfolioKPIs() map[string]any {
 	}
 }
 
-func riskPARTrend(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// PAR trend over the live CBS book, bucketed by disbursement month (start_date).
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-				TO_CHAR(DATE_TRUNC('month', start_date), 'Mon YYYY') AS month,
-				DATE_TRUNC('month', start_date) AS _sort,
-				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 30), 0) AS par30_kobo,
-				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 60), 0) AS par60_kobo,
-				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 90), 0) AS par90_kobo
-			FROM (
-				SELECT start_date, outstanding_principal_kobo,
-				       `+cbsLoanDPDBare+` AS dpd
-				FROM cbs_loans
-				WHERE status NOT IN ('Closed','Revoked')
-				  AND start_date >= NOW() - INTERVAL '13 months'
-			) la
-			GROUP BY DATE_TRUNC('month', start_date)
-			ORDER BY _sort`)
-		if err != nil {
-			if originationMissing(err) {
-				respond(w, []core.Row{}, "pg")
-				return
-			}
-			respondErrLog(w, 500, "Query failed", err)
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		// Drop internal sort column before returning
-		for _, row := range rows {
-			delete(row, "_sort")
-		}
-		respond(w, rows, "pg")
-	}
-}
+// riskPARTrend was RETIRED on 2026-10-19. It bucketed each loan's CURRENT delinquency
+// by its ORIGINATION month over thirteen months, which answers a question nobody asks
+// and, on a 59-loan book, leaves most months empty — riskDpdDistribution's own comment
+// below already says a PAR trend bucketed that way "reads as broken".
+//
+// It was not merely unwired, it was deliberately replaced: commit 718b1c2 put a PAR
+// Trend chart on risk/Overview.tsx using this endpoint, and 2815961 swapped it
+// line-for-line for /api/risk/dpd-distribution, which is what the page shows today.
+// Re-wiring it would reintroduce a chart that was removed for looking broken, so the
+// handler goes rather than waiting to be rediscovered as "finished work going spare".
 
 func riskBandDistribution(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

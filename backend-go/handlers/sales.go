@@ -78,7 +78,6 @@ func RegisterSales(r chi.Router, db *core.DB) {
 		r.Get("/by-state", salesByState(db))
 		r.Get("/by-city", salesByCity(db))
 		r.Get("/manager-performance", salesManagerPerformance(db))
-		r.Get("/product-mix", salesProductMix(db))
 		r.Get("/customers", salesCustomers(db))
 
 		// Sales Targets (Wave 5G)
@@ -893,19 +892,11 @@ func salesManagerPerformance(db *core.DB) http.HandlerFunc {
 	}
 }
 
-func salesProductMix(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data, src, err := db.DualQuery(r.Context(),
-			`SELECT product_name AS "Product Name", COUNT(*) AS total,
-			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active
-			 FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY total DESC`)
-		if err != nil {
-			respondErrLog(w, 500, "Query failed", err)
-			return
-		}
-		respond(w, data, src)
-	}
-}
+// salesProductMix was RETIRED on 2026-10-19 as the third copy of one query.
+// /api/cards/by-product is a strict superset — it carries the canonical catalogue name
+// and the product_category family as well as the count — and cards/Overview.tsx already
+// renders it; /api/cards/by-status covers the open/active split this added. The same
+// SQL also lived inside executiveSummary's breakdowns, which is retired above.
 
 func salesCustomers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

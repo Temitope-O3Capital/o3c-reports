@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 
 func RegisterExecutive(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("executive"))
-	r.Get("/summary", executiveSummary(db))
 	r.Get("/cards", execCardsHandler(db))
 	// Finance drilldown removed from the executive area 2026-08-26 (handler retained,
 	// unrouted). The Finance department module at /finance is unaffected.
@@ -2139,243 +2137,22 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 
 // ── Executive summary ─────────────────────────────────────────────────────────
 
-func executiveSummary(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, ps, pe, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+// executiveSummary was RETIRED on 2026-10-19, for two reasons either of which is
+// sufficient.
+//
+// It is superseded. Commit 0baacdc replaced this one coarse call on pages/Overview.tsx
+// with granular ones, and every component it returned is now fetched independently:
+// /api/executive/collections, /api/executive/recovery, /api/overview/growth,
+// /api/overview/monthly-volume, /api/overview/product-mix, /api/overview/top-performers.
+//
+// And it reads the WRONG SOURCE. Despite sitting among the core-banking endpoints it
+// never touched Udara: it read the legacy sheet mirrors "Collections Log", "Recovery
+// Master Sheet", app.transactions and app.accounts, while its replacement
+// /api/overview/product-mix reads cbs_loans and cbs_fixed_deposits. Wiring it back
+// would have put sheet-era figures beside live core-banking ones on one screen, which
+// is worse than the screen being dark. It also built roughly twenty queries per
+// request with interpolated dates.
 
-		var sources []string
-		// scalar helper
-		sc := func(pgQ string) float64 {
-			val, src, e := db.DualScalar(r.Context(), "val", pgQ)
-			if e == nil {
-				sources = append(sources, src)
-				return toFloat(val)
-			}
-			return 0
-		}
-		// query helper
-		qh := func(pgQ string) []core.Row {
-			rows, src, e := db.DualQuery(r.Context(), pgQ)
-			if e == nil {
-				sources = append(sources, src)
-				return rows
-			}
-			return nil
-		}
-
-		// ── Collections ───────────────────────────────────────────────────────
-		collCurr := sc(
-			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
-		collPrev := sc(
-			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
-		collCountCurr := sc(
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
-
-		// ── Recovery ─────────────────────────────────────────────────────────
-		recCurr := sc(
-			fmt.Sprintf(`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE "Recovery Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
-		recPrev := sc(
-			fmt.Sprintf(`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE "Recovery Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
-
-		// ── Transactions ──────────────────────────────────────────────────────
-		txnVolCurr := sc(
-			fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
-		txnVolPrev := sc(
-			fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
-		txnCntCurr := sc(
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
-		txnCntPrev := sc(
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
-		var avgTxn float64
-		if txnCntCurr > 0 {
-			avgTxn = round1(txnVolCurr / txnCntCurr)
-		}
-
-		// ── Customer acquisition ──────────────────────────────────────────────
-		newCurr := sc(
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE f.fc BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
-		newPrev := sc(
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE f.fc BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
-		totalCustomers := sc(
-			`SELECT COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS val FROM app.customers`)
-		activeCards := sc(
-			`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')`)
-		totalCards := sc(
-			`SELECT COUNT(*) AS val FROM app.accounts`)
-		var activationRate float64
-		if totalCards > 0 {
-			activationRate = round1(activeCards / totalCards * 100)
-		}
-
-		// ── All-time recovery rate ─────────────────────────────────────────────
-		totalRecoveredAll := sc(
-			`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet"`)
-		totalCollectedAll := sc(
-			`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log"`)
-		var recoveryRatePct float64
-		if totalCollectedAll > 0 {
-			recoveryRatePct = round1(totalRecoveredAll / totalCollectedAll * 100)
-		}
-
-		statesCount := sc(
-			`SELECT COUNT(DISTINCT state) AS val FROM app.customers WHERE state IS NOT NULL AND state!=''`)
-
-		// ── Trends (last 12 months) ───────────────────────────────────────────
-		collTrend := qh(
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Date") AS sort_key, COALESCE(SUM("Amount"),0) AS collections, COUNT(*) AS count FROM "Collections Log" WHERE "Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Date") ORDER BY sort_key`)
-		recTrend := qh(
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Recovery Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Recovery Date") AS sort_key, COALESCE(SUM("Recovery Amount"),0) AS recovery FROM "Recovery Master Sheet" WHERE "Recovery Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY sort_key`)
-		txnTrend := qh(
-			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month, DATE_TRUNC('month',txn_date) AS sort_key, COALESCE(SUM(amount),0) AS volume, COUNT(*) AS txn_count FROM app.transactions WHERE txn_date >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',txn_date) ORDER BY sort_key`)
-		acqTrend := qh(
-			`SELECT TO_CHAR(DATE_TRUNC('month',account_created),'Mon YYYY') AS month, DATE_TRUNC('month',account_created) AS sort_key, COUNT(*) AS new_accounts FROM (SELECT COALESCE('p'||party_id,'c'||contact_id) pk, MIN(account_created) AS account_created FROM app.customers GROUP BY 1) f WHERE account_created >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',account_created) ORDER BY sort_key`)
-
-		// ── Breakdowns ────────────────────────────────────────────────────────
-		topStates := qh(
-			// Grouped on core.clean_state(), not the raw column: LAGOS/Lagos/LAGOS STATE
-			// were three separate rows in this top-10, and ABUJA/FCT/FCT ABUJA/
-			// Federal Capital Territory were four — so the chart was splitting single
-			// states across several bars and cutting real ones off at the limit.
-			// NULL from clean_state means foreign or unusable, which is excluded here
-			// exactly as the old state!='' did. See migration 237.
-			`SELECT core.clean_state(state) AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers WHERE core.clean_state(state) IS NOT NULL GROUP BY 1 ORDER BY count DESC LIMIT 10`)
-		productMix := qh(
-			`SELECT product_name AS "Product Name", COUNT(*) AS count FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
-		topAgents := qh(
-			fmt.Sprintf(`SELECT "Agent", COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s' AND "Agent" IS NOT NULL AND "Agent"!='' GROUP BY "Agent" ORDER BY total DESC LIMIT 10`, d(cs), d(ce)))
-
-		// ── Merge trends by month ─────────────────────────────────────────────
-		collByMonth := map[string]core.Row{}
-		for _, row := range collTrend {
-			collByMonth[str(row["month"])] = row
-		}
-		recByMonth := map[string]core.Row{}
-		for _, row := range recTrend {
-			recByMonth[str(row["month"])] = row
-		}
-		txnByMonth := map[string]core.Row{}
-		for _, row := range txnTrend {
-			txnByMonth[str(row["month"])] = row
-		}
-		// Build month→ISO-date-string index for chronological sorting.
-		// sort_key from SQL is the first-of-month date; "2006-01-02" sorts correctly as string.
-		monthSortKey := map[string]string{}
-		for _, src := range [][]core.Row{collTrend, recTrend, txnTrend} {
-			for _, row := range src {
-				m := str(row["month"])
-				if _, seen := monthSortKey[m]; seen {
-					continue
-				}
-				switch v := row["sort_key"].(type) {
-				case time.Time:
-					monthSortKey[m] = v.Format("2006-01-02")
-				case string:
-					monthSortKey[m] = v
-				}
-			}
-		}
-		allMonths := make(map[string]bool)
-		for m := range collByMonth {
-			allMonths[m] = true
-		}
-		for m := range recByMonth {
-			allMonths[m] = true
-		}
-		for m := range txnByMonth {
-			allMonths[m] = true
-		}
-		monthKeys := make([]string, 0, len(allMonths))
-		for m := range allMonths {
-			monthKeys = append(monthKeys, m)
-		}
-		sort.Slice(monthKeys, func(i, j int) bool {
-			return monthSortKey[monthKeys[i]] < monthSortKey[monthKeys[j]]
-		})
-
-		mergedTrend := make([]map[string]any, 0, len(monthKeys))
-		for _, m := range monthKeys {
-			mergedTrend = append(mergedTrend, map[string]any{
-				"month":       m,
-				"collections": toFloat(collByMonth[m]["collections"]),
-				"recovery":    toFloat(recByMonth[m]["recovery"]),
-				"volume":      toFloat(txnByMonth[m]["volume"]),
-				"txn_count":   toInt64(txnByMonth[m]["txn_count"]),
-			})
-		}
-
-		acqList := make([]map[string]any, 0, len(acqTrend))
-		for _, row := range acqTrend {
-			acqList = append(acqList, map[string]any{
-				"month":        str(row["month"]),
-				"new_accounts": toInt64(row["new_accounts"]),
-			})
-		}
-
-		overallSource := pickSource(sources)
-		respond(w, map[string]any{
-			"period": map[string]any{
-				"type":       period,
-				"label":      periodLabel(period, cs, ce),
-				"start":      d(cs),
-				"end":        d(ce),
-				"prev_start": d(ps),
-				"prev_end":   d(pe),
-			},
-			"financial": map[string]any{
-				"collections":         collCurr,
-				"collections_prev":    collPrev,
-				"collections_change":  pctChange(collCurr, collPrev),
-				"collections_count":   int(collCountCurr),
-				"recovery":            recCurr,
-				"recovery_prev":       recPrev,
-				"recovery_change":     pctChange(recCurr, recPrev),
-				"txn_volume":          txnVolCurr,
-				"txn_volume_prev":     txnVolPrev,
-				"txn_volume_change":   pctChange(txnVolCurr, txnVolPrev),
-				"txn_count":           int(txnCntCurr),
-				"txn_count_prev":      int(txnCntPrev),
-				"txn_count_change":    pctChange(txnCntCurr, txnCntPrev),
-				"avg_txn_value":       avgTxn,
-				"recovery_rate":       recoveryRatePct,
-				"total_collected_all": totalCollectedAll,
-				"total_recovered_all": totalRecoveredAll,
-			},
-			"growth": map[string]any{
-				"new_customers":        int(newCurr),
-				"new_customers_prev":   int(newPrev),
-				"new_customers_change": pctChange(newCurr, newPrev),
-				"total_customers":      int(totalCustomers),
-				"active_cards":         int(activeCards),
-				"total_cards":          int(totalCards),
-				"activation_rate":      activationRate,
-				"states_covered":       int(statesCount),
-			},
-			"trends": map[string]any{
-				"monthly":     mergedTrend,
-				"acquisition": acqList,
-			},
-			"breakdowns": map[string]any{
-				"top_states":  topStates,
-				"product_mix": productMix,
-				"top_agents":  topAgents,
-			},
-		}, overallSource)
-	}
-}
-
-// execGrowthHandler is the executive-tier Customer Growth & Activity drilldown — the
-// exec's OWN growth feed, decoupled from the shared Reports/BI monitor at /api/growth.
-// Registrations (app.accounts.opened_date), transaction activity + spend/inflow, the
-// churn/activity distribution, and 12-month trends for registrations-vs-active and
-// spend-vs-inflow. Money is NAIRA on app.transactions → ×100 for *_kobo.
 func execGrowthHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

@@ -63,6 +63,11 @@ interface PersonRow {
   closure_median_business_h: number | string | null
   breach_calendar: number
   breach_business: number
+  // Working days in the period minus this person's APPROVED leave (migration 374).
+  // Completed above is a raw total, so without this a fortnight off reads as low
+  // output. Optional because an older backend does not send them.
+  available_days?: number | string | null
+  completed_per_available_day?: number | string | null
 }
 
 interface OpenRow {
@@ -110,6 +115,11 @@ interface AgentRow {
   connect_pct: number | string | null
   with_duration: number
   avg_talk_sec: number | string | null
+  // Null when the call feed's agent_id resolves to no o3c_user — the name falls back
+  // to 'Agent <id>' in that case, and "unknown" is the honest answer rather than
+  // "available every working day".
+  available_days?: number | string | null
+  calls_per_available_day?: number | string | null
 }
 
 interface CallsPayload {
@@ -245,6 +255,26 @@ export default function PerformanceOverview() {
       ),
     },
     {
+      // Volume divided by the days this person could actually have worked: working
+      // days in the period, minus their approved leave. The raw Completed count
+      // beside it ranks whoever was simply present the longest, which is why both
+      // are shown rather than one replacing the other.
+      key: 'completed_per_available_day', label: 'Per Available Day', align: 'right',
+      sortable: true, width: 150,
+      render: r => r.completed_per_available_day == null ? (
+        <span style={{ color: 'var(--txt3)', fontSize: TEXT.xs }}>—</span>
+      ) : (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>
+            {fmtNum(r.completed_per_available_day)}
+          </div>
+          <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            over {fmtNum(r.available_days)} days
+          </div>
+        </div>
+      ),
+    },
+    {
       key: 'median_business_h', label: 'Median Time', align: 'right', sortable: true, width: 140,
       render: r => <ClockPair business={r.median_business_h} calendar={r.median_calendar_h}
         closureBusiness={r.closure_median_business_h} />,
@@ -306,6 +336,26 @@ export default function PerformanceOverview() {
           <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtNum(r.calls)}</div>
           <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
             {fmtNum(r.outbound)} out · {fmtNum(r.inbound)} in
+          </div>
+        </div>
+      ),
+    },
+    {
+      // Calls divided by the days this agent could have been on the phone. Dashed
+      // where the call feed's agent id matches no staff record: the volume is real
+      // but there is nobody whose leave we could net off, and guessing would be
+      // worse than saying so.
+      key: 'calls_per_available_day', label: 'Per Available Day', align: 'right',
+      sortable: true, width: 150,
+      render: r => r.calls_per_available_day == null ? (
+        <span style={{ color: 'var(--txt3)', fontSize: TEXT.xs }}>Not on staff</span>
+      ) : (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>
+            {fmtNum(r.calls_per_available_day)}
+          </div>
+          <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            over {fmtNum(r.available_days)} days
           </div>
         </div>
       ),

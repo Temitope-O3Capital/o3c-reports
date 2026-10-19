@@ -272,7 +272,23 @@ func perfHelpdesk(db *core.DB) http.HandlerFunc {
 			       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY t.bus_h)
 			              FILTER (WHERE NOT t.on_resolution))::numeric, 1)  AS closure_median_business_h,
 			       COUNT(*) FILTER (WHERE t.cal_h > t.allow_h)              AS breach_calendar,
-			       COUNT(*) FILTER (WHERE t.bus_h > t.allow_h)              AS breach_business
+			       COUNT(*) FILTER (WHERE t.bus_h > t.allow_h)              AS breach_business,
+			       -- AVAILABILITY, so that time off stops reading as low output.
+			       --
+			       -- The completed count is a raw total over the period, so it ranks one
+			       -- was present for all twenty working days above somebody who took ten
+			       -- of them as approved leave — and the second person may well have been
+			       -- the faster of the two. app.available_working_days (migration 374) is
+			       -- working days in the window minus that person's approved leave.
+			       --
+			       -- No null guard is needed here, unlike perfCalls: this is an INNER join
+			       -- on o3c_users, so u.id always resolves to a real person. The function
+			       -- does not validate its argument — given an unknown id it returns the
+			       -- full working-day count — so the join is what makes this honest.
+			       app.available_working_days(u.id, $1::date, $2::date)     AS available_days,
+			       ROUND(COUNT(*) / NULLIF(
+			         app.available_working_days(u.id, $1::date, $2::date), 0), 2)
+			                                                                AS completed_per_available_day
 			  FROM t JOIN app.o3c_users u ON u.id = t.assigned_to
 			 GROUP BY u.id, u.full_name, u.department
 			 ORDER BY completed DESC`, from, to); err == nil {
@@ -409,10 +425,32 @@ func perfCalls(db *core.DB) http.HandlerFunc {
 			       -- Talk time over the calls that actually carry a duration, with the
 			       -- denominator returned beside it so it is never read as the whole.
 			       COUNT(c.duration_sec)                                  AS with_duration,
-			       ROUND(AVG(c.duration_sec) FILTER (WHERE c.duration_sec > 0), 0) AS avg_talk_sec
+			       ROUND(AVG(c.duration_sec) FILTER (WHERE c.duration_sec > 0), 0) AS avg_talk_sec,
+			       -- AVAILABILITY, so that time off stops reading as idleness.
+			       --
+			       -- Every other figure on this row is a raw total over the period, which
+			       -- compares somebody who worked all twenty working days against somebody
+			       -- who took ten of them as leave and calls the second one half as
+			       -- productive. app.available_working_days (migration 374) is working days
+			       -- in the window minus that person's APPROVED leave, so the rate below is
+			       -- per day they could actually have been on the phone.
+			       --
+			       -- Guarded on u.id, not on c.agent_id. The function does NOT validate the
+			       -- user: asked about an id that does not exist it happily returns the full
+			       -- working-day count, because all it does is subtract that id's (zero)
+			       -- leave. This feed carries agent ids that resolve to no o3c_user — the
+			       -- name falls back to 'Agent <id>' two lines up — and for those the honest
+			       -- answer is "unknown", not "available every day".
+			       CASE WHEN u.id IS NOT NULL
+			            THEN app.available_working_days(u.id, $1::date, $2::date)
+			       END                                                    AS available_days,
+			       CASE WHEN u.id IS NOT NULL
+			            THEN ROUND(COUNT(*) / NULLIF(
+			                   app.available_working_days(u.id, $1::date, $2::date), 0), 1)
+			       END                                                    AS calls_per_available_day
 			  FROM c LEFT JOIN app.o3c_users u ON u.id = c.agent_id
 			 WHERE c.agent_id IS NOT NULL
-			 GROUP BY c.agent_id, u.full_name
+			 GROUP BY c.agent_id, u.id, u.full_name
 			 ORDER BY calls DESC`, from, to); err == nil {
 			if rows == nil {
 				rows = []core.Row{}
