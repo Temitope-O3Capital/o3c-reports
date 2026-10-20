@@ -18,26 +18,15 @@ import { NAVY, BLUE, GREEN, AMBER, RED, SP, FW, TEXT } from '../../lib/design'
 // chooses which tabs to draw; the server decides what each one may load, so hiding a
 // tab is a convenience and never the access control.
 //
-// WHAT THIS PAGE REFUSES TO GUESS. Three states are shown as themselves instead of as
-// a zero, because each is a data gap somebody has to close rather than a fact about
-// the person:
+// NO BALANCES, BY DECISION (2026-10-20). This page records absence; it does not keep a
+// budget. There is no entitlement to count against, so the headline figure is days
+// TAKEN — derived from approved requests — rather than days left. The only gap the page
+// still refuses to paper over is a missing line manager, because without one there is
+// nobody for a request to go to and the form would only fail.
 //
-//   no line manager      you cannot submit at all, and the page says who to ask
-//   no entitlement row   the balance is "not set", never "0 days left"
-//   no hire date         pro-rata cannot be computed, so none is displayed
-//
-// A leave balance that reads 0 when nobody has set an entitlement is the kind of
-// number people plan around and then discover was never true.
-
-interface Balance {
-  leave_type_id: number
-  leave_type: string
-  days_entitled: number
-  days_carried_over: number
-  days_taken: number
-  days_pending: number
-  days_remaining: number
-}
+// What the page is actually for: making an absence known, so that the queues respect it
+// and whoever covers can see what is sitting on the person. "Who Is Away" is the half
+// that most people open it for.
 
 interface LeaveType {
   id: number
@@ -72,8 +61,6 @@ interface Request {
   can_cancel?: boolean
   short_notice?: boolean
   documents_outstanding?: boolean
-  entitlement_missing?: boolean
-  days_remaining?: number | null
   manager_decided_by_name?: string | null
   hr_decided_by_name?: string | null
   // Set on the approvals list only: this reached you because the line manager it was
@@ -86,11 +73,8 @@ interface Me {
   year: number
   me?: {
     id: number; full_name: string; department: string | null
-    hire_date: string | null
     manager_user_id: number | null; manager_name: string | null
   }
-  balances?: Balance[]
-  entitlement_gaps?: { leave_type_id: number; leave_type: string; suggested_days: number | null }[]
   requests?: Request[]
   availability?: {
     working_days_ytd: number; available_days_ytd: number; on_leave_today: boolean
@@ -171,18 +155,15 @@ export default function Leave() {
   // five lists are irrelevant to the 50 people who only ever request their own leave.
   const [approvals, setApprovals] = useState<Request[]>([])
   const [adminReqs, setAdminReqs] = useState<Request[]>([])
-  const [gaps, setGaps] = useState<any[]>([])
   const [unmanaged, setUnmanaged] = useState<any[]>([])
   const [drift, setDrift] = useState<any[]>([])
-  const [entitlements, setEntitlements] = useState<any[]>([])
   const [staff, setStaff] = useState<any[]>([])
   const [colleagues, setColleagues] = useState<{ id: number; full_name: string }[]>([])
   const [absences, setAbsences] = useState<any[]>([])
 
   const [showRequest, setShowRequest] = useState(false)
   const [decide, setDecide] = useState<{ req: Request; stage: 'manager' | 'hr' } | null>(null)
-  const [showEntitlement, setShowEntitlement] = useState(false)
-  // The person whose reporting line or hire date is being set. Null means closed,
+  // The person whose reporting line is being set. Null means closed,
   // so there is no separate boolean that could disagree with the payload.
   const [employ, setEmploy] = useState<any | null>(null)
 
@@ -214,17 +195,13 @@ export default function Leave() {
 
   async function loadAdmin() {
     try {
-      const [reqs, ent, g, u, d, look] = await Promise.all([
+      const [reqs, u, d, look] = await Promise.all([
         apiFetch<any>('/api/leave/admin/requests?status=outstanding'),
-        apiFetch<any>('/api/leave/admin/entitlements'),
-        apiFetch<any>('/api/leave/admin/gaps'),
         apiFetch<any>('/api/leave/admin/unmanaged'),
         apiFetch<any>('/api/leave/admin/drift'),
         apiFetch<any>('/api/leave/admin/lookups'),
       ])
       setAdminReqs(unwrapList<Request>(reqs))
-      setEntitlements(unwrapList<any>(ent))
-      setGaps(unwrapList<any>(g))
       setUnmanaged(unwrapList<any>(u))
       setDrift(unwrapList<any>(d))
       setStaff(look?.data?.staff ?? [])
@@ -260,7 +237,11 @@ export default function Leave() {
 
   const noManager = !!me?.me && me.me.manager_user_id == null
   const av = me?.availability
-  const annual = me?.balances?.find(b => /annual/i.test(b.leave_type))
+  // Working days so far minus the days this person was available: the leave they have
+  // actually taken. Derived from approved requests by app.available_working_days, which
+  // is why it needs no entitlement row and cannot disagree with the requests below.
+  const daysTaken = Math.max(0,
+    Number(av?.working_days_ytd ?? 0) - Number(av?.available_days_ytd ?? 0))
   const myPending = (me?.requests ?? []).filter(r => PENDING.includes(r.status)).length
 
   const tabs = useMemo(() => {
@@ -311,14 +292,16 @@ export default function Leave() {
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
             gap: SP[3], marginBottom: SP[4],
           }}>
+            {/* Days taken, not days left. There is no entitlement to subtract from —
+                see the module header — and this is the number that is true without
+                one: how much leave this person has actually had, derived from their
+                own approved requests. */}
             <KpiCard
-              label="Annual Leave Left"
-              value={annual ? fmtNum(annual.days_remaining) : 'Not set'}
-              sub={annual
-                ? `${fmtNum(annual.days_entitled)} entitled${Number(annual.days_carried_over) > 0 ? ` + ${fmtNum(annual.days_carried_over)} carried` : ''} · ${fmtNum(annual.days_taken)} taken · ${fmtNum(annual.days_pending)} pending`
-                : 'HR has not set your annual entitlement'}
+              label="Days Off Taken"
+              value={fmtNum(daysTaken)}
+              sub={`Approved leave so far in ${me?.year ?? new Date().getFullYear()}`}
               icon="beach_access"
-              accent={annual ? NAVY : AMBER}
+              accent={NAVY}
               loading={loading && !me}
             />
             <KpiCard
@@ -346,7 +329,7 @@ export default function Leave() {
           </div>
 
           <SectionCard
-            title="My Balances"
+            title="My Requests"
             actions={
               <Button icon="add" onClick={() => setShowRequest(true)} disabled={noManager}>
                 Request Leave
@@ -354,34 +337,6 @@ export default function Leave() {
             }
             style={{ marginBottom: SP[4] }}
           >
-            {(me?.balances ?? []).length === 0 ? (
-              <EmptyState
-                icon="rule"
-                title="No entitlement has been set for you yet"
-                description="HR sets how many days of each leave type you have each year. Until then this page cannot show a balance. It will not show zero, because zero is not what it means."
-              />
-            ) : (
-              <DataTable
-                rows={me!.balances!}
-                cols={balanceCols}
-                keyFn={(r: Balance) => String(r.leave_type_id)}
-              />
-            )}
-            {/* Types with no entitlement row. Listed so the gap is chased rather than
-                read as "no days". */}
-            {(me?.entitlement_gaps ?? []).length > 0 && (
-              <>
-                <Divider />
-                <div style={{ color: 'var(--txt2)', fontSize: 13, lineHeight: 1.7 }}>
-                  <strong style={{ color: 'var(--txt1)' }}>Not set for {me!.year}: </strong>
-                  {me!.entitlement_gaps!.map(g => g.leave_type).join(', ')}.
-                  {' '}These have no entitlement recorded, which is different from having none left.
-                </div>
-              </>
-            )}
-          </SectionCard>
-
-          <SectionCard title="My Requests" style={{ marginBottom: SP[4] }}>
             {(me?.requests ?? []).length === 0 ? (
               <EmptyState icon="event_busy" title="You have not requested any leave" />
             ) : (
@@ -467,8 +422,8 @@ export default function Leave() {
               decoration here: it decides who can approve somebody's leave at all,
               so it has to stay editable after the initial data entry is finished. */}
           <SectionCard
-            title="Reporting Lines And Hire Dates"
-            subtitle="Who approves whose leave, and the date pro-rata entitlements are calculated from"
+            title="Reporting Lines"
+            subtitle="Who approves whose leave. Loaded from HR's roster; this is where a move between teams is recorded."
             style={{ marginBottom: SP[4] }}
           >
             {staff.length === 0 ? (
@@ -482,35 +437,6 @@ export default function Leave() {
                 searchPlaceholder="Search by name, department or manager"
                 pageSize={15}
               />
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="Entitlements"
-            subtitle="What each person has this year. Days taken and remaining are derived from approved requests, never stored."
-            actions={<Button icon="add" onClick={() => setShowEntitlement(true)}>Set Entitlement</Button>}
-            style={{ marginBottom: SP[4] }}
-          >
-            {entitlements.length === 0 ? (
-              <EmptyState icon="rule" title="No entitlements have been set yet" />
-            ) : (
-              <DataTable
-                rows={entitlements}
-                cols={entitlementCols}
-                keyFn={(r: any) => `${r.user_id}-${r.leave_type_id}-${r.year}`}
-              />
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="Missing Entitlements"
-            subtitle="Active staff with no entitlement recorded for a leave type this year. Suggested days are pro-rata from the hire date, and blank where no hire date is recorded."
-            style={{ marginBottom: SP[4] }}
-          >
-            {gaps.length === 0 ? (
-              <EmptyState icon="verified" title="Every active member of staff has every entitlement set" />
-            ) : (
-              <DataTable rows={gaps} cols={gapCols} keyFn={(r: any) => `${r.user_id}-${r.leave_type_id}`} />
             )}
           </SectionCard>
 
@@ -594,14 +520,6 @@ export default function Leave() {
         }}
       />
 
-      <EntitlementModal
-        open={showEntitlement}
-        onClose={() => setShowEntitlement(false)}
-        staff={staff}
-        types={types}
-        onDone={() => { setShowEntitlement(false); loadAdmin() }}
-      />
-
       {/* onDone reloads /api/leave/me as well as the admin lists, because setting
           somebody's line manager can change whether the signed-in person can submit
           at all — the blocking card on My Leave has to clear without a refresh. */}
@@ -619,23 +537,6 @@ export default function Leave() {
 /* ── Columns ────────────────────────────────────────────────────────────────── */
 
 const days = (v: any) => <span style={{ fontWeight: FW.semibold }}>{fmtNum(v)}</span>
-
-const balanceCols: TableCol<Balance>[] = [
-  { key: 'leave_type', label: 'Leave Type', sortable: true, width: 190 },
-  { key: 'days_entitled', label: 'Entitled', sortable: true, width: 100, render: r => days(r.days_entitled) },
-  { key: 'days_carried_over', label: 'Carried Over', sortable: true, width: 120, render: r => days(r.days_carried_over) },
-  { key: 'days_taken', label: 'Taken', sortable: true, width: 90, render: r => days(r.days_taken) },
-  { key: 'days_pending', label: 'Pending', sortable: true, width: 100, render: r => days(r.days_pending) },
-  {
-    key: 'days_remaining', label: 'Remaining', sortable: true, width: 110,
-    render: r => (
-      <span style={{
-        fontWeight: FW.bold,
-        color: Number(r.days_remaining) < 0 ? RED : Number(r.days_remaining) === 0 ? AMBER : GREEN,
-      }}>{fmtNum(r.days_remaining)}</span>
-    ),
-  },
-]
 
 // The period column reads as one fact rather than two dates: "14 Dec – 18 Dec (5 days)"
 // is how somebody thinks about leave, and the day count is the working-day count the
@@ -661,9 +562,6 @@ function flagPills(r: Request) {
         color={NAVY} bg="rgba(30,58,95,.10)" />}
       {r.short_notice && <Pill label="Short Notice" color={AMBER} bg="rgba(245,158,11,.12)" />}
       {r.documents_outstanding && <Pill label="No Document" color={AMBER} bg="rgba(245,158,11,.12)" />}
-      {r.entitlement_missing && <Pill label="No Entitlement Set" color={RED} bg="rgba(239,68,68,.10)" />}
-      {typeof r.days_remaining === 'number' && r.days_remaining < 0 &&
-        <Pill label="Over Entitlement" color={RED} bg="rgba(239,68,68,.10)" />}
     </div>
   )
 }
@@ -746,12 +644,6 @@ function unmanagedCols(onEdit: (r: any) => void): TableCol<any>[] {
     { key: 'full_name', label: 'Name', sortable: true, width: 220, render: r => <NameCell name={r.full_name} sub={r.department ?? undefined} /> },
     { key: 'department', label: 'Department', sortable: true, width: 170, render: r => r.department ?? '—' },
     {
-      key: 'hire_date_missing', label: 'Hire Date', sortable: true, width: 160,
-      render: r => r.hire_date
-        ? fmtDate(r.hire_date)
-        : <Pill label="Not Recorded" color={AMBER} bg="rgba(245,158,11,.12)" />,
-    },
-    {
       key: 'fix', label: '', width: 170,
       render: r => (
         <Button size="sm" icon="person_add" onClick={() => onEdit(r)}>Set Manager</Button>
@@ -774,12 +666,6 @@ function reportingLineCols(onEdit: (r: any) => void): TableCol<any>[] {
         : <Pill label="Nobody" color={AMBER} bg="rgba(245,158,11,.12)" />,
     },
     {
-      key: 'hire_date', label: 'Hire Date', sortable: true, width: 150,
-      render: r => r.hire_date
-        ? fmtDate(r.hire_date)
-        : <span style={{ color: 'var(--txt3)' }}>Not recorded</span>,
-    },
-    {
       key: 'edit', label: '', width: 110,
       render: r => (
         <Button size="sm" variant="secondary" icon="edit" onClick={() => onEdit(r)}>Edit</Button>
@@ -787,28 +673,6 @@ function reportingLineCols(onEdit: (r: any) => void): TableCol<any>[] {
     },
   ]
 }
-
-const entitlementCols: TableCol<any>[] = [
-  { key: 'full_name', label: 'Name', sortable: true, width: 200, render: r => <NameCell name={r.full_name} /> },
-  { key: 'leave_type', label: 'Type', sortable: true, width: 160 },
-  { key: 'year', label: 'Year', sortable: true, width: 80 },
-  { key: 'days_entitled', label: 'Entitled', sortable: true, width: 100, render: r => days(r.days_entitled) },
-  { key: 'days_carried_over', label: 'Carried', sortable: true, width: 100, render: r => days(r.days_carried_over) },
-  { key: 'days_taken', label: 'Taken', sortable: true, width: 90, render: r => days(r.days_taken) },
-  { key: 'days_remaining', label: 'Remaining', sortable: true, width: 110, render: r => days(r.days_remaining) },
-]
-
-const gapCols: TableCol<any>[] = [
-  { key: 'full_name', label: 'Name', sortable: true, width: 200, render: r => <NameCell name={r.full_name} sub={r.department ?? undefined} /> },
-  { key: 'leave_type', label: 'Type', sortable: true, width: 170 },
-  {
-    key: 'suggested_days', label: 'Suggested (Pro-Rata)', sortable: true, width: 190,
-    render: r => r.suggested_days == null
-      ? <Pill label="No Hire Date" color={AMBER} bg="rgba(245,158,11,.12)" />
-      : days(r.suggested_days),
-  },
-  { key: 'hire_date', label: 'Hire Date', sortable: true, width: 140, render: r => r.hire_date ? fmtDate(r.hire_date) : '—' },
-]
 
 const absenceCols: TableCol<any>[] = [
   { key: 'full_name', label: 'Who', sortable: true, width: 200, render: r => <NameCell name={r.full_name} sub={r.department ?? undefined} /> },
@@ -1007,94 +871,10 @@ function DecisionModal({ decide, onClose, onDone }: {
   )
 }
 
-/* ── Entitlement ────────────────────────────────────────────────────────────── */
+/* ── Reporting lines ────────────────────────────────────────────────────────── */
 
-function EntitlementModal({ open, onClose, staff, types, onDone }: {
-  open: boolean; onClose: () => void; staff: any[]; types: LeaveType[]; onDone: () => void
-}) {
-  const [userID, setUserID] = useState('')
-  const [typeID, setTypeID] = useState('')
-  const [year, setYear] = useState(String(new Date().getFullYear()))
-  const [entitled, setEntitled] = useState('')
-  const [carried, setCarried] = useState('0')
-  const [notes, setNotes] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  const t = types.find(x => String(x.id) === typeID)
-
-  // The standard is offered as the default the moment a type is chosen, so the common
-  // case is one click rather than a typed number — but it stays editable, because an
-  // individual variation from the standard is exactly what this table exists to hold.
-  useEffect(() => { if (t) setEntitled(String(t.days_per_year)) }, [typeID])
-
-  async function save() {
-    setBusy(true); setErr(null)
-    try {
-      await apiFetch('/api/leave/admin/entitlements', {
-        method: 'POST',
-        body: JSON.stringify({
-          user_id: Number(userID),
-          leave_type_id: Number(typeID),
-          year: Number(year),
-          days_entitled: Number(entitled),
-          days_carried_over: Number(carried || 0),
-          notes,
-        }),
-      })
-      setUserID(''); setTypeID(''); setEntitled(''); setCarried('0'); setNotes('')
-      onDone()
-    } catch (e: any) {
-      setErr(e?.message ?? 'Could not save the entitlement')
-    } finally { setBusy(false) }
-  }
-
-  const ready = userID && typeID && year && entitled !== ''
-
-  return (
-    <Modal open={open} onClose={onClose} title="Set Entitlement" width={560}
-      footer={
-        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} loading={busy} disabled={!ready}>Save</Button>
-        </div>
-      }>
-      {err && <div style={{ color: RED, marginBottom: SP[3], fontSize: 13 }}>{err}</div>}
-
-      <Select label="Member Of Staff" required value={userID} onChange={e => setUserID(e.target.value)}>
-        <option value="">Choose somebody…</option>
-        {staff.map(s => (
-          <option key={s.id} value={s.id}>
-            {s.full_name}{s.department ? ` — ${s.department}` : ''}
-          </option>
-        ))}
-      </Select>
-
-      <Select label="Leave Type" required value={typeID} onChange={e => setTypeID(e.target.value)}>
-        <option value="">Choose a leave type…</option>
-        {types.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-      </Select>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3] }}>
-        <Input label="Year" type="number" required value={year} onChange={e => setYear(e.target.value)} />
-        <Input label="Days Entitled" type="number" step="0.5" required value={entitled}
-          onChange={e => setEntitled(e.target.value)}
-          hint={t ? `Standard is ${fmtNum(t.days_per_year)}` : undefined} />
-        <Input label="Carried Over" type="number" step="0.5" value={carried}
-          onChange={e => setCarried(e.target.value)}
-          hint={t ? `Policy max ${fmtNum(t.carry_over_max)}` : undefined} />
-      </div>
-
-      <Textarea label="Notes" rows={2} value={notes} onChange={e => setNotes(e.target.value)}
-        hint="Why this differs from the standard, if it does" />
-    </Modal>
-  )
-}
-
-/* ── Employment basics ──────────────────────────────────────────────────────── */
-
-// EMPLOYMENT MODAL — the line manager and the hire date, the two facts the rest of
-// this page depends on and the two nothing else in the product could write.
+// EMPLOYMENT MODAL — who somebody reports to. The one employment fact leave runs on,
+// and the one nothing else in the product can write.
 //
 // WHY THE SELECT IS PRE-FILLED WITH THE CURRENT MANAGER. The save always sends
 // set_manager, so what the form shows is what gets written. If the field started
@@ -1103,12 +883,10 @@ function EntitlementModal({ open, onClose, staff, types, onDone }: {
 // leave at all. So the blank option is labelled with its consequence rather than
 // left to look like "no change".
 //
-// WHY THE DEPARTMENT OPTION SETS ONLY THE MANAGER. A whole department usually does
-// report to one person, so assigning them together is the difference between a job
-// somebody finishes and a job somebody abandons at row nine of fifty. A shared HIRE
-// DATE, though, would be a fabrication — so when the group option is on, the hire
-// date field is disabled and set_hire_date is false, which is exactly the case the
-// API's two flags exist to express.
+// WHY THERE IS A WHOLE-DEPARTMENT OPTION. A department usually does report to one
+// person, so assigning them together is the difference between a job somebody
+// finishes and a job somebody abandons at row nine of fifty. Migration 380 has since
+// loaded HR's roster in bulk, so this is now for changes rather than first entry.
 function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
   person: any | null
   staff: any[]
@@ -1117,7 +895,6 @@ function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
   onDone: () => void
 }) {
   const [manager, setManager] = useState('')
-  const [hire, setHire] = useState('')
   const [bulk, setBulk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -1130,7 +907,6 @@ function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
   useEffect(() => {
     setErr(null); setBulk(false)
     setManager(person?.manager_user_id ? String(person.manager_user_id) : '')
-    setHire(person?.hire_date ? String(person.hire_date).slice(0, 10) : '')
   }, [person])
 
   // Other people with no manager in the same department — the ones it is reasonable
@@ -1159,8 +935,6 @@ function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
           user_ids: groupIDs,
           set_manager: true,
           manager_user_id: manager ? Number(manager) : null,
-          set_hire_date: !bulk,
-          hire_date: bulk ? null : (hire || null),
         }),
       })
       onDone()
@@ -1192,17 +966,6 @@ function EmploymentModal({ person, staff, unmanaged, onClose, onDone }: {
           </option>
         ))}
       </Select>
-
-      <Input
-        label="Hire Date"
-        type="date"
-        value={hire}
-        disabled={bulk}
-        onChange={e => setHire(e.target.value)}
-        hint={bulk
-          ? 'Not applied when assigning a whole department — a shared hire date would be invented'
-          : 'Pro-rata entitlements are calculated from this. Leave blank if it is not known.'}
-      />
 
       {peers.length > 0 && (
         <>

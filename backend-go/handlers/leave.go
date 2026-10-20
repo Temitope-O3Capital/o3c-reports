@@ -32,8 +32,8 @@ authorisation story is not "one page key for the lot", so it is worth stating wh
                  matches on leave_requests.routed_to_manager = me, or on being the
                  escalation approver of a requester whose routed manager is away.
 
-  HR             leave_admin, a real page key. Setting an entitlement and confirming
-                 an approval are company decisions rather than personal ones.
+  HR             leave_admin, a real page key. Confirming an approval and recording
+                 a reporting line are company decisions rather than personal ones.
 
 WHY A REQUEST IS REFUSED WHEN NOBODY MANAGES YOU. The approval chain the business
 chose is line manager, then HR. If manager_user_id is unset the chain does not exist,
@@ -65,16 +65,34 @@ reported rather than imposed:
                    the morning cannot produce the note first, and a system that
                    demands it makes them submit nothing at all.
 
-Exceeding an entitlement is likewise flagged (over_entitlement) rather than refused —
-on day one nobody HAS an entitlement row, so a hard block would make the module
-unusable until HR finished a data-entry task, and the person with the authority to
-judge the exception is the approver reading the flag.
+THERE ARE NO ENTITLEMENTS AND NO BALANCES. Removed 2026-10-20 on the business's
+decision, and this is the shape of the module now: leave is a RECORD OF ABSENCE, not a
+budget. Nothing counts days against an allowance, nothing refuses a request for being
+too long, and no screen shows a balance.
 
-CONSUMPTION IS NEVER WRITTEN. There is no days_used column anywhere in this file and
-no handler that decrements a balance. app.v_leave_balance derives taken and pending
-from the requests themselves, which is why cancelling an approved future leave needs
-no compensating update — the balance simply recomputes. The same property is what
-makes app.available_working_days() safe for the KPI denominators.
+Why it went rather than waiting for a policy: migration 374 seeded days_per_year
+(20 annual, 14 sick, and so on) as a PROPOSAL, and app.leave_entitlements stayed empty
+because nobody confirmed the numbers. So every balance read "not set", every approval
+carried a red "No Entitlement Set" flag, and a feature that worked perfectly looked
+broken — the module's actual job, which is making every queue respect an absence, never
+depended on any of it. Proved before removing: a request can be submitted, approved by
+the line manager, confirmed by HR, and will then exclude the person from the team
+router, both call-centre round-robins, helpdesk auto-assign and sales distribution, with
+ZERO entitlement rows and a NULL hire date.
+
+What survives: app.leave_types, because a request still has to say what KIND of leave it
+is, and because min_notice_days and requires_docs drive the two advisory flags above.
+days_per_year is now inert. The schema from 374 — leave_entitlements, v_leave_balance,
+v_leave_entitlement_gaps, leave_prorata_days — is deliberately NOT dropped: it holds no
+rows, it costs nothing, and if the business ever sets a policy the tables are waiting.
+o3c_users.hire_date is inert for the same reason; it existed only to pro-rata an
+entitlement for a joiner, and it was never in the HR roster.
+
+CONSUMPTION WAS NEVER WRITTEN, WHICH IS WHY REMOVING IT COSTS NOTHING. There was never a
+days_used column and no handler ever decremented anything, so taking the balance away
+deletes no record of anyone's leave. The requests themselves are the record, and
+app.available_working_days() still derives availability from them for the KPI
+denominators.
 
 EVERY TRANSITION IS A GUARDED UPDATE. A decision is applied with its precondition in
 the WHERE clause and verified by the affected row count, never read-then-write: two
@@ -114,15 +132,12 @@ func RegisterLeave(r chi.Router, db *core.DB) {
 	// ── HR. ──
 	r.With(admin).Get("/admin/requests", leaveAdminRequests(db))
 	r.With(admin).Post("/requests/{id}/hr-decision", leaveHRDecision(db))
-	r.With(admin).Get("/admin/entitlements", leaveEntitlements(db))
-	r.With(admin).Post("/admin/entitlements", leaveSetEntitlement(db))
-	r.With(admin).Get("/admin/gaps", leaveGaps(db))
 	r.With(admin).Get("/admin/unmanaged", leaveUnmanaged(db))
-	// The write that makes the two lists above actionable. Nothing else in the
-	// codebase sets manager_user_id or hire_date, so without this the 412 on
-	// submission was a dead end: HR could see all 50 names and had no way to give
-	// any of them a manager. Employment facts rather than leave facts, kept here
-	// because HR owns them and leave is what consumes them.
+	// The write that makes the list above actionable. Nothing else in the codebase
+	// sets manager_user_id, so without this the 412 on submission was a dead end:
+	// HR could see all 50 names and had no way to give any of them a manager.
+	// An employment fact rather than a leave fact, kept here because HR owns it and
+	// leave is what consumes it.
 	r.With(admin).Post("/admin/employment", leaveSetEmployment(db))
 	r.With(admin).Get("/admin/drift", leaveDrift(db))
 	r.With(admin).Get("/admin/lookups", leaveLookups(db))
@@ -228,38 +243,14 @@ func leaveMe(db *core.DB) http.HandlerFunc {
 		year := qint(r, "year", time.Now().Year(), 2020, 2100)
 		out := map[string]any{"year": year}
 
-		// Who I am, for leave purposes: my manager and my hire date. hire_date is
-		// returned even when NULL so the page can say "HR has not recorded your start
-		// date" rather than render a pro-rata entitlement computed from nothing.
+		// Who I am, for leave purposes: who approves my leave.
 		if rows, _ := db.PGQuery(ctx, `
-			SELECT u.id, u.full_name, u.department, u.hire_date,
+			SELECT u.id, u.full_name, u.department,
 			       u.manager_user_id, m.full_name AS manager_name
 			FROM app.o3c_users u
 			LEFT JOIN app.o3c_users m ON m.id = u.manager_user_id
 			WHERE u.id = $1`, user.ID); len(rows) > 0 {
 			out["me"] = rows[0]
-		}
-
-		// Balances. Somebody with no entitlement row is absent from this view by
-		// design — the page shows the gap as a gap. See app.v_leave_entitlement_gaps.
-		if rows, err := db.PGQuery(ctx, `
-			SELECT leave_type_id, leave_type, days_entitled, days_carried_over,
-			       days_taken, days_pending, days_remaining
-			FROM app.v_leave_balance
-			WHERE user_id = $1 AND year = $2
-			ORDER BY leave_type`, user.ID, year); err == nil {
-			out["balances"] = rows
-		}
-
-		// Which types I have no entitlement for this year, with what HR's own view
-		// suggests it should be. Shown to the person so a missing entitlement is
-		// chased rather than silently treated as zero days.
-		if rows, err := db.PGQuery(ctx, `
-			SELECT leave_type_id, leave_type, suggested_days
-			FROM app.v_leave_entitlement_gaps
-			WHERE user_id = $1
-			ORDER BY leave_type`, user.ID); err == nil {
-			out["entitlement_gaps"] = rows
 		}
 
 		if rows, err := db.PGQuery(ctx, `
@@ -444,23 +435,6 @@ func leaveSubmit(db *core.DB) http.HandlerFunc {
 			"documents_outstanding": requiresDocs && strings.TrimSpace(b.DocumentRef) == "",
 		}
 
-		// Balance impact, including the two honest "we cannot say" cases: no
-		// entitlement row at all, and a request that exceeds what is left.
-		year := start.Year()
-		if brows, _ := db.PGQuery(ctx, `
-			SELECT days_entitled, days_carried_over, days_taken, days_pending, days_remaining
-			FROM app.v_leave_balance
-			WHERE user_id = $1 AND leave_type_id = $2 AND year = $3`,
-			user.ID, b.LeaveTypeID, year); len(brows) > 0 {
-			out["balance"] = brows[0]
-			// days_remaining already has this request in days_pending, so a negative
-			// remainder is precisely an over-draw.
-			out["over_entitlement"] = toFloat(brows[0]["days_remaining"]) < 0
-		} else {
-			out["balance"] = nil
-			out["entitlement_missing"] = true
-		}
-
 		// TELL THE APPROVER. This was missing from the day this file was written, and it
 		// is the worst omission in it. The chain routes every request to ONE named
 		// manager, no peer may act on it by design, there is no due date on the row and
@@ -591,8 +565,6 @@ func leaveApprovals(db *core.DB) http.HandlerFunc {
 			       -- Advisory flags, computed for the approver rather than stored.
 			       (r.start_date - r.created_at::date) < t.min_notice_days AS short_notice,
 			       (t.requires_docs AND r.document_ref IS NULL)            AS documents_outstanding,
-			       bal.days_remaining,
-			       (bal.user_id IS NULL)                                   AS entitlement_missing,
 			       -- Whose decision this really is, and whether you are seeing it only
 			       -- because the person it was routed to is away.
 			       r.routed_to_manager, rm.full_name AS routed_manager_name,
@@ -602,10 +574,6 @@ func leaveApprovals(db *core.DB) http.HandlerFunc {
 			JOIN app.leave_types t ON t.id = r.leave_type_id
 			LEFT JOIN app.o3c_users c  ON c.id  = r.cover_user_id
 			LEFT JOIN app.o3c_users rm ON rm.id = r.routed_to_manager
-			LEFT JOIN app.v_leave_balance bal
-			       ON bal.user_id = r.user_id
-			      AND bal.leave_type_id = r.leave_type_id
-			      AND bal.year = EXTRACT(YEAR FROM r.start_date)::int
 			WHERE (r.routed_to_manager = $1
 			       -- Or you are the approver HR names above a line manager who is away.
 			       -- Scoped to the requester's own escalation manager, because that is
@@ -926,116 +894,13 @@ func leaveAdminRequests(db *core.DB) http.HandlerFunc {
 	}
 }
 
-func leaveEntitlements(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		year := qint(r, "year", time.Now().Year(), 2020, 2100)
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT user_id, full_name, role, year, leave_type_id, leave_type,
-			       days_entitled, days_carried_over, days_taken, days_pending, days_remaining
-			FROM app.v_leave_balance
-			WHERE year = $1
-			ORDER BY full_name, leave_type`, year)
-		if err != nil {
-			respondErrLog(w, http.StatusInternalServerError, "could not read entitlements", err)
-			return
-		}
-		respond(w, rows, "app.v_leave_balance")
-	}
-}
-
-type leaveEntitlementBody struct {
-	UserID          int64    `json:"user_id"`
-	LeaveTypeID     int      `json:"leave_type_id"`
-	Year            int      `json:"year"`
-	DaysEntitled    *float64 `json:"days_entitled"`
-	DaysCarriedOver *float64 `json:"days_carried_over"`
-	Notes           string   `json:"notes"`
-}
-
-// leaveSetEntitlement records what one person is entitled to. Upsert on the natural
-// key, because "set Ada's 2027 annual leave to 22" is one decision whether or not a
-// row already exists, and set_by/updated_at keep the trail of who changed it.
-//
-// days_carried_over is NOT validated against the type's carry_over_max. HR carries a
-// year over as an agreed exception often enough that a hard ceiling would be wrong;
-// the max is what the standard says, and app.v_leave_balance reports both.
-func leaveSetEntitlement(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := core.UserFromCtx(r.Context())
-		if user == nil {
-			respondErr(w, http.StatusUnauthorized, "Unauthorized")
-			return
-		}
-		var b leaveEntitlementBody
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
-		if b.UserID <= 0 || b.LeaveTypeID <= 0 {
-			respondErr(w, http.StatusBadRequest, "user_id and leave_type_id are required")
-			return
-		}
-		if b.Year < 2020 || b.Year > 2100 {
-			respondErr(w, http.StatusBadRequest, "year must be between 2020 and 2100")
-			return
-		}
-		if b.DaysEntitled == nil || *b.DaysEntitled < 0 {
-			respondErr(w, http.StatusBadRequest, "days_entitled is required and cannot be negative")
-			return
-		}
-		carried := 0.0
-		if b.DaysCarriedOver != nil {
-			if *b.DaysCarriedOver < 0 {
-				respondErr(w, http.StatusBadRequest, "days_carried_over cannot be negative")
-				return
-			}
-			carried = *b.DaysCarriedOver
-		}
-
-		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO app.leave_entitlements
-			    (user_id, leave_type_id, year, days_entitled, days_carried_over, notes, set_by)
-			VALUES ($1, $2, $3, $4, $5, NULLIF($6,''), $7)
-			ON CONFLICT (user_id, leave_type_id, year) DO UPDATE
-			   SET days_entitled     = EXCLUDED.days_entitled,
-			       days_carried_over = EXCLUDED.days_carried_over,
-			       notes             = EXCLUDED.notes,
-			       set_by            = EXCLUDED.set_by,
-			       updated_at        = NOW()
-			RETURNING id, user_id, leave_type_id, year, days_entitled, days_carried_over`,
-			b.UserID, b.LeaveTypeID, b.Year, *b.DaysEntitled, carried,
-			strings.TrimSpace(b.Notes), user.ID)
-		if err != nil {
-			leaveWriteErr(w, err)
-			return
-		}
-		respond(w, rows, "app.leave_entitlements")
-	}
-}
-
-func leaveGaps(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT user_id, full_name, role, department, hire_date,
-			       year, leave_type_id, leave_type, suggested_days
-			FROM app.v_leave_entitlement_gaps
-			ORDER BY full_name, leave_type`)
-		if err != nil {
-			respondErrLog(w, http.StatusInternalServerError, "could not read entitlement gaps", err)
-			return
-		}
-		respond(w, rows, "app.v_leave_entitlement_gaps")
-	}
-}
-
 // leaveUnmanaged is the list that has to be empty before anybody can request leave.
 // Served under the leave gate rather than borrowed from /api/people, whose
 // people_directory grant HR holds but which would tie this page to a second gate.
 func leaveUnmanaged(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT u.id AS user_id, u.full_name, u.role, u.department, u.hire_date,
-			       (u.hire_date IS NULL) AS hire_date_missing
+			SELECT u.id AS user_id, u.full_name, u.role, u.department,
 			FROM app.o3c_users u
 			WHERE u.is_active AND u.deleted_at IS NULL
 			  AND u.manager_user_id IS NULL
@@ -1075,7 +940,7 @@ func leaveLookups(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		out := map[string]any{}
 		if rows, err := db.PGQuery(ctx, `
-			SELECT u.id, u.full_name, u.department, u.role, u.hire_date,
+			SELECT u.id, u.full_name, u.department, u.role,
 			       u.manager_user_id, m.full_name AS manager_name
 			FROM app.o3c_users u
 			LEFT JOIN app.o3c_users m ON m.id = u.manager_user_id
@@ -1157,28 +1022,31 @@ func leaveCalendar(db *core.DB) http.HandlerFunc {
 
 /* ── Employment basics: the two facts leave depends on ──────────────────────── */
 
-// leaveSetEmployment writes o3c_users.manager_user_id and hire_date. It is the ONLY
-// writer of either column anywhere in the codebase.
+// leaveSetEmployment writes o3c_users.manager_user_id. It is the ONLY writer of that
+// column anywhere in the codebase.
 //
-// WHY IT EXISTS. Submission is refused when nobody manages you, and the entitlement
-// gap list derives its pro-rata suggestion from hire_date. Both columns were readable
-// and neither was settable, which made that refusal a dead end rather than a prompt:
-// HR could see all 50 names on /admin/unmanaged and had no way to clear a single one.
-// A gate nothing can satisfy is worse than no gate at all.
+// WHY IT EXISTS. Submission is refused when nobody manages you. The column was readable
+// and not settable, which made that refusal a dead end rather than a prompt: HR could
+// see all 50 names on /admin/unmanaged and had no way to clear a single one. A gate
+// nothing can satisfy is worse than no gate at all. Migration 380 then loaded HR's
+// roster in bulk, so this is now the tool for CHANGES — somebody moving team, or a new
+// joiner — rather than for the initial data entry.
 //
 // WHY A PAGE KEY HERE WHEN MOST OF LEAVE HAS NONE. Who reports to whom is a company
-// decision, like an entitlement, so it sits behind leave_admin alongside HR's other
-// write. Admin reaches it as well, because core.RequirePages short-circuits for the
-// super-user.
+// decision, so it sits behind leave_admin alongside HR's confirmation step. Admin
+// reaches it as well, because core.RequirePages short-circuits for the super-user.
 //
-// WHY set_manager / set_hire_date RATHER THAN JUST THE VALUES. A null manager has to
-// mean two different things — "clear it" and "leave it alone" — and JSON cannot tell
-// an absent field from a null one. The flags make the caller state which decision
-// they are making, so a form that only touches the reporting line cannot silently
-// wipe a hire date somebody else entered.
+// WHY set_manager RATHER THAN JUST THE VALUE. A null manager has to mean two different
+// things — "clear it" and "leave it alone" — and JSON cannot tell an absent field from
+// a null one. The flag makes the caller state which decision they are making.
 //
-// It takes a LIST because the opening state is 50 people with no manager, and a
-// chore done one request at a time is the kind that gets abandoned half finished.
+// It no longer writes hire_date. That column existed to pro-rata an entitlement for a
+// joiner, entitlements were removed on 2026-10-20, and the date was never in the HR
+// roster — so it had become a field with no reader. The column is left in place by
+// migration 374 rather than dropped; if tenure is ever wanted, a writer goes back here.
+//
+// It takes a LIST because a reorganisation moves several people at once, and a chore
+// done one request at a time is the kind that gets abandoned half finished.
 // Self-management, a cycle and a departed manager are refused by migration 374's
 // constraint, FK and trigger respectively; leaveWriteErr turns those into English.
 // The id-in-list check below exists only so the bulk case names the problem before
@@ -1187,8 +1055,6 @@ type leaveEmploymentBody struct {
 	UserIDs       []int64 `json:"user_ids"`
 	SetManager    bool    `json:"set_manager"`
 	ManagerUserID *int64  `json:"manager_user_id"`
-	SetHireDate   bool    `json:"set_hire_date"`
-	HireDate      *string `json:"hire_date"`
 }
 
 func leaveSetEmployment(db *core.DB) http.HandlerFunc {
@@ -1211,9 +1077,9 @@ func leaveSetEmployment(db *core.DB) http.HandlerFunc {
 			respondErr(w, http.StatusBadRequest, "that is more than 200 people in one request")
 			return
 		}
-		if !b.SetManager && !b.SetHireDate {
+		if !b.SetManager {
 			respondErr(w, http.StatusBadRequest,
-				"nothing to change — set set_manager or set_hire_date")
+				"nothing to change — set set_manager")
 			return
 		}
 
@@ -1242,40 +1108,19 @@ func leaveSetEmployment(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// nil stays nil deliberately: set_hire_date with no date is how a wrong date
-		// gets cleared, which is different from not touching the column at all.
-		var hire any
-		if b.SetHireDate && b.HireDate != nil && strings.TrimSpace(*b.HireDate) != "" {
-			d, err := time.Parse(leaveDateFmt, strings.TrimSpace(*b.HireDate))
-			if err != nil {
-				respondErr(w, http.StatusBadRequest, "hire_date must be YYYY-MM-DD")
-				return
-			}
-			// A start date in the future is legitimate — somebody joining next month —
-			// so it is allowed. Anything far out is far likelier a mistyped year.
-			if d.Year() < 1970 || d.After(time.Now().AddDate(1, 0, 0)) {
-				respondErr(w, http.StatusBadRequest,
-					"hire_date must be a real date, and not more than a year ahead")
-				return
-			}
-			hire = d.Format(leaveDateFmt)
-		}
-
-		// One guarded UPDATE. The CASE arms are what make the flags work: a column the
-		// caller did not ask to change is written back to itself rather than nulled.
-		// Restricted to live staff, so an id that has left is skipped rather than
-		// quietly given a reporting line — and the rows returned show what landed.
+		// One guarded UPDATE. The CASE arm is what makes the flag work: when the caller
+		// did not ask to change the manager it is written back to itself rather than
+		// nulled. Restricted to live staff, so an id that has left is skipped rather
+		// than quietly given a reporting line — and the rows returned show what landed.
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE app.o3c_users u
 			   SET manager_user_id = CASE WHEN $2::boolean THEN $3::bigint
 			                              ELSE u.manager_user_id END,
-			       hire_date       = CASE WHEN $4::boolean THEN $5::date
-			                              ELSE u.hire_date END,
 			       updated_at      = NOW()
 			 WHERE u.id = ANY($1::bigint[])
 			   AND u.is_active AND u.deleted_at IS NULL
-			RETURNING u.id, u.full_name, u.hire_date, u.manager_user_id`,
-			b.UserIDs, b.SetManager, b.ManagerUserID, b.SetHireDate, hire)
+			RETURNING u.id, u.full_name, u.manager_user_id`,
+			b.UserIDs, b.SetManager, b.ManagerUserID)
 		if err != nil {
 			leaveWriteErr(w, err)
 			return
