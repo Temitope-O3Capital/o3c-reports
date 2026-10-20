@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -61,6 +62,11 @@ func RegisterDashboards(r chi.Router, db *core.DB) {
 	r.With(access).Put("/{id}", dashUpdate(db))
 	r.With(access).Delete("/{id}", dashDelete(db))
 	r.With(access).Post("/{id}/tiles", dashTileCreate(db))
+	// Building a tile from a data source rather than from an already-saved report. It
+	// writes the report for you and points the tile at it — see dashboard_from_dataset.go
+	// for why that is the only safe way to grant it.
+	r.With(access).Post("/{id}/tiles/from-dataset", dashTileFromDataset(db))
+	r.With(access).Put("/tiles/{tid}/dataset", dashTileConfigSave(db))
 	r.With(access).Put("/{id}/layout", dashLayoutSave(db))
 	r.With(access).Put("/tiles/{tid}", dashTileUpdate(db))
 	r.With(access).Delete("/tiles/{tid}", dashTileDelete(db))
@@ -353,6 +359,7 @@ func dashGet(db *core.DB) http.HandlerFunc {
 			       t.source_report_id, t.source_sql_id,
 			       p.name AS report_name, p.dataset AS report_dataset,
 			       p.is_public AS report_is_public, p.created_by AS report_created_by,
+			       p.tile_only AS report_tile_only, p.config AS report_config,
 			       q.name AS sql_name, q.is_shared AS sql_is_shared,
 			       q.created_by AS sql_created_by
 			  FROM app.dashboard_tiles t
@@ -400,6 +407,14 @@ func dashGet(db *core.DB) http.HandlerFunc {
 			if kind == "report" {
 				row["source_report_id"] = t["source_report_id"]
 				row["dataset"] = t["report_dataset"]
+				// A report the dashboard wrote for this tile can be edited in place, so the
+				// page is given what it needs to reopen the builder on it. A tile pointing
+				// at a library report gets neither: editing that one belongs in the Report
+				// Builder, where its other tiles and schedules are visible.
+				if own, _ := t["report_tile_only"].(bool); own && ok {
+					row["tile_only"] = true
+					row["report_config"] = t["report_config"]
+				}
 			} else {
 				row["source_sql_id"] = t["source_sql_id"]
 			}
@@ -624,7 +639,7 @@ func dashTileDelete(db *core.DB) http.HandlerFunc {
 			 USING app.dashboards d
 			 WHERE d.id = t.dashboard_id
 			   AND t.id = $1 AND d.created_by = $2
-			RETURNING t.dashboard_id`,
+			RETURNING t.dashboard_id, t.source_report_id`,
 			chi.URLParam(r, "tid"), u.ID)
 		if err != nil {
 			respondErrLog(w, 500, "Could not remove the tile", err)
@@ -633,6 +648,20 @@ func dashTileDelete(db *core.DB) http.HandlerFunc {
 		if len(rows) == 0 {
 			respondErr(w, 404, "Tile not found")
 			return
+		}
+		// A report the dashboard wrote for this tile goes with it. Nothing else can reach
+		// such a row — it is hidden from the library and the source picker — so leaving it
+		// behind would accumulate reports nobody can see or delete. The "AND tile_only"
+		// is what keeps this from touching a report somebody built and named: deleting a
+		// tile must never remove a library report other tiles or schedules depend on.
+		if rid := rows[0]["source_report_id"]; rid != nil {
+			if _, delErr := db.PGExec(ctx,
+				`DELETE FROM app.pivot_reports WHERE id = $1 AND tile_only`, rid); delErr != nil {
+				// The tile is already gone and that is what the caller asked for; a report
+				// left behind is untidy, not a failure to report back as one.
+				slog.WarnContext(ctx, "could not remove the report behind a deleted tile",
+					"report_id", rid, "error", delErr)
+			}
 		}
 		touchDashboard(ctx, db, str(rows[0]["dashboard_id"]))
 		respond(w, map[string]any{"ok": true}, "pg")
@@ -851,12 +880,16 @@ func dashSources(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		u := core.UserFromCtx(ctx)
 
+		// tile_only reports are excluded: those were written by a dashboard to back one
+		// tile, and offering them here as sources would fill the picker with entries
+		// nobody chose to create. See migration 379.
 		reports, err := db.PGQuery(ctx, `
 			SELECT p.id, p.name, p.description, p.dataset, p.is_public, p.created_by,
 			       p.updated_at, usr.full_name AS created_by_name
 			  FROM app.pivot_reports p
 			  LEFT JOIN app.o3c_users usr ON usr.id = p.created_by
-			 WHERE p.is_public OR p.created_by = $1
+			 WHERE (p.is_public OR p.created_by = $1)
+			   AND NOT p.tile_only
 			 ORDER BY p.updated_at DESC`, u.ID)
 		if err != nil {
 			respondErrLog(w, 500, "Could not list saved reports", err)

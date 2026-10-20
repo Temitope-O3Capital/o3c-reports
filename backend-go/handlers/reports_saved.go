@@ -208,7 +208,8 @@ func savedMyDashboard(db *core.DB) http.HandlerFunc {
 		reports, _ := db.PGQuery(ctx, `
 			SELECT id, name, dataset, is_public, created_by, updated_at
 			FROM pivot_reports
-			WHERE created_by = $1 OR is_public
+			WHERE (created_by = $1 OR is_public)
+			  AND NOT tile_only
 			ORDER BY updated_at DESC`, uid)
 		visible := map[int64]bool{}
 		myCount, sharedCount := 0, 0
@@ -334,7 +335,8 @@ func savedListReports(db *core.DB) http.HandlerFunc {
 			         WHERE s.report_id = p.id AND s.is_active) AS active_schedules
 			FROM pivot_reports p
 			LEFT JOIN o3c_users u ON u.id = p.created_by
-			WHERE p.is_public = TRUE OR p.created_by = $1
+			WHERE (p.is_public = TRUE OR p.created_by = $1)
+			  AND NOT p.tile_only
 			ORDER BY p.updated_at DESC`, uid)
 		if err != nil {
 			respondErrLog(w, 500, "Could not load saved reports", err)

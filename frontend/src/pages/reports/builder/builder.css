@@ -198,9 +198,45 @@
 .rb-menu-list button:hover { background: var(--row-hvr); }
 .rb-menu-list button i { color: var(--txt3); font-family: var(--font-mono); font-size: 10.5px; font-style: normal; }
 
+/* ── Building a tile inside a dashboard ──────────────────────────────────────
+   The same builder, in a dialog. Two things differ from the full page: the body
+   cannot claim 480px of a modal that also carries a toolbar, a visual picker and
+   a footer, so it scrolls internally; and the title field lives in the footer
+   beside the save button, because naming the tile is part of adding it. */
+.rb-body-tile { min-height: 0; max-height: min(52vh, 460px); }
+.rb-body-tile .rb-main { overflow: auto; }
+.rb-ctl-static { cursor: default; }
+.rb-ctl-static b { font-weight: 500; }
+
+.rb-viz { display: flex; flex-direction: column; gap: 6px; }
+.rb-viz-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.rb-viz-row button {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px;
+  border: 1px solid var(--bdr); border-radius: 6px; background: var(--card);
+  color: var(--txt2); font-size: 12.5px; white-space: nowrap; cursor: pointer;
+}
+.rb-viz-row button:hover { background: var(--row-hvr); }
+.rb-viz-row button .material-symbols-rounded { font-size: 16px; }
+.rb-viz-row button.on {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--txt); font-weight: 600;
+}
+.rb-viz-row button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rb-viz-note { margin: 0; color: var(--txt3); font-size: 11.5px; line-height: 1.5; }
+
+.rb-tile-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.rb-tile-name { flex: 1 1 260px; min-width: 200px; padding-right: 10px; }
+.rb-tile-name input {
+  flex: 1; min-width: 0; height: 30px; border: 0; background: transparent;
+  color: var(--txt); font-size: 13px; font-weight: 500;
+}
+.rb-tile-name input:focus-visible { outline: none; }
+
 @media (max-width: 900px) {
   .rb-body { grid-template-columns: 1fr; }
   .rb-fields { border-right: 0; border-bottom: 1px solid var(--bdr); }
   .rb-field-list { flex-direction: row; flex-wrap: wrap; max-height: min(30vh, 220px); }
   .rb-field-row { flex: 0 1 auto; }
+  .rb-body-tile { max-height: none; }
+  .rb-tile-foot { align-items: stretch; }
+  .rb-tile-name { flex: 1 1 100%; }
 }

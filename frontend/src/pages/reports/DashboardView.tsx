@@ -9,6 +9,7 @@ import { CHART_SERIES } from '../../components/charts'
 import { apiFetch, apiPost, apiPut, apiDelete, unwrap, unwrapList } from '../../lib/api'
 import { kindOf, labelFor, fmtValue, alignFor } from '../../lib/reportFormat'
 import { NAVY, FW, SP, TEXT } from '../../lib/design'
+import { TileBuilder, type TileBuilderEdit } from './builder/TileBuilder'
 import { toast } from 'sonner'
 
 /*
@@ -50,6 +51,11 @@ interface Tile {
   readable: boolean
   reason?: string
   dataset?: string
+  // Set only when this tile's report was written by the dashboard for it alone, which is
+  // what makes it safe to edit here: a tile on a library report is edited in the Report
+  // Builder, where its other tiles and schedules are in view.
+  tile_only?: boolean
+  report_config?: Record<string, any> | null
 }
 
 interface Board {
@@ -212,6 +218,9 @@ export default function DashboardView() {
   const [err, setErr] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
+  // null = closed. { edit: null } = building a new tile; { edit } = reopening the builder
+  // on a tile whose report this dashboard owns.
+  const [building, setBuilding] = useState<{ edit: TileBuilderEdit | null } | null>(null)
   const [sources, setSources] = useState<SourceList | null>(null)
   const [removing, setRemoving] = useState<Tile | null>(null)
   const [renaming, setRenaming] = useState<Tile | null>(null)
@@ -513,6 +522,23 @@ export default function DashboardView() {
                           </span>
                         </button>
                       ))}
+                      {/* Only a tile whose report this dashboard wrote can be reopened in the
+                          builder. A tile on a library report deliberately has no such button:
+                          editing that report belongs in the Report Builder, where the other
+                          tiles and schedules depending on it are visible. */}
+                      {t.tile_only && (
+                        <button
+                          onClick={() => setBuilding({
+                            edit: {
+                              tileId: t.id, name: t.title, viz: t.viz,
+                              dataset: t.dataset ?? '', config: t.report_config ?? {},
+                            },
+                          })}
+                          title="Edit this tile's data" aria-label="Edit this tile's data"
+                          style={{ width: 22, height: 22, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--bdr)', background: 'var(--card)', display: 'grid', placeItems: 'center' }}>
+                          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 13 }}>tune</span>
+                        </button>
+                      )}
                       <button onClick={() => { setRenaming(t); setNewTitle(t.title) }} title="Rename"
                         aria-label="Rename tile"
                         style={{ width: 22, height: 22, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--bdr)', background: 'var(--card)', display: 'grid', placeItems: 'center' }}>
@@ -549,26 +575,52 @@ export default function DashboardView() {
         </div>
       )}
 
+      {/* ── Build a tile from a data source ── */}
+      {building && (
+        <TileBuilder
+          dashboardId={String(id)}
+          nextY={Math.max(0, ...(board.tiles ?? []).map(t => t.grid_y + t.grid_h))}
+          editing={building.edit}
+          onClose={() => setBuilding(null)}
+          onSaved={() => { setBuilding(null); load() }}
+        />
+      )}
+
       {/* ── Add a tile ── */}
       <Modal open={adding} onClose={() => setAdding(false)} title="Add a Tile" width={640}>
         {!sources ? <Sk h={120} /> : (
           <div style={{ display: 'grid', gap: SP[5] }}>
-            {/* A TILE POINTS AT SOMETHING ALREADY SAVED — it never carries a query of its
-                own, which is what stops a shared dashboard becoming a way to run anything
-                under whatever access the dashboard happened to have. So there is no list
-                of data sources here, and the honest thing is to say so and hand over the
-                one control that gets you one, rather than leave an empty panel that reads
-                as a missing feature. */}
+            {/* BUILD FROM DATA, WITHOUT PUTTING A QUERY ON THE TILE. A tile never carries
+                its own SQL — that is what stops a shared dashboard becoming a way to run
+                anything under whatever access the dashboard happened to have. Choosing a
+                data source here does not break that: the server writes the report and
+                points the tile at it, so the tile still holds a foreign key and every
+                read is still re-checked against the viewer. See TileBuilder.tsx. */}
             <div style={{
               border: '1px solid var(--bdr)', borderRadius: 8, padding: SP[3],
               display: 'flex', gap: SP[3], alignItems: 'center', justifyContent: 'space-between',
             }}>
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
-                Tiles are built from saved reports, not from a data source directly. Choose the
-                data, columns and chart in the Report Builder, save it, and it appears here.
+                <b style={{ color: 'var(--txt)' }}>Start from a data source.</b> Pick the table,
+                choose columns and filters the same way as the Report Builder, and say how the
+                tile should draw it.
               </div>
-              <Button variant="secondary" icon="add_chart"
-                onClick={() => nav('/reports/builder')}>Build a Report</Button>
+              <div style={{ display: 'flex', gap: SP[2], flexShrink: 0 }}>
+                <Button icon="add_chart" onClick={() => { setAdding(false); setBuilding({ edit: null }) }}>
+                  Build From Data
+                </Button>
+              </div>
+            </div>
+            {/* The two paths differ in what you end up with, so both stay on offer: a tile
+                built here belongs to this dashboard, while a report built in the Report
+                Builder can be reused on other dashboards, emailed and scheduled. */}
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5, marginTop: -SP[3] }}>
+              A tile built here belongs to this dashboard. For something you want to reuse,
+              email or put on a schedule,{' '}
+              <button type="button" onClick={() => nav('/reports/builder')} style={{
+                background: 'none', border: 'none', padding: 0, font: 'inherit',
+                color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline',
+              }}>build a saved report</button>{' '}instead — it then appears below.
             </div>
             <AddFrom
               heading="From a Saved Report"
