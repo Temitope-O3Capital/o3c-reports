@@ -11,6 +11,7 @@ import Sidebar          from './components/Sidebar'
 import { RouteSkeleton } from './components/Skeleton'
 import NotificationBell from './components/NotificationBell'
 import AssistantLauncher from './components/AssistantModal'
+import CompanionPresence from './components/CompanionPresence'
 import CallbackReminder from './components/CallbackReminder'
 import SLAReminder from './components/SLAReminder'
 import EscalationReminder from './components/EscalationReminder'
@@ -907,6 +908,8 @@ function TopBar({
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         <ThemeToggle dark={dark} onToggle={onToggleDark} />
         <AssistantLauncher />
+        {/* Off unless switched on in Settings; see the rules in the component. */}
+        <CompanionPresence />
         <ApprovalsDropdown user={user} />
         <NotificationBell />
       </div>

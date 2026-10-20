@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import DOMPurify from 'dompurify'
 import { toast } from 'sonner'
 import { SectionCard, Spinner } from '../components/UI'
+import CompanionPicker from '../components/CompanionPicker'
 import MailRichEditor from '../components/MailRichEditor'
 import { apiFetch, apiPost, apiPut } from '../lib/api'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER, TEXT, FW, RADIUS, SP } from '../lib/design'
@@ -15,7 +16,7 @@ import { humanLabel } from '../lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'profile' | 'security' | 'notifications' | 'signature' | 'voice'
+type Tab = 'profile' | 'security' | 'notifications' | 'signature' | 'voice' | 'assistant'
 
 type SetupStep = 'idle' | 'qr' | 'verify' | 'done'
 
@@ -1124,6 +1125,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'notifications', label: 'Notifications',    icon: 'notifications' },
   { id: 'signature',     label: 'Email Signature',  icon: 'edit_note'     },
   { id: 'voice',         label: 'Voice & Calling',  icon: 'call'          },
+  { id: 'assistant',     label: 'Assistant',        icon: 'face'          },
 ]
 
 export default function Settings() {
@@ -1189,6 +1191,7 @@ export default function Settings() {
           {tab === 'notifications' && <NotificationsTab />}
           {tab === 'signature'     && <SignatureTab />}
           {tab === 'voice'         && <VoiceTab />}
+          {tab === 'assistant'     && <CompanionPicker />}
         </div>
       </div>
     </div>

@@ -166,6 +166,8 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 	type chatReq struct {
 		ConversationID int64  `json:"conversation_id"`
 		Message        string `json:"message"`
+		// Which companion the person has chosen. Tone only; see assistantCompanionManner.
+		Companion      string `json:"companion"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -290,7 +292,7 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 
 		msgs := []ollamaMessage{{Role: "system", Content: assistantSystemPrompt(names)}}
 		msgs = append(msgs, assistantHistory(ctx, db, convID)...)
-		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user) + question})
+		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user, req.Companion) + question})
 
 		started := time.Now()
 		used := make([]string, 0, 2)

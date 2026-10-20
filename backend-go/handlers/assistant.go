@@ -1283,7 +1283,38 @@ func assistantSystemPrompt(toolNames []string) string {
 // staff member or a midnight rollover costs a handful of tokens of prefill
 // rather than invalidating the whole cached preamble. Keep it out of the system
 // message; see the note on assistantSystemPrompt.
-func assistantTurnContext(user *core.Claims) string {
+// assistantCompanionManner returns the chosen persona's tone instruction.
+//
+// Deliberately NOT part of assistantSystemPrompt. That preamble has to be
+// byte-identical for every user: the chat template renders it before the tool
+// schemas, so one differing byte discards ~1,750 tokens of cached tool
+// definitions and costs 28 seconds of re-prefill instead of 0.12. Two colleagues
+// with different companions would have thrown the cache away on alternate
+// requests — the persona would have made the assistant feel personal and made it
+// unusable in the same change.
+//
+// So it rides in the turn context instead, after the tools, where changing it
+// costs a handful of tokens.
+//
+// TONE ONLY. These lines may change the order and the phrasing of an answer. They
+// may not change a figure, a conclusion, or whether a tool is called: two people
+// asking the same question through different companions must get the same number.
+func assistantCompanionManner(id string) string {
+	switch id {
+	case "esther":
+		return "Lead with the figure, then say straight away what it does not cover: " +
+			"the date range, the exclusions, the rows that were empty. Say so when a " +
+			"number looks unusual against the rest of the answer. If the question could " +
+			"mean two things, ask which rather than picking one."
+	case "temitope":
+		return "Answer in the first sentence, with the number in it, then the detail " +
+			"underneath. Keep it short. Afterwards offer the single most obvious " +
+			"follow-up question, and only when there plainly is one."
+	}
+	return ""
+}
+
+func assistantTurnContext(user *core.Claims, companion string) string {
 	loc, err := time.LoadLocation("Africa/Lagos")
 	if err != nil {
 		loc = time.UTC
@@ -1299,8 +1330,14 @@ func assistantTurnContext(user *core.Claims) string {
 			role = user.Role
 		}
 	}
-	return fmt.Sprintf("(You are speaking with %s, role: %s. Today is %s, %s.)\n\n",
+	out := fmt.Sprintf("(You are speaking with %s, role: %s. Today is %s, %s.)\n\n",
 		name, role, now.Format("Monday"), now.Format("2 January 2006"))
+	// Before the who-and-when line, so the tone instruction is the first thing read
+	// in the turn rather than trailing after the date.
+	if m := assistantCompanionManner(companion); m != "" {
+		out = fmt.Sprintf("(%s)\n", m) + out
+	}
+	return out
 }
 
 // ── Ollama call ─────────────────────────────────────────────────────────────
@@ -1572,6 +1609,8 @@ func assistantChat(db *core.DB) http.HandlerFunc {
 	type chatReq struct {
 		ConversationID int64  `json:"conversation_id"`
 		Message        string `json:"message"`
+		// Which companion the person has chosen. Tone only; see assistantCompanionManner.
+		Companion      string `json:"companion"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		// The server-wide WriteTimeout is 60s (main.go), sized for CSV exports. A
@@ -1660,7 +1699,7 @@ func assistantChat(db *core.DB) http.HandlerFunc {
 
 		msgs := []ollamaMessage{{Role: "system", Content: assistantSystemPrompt(names)}}
 		msgs = append(msgs, assistantHistory(ctx, db, convID)...)
-		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user) + question})
+		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user, req.Companion) + question})
 
 		started := time.Now()
 		used := make([]string, 0, 2)

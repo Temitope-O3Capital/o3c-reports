@@ -204,7 +204,7 @@ func runTurn(t *testing.T, db *core.DB, model, q string) (string, []string, floa
 
 	msgs := []ollamaMessage{
 		{Role: "system", Content: assistantSystemPrompt(names)},
-		{Role: "user", Content: assistantTurnContext(u) + q},
+		{Role: "user", Content: assistantTurnContext(u, "") + q},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()

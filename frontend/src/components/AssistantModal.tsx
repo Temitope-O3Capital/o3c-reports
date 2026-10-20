@@ -4,6 +4,9 @@ import { Spinner } from './UI'
 import { NAVY, RED, GREEN, TEXT, FW, SP, SORA } from '../lib/design'
 import { EBar, ELine } from './echarts'
 import { CHART_SERIES } from './charts'
+import { CompanionAvatar, companionState } from './Companion'
+import { personaOf, readCompanion } from '../lib/companions'
+import { OPEN_ASSISTANT_EVENT } from './CompanionPresence'
 
 /**
  * AssistantLauncher — toolbar button that docks the AI assistant to the lower right.
@@ -32,6 +35,19 @@ import { CHART_SERIES } from './charts'
 
 export default function AssistantLauncher() {
   const [open, setOpen] = useState(false)
+  // Read once per mount rather than per render: the choice only changes from the
+  // picker, which closes the panel on its way out.
+  const persona = personaOf(readCompanion())
+
+  // The roaming companion opens the panel by event rather than by prop, so the
+  // two components need to know nothing about each other and the presence can be
+  // mounted anywhere in the tree.
+  useEffect(() => {
+    const open = () => setOpen(true)
+    window.addEventListener(OPEN_ASSISTANT_EVENT, open)
+    return () => window.removeEventListener(OPEN_ASSISTANT_EVENT, open)
+  }, [])
+
   return (
     <>
       <button
@@ -58,7 +74,9 @@ export default function AssistantLauncher() {
           el.style.color = 'var(--txt2)'
         }}
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 18 }}>forum</span>
+        {/* The face, not a speech bubble: the toolbar has six icon buttons and a
+            character is the one thing in the row you can find without reading. */}
+        <CompanionAvatar size={22} state="idle" look={persona.look} title={`Ask ${persona.name}`} />
       </button>
       {open && <AssistantPanel onClose={() => setOpen(false)} />}
     </>
@@ -126,6 +144,10 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
   // flight. A turn takes ~23s on this hardware and cannot be made much faster,
   // so saying what is happening is the difference between "working" and "frozen".
   const [status, setStatus] = useState('')
+  // Set on the first token and cleared with the turn. Distinguishes "waiting on
+  // the model" from "words are arriving", which look identical from `busy` alone
+  // and are the two states the face most needs to tell apart.
+  const [streaming, setStreaming] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [convId, setConvId] = useState<number | null>(null)
   const [convs, setConvs] = useState<Conversation[]>([])
@@ -223,7 +245,13 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
-      body: JSON.stringify({ conversation_id: convId ?? 0, message: question }),
+      // Read at send time, not at mount: someone can change companion in Settings
+      // in another tab, and the next question should use the new one.
+      body: JSON.stringify({
+        conversation_id: convId ?? 0,
+        message: question,
+        companion: readCompanion(),
+      }),
     })
 
     try {
@@ -269,6 +297,7 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
             appendToLast(p => ({ ...p, charts: [...(p.charts ?? []), d as AssistantChart] }))
           } else if (ev === 'token') {
             setStatus('')
+            setStreaming(true)
             appendToLast(p => ({ ...p, content: p.content + d.t }))
           } else if (ev === 'done') {
             setConvId(d.conversation_id)
@@ -293,12 +322,16 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy(false)
       setStatus('')
+      setStreaming(false)
     }
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
   }
+
+  const persona = personaOf(readCompanion())
+  const face = companionState({ online, busy, streaming })
 
   const disabled = busy || online === false
   const reduceMotion = typeof window !== 'undefined'
@@ -319,10 +352,15 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
     >
       {/* header — navy action bar, per the design system's dark-bar convention */}
       <div style={header}>
-        <span className="material-symbols-rounded" style={{ fontSize: 19, color: '#fff', opacity: 0.9 }}>forum</span>
+        <CompanionAvatar
+          size={28}
+          state={face}
+          look={persona.look}
+          title={`${persona.name} is ${face}`}
+        />
         <div style={{ minWidth: 0, lineHeight: 1.15 }}>
           <div style={{ fontFamily: SORA, fontSize: TEXT.sm, fontWeight: FW.semibold as any, color: '#fff' }}>
-            Assistant
+            {persona.name}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.62)' }}>
             <span style={{
