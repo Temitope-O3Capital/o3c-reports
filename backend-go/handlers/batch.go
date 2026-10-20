@@ -1099,7 +1099,9 @@ func batchPTPNotifications(ctx context.Context, db *core.DB) error {
 			EntityRef: fmt.Sprintf("ptp:%d", toInt64(row["id"])),
 		}
 		if agentID > 0 {
-			go Notify(ctx, db, NotifPayload{EventType: p.EventType, UserID: agentID, Title: p.Title, Body: p.Body, ActionURL: p.ActionURL, EntityRef: p.EntityRef})
+			// NotifyHolder: a broken promise is a dated fact about a customer, and it
+			// does not wait for the agent to come back before it needs chasing.
+			go NotifyHolder(ctx, db, NotifPayload{EventType: p.EventType, UserID: agentID, Title: p.Title, Body: p.Body, ActionURL: p.ActionURL, EntityRef: p.EntityRef})
 		}
 		go NotifyRole(ctx, db, "collections_head", p)
 	}

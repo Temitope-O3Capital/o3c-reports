@@ -464,6 +464,14 @@ func fleetVehicleCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "A registration number is required — it is how the vehicle is identified everywhere else")
 			return
 		}
+		// Who holds the vehicle. Not work in a queue, but it decides who answers for a
+		// fuel card and an incident, so an id matching nobody is the same mistake.
+		if b.AssignedTo != nil {
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		if b.Status == "" {
 			b.Status = "active"
 		}
@@ -509,6 +517,20 @@ func fleetVehicleUpdate(db *core.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			respondErr(w, 400, "Invalid JSON")
 			return
+		}
+		// assigned_to is in the whitelist below and so is written straight through. A
+		// null clears it, which is a legitimate unassignment; a number has to name
+		// somebody who exists.
+		if v, ok := raw["assigned_to"]; ok && string(v) != "null" {
+			var to int64
+			if err := json.Unmarshal(v, &to); err != nil {
+				respondErr(w, 400, "assigned_to must be a user id or null")
+				return
+			}
+			if p := assignTargetProblem(r.Context(), db, to); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 		}
 
 		// reg_no is deliberately absent: it is the business key this vehicle is known

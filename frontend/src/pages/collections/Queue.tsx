@@ -1033,9 +1033,14 @@ export default function CollectionsQueue() {
     if (agentFilter) params.set('agent_id', String(agentFilter))
 
     try {
+      // /api/availability/assignable, not /api/admin/users: the admin route is gated on
+      // the admin_users page, which no collections role holds, so for anybody but an
+      // administrator it returned 403 — and since it shares this Promise.all with the
+      // queue, that 403 rejected both and the page showed an error with no rows at all.
+      // The queue itself had loaded fine and was thrown away.
       const [queueRes, usersRes] = await Promise.all([
         apiFetch<{ data: Assignment[] }>(`/api/collections-ops/queue?${params}`),
-        apiFetch<{ data: AgentUser[] }>('/api/admin/users'),
+        apiFetch<{ data: AgentUser[] }>('/api/availability/assignable'),
       ])
       setAgents(usersRes.data ?? [])
       setItems(queueRes.data ?? [])

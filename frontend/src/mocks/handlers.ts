@@ -1538,6 +1538,22 @@ const ADMIN_USERS = Array.from({ length: 24 }, (_, i) => ({
   must_change_password: false,
 }))
 
+// Who can be given work. Unlike /api/admin/users this is open to any signed-in user,
+// which is the entire point of it: it is what an assign-to dropdown is built from.
+// Availability rides along as data, and the first entry is away, so a screen meaning to
+// show "away until Thursday" beside a name has something to render in development.
+const ASSIGNABLE = [
+  http.get(u('/api/availability/assignable'), () => ok(ADMIN_USERS.map((x, i) => ({
+    ...x,
+    available: i !== 0,
+    unavailable_kind: i === 0 ? 'field_work' : null,
+    unavailable_until: i === 0 ? '2026-10-23' : null,
+    unavailable_reason: i === 0 ? 'At the Ikeja branch all day' : null,
+    cover_user_id: i === 0 ? ADMIN_USERS[1].id : null,
+    cover_name: i === 0 ? ADMIN_USERS[1].full_name : null,
+  })))),
+]
+
 const ADMIN = [
   http.get(u('/api/admin/users'), () => ok(ADMIN_USERS)),
   http.post(u('/api/admin/users'), () => ok({ id: 99, must_change_password: true })),
@@ -3831,6 +3847,7 @@ export const handlers = [
   ...HELPDESK,
   ...BD,
   ...CAMPAIGNS,
+  ...ASSIGNABLE,
   ...ADMIN,
   ...SETTINGS,
   ...MAIL,

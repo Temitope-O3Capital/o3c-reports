@@ -852,6 +852,12 @@ func soc2CreatePolicy(db *core.DB) http.HandlerFunc {
 		ownerID := b.OwnerID
 		if ownerID == 0 {
 			ownerID = user.ID
+		} else if p := assignTargetProblem(r.Context(), db, ownerID); p != "" {
+			// Checked only when one was named, since the default is the caller. A
+			// policy whose owner cannot sign in has no owner, and an unowned control
+			// is precisely what an auditor goes looking for.
+			respondErr(w, 422, p)
+			return
 		}
 		category := b.PolicyType
 		if category == "" {

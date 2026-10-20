@@ -298,7 +298,11 @@ func hdNotifySLADigestForTeam(ctx context.Context, db *core.DB, team string, fre
 	// Per-agent digest — the fresh count plus their whole open pile for context.
 	for agentID, freshN := range perAgent {
 		total := hdOpenSLACount(ctx, db, kind, agentID, team)
-		Notify(context.WithoutCancel(ctx), db, NotifPayload{
+		// NotifyHolder, not Notify: an agent marked away still holds these tickets and
+		// the SLA keeps running on them, so whoever covers is copied. The floor digest
+		// below is not a substitute — it goes to a supervisor role and says nothing
+		// about whose tickets they are.
+		NotifyHolder(context.WithoutCancel(ctx), db, NotifPayload{
 			EventType: evt, UserID: agentID,
 			Title:     fmt.Sprintf("%d %s %s", freshN, teamItemNoun(team, freshN), nowVerb),
 			Body:      fmt.Sprintf("%d of your %s just %s, %d %s in total. Open the queue and work them.", freshN, item, nowVerb, total, totalWord),

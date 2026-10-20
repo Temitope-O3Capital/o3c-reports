@@ -232,8 +232,11 @@ func collectionsOpsAssign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AgentID == 0 {
-			respondErr(w, 422, "agent_id is required")
+		// collection_assignments.agent_user_id has no foreign key, so without this an
+		// id that matches nobody is written without complaint and the account sits
+		// assigned to a user who does not exist.
+		if p := assignTargetProblem(r.Context(), db, b.AgentID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 
@@ -951,7 +954,9 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			agentID := toInt64(p["agent_user_id"])
 			cif := str(p["cif_number"])
 			// Use context.Background() so the notification goroutine outlives the HTTP handler.
-			go Notify(context.Background(), db, NotifPayload{
+			// NotifyHolder so an agent who is away has their cover copied; the head
+			// notification below is a floor-level digest, not a named stand-in.
+			go NotifyHolder(context.Background(), db, NotifPayload{
 				EventType: EvtPTPBroken,
 				UserID:    agentID,
 				Title:     "Broken PTP: " + cif,
@@ -1041,8 +1046,15 @@ func collectionsOpsUpsertTarget(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AgentUserID == 0 || b.TargetDate == "" {
-			respondErr(w, 422, "agent_user_id and target_date are required")
+		if b.TargetDate == "" {
+			respondErr(w, 422, "target_date is required")
+			return
+		}
+		// collections_daily_kpi.agent_user_id has no foreign key either, and a target
+		// recorded against a non-existent agent is worse than no target: it counts
+		// towards the floor's numbers while belonging to nobody.
+		if p := assignTargetProblem(r.Context(), db, b.AgentUserID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 
@@ -2548,8 +2560,11 @@ func collectionsOpsDistribute(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if len(b.AgentIDs) == 0 {
-			respondErr(w, 422, "agent_ids is required")
+		// The head names who is on shift and the rows are dealt round-robin across
+		// them, so one dead id in the list quietly swallows its whole share of the
+		// distribution. Checked before anything is written, not per row.
+		if p := assignTargetsProblem(r.Context(), db, b.AgentIDs); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		ctx := r.Context()
@@ -2621,8 +2636,15 @@ func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AgentUserID == 0 || len(b.Accounts) == 0 {
-			respondErr(w, 422, "agent_user_id and accounts are required")
+		if len(b.Accounts) == 0 {
+			respondErr(w, 422, "accounts is required")
+			return
+		}
+		// This handler validates the CIF namespace carefully and validated the agent
+		// not at all, which is the wrong way round: a bad CIF assigns nothing, a bad
+		// agent id assigns everything to nobody.
+		if p := assignTargetProblem(r.Context(), db, b.AgentUserID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		ctx := r.Context()

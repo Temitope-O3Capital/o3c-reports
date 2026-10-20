@@ -76,6 +76,10 @@ interface Request {
   days_remaining?: number | null
   manager_decided_by_name?: string | null
   hr_decided_by_name?: string | null
+  // Set on the approvals list only: this reached you because the line manager it was
+  // routed to is away and HR names you as the approver above them.
+  via_escalation?: boolean
+  routed_manager_name?: string | null
 }
 
 interface Me {
@@ -320,7 +324,7 @@ export default function Leave() {
             <KpiCard
               label="Available Days This Year"
               value={fmtNum(av?.available_days_ytd)}
-              sub={`Of ${fmtNum(av?.working_days_ytd)} working days so far — weekends and public holidays already excluded`}
+              sub={`Of ${fmtNum(av?.working_days_ytd)} working days so far, with weekends and public holidays already excluded`}
               icon="event_available" accent={BLUE} loading={loading && !me}
             />
             <KpiCard
@@ -354,7 +358,7 @@ export default function Leave() {
               <EmptyState
                 icon="rule"
                 title="No entitlement has been set for you yet"
-                description="HR sets how many days of each leave type you have each year. Until then this page cannot show a balance — and it will not show zero, because zero is not what it means."
+                description="HR sets how many days of each leave type you have each year. Until then this page cannot show a balance. It will not show zero, because zero is not what it means."
               />
             ) : (
               <DataTable
@@ -468,7 +472,7 @@ export default function Leave() {
             style={{ marginBottom: SP[4] }}
           >
             {staff.length === 0 ? (
-              <EmptyState icon="account_tree" title="No active staff" />
+              <EmptyState icon="account_tree" title="No Active Staff" />
             ) : (
               <DataTable
                 rows={staff}
@@ -550,7 +554,7 @@ export default function Leave() {
           {held.length > 0 && (
             <SectionCard
               title="What Is Sitting On Them"
-              subtitle="Clocked work has a promise with a time on it and decays while nobody is looking. Unclocked work merely waits — it is shown for completeness, not because it should be moved."
+              subtitle="Clocked work has a promise with a time on it and decays while nobody is looking. Unclocked work merely waits. It is shown for completeness, not because it should be moved."
             >
               <DataTable rows={held} cols={heldCols} keyFn={(r: HeldRow) => String(r.user_id)} />
               <div style={{ padding: `${SP[3]} ${SP[4]}`, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
@@ -650,11 +654,16 @@ function periodCell(r: Request) {
 function flagPills(r: Request) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-      {r.short_notice && <Pill label="Short notice" color={AMBER} bg="rgba(245,158,11,.12)" />}
-      {r.documents_outstanding && <Pill label="No document" color={AMBER} bg="rgba(245,158,11,.12)" />}
-      {r.entitlement_missing && <Pill label="No entitlement set" color={RED} bg="rgba(239,68,68,.10)" />}
+      {/* First, because it answers "why is this mine?" before the approver reads
+          anything else about the request. */}
+      {r.via_escalation && <Pill
+        label={r.routed_manager_name ? r.routed_manager_name + ' is away' : 'Approver away'}
+        color={NAVY} bg="rgba(30,58,95,.10)" />}
+      {r.short_notice && <Pill label="Short Notice" color={AMBER} bg="rgba(245,158,11,.12)" />}
+      {r.documents_outstanding && <Pill label="No Document" color={AMBER} bg="rgba(245,158,11,.12)" />}
+      {r.entitlement_missing && <Pill label="No Entitlement Set" color={RED} bg="rgba(239,68,68,.10)" />}
       {typeof r.days_remaining === 'number' && r.days_remaining < 0 &&
-        <Pill label="Over entitlement" color={RED} bg="rgba(239,68,68,.10)" />}
+        <Pill label="Over Entitlement" color={RED} bg="rgba(239,68,68,.10)" />}
     </div>
   )
 }
@@ -740,7 +749,7 @@ function unmanagedCols(onEdit: (r: any) => void): TableCol<any>[] {
       key: 'hire_date_missing', label: 'Hire Date', sortable: true, width: 160,
       render: r => r.hire_date
         ? fmtDate(r.hire_date)
-        : <Pill label="Not recorded" color={AMBER} bg="rgba(245,158,11,.12)" />,
+        : <Pill label="Not Recorded" color={AMBER} bg="rgba(245,158,11,.12)" />,
     },
     {
       key: 'fix', label: '', width: 170,
@@ -795,7 +804,7 @@ const gapCols: TableCol<any>[] = [
   {
     key: 'suggested_days', label: 'Suggested (Pro-Rata)', sortable: true, width: 190,
     render: r => r.suggested_days == null
-      ? <Pill label="No hire date" color={AMBER} bg="rgba(245,158,11,.12)" />
+      ? <Pill label="No Hire Date" color={AMBER} bg="rgba(245,158,11,.12)" />
       : days(r.suggested_days),
   },
   { key: 'hire_date', label: 'Hire Date', sortable: true, width: 140, render: r => r.hire_date ? fmtDate(r.hire_date) : '—' },
@@ -911,7 +920,7 @@ function RequestModal({ open, onClose, types, colleagues, onDone }: {
 
       <Select label="Cover" value={cover} onChange={e => setCover(e.target.value)}
         hint="Who picks up your work while you are away. Optional, and your own department only.">
-        <option value="">Nobody named</option>
+        <option value="">Nobody Named</option>
         {colleagues.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
       </Select>
 
@@ -1255,7 +1264,7 @@ const awayCols: TableCol<AwayRow>[] = [
     // is picking up the half with a clock on it".
     render: r => r.cover_name
       ? <NameCell name={r.cover_name} />
-      : <Pill label="No cover named" color={AMBER} bg="rgba(245,158,11,.12)" />,
+      : <Pill label="No Cover Named" color={AMBER} bg="rgba(245,158,11,.12)" />,
   },
 ]
 
@@ -1380,7 +1389,7 @@ function AwayModal({ open, onClose, staff, me, onDone }: {
       {err && <div style={{ color: RED, marginBottom: SP[3], fontSize: 13 }}>{err}</div>}
 
       <Select label="Who" value={userID} onChange={e => setUserID(e.target.value)}
-        hint="Defaults to you. You can mark somebody else if you are their line manager, their department head, or HR.">
+        hint="Defaults to you. You can mark somebody else if you are their line manager, the approver above that manager, their department head, or HR.">
         <option value="">Me</option>
         {staff.map(s => (
           <option key={s.id} value={s.id}>
@@ -1401,7 +1410,7 @@ function AwayModal({ open, onClose, staff, me, onDone }: {
 
       <Select label="Cover" value={cover} onChange={e => setCover(e.target.value)}
         hint="Who picks up anything time-critical. Optional, and better left blank than guessed.">
-        <option value="">Nobody named</option>
+        <option value="">Nobody Named</option>
         {staff.filter(s => Number(s.id) !== subject).map(s => (
           <option key={s.id} value={s.id}>{s.full_name}</option>
         ))}

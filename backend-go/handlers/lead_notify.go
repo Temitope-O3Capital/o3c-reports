@@ -230,7 +230,12 @@ func notifyLeadForwarded(ctx context.Context, db *core.DB, leadID int64, agentID
 			title = "A Lead Was Shared With Your Team"
 			action = " Share it out from Leads, or take it yourself."
 		}
-		Notify(ctx, db, NotifPayload{
+		// NotifyHolder: a forwarded lead carries a four-hour pickup promise, and the
+		// measured case behind migration 378 was precisely this — leads landing on an
+		// absent head and ageing to 3.4 days. Automatic routing now excludes whoever is
+		// away, but a head may still hand one over deliberately, and a lead can be
+		// claimed by somebody who goes away the following morning.
+		NotifyHolder(ctx, db, NotifPayload{
 			EventType: EvtLeadForwarded,
 			UserID:    f.OwnerID,
 			Title:     title,

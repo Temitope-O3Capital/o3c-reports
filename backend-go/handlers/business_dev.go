@@ -1022,8 +1022,10 @@ func bdAssignToSales(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "invalid JSON")
 			return
 		}
-		if b.SalesAgentID == 0 {
-			respondErr(w, 422, "sales_agent_id is required")
+		// This writes crm_contacts.assigned_to as well as the bd_assignments row, so a
+		// dead id loses the employer relationship in two places at once.
+		if p := assignTargetProblem(r.Context(), db, b.SalesAgentID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		if b.AssignmentType != "full_company" && b.AssignmentType != "specific_staff" {

@@ -1465,6 +1465,14 @@ func bulkAssignTasks(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "task_ids is required")
 			return
 		}
+		// nil means unassign, which is a deliberate action and stays allowed. A named
+		// id has to be somebody who can open the task.
+		if b.AssignedTo != nil {
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		placeholders := make([]string, len(b.TaskIDs))
 		args := []any{b.AssignedTo}
 		for i, id := range b.TaskIDs {

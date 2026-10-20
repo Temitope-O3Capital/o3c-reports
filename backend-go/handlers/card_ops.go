@@ -273,6 +273,13 @@ func cardCreateIssuance(db *core.DB) http.HandlerFunc {
 		if officerID == nil {
 			id := user.ID
 			officerID = &id
+		} else if p := assignTargetProblem(r.Context(), db, *officerID); p != "" {
+			// This field is a credit, not a queue: it is who the sale counts for. A bad
+			// id does not merely lose the attribution, it books it to nobody — and card
+			// attribution cannot be reconstructed later from any other data, which is
+			// why the Issuance flow exists at all (see card_attribution.go).
+			respondErr(w, 422, p)
+			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO card_issuance_requests

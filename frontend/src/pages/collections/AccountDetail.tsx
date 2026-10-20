@@ -543,7 +543,10 @@ export default function CollectionsAccountDetail() {
 
   useEffect(() => {
     if (isHead) {
-      apiFetch<{ data: AgentUser[] }>('/api/admin/users')
+      // Not /api/admin/users: that route is gated on the admin_users page, which no
+      // collections role holds, so this picker was empty for everyone but an admin —
+      // and the .catch meant nothing said why.
+      apiFetch<{ data: AgentUser[] }>('/api/availability/assignable')
         .then(r => setAgents(r.data ?? []))
         .catch(() => {})
     }

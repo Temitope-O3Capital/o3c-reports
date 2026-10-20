@@ -676,15 +676,14 @@ func doAssign(w http.ResponseWriter, r *http.Request, db *core.DB, req assignReq
 	}
 
 	// officer_id 0 means unassign — a real operation when someone leaves.
+	//
+	// This used to read is_active alone, so a soft-deleted account passed: deleted_at
+	// is set without is_active being cleared in some paths, and the book moved to
+	// somebody who is gone. Holding a customer book moves commission with it
+	// (officer_overrides.go), so a wrong answer here is not cosmetic.
 	if req.OfficerID != 0 {
-		var ok bool
-		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT is_active FROM o3c_users WHERE id=$1`, req.OfficerID).Scan(&ok); err != nil {
-			respondErr(w, 400, "No such officer")
-			return
-		}
-		if !ok {
-			respondErr(w, 400, "That user is deactivated and cannot hold a book")
+		if p := assignTargetProblem(r.Context(), db, req.OfficerID); p != "" {
+			respondErr(w, 400, p)
 			return
 		}
 	}
@@ -808,15 +807,11 @@ func assignParty(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// The officer must exist and be active — mirror doAssign's validation.
-		var ok bool
-		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT is_active FROM o3c_users WHERE id=$1`, req.OfficerID).Scan(&ok); err != nil {
-			respondErr(w, 400, "No such officer")
-			return
-		}
-		if !ok {
-			respondErr(w, 400, "That user is deactivated and cannot hold a book")
+		// The officer must exist and be able to sign in — the same check doAssign makes,
+		// and now literally the same code, which is why the comment used to say "mirror"
+		// and the two had already drifted apart on deleted_at.
+		if p := assignTargetProblem(r.Context(), db, req.OfficerID); p != "" {
+			respondErr(w, 400, p)
 			return
 		}
 

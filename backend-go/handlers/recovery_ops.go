@@ -814,8 +814,11 @@ func recoveryOpsAssign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AgentID == 0 {
-			respondErr(w, 422, "agent_id is required")
+		// The foreign key proves the row exists; it says nothing about whether the
+		// account can still sign in. A recovery case parked on a leaver is a case
+		// nobody works and nothing reports.
+		if p := assignTargetProblem(r.Context(), db, b.AgentID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 

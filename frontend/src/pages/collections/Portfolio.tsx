@@ -193,7 +193,9 @@ export default function CollectionsPortfolio() {
   // Collection agents for the bulk-assign picker.
   useEffect(() => {
     if (!isHead) return
-    apiFetch<{ data: { id: number; full_name: string; role: string }[] }>('/api/admin/users')
+    // Not /api/admin/users: gated on the admin_users page, which no collections role
+    // holds, so this picker was empty for every non-admin head.
+    apiFetch<{ data: { id: number; full_name: string; role: string }[] }>('/api/availability/assignable')
       .then(r => setAgents((r.data ?? []).filter(u =>
         u.role.includes('collection') || u.role.includes('call_center') || ['admin', 'management', 'head_ops'].includes(u.role))))
       .catch(() => {})

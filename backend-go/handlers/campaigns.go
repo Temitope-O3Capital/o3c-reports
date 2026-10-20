@@ -1742,6 +1742,16 @@ func campaignPushToCallCenter(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
+		// A push can create thousands of call-centre leads in one go, all carrying this
+		// one id. Nil leaves them unassigned for the floor to claim, which is fine; a
+		// dead id buries the whole batch on an account nobody opens.
+		if b.AssignedTo != nil {
+			if p := assignTargetProblem(ctx, db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
+
 		// ── 1. Verify campaign exists ─────────────────────────────────────────
 		campaigns, err := db.PGQuery(ctx, `SELECT id, name FROM campaigns WHERE id=$1`, campaignID)
 		if err != nil || len(campaigns) == 0 {

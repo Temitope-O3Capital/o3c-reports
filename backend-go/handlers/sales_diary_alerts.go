@@ -99,7 +99,9 @@ func runPlannedTodayAlerts(ctx context.Context, db *core.DB) {
 		if towns := str(row["towns"]); towns != "" {
 			body += " " + towns + "."
 		}
-		Notify(ctx, db, NotifPayload{
+		// NotifyHolder: a diary of visits booked with customers for today, by somebody
+		// who turns out not to be in today, is exactly what a cover needs to be told.
+		NotifyHolder(ctx, db, NotifPayload{
 			EventType: EvtVisitDueToday,
 			UserID:    officer,
 			Title:     fmt.Sprintf("%d in Your Diary Today", total),
@@ -149,7 +151,8 @@ func runFollowUpDueAlerts(ctx context.Context, db *core.DB) {
 				body += " — and is already late"
 			}
 		}
-		Notify(ctx, db, NotifPayload{
+		// NotifyHolder: the diary is the one clock whose only reader was the officer.
+		NotifyHolder(ctx, db, NotifPayload{
 			EventType: EvtFollowUpDue,
 			UserID:    officer,
 			Title:     "Follow-Ups Due",

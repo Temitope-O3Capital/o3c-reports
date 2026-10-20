@@ -29,7 +29,8 @@ authorisation story is not "one page key for the lot", so it is worth stating wh
                  on a role would approve the wrong set of people twice over: a team
                  lead without the role could not approve their own reports, and a
                  holder of the role could approve strangers. Every manager route
-                 matches on leave_requests.routed_to_manager = me.
+                 matches on leave_requests.routed_to_manager = me, or on being the
+                 escalation approver of a requester whose routed manager is away.
 
   HR             leave_admin, a real page key. Setting an entitlement and confirming
                  an approval are company decisions rather than personal ones.
@@ -39,9 +40,19 @@ chose is line manager, then HR. If manager_user_id is unset the chain does not e
 and the two ways to carry on regardless are both worse than refusing: routing straight
 to HR silently deletes the approval step somebody chose, and approving it on the spot
 is no approval at all. So submission is refused with an actionable message and HR gets
-/admin/unmanaged listing exactly whose manager is missing. On the day this ships that
-is all 50 active staff, which is the honest starting state of a feature whose entire
-premise is that somebody approves it.
+/admin/unmanaged listing exactly whose manager is missing. On the day this shipped that
+was all 50 active staff; migration 380 loaded HR's roster and it is now 7, of which 6
+are accounts the HR file does not name at all and one is the MD.
+
+AND WHEN THE APPROVER IS AWAY. A chain with exactly one named approver stalls when that
+person is on leave, which is common: a team books time off around the same weeks their
+lead does. So o3c_users.escalation_manager_user_id — HR's own MANAGER column, the level
+above the team lead — may decide a request while app.is_unavailable() says the routed
+manager cannot. Three properties make this different from the silent re-routing that was
+rejected above: the second approver is RECORDED BY HR rather than inferred, the request
+is not re-routed (routed_to_manager still names the line manager, who can still decide
+it the moment they are back), and manager_decided_by records who actually decided, so a
+decision taken on somebody's behalf is visibly that rather than attributed to them.
 
 WHAT THIS FILE DOES NOT ENFORCE, DELIBERATELY. Two policy columns on leave_types are
 reported rather than imposed:
@@ -365,11 +376,15 @@ func leaveSubmit(db *core.DB) http.HandlerFunc {
 		// The chosen approval chain is line manager then HR, so no manager means no
 		// chain. Refused here rather than routed around — see the file header.
 		var managerID *int64
+		var escalationID *int64
+		var managerAway bool
 		var typeName string
 		var minNotice int
 		var requiresDocs bool
 		if rows, qerr := db.PGQuery(ctx, `
-			SELECT u.manager_user_id, t.name, t.min_notice_days, t.requires_docs
+			SELECT u.manager_user_id, u.escalation_manager_user_id,
+			       COALESCE(app.is_unavailable(u.manager_user_id), FALSE) AS manager_away,
+			       t.name, t.min_notice_days, t.requires_docs
 			FROM app.o3c_users u
 			CROSS JOIN app.leave_types t
 			WHERE u.id = $1 AND t.id = $2 AND t.is_active`, user.ID, b.LeaveTypeID); qerr != nil {
@@ -383,6 +398,11 @@ func leaveSubmit(db *core.DB) http.HandlerFunc {
 				mid := toInt64(v)
 				managerID = &mid
 			}
+			if v := rows[0]["escalation_manager_user_id"]; v != nil {
+				eid := toInt64(v)
+				escalationID = &eid
+			}
+			managerAway = rows[0]["manager_away"] == true
 			typeName = fmt.Sprintf("%v", rows[0]["name"])
 			minNotice = int(toInt64(rows[0]["min_notice_days"]))
 			requiresDocs = rows[0]["requires_docs"] == true
@@ -463,6 +483,31 @@ func leaveSubmit(db *core.DB) http.HandlerFunc {
 			GroupKey: fmt.Sprintf("leave_pending:%d", *managerID),
 			Priority: "high",
 		})
+
+		// AND IF THAT APPROVER IS ALREADY AWAY, tell the person HR names above them.
+		//
+		// Notifying the line manager is pointless when the line manager is the one on
+		// leave, and that is not a rare case: a team books time off around the same
+		// weeks their lead does. The second approver is not invented here — it is
+		// escalation_manager_user_id, which is HR's own MANAGER column from the roster
+		// (migration 380), and it is sent only while the routed approver is actually
+		// unavailable. The request itself is NOT re-routed: routed_to_manager still
+		// names the line manager, so if they come back tomorrow it is theirs to decide,
+		// and the audit trail says who really decided it either way.
+		if managerAway && escalationID != nil && *escalationID != *managerID {
+			out["manager_unavailable"] = true
+			Notify(ctx, db, NotifPayload{
+				EventType: "leave_request",
+				UserID:    *escalationID,
+				Title:     "Leave request waiting on an approver who is away",
+				Body: fmt.Sprintf("%s has requested %s from %s to %s. Their line manager is unavailable, and you are the approver above. You can decide it while they are away.",
+					user.FullName, typeName, b.StartDate, b.EndDate),
+				ActionURL: "/leave",
+				EntityRef: fmt.Sprintf("leave_request:%v", created["id"]),
+				GroupKey:  fmt.Sprintf("leave_escalated:%d", *escalationID),
+				Priority:  "high",
+			})
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -547,16 +592,27 @@ func leaveApprovals(db *core.DB) http.HandlerFunc {
 			       (r.start_date - r.created_at::date) < t.min_notice_days AS short_notice,
 			       (t.requires_docs AND r.document_ref IS NULL)            AS documents_outstanding,
 			       bal.days_remaining,
-			       (bal.user_id IS NULL)                                   AS entitlement_missing
+			       (bal.user_id IS NULL)                                   AS entitlement_missing,
+			       -- Whose decision this really is, and whether you are seeing it only
+			       -- because the person it was routed to is away.
+			       r.routed_to_manager, rm.full_name AS routed_manager_name,
+			       (r.routed_to_manager <> $1)                             AS via_escalation
 			FROM app.leave_requests r
 			JOIN app.o3c_users  u ON u.id = r.user_id
 			JOIN app.leave_types t ON t.id = r.leave_type_id
-			LEFT JOIN app.o3c_users c ON c.id = r.cover_user_id
+			LEFT JOIN app.o3c_users c  ON c.id  = r.cover_user_id
+			LEFT JOIN app.o3c_users rm ON rm.id = r.routed_to_manager
 			LEFT JOIN app.v_leave_balance bal
 			       ON bal.user_id = r.user_id
 			      AND bal.leave_type_id = r.leave_type_id
 			      AND bal.year = EXTRACT(YEAR FROM r.start_date)::int
-			WHERE r.routed_to_manager = $1 AND %s
+			WHERE (r.routed_to_manager = $1
+			       -- Or you are the approver HR names above a line manager who is away.
+			       -- Scoped to the requester's own escalation manager, because that is
+			       -- what the roster records: per employee, the lead and the level above.
+			       OR (u.escalation_manager_user_id = $1
+			           AND COALESCE(app.is_unavailable(r.routed_to_manager), FALSE)))
+			  AND %s
 			ORDER BY (r.status = 'pending_manager') DESC, r.start_date
 			LIMIT 200`, clause), args...)
 		if err != nil {
@@ -606,13 +662,21 @@ func leaveManagerDecision(db *core.DB) http.HandlerFunc {
 		}
 
 		res, err := db.PGExec(r.Context(), `
-			UPDATE app.leave_requests
+			UPDATE app.leave_requests r
 			   SET status = $3,
 			       manager_decided_by = $1, manager_decided_at = NOW(),
 			       manager_note = NULLIF($4,''), updated_at = NOW()
-			 WHERE id = $2
-			   AND routed_to_manager = $1
-			   AND status = 'pending_manager'`,
+			 WHERE r.id = $2
+			   AND r.status = 'pending_manager'
+			   AND (r.routed_to_manager = $1
+			        -- The escalation approver, and ONLY while the routed one is away.
+			        -- This widens who may act; it does not widen what is recorded —
+			        -- manager_decided_by is the actor, so a decision taken on somebody
+			        -- else's behalf is visibly that. The second approver comes from the
+			        -- HR roster (migration 380), not from a role, so nobody is invented.
+			        OR (COALESCE(app.is_unavailable(r.routed_to_manager), FALSE)
+			            AND $1 = (SELECT u.escalation_manager_user_id
+			                        FROM app.o3c_users u WHERE u.id = r.user_id)))`,
 			user.ID, chi.URLParam(r, "id"), next, strings.TrimSpace(b.Note))
 		if err != nil {
 			leaveWriteErr(w, err)
@@ -650,9 +714,14 @@ func leaveManagerDecision(db *core.DB) http.HandlerFunc {
 //	                 on approval because from that moment app.on_leave starts excluding
 //	                 their report from automatic distribution, which changes their team's
 //	                 capacity whether or not they are watching.
+//
+// One more case: when manager_decided_by is not the routed manager, somebody decided in
+// their place while they were away, and the routed manager is told. Otherwise they come
+// back to a queue with no trace of a request they know was submitted.
 func leaveNotifyDecision(ctx context.Context, db *core.DB, reqID, next, actorName, note, stage string) {
 	rows, err := db.PGQuery(ctx, `
-		SELECT r.user_id, r.routed_to_manager, r.start_date, r.end_date, t.name AS leave_type
+		SELECT r.user_id, r.routed_to_manager, r.manager_decided_by,
+		       r.start_date, r.end_date, t.name AS leave_type
 		  FROM app.leave_requests r
 		  JOIN app.leave_types t ON t.id = r.leave_type_id
 		 WHERE r.id = $1::bigint`, reqID)
@@ -662,6 +731,7 @@ func leaveNotifyDecision(ctx context.Context, db *core.DB, reqID, next, actorNam
 	row := rows[0]
 	requester := toInt64(row["user_id"])
 	manager := toInt64(row["routed_to_manager"])
+	decidedBy := toInt64(row["manager_decided_by"])
 	window := fmt.Sprintf("%v to %v", row["start_date"], row["end_date"])
 	typeName := fmt.Sprintf("%v", row["leave_type"])
 
@@ -697,6 +767,20 @@ func leaveNotifyDecision(ctx context.Context, db *core.DB, reqID, next, actorNam
 			// One live item however many are queued, for the same reason the approver's
 			// own notification is grouped: a per-request ping stops being read.
 			GroupKey: "leave_pending_hr",
+		})
+	}
+	// Somebody decided this in the line manager's place, which they may do only while
+	// that manager is away. Tell the manager, because they will come back to a request
+	// that is no longer theirs to act on and the absence of any trace of it reads like
+	// the system lost it.
+	if stage == "manager" && manager != 0 && decidedBy != 0 && decidedBy != manager {
+		Notify(ctx, db, NotifPayload{
+			EventType: "leave_request",
+			UserID:    manager,
+			Title:     "Leave for your report was " + outcome + " while you were away",
+			Body:      body + " You were unavailable, so it was decided by the approver above you.",
+			ActionURL: "/leave",
+			EntityRef: "leave_request:" + reqID,
 		})
 	}
 	if stage == "hr" && manager != 0 && manager != requester {

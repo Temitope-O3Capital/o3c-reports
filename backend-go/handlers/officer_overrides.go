@@ -164,16 +164,12 @@ func setOfficerOverride(db *core.DB) http.HandlerFunc {
 
 		ctx := r.Context()
 
-		// The target must be a real, active user. An override onto a deactivated
-		// account would quietly strand the record with nobody accountable for it.
-		var active bool
-		if err := db.PG.QueryRowContext(ctx,
-			`SELECT is_active FROM o3c_users WHERE id=$1`, req.OfficerID).Scan(&active); err != nil {
-			respondErr(w, 400, "No such officer")
-			return
-		}
-		if !active {
-			respondErr(w, 400, "That user is deactivated and cannot hold a book")
+		// The target must be a real user who can still sign in. An override onto a
+		// deactivated — or soft-deleted, which this missed — account quietly strands
+		// the record with nobody accountable for it, and this file's own comment says
+		// why that matters: "this moves commission".
+		if p := assignTargetProblem(ctx, db, req.OfficerID); p != "" {
+			respondErr(w, 400, p)
 			return
 		}
 

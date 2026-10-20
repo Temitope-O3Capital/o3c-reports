@@ -176,6 +176,15 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 		status := "forwarded"
 		var salesOwner any
 		if sup && b.SalesOwnerID != nil && *b.SalesOwnerID > 0 {
+			// A named owner skips routeHandoffToTeam below, so a dead id leaves the
+			// lead neither owned nor routed: 'assigned' to nobody, and gone from the
+			// unclaimed pool the office actually works from. That is the exact shape of
+			// the complaint behind migration 378, with the four-hour pickup promise
+			// still running against it.
+			if p := assignTargetProblem(ctx, db, *b.SalesOwnerID); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 			status = "assigned"
 			salesOwner = *b.SalesOwnerID
 			db.PGExec(ctx, //nolint:errcheck

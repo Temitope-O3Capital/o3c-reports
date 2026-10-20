@@ -326,6 +326,76 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	}
 }
 
+// NotifyHolder tells the person who holds the work, and — when that person is away —
+// also tells whoever is standing in for them.
+//
+// WHY THIS EXISTS. Five clocks in this product run against a named individual: a
+// callback due, a promise-to-pay falling due, a helpdesk SLA, a lead forwarded with a
+// four-hour pickup promise, and a diary follow-up. Three of them notified the holder and
+// NOBODY else. So an absence recorded by migration 378 stopped new work arriving but did
+// nothing about work already held: the alarms kept firing into an inbox nobody was
+// reading, and the deadline passed unobserved. Excluding somebody from distribution and
+// leaving their existing deadlines unwatched solves half a problem.
+//
+// WHAT IT DOES NOT DO. It does not reassign the work, and it does not move the alarm —
+// the holder is still told, because they may well be reading, and because an alarm that
+// silently went elsewhere is how you come back from three days away with no idea what
+// happened. The stand-in gets a COPY that says whose it is and why they are seeing it.
+//
+// Who stands in, in order: the cover named on the absence, then the line manager. Each
+// is skipped if they are themselves unavailable, because a copy sent to a second empty
+// inbox is not a safeguard. If neither can be reached the holder's alarm is all there
+// is, which is exactly the state /api/availability/held reports as "no cover named".
+func NotifyHolder(ctx context.Context, db *core.DB, p NotifPayload) {
+	Notify(ctx, db, p)
+	if p.UserID == 0 {
+		return
+	}
+	// One row only when the holder is actually away, so the common path costs one
+	// indexed lookup and sends nothing extra.
+	rows, err := db.PGQuery(ctx, `
+		SELECT u.full_name,
+		       av.unavailable_kind,
+		       av.unavailable_until,
+		       CASE
+		         WHEN av.cover_user_id IS NOT NULL
+		          AND NOT app.is_unavailable(av.cover_user_id)   THEN av.cover_user_id
+		         WHEN u.manager_user_id IS NOT NULL
+		          AND NOT app.is_unavailable(u.manager_user_id)  THEN u.manager_user_id
+		       END AS stand_in
+		  FROM app.v_staff_availability av
+		  JOIN app.o3c_users u ON u.id = av.user_id
+		 WHERE av.user_id = $1 AND NOT av.available`, p.UserID)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	standIn := toInt64(rows[0]["stand_in"])
+	if standIn == 0 || standIn == p.UserID {
+		return
+	}
+	holder := fmt.Sprintf("%v", rows[0]["full_name"])
+	away := "away"
+	if k, ok := rows[0]["unavailable_kind"].(string); ok && k != "" {
+		away = k
+	}
+	until := ""
+	if rows[0]["unavailable_until"] != nil {
+		until = fmt.Sprintf(" until %v", rows[0]["unavailable_until"])
+	}
+
+	cp := p
+	cp.UserID = standIn
+	cp.Title = holder + " is away: " + p.Title
+	cp.Body = fmt.Sprintf("%s is %s%s and this is waiting on them. %s", holder, away, until, p.Body)
+	// Keyed per absent person per class, so a cover standing in for two people sees two
+	// digests rather than one merged pile, and their own alarms of the same kind stay
+	// separate from the ones they are only watching.
+	if p.GroupKey != "" {
+		cp.GroupKey = fmt.Sprintf("%s:cover_for:%d", p.GroupKey, p.UserID)
+	}
+	Notify(ctx, db, cp)
+}
+
 // NotifyRole sends to every active user with the given role.
 func NotifyRole(ctx context.Context, db *core.DB, role string, p NotifPayload) {
 	NotifyRoles(ctx, db, []string{role}, p)

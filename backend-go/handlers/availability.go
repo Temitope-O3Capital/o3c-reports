@@ -81,6 +81,49 @@ func RegisterAvailability(r chi.Router, db *core.DB) {
 	// What is sitting on people who are away. The answer to "he is off, what of his is
 	// now at risk" — and deliberately a report rather than a reassignment.
 	r.Get("/held", availabilityHeldWork(db))
+
+	// The list an assign-to dropdown should be built from. See availabilityAssignable.
+	r.Get("/assignable", availabilityAssignable(db))
+}
+
+// availabilityAssignable answers one question: who can I hand work to?
+//
+// WHY IT EXISTS, MEASURED. Three Collections screens built their assignee picker from
+// GET /api/admin/users — Queue.tsx, AccountDetail.tsx and Portfolio.tsx. That route sits
+// behind RequirePages("admin_users", "admin"), which no collections role holds, so for
+// every non-admin it returned 403. In Portfolio the picker was merely always empty; in
+// Queue the call shares a Promise.all with the queue itself, so the 403 rejected both and
+// the page showed an error with no rows — the queue had loaded fine and was thrown away.
+// A supervisor could not reassign a row, and nothing said why.
+//
+// It is also the right shape for the eighteen hand-assignment endpoints: it carries
+// availability as DATA, so a dropdown can show "away until Thursday, cover Blessing Obi"
+// beside a name and still let somebody pick them. That is the warn-a-person half of the
+// decision; the exclude-a-machine half lives inside the automatic pools.
+//
+// Open to any signed-in user, like availabilityList: picking a colleague from a list is
+// not an administrative act, and every screen that cannot ask has to guess instead.
+func availabilityAssignable(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Only people who could actually do the work: a suspended or deactivated account
+		// cannot sign in, so offering it as an assignee is offering a dead end. This is
+		// the one place availability is a filter rather than a flag, and only for account
+		// state — being away is temporary and is reported, never hidden.
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT u.id, u.full_name, u.role, u.department, u.email,
+			       COALESCE(av.available, TRUE) AS available,
+			       av.unavailable_kind, av.unavailable_until, av.unavailable_reason,
+			       av.cover_user_id, av.cover_name
+			  FROM app.o3c_users u
+			  LEFT JOIN app.v_staff_availability av ON av.user_id = u.id
+			 WHERE u.is_active AND u.deleted_at IS NULL AND u.suspended_at IS NULL
+			 ORDER BY COALESCE(av.available, TRUE) DESC, u.full_name`)
+		if err != nil {
+			respondErrLog(w, http.StatusInternalServerError, "could not read who can be assigned work", err)
+			return
+		}
+		respond(w, rows, "app.o3c_users + app.v_staff_availability")
+	}
 }
 
 // ── Who is available ────────────────────────────────────────────────────────
@@ -136,9 +179,15 @@ func mayRecordAbsenceFor(ctx context.Context, db *core.DB, actor *core.Claims, s
 	if actor.Role == core.RoleAdmin || actor.HasPage(availabilityAdminPage) {
 		return true, ""
 	}
-	// The recorded line manager — the same fact leave approval routes on.
+	// The recorded line manager — the same fact leave approval routes on — and the level
+	// HR names above them, which is a different fact and not derivable from the chain
+	// (migration 380: 11 of 50 rows disagree with "my lead's lead"). The escalation
+	// approver counts here unconditionally rather than only while the lead is away: the
+	// lead being away is one of the things that most needs recording, and requiring them
+	// to be marked away first to let somebody mark them away is circular.
 	rows, err := db.PGQuery(ctx, `
-		SELECT (u.manager_user_id = $2) AS is_manager,
+		SELECT (u.manager_user_id = $2)            AS is_manager,
+		       (u.escalation_manager_user_id = $2) AS is_escalation,
 		       (COALESCE(NULLIF(btrim(u.department),''), '~none') =
 		        COALESCE(NULLIF(btrim(m.department),''), '~other')) AS same_department
 		  FROM app.o3c_users u CROSS JOIN app.o3c_users m
@@ -147,6 +196,9 @@ func mayRecordAbsenceFor(ctx context.Context, db *core.DB, actor *core.Claims, s
 		return false, "Could not establish your relationship to that member of staff"
 	}
 	if b, _ := rows[0]["is_manager"].(bool); b {
+		return true, ""
+	}
+	if b, _ := rows[0]["is_escalation"].(bool); b {
 		return true, ""
 	}
 	// A department head, for anybody in their department. Heads are named by the role
@@ -158,7 +210,7 @@ func mayRecordAbsenceFor(ctx context.Context, db *core.DB, actor *core.Claims, s
 		}
 		return false, "You can mark somebody unavailable in your own department, and this person is in another"
 	}
-	return false, "Only this person, their line manager, their department head or HR can mark them unavailable"
+	return false, "Only this person, their line manager, the approver above that manager, their department head or HR can mark them unavailable"
 }
 
 func availabilitySet(db *core.DB) http.HandlerFunc {

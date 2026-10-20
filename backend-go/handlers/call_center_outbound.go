@@ -61,7 +61,9 @@ func StartCallbackReminderWorker(db *core.DB) {
 			if due == 0 {
 				continue
 			}
-			Notify(context.WithoutCancel(ctx), db, NotifPayload{
+			// NotifyHolder: a call-back is a time the customer was promised, and it
+			// stays promised while the agent who made it is away.
+			NotifyHolder(context.WithoutCancel(ctx), db, NotifPayload{
 				EventType: EvtCallbackDue,
 				UserID:    agentID,
 				Title:     fmt.Sprintf("%d Call-Back(s) Due Now", due),
@@ -947,6 +949,12 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 				respondErr(w, 403, "Only a call-centre supervisor can reassign a lead")
 				return
 			}
+			// And the person it moves TO has to be able to work it. The check above is
+			// about the caller; this one is about the destination.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 			q += fmt.Sprintf(", assigned_to=$%d", n)
 			args = append(args, *b.AssignedTo)
 			n++
@@ -1410,8 +1418,15 @@ func ccBulkAssign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AgentID == 0 || len(b.LeadIDs) == 0 {
-			respondErr(w, 400, "agent_id and lead_ids are required")
+		if len(b.LeadIDs) == 0 {
+			respondErr(w, 400, "lead_ids is required")
+			return
+		}
+		// The supervisor check above establishes who may assign, not who may be
+		// assigned to. Sibling handlers in this file already check the agent against a
+		// role; this is the floor beneath that.
+		if p := assignTargetProblem(r.Context(), db, b.AgentID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		if len(b.LeadIDs) > ccMaxBulkIDs {
@@ -1654,6 +1669,12 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		onlineOnly := false
 		if len(agentIDs) == 0 {
 			agentIDs, onlineOnly = distributionAgents(ctx, db)
+		} else if p := assignTargetsProblem(ctx, db, agentIDs); p != "" {
+			// Only the explicitly-named list needs checking: distributionAgents builds
+			// its pool from live accounts already, and already excludes anybody away.
+			// A named list goes round-robin, so one dead id silently eats its share.
+			respondErr(w, 422, p)
+			return
 		}
 		// The supervisor is a recipient only when they tick "include me". By default
 		// keep leads off their own plate — they hand work out, they don't have to take

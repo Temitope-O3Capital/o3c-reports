@@ -1068,8 +1068,10 @@ func losAssign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AssignToUserID == 0 {
-			respondErr(w, 422, "assign_to_user_id is required")
+		// loan_applications.assigned_to_user_id carries no foreign key, so a bad id
+		// takes the application out of every queue without the write ever failing.
+		if p := assignTargetProblem(r.Context(), db, b.AssignToUserID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 

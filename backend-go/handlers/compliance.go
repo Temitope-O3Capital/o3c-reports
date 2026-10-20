@@ -960,6 +960,13 @@ func complianceFindingCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "description and severity are required")
 			return
 		}
+		// audit_findings.assigned_to is NOT NULL with no foreign key, and this handler
+		// checked it in no way at all — so an audit finding, whose whole purpose is to
+		// be chased until somebody closes it, could be created owned by nobody.
+		if p := assignTargetProblem(r.Context(), db, b.AssignedTo); p != "" {
+			respondErr(w, 422, p)
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
@@ -3083,8 +3090,10 @@ func complianceDSARAssign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AssignedTo == 0 {
-			respondErr(w, 422, "assigned_to is required")
+		// A DSAR carries a statutory response window, so handing one to a deactivated
+		// account is the one kind of assignment that cannot simply be redone later.
+		if p := assignTargetProblem(r.Context(), db, b.AssignedTo); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		_, err := db.PGExec(r.Context(), `
