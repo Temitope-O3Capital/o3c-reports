@@ -139,7 +139,15 @@ export function SummaryView({ ds, report, onChange, onSwitchToTable }: {
             {isTemporal(m?.type) && (
               <select aria-label={`Group ${m?.label ?? key} by`} value={report.grains[key] ?? (m?.type === 'datetime' ? 'datetime' : 'date')}
                 onChange={e => onChange({ grains: { ...report.grains, [key]: e.target.value } })}>
+                {/* Coarse grains read as 2026-01 rather than "Jan 2026" on purpose: the
+                    grain is a grouping key and then a chart's x-axis, and the axis keeps
+                    the order the rows arrive in. A localised month name would sort
+                    April before August before December. */}
                 <option value="date">by day</option>
+                <option value="week">by week</option>
+                <option value="month">by month</option>
+                <option value="quarter">by quarter</option>
+                <option value="year">by year</option>
                 <option value="time">by time of day</option>
                 <option value="datetime">by timestamp</option>
               </select>

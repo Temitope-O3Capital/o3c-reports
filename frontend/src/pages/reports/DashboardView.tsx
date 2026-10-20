@@ -13,6 +13,10 @@ import { TileBuilder, type TileBuilderEdit } from './builder/TileBuilder'
 import { VIZ_KINDS, VIZ_META, type VizKind } from './builder/tileViz'
 // One renderer for a tile, shared with the builder's live preview. See TileVisual.tsx.
 import { TileVisual } from './builder/TileVisual'
+import {
+  DashboardFilterBar, emptySelection, selectionQuery,
+  type DashSelection, type Slicer,
+} from './builder/DashboardFilters'
 import { toast } from 'sonner'
 
 /*
@@ -69,6 +73,10 @@ interface Board {
   is_mine: boolean
   created_by_name: string | null
   tiles: Tile[]
+  /** Which slicers this board offers, and its default period (migration 384). */
+  config: { slicers?: string[]; period?: { win?: string; from?: string; to?: string } } | null
+  /** Which slicers it COULD offer, computed by the server from its own readable tiles. */
+  available_slicers: Slicer[]
 }
 
 interface TileData {
@@ -76,6 +84,9 @@ interface TileData {
   rows: Record<string, unknown>[]
   row_count: number
   truncated: boolean
+  /** Board filters this tile honoured, and those its dataset could not. */
+  applied_filters?: string[] | null
+  ignored_filters?: string[] | null
 }
 
 interface SourceList {
@@ -90,18 +101,28 @@ interface SourceList {
 
 // ── One tile ──────────────────────────────────────────────────────────────────
 
-function TileBody({ tile }: { tile: Tile }) {
+function TileBody({ tile, query, selectedKeys }: {
+  tile: Tile
+  /** The board's filter selection, as a query string. Empty when nothing is selected. */
+  query: string
+  /** Which slicer keys are selected, so the tile can say if it could not honour one. */
+  selectedKeys: string[]
+}) {
   const [data, setData] = useState<TileData | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setErr(null)
-    apiFetch(`/api/dashboards/tiles/${tile.id}/data`)
+    apiFetch(`/api/dashboards/tiles/${tile.id}/data${query}`)
       .then(res => setData(unwrap<TileData>(res)))
       .catch(e => setErr(e?.message || 'This tile could not be loaded'))
-  }, [tile.id])
+  }, [tile.id, query])
 
   useEffect(() => { if (tile.readable) load() }, [tile.readable, load])
+
+  // Which of the board's selected filters this tile could not answer. The server tells
+  // us rather than the page guessing: it knows which filters the dataset declares.
+  const ignored = (data?.ignored_filters ?? []).filter(k => selectedKeys.includes(k))
 
   // A tile the reader may not see says WHY. A blank tile reads as a broken tile, and the
   // reason is the difference between "this is not for you" and "this is faulty".
@@ -137,10 +158,26 @@ function TileBody({ tile }: { tile: Tile }) {
   }
 
   return (
-    <TileVisual
-      viz={tile.viz} config={tile.config} columns={data.columns} rows={data.rows}
-      rowCount={data.row_count} height={Math.max(80, tile.grid_h * ROW_H - 86)}
-    />
+    <>
+      {/* A TILE THAT COULD NOT ANSWER THE BOARD'S QUESTION SAYS SO. Without this, a
+          board filtered to Lagos would show this tile's national figure under a Lagos
+          heading, which is the one outcome that actively misleads. */}
+      {ignored.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          padding: `2px ${SP[3]}px`, fontSize: 10.5, color: '#8a6a16',
+        }} title={`This tile's data source has no ${ignored.join(' or ')} filter`}>
+          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 13 }}>
+            filter_alt_off
+          </span>
+          Not filtered by {ignored.join(', ')}
+        </div>
+      )}
+      <TileVisual
+        viz={tile.viz} config={tile.config} columns={data.columns} rows={data.rows}
+        rowCount={data.row_count} height={Math.max(80, tile.grid_h * ROW_H - 86)}
+      />
+    </>
   )
 }
 
@@ -157,6 +194,10 @@ export default function DashboardView() {
   // null = closed. { edit: null } = building a new tile; { edit } = reopening the builder
   // on a tile whose report this dashboard owns.
   const [building, setBuilding] = useState<{ edit: TileBuilderEdit | null } | null>(null)
+  // The board's filter selection. Deliberately NOT persisted: on a shared dashboard a
+  // stored selection would let one person reframe a colleague's figures. See
+  // builder/DashboardFilters.tsx.
+  const [sel, setSel] = useState<DashSelection>(emptySelection)
   const [sources, setSources] = useState<SourceList | null>(null)
   const [removing, setRemoving] = useState<Tile | null>(null)
   const [renaming, setRenaming] = useState<Tile | null>(null)
@@ -179,6 +220,39 @@ export default function DashboardView() {
     () => Math.max(4, ...(board?.tiles ?? []).map(t => t.grid_y + t.grid_h)),
     [board],
   )
+
+  // One query string for every tile, so they all answer the same question and React
+  // re-fetches them together when it changes.
+  const filterQuery = useMemo(() => selectionQuery(sel), [sel])
+  const selectedKeys = useMemo(() => Object.keys(sel.values).filter(k => sel.values[k]), [sel])
+  const offered = useMemo(() => board?.config?.slicers ?? [], [board])
+  // A period control is only worth showing if some tile actually reads a date.
+  const anyDated = useMemo(
+    () => (board?.available_slicers ?? []).length > 0 || (board?.tiles ?? []).some(t => t.dataset),
+    [board],
+  )
+
+  // The board's default period applies on first load, then the viewer owns the selection.
+  const defaultsApplied = useRef(false)
+  useEffect(() => {
+    if (defaultsApplied.current || !board) return
+    defaultsApplied.current = true
+    const p = board.config?.period
+    if (p?.win) setSel(s => ({ ...s, win: p.win!, from: p.from ?? '', to: p.to ?? '' }))
+  }, [board])
+
+  async function saveOffered(keys: string[]) {
+    if (!board) return
+    // Optimistic, because toggling a chip should feel immediate; a failure reloads the
+    // board rather than leaving the bar showing something that was not saved.
+    setBoard(b => (b ? { ...b, config: { ...(b.config ?? {}), slicers: keys } } : b))
+    try {
+      await apiPut(`/api/dashboards/${id}`, { config: { ...(board.config ?? {}), slicers: keys } })
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not save which filters this dashboard offers')
+      load()
+    }
+  }
 
   // ── Drag and resize ─────────────────────────────────────────────────────────
   // Pointer events rather than HTML5 drag-and-drop: the latter cannot give a live
@@ -378,6 +452,22 @@ export default function DashboardView() {
         }
       `}</style>
 
+      {/* One question for the whole board. Hidden when there is nothing to ask and the
+          author is not configuring it. */}
+      {board.tiles.length > 0 && (
+        <div className="dash-actions">
+          <DashboardFilterBar
+            slicers={board.available_slicers ?? []}
+            offered={offered}
+            sel={sel}
+            onSel={setSel}
+            editing={editing && board.is_mine}
+            onOfferedChange={saveOffered}
+            hasDate={anyDated}
+          />
+        </div>
+      )}
+
       {board.tiles.length === 0 ? (
         <EmptyState
           icon="dashboard_customize"
@@ -493,7 +583,7 @@ export default function DashboardView() {
                 </div>
 
                 <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                  <TileBody tile={t} />
+                  <TileBody tile={t} query={filterQuery} selectedKeys={selectedKeys} />
                 </div>
 
                 {editing && board.is_mine && (

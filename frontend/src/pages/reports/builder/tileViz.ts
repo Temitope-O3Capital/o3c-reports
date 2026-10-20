@@ -69,8 +69,10 @@ export const VIZ_META: Record<VizKind, { label: string; icon: string; note: stri
     note: 'Share of a whole. One measure, and only the top slices.' },
   funnel: { label: 'Funnel', icon: 'filter_alt', multi: false,
     note: 'Stage-by-stage drop-off, largest first.' },
-  kpi: { label: 'Single Figure', icon: 'numbers', multi: false,
-    note: 'One number, large. Add a comparison to show the change beside it.' },
+  // multi: a card with one measure is a big single figure; with several it becomes a row
+  // of figures, which is what "a card showing total calls, missed calls" asks for.
+  kpi: { label: 'Figures', icon: 'numbers', multi: true,
+    note: 'One measure is a single big number, with an optional comparison and target. Pick several and the tile becomes a row of figures.' },
 }
 
 /** Does this visual read a category column at all? A KPI does not. */
@@ -80,6 +82,8 @@ export function usesCategory(viz: string): boolean {
 
 /** How many series this visual can draw. */
 export function maxSeries(viz: string): number {
+  // A card of more than four figures stops being readable in a grid cell.
+  if (viz === 'kpi') return 4
   return VIZ_META[viz as VizKind]?.multi ? 8 : 1
 }
 

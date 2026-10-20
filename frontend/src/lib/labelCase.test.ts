@@ -120,7 +120,11 @@ const ACCEPTED: Record<string, string[]> = {
   'pages/retention/Retention.tsx': ['Still holds an open product'],
 
   // Grouping options that complete "Group …", so they stay lowercase fragments.
-  'pages/reports/builder/SummaryView.tsx': ['by time of day', 'by timestamp'],
+  // The coarse date grains join the same list for the same reason: the select is
+  // labelled "Group Call Date by" and each option finishes that sentence.
+  'pages/reports/builder/SummaryView.tsx': [
+    'by time of day', 'by timestamp', 'by week', 'by month', 'by quarter', 'by year',
+  ],
 
   // Cited in the casing rule itself as correctly left: a full sentence reporting an
   // outcome, not a title naming an empty state.

@@ -34,6 +34,41 @@ export function TileVisual({ viz, config, columns, rows, rowCount, height }: {
   const fmt = (v: number) => fmtValue(primary, v)
 
   if (viz === 'kpi') {
+    // SEVERAL MEASURES BECOME A ROW OF FIGURES. "A card showing total calls, missed
+    // calls" is one tile with several measures, not three tiles. The single-measure case
+    // below keeps its big number, comparison and target; a comparison against one of
+    // several figures would be ambiguous, so it is only offered for the single case.
+    if (r.seriesKeys.length > 1) {
+      return (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+          gap: `${SP[3]}px ${SP[5]}px`, height: '100%', padding: `0 ${SP[4]}px`,
+        }}>
+          {r.seriesKeys.map(k => (
+            <div key={k} style={{ minWidth: 0 }}>
+              <div style={{
+                fontSize: 22, fontWeight: FW.semibold, color: 'var(--txt)',
+                fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.015em', lineHeight: 1.15,
+              }}>
+                {fmtValue(k, rows[0]?.[k])}
+              </div>
+              <div style={{
+                marginTop: 2, fontSize: TEXT.xs, color: 'var(--txt3)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {labelFor(k)}
+              </div>
+            </div>
+          ))}
+          {rowCount > 1 && (
+            <div style={{ flex: '1 1 100%', fontSize: 10.5, color: 'var(--txt3)' }}>
+              First of {rowCount.toLocaleString('en-NG')} rows &middot; summarise to one row to read the whole period
+            </div>
+          )}
+        </div>
+      )
+    }
+
     // The first row's value. A KPI tile over a multi-row source shows the first row and
     // says so, rather than silently summing rows whose meaning it cannot know — summing
     // a column of percentages or averages would invent a number.

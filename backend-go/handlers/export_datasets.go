@@ -743,7 +743,13 @@ var exportDatasets = []exportDataset{
 		Filters: []exportFilter{
 			{Key: "direction", Label: "Direction", Kind: filterSelect, Expr: "hc.direction = ?",
 				Options: []string{"inbound", "outbound"}},
-			{Key: "outcome", Label: "Outcome", Kind: filterText, Expr: "hc.outcome = ?"},
+			// A dropdown, not a text box. The column holds exactly three values across
+			// 212,063 calls — missed (143,564), completed (48,504) and voicemail (1) —
+			// so asking anyone to type one was inviting a filter that silently matched
+			// nothing. "Missed calls" is this filter set to missed, which is the figure
+			// the call centre actually asks for.
+			{Key: "outcome", Label: "Outcome", Kind: filterSelect, Expr: "hc.outcome = ?",
+				Options: []string{"missed", "completed", "voicemail"}},
 		},
 	},
 

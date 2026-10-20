@@ -235,11 +235,28 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 					grain = "date"
 				}
 			}
+			// EVERY FORMAT HERE MUST SORT AS TEXT INTO TRUE CHRONOLOGICAL ORDER. The
+			// grain becomes a grouping key and then a chart's x-axis, and the axis is
+			// drawn in the order the rows arrive. 'Jan 2026' would read beautifully and
+			// sort January before February before... August, which is why the coarse
+			// grains below are ISO-shaped rather than friendly: 2026-01, 2026-Q1,
+			// 2026-W05. Change one to a localised name and every line chart over time
+			// silently starts lying about sequence.
 			switch grain {
 			case "time":
 				expr = fmt.Sprintf("to_char((%s)::timestamp, 'HH24:MI:SS')", c.Expr)
 			case "datetime":
 				expr = fmt.Sprintf("to_char((%s)::timestamp, 'YYYY-MM-DD HH24:MI')", c.Expr)
+			case "week":
+				// ISO week, so the year belongs to the week rather than to 1 January:
+				// IYYY with IW, never YYYY with IW, which disagree in late December.
+				expr = fmt.Sprintf(`to_char((%s)::timestamp, 'IYYY-"W"IW')`, c.Expr)
+			case "month":
+				expr = fmt.Sprintf("to_char((%s)::timestamp, 'YYYY-MM')", c.Expr)
+			case "quarter":
+				expr = fmt.Sprintf(`to_char((%s)::timestamp, 'YYYY-"Q"Q')`, c.Expr)
+			case "year":
+				expr = fmt.Sprintf("to_char((%s)::timestamp, 'YYYY')", c.Expr)
 			default: // date
 				expr = fmt.Sprintf("to_char((%s)::timestamp, 'YYYY-MM-DD')", c.Expr)
 			}

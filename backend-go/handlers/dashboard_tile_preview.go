@@ -41,6 +41,7 @@ const dashPreviewRowCap = 200
 // is what a chart wants. The matrix form is for a page of numbers, not a visual.
 func runTileReport(
 	ctx context.Context, db *core.DB, u *core.Claims, dataset, rawConfig string,
+	sel dashSlicerSelection,
 ) (map[string]any, int, error) {
 	d, ok := exportDatasetByKey(dataset)
 	if !ok {
@@ -66,6 +67,11 @@ func runTileReport(
 	if relErr != nil {
 		return nil, 403, relErr
 	}
+	// The board's slicers fold in AFTER the relations are expanded, so a slicer can use a
+	// filter that only exists on a related dataset. Applied and ignored keys travel back
+	// with the rows: a tile that could not answer the board's question must say so rather
+	// than look like it did.
+	cfg, applied, ignored := dashApplySelection(d, cfg, sel)
 	now := time.Now()
 
 	if cfg.View == "table" {
@@ -90,6 +96,7 @@ func runTileReport(
 			"columns": cols, "rows": rowsOrEmpty(res.Rows),
 			"column_types": types, "column_labels": labels,
 			"row_count": len(res.Rows), "truncated": res.Total > int64(len(res.Rows)),
+			"applied_filters": applied, "ignored_filters": ignored,
 		}, 0, nil
 	}
 
@@ -130,6 +137,7 @@ func runTileReport(
 		"column_types": types, "column_labels": labels,
 		"dimensions": dims, "measures": meas,
 		"row_count": len(res.Rows), "truncated": res.Truncated,
+		"applied_filters": applied, "ignored_filters": ignored,
 	}, 0, nil
 }
 
@@ -158,7 +166,10 @@ func dashTilePreview(db *core.DB) http.HandlerFunc {
 		if len(b.Config) > 0 {
 			raw = string(b.Config)
 		}
-		out, status, err := runTileReport(ctx, db, u, b.Dataset, raw)
+		// A preview has no board around it, so no slicers apply: the builder is composing
+		// the tile's own definition, and folding a selection in here would show a chart
+		// that does not match what gets saved.
+		out, status, err := runTileReport(ctx, db, u, b.Dataset, raw, dashSlicerSelection{})
 		if err != nil {
 			if status >= 500 {
 				respondErrLog(w, status, "That report could not be run", err)

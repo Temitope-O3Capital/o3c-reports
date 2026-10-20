@@ -337,7 +337,7 @@ func dashGet(db *core.DB) http.HandlerFunc {
 
 		boards, err := db.PGQuery(ctx, `
 			SELECT d.id, d.name, d.description, d.is_shared, d.created_by,
-			       d.created_at, d.updated_at,
+			       d.created_at, d.updated_at, d.config,
 			       (d.created_by = $2) AS is_mine,
 			       usr.full_name AS created_by_name
 			  FROM app.dashboards d
@@ -427,6 +427,11 @@ func dashGet(db *core.DB) http.HandlerFunc {
 
 		board := boards[0]
 		board["tiles"] = out
+		// Which slicers this board COULD offer, derived from the datasets its own
+		// readable tiles read — so the filter bar can never offer one that would apply
+		// to nothing, and a viewer is not shown the shape of a tile they are refused.
+		// See dashboard_filters.go.
+		board["available_slicers"] = dashAvailableSlicers(u, out)
 		respond(w, board, "pg")
 	}
 }
@@ -436,6 +441,9 @@ func dashUpdate(db *core.DB) http.HandlerFunc {
 		Name        *string `json:"name"`
 		Description *string `json:"description"`
 		IsShared    *bool   `json:"is_shared"`
+		// Which slicers this board offers, and its default period (migration 384). The
+		// current SELECTION is never stored — see dashboard_filters.go for why.
+		Config json.RawMessage `json:"config"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := core.UserFromCtx(r.Context())
@@ -445,6 +453,17 @@ func dashUpdate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Could not read the request")
 			return
 		}
+		var cfg *string
+		if len(b.Config) > 0 {
+			// Bounded, because this is a per-board blob a caller supplies. The shape is
+			// the UI's business; the size is not.
+			if len(b.Config) > 8000 {
+				respondErr(w, 422, "That dashboard configuration is too large")
+				return
+			}
+			s := string(b.Config)
+			cfg = &s
+		}
 		// Scoped in the WHERE clause, so a dashboard that is not yours is simply not
 		// found — no read-then-check, and no 403 that confirms it exists.
 		rows, err := db.PGQuery(r.Context(), `
@@ -452,10 +471,11 @@ func dashUpdate(db *core.DB) http.HandlerFunc {
 			   SET name        = COALESCE($3, name),
 			       description = COALESCE($4, description),
 			       is_shared   = COALESCE($5, is_shared),
+			       config      = COALESCE($6::jsonb, config),
 			       updated_at  = NOW()
 			 WHERE id = $1 AND created_by = $2
-			RETURNING id, name, description, is_shared, updated_at`,
-			id, u.ID, b.Name, b.Description, b.IsShared)
+			RETURNING id, name, description, is_shared, config, updated_at`,
+			id, u.ID, b.Name, b.Description, b.IsShared, cfg)
 		if err != nil {
 			respondErrLog(w, 500, "Could not save the dashboard", err)
 			return
@@ -808,7 +828,8 @@ func dashTileData(db *core.DB) http.HandlerFunc {
 		// A saved pivot report. Its config decides whether it is a flat table or a
 		// summary; both come back as columns + rows. The run itself is shared with the
 		// builder's live preview — see dashboard_tile_preview.go for why that matters.
-		out, status, runErr := runTileReport(ctx, db, u, str(src["dataset"]), str(src["config"]))
+		out, status, runErr := runTileReport(ctx, db, u, str(src["dataset"]), str(src["config"]),
+			dashReadSelection(r))
 		if runErr != nil {
 			if status >= 500 {
 				respondErrLog(w, status, runErr.Error(), runErr)
