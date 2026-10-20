@@ -768,6 +768,14 @@ func hdCareDistribute(db *core.DB) http.HandlerFunc {
 		}
 		var pool []agent
 		if len(b.AgentIDs) > 0 {
+			// Named ids are checked before the pool is built, because the query below
+			// filters them with IN (...) and so DROPS a bad one silently: a supervisor
+			// dealing to five agents, one of whom has left, saw a successful
+			// distribution across four and was never told which name went missing.
+			if p := assignTargetsProblem(ctx, db, b.AgentIDs); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 			ph := make([]string, len(b.AgentIDs))
 			args := make([]any, len(b.AgentIDs))
 			for i, id := range b.AgentIDs {
@@ -7165,6 +7173,15 @@ func hdCreateRoutingRule(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "queue required")
 			return
 		}
+		// A routing rule is worse than a single bad assignment: it keeps sending every
+		// matching ticket to the same place. A rule pointing at a leaver quietly
+		// swallows a whole ticket type until somebody notices the queue is empty.
+		if b.AssignTo != nil {
+			if p := assignTargetProblem(r.Context(), db, *b.AssignTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_routing_rules (ticket_type, channel, priority, queue, assign_to, is_active)
 			VALUES ($1,$2,$3,$4,$5,$6)
@@ -7200,6 +7217,12 @@ func hdUpdateRoutingRule(db *core.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "invalid json")
 			return
+		}
+		if b.AssignTo != nil {
+			if p := assignTargetProblem(r.Context(), db, *b.AssignTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 		}
 		q := "UPDATE helpdesk_routing_rules SET id=id"
 		args := []any{}

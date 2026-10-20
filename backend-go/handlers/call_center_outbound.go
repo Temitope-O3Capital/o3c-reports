@@ -1257,6 +1257,13 @@ func ccAssignBatch(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "count must be between 1 and 1000")
 			return
 		}
+		// Account state first, so a deactivated agent is reported as deactivated rather
+		// than as "Unknown agent": the query below checks deleted_at and the role but
+		// never is_active, so a deactivated call-centre agent passed it.
+		if p := assignTargetProblem(r.Context(), db, b.AgentID); p != "" {
+			respondErr(w, 422, p)
+			return
+		}
 		if rows, _ := db.PGQuery(r.Context(),
 			`SELECT 1 FROM o3c_users WHERE id=$1 AND deleted_at IS NULL AND role IN ('call_center_agent','call_center_head')`,
 			b.AgentID); len(rows) == 0 {
@@ -1592,6 +1599,13 @@ func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
 		}
 		if b.Count <= 0 || b.Count > 5000 {
 			respondErr(w, 422, "count must be between 1 and 5000")
+			return
+		}
+		// Account state first, so a deactivated agent is reported as deactivated rather
+		// than as "Unknown agent": the query below checks deleted_at and the role but
+		// never is_active, so a deactivated call-centre agent passed it.
+		if p := assignTargetProblem(r.Context(), db, b.AgentID); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		if rows, _ := db.PGQuery(r.Context(),

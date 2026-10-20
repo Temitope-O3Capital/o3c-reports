@@ -218,6 +218,17 @@ func cardSetAttribution(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// The card is resolved below and the officer never was, which is the wrong way
+		// round for a credit: a mistyped account is rejected, a mistyped officer id
+		// books the sale to nobody. Attribution cannot be rebuilt from any other data,
+		// which is the entire reason this flow exists.
+		if req.SalesOfficerID != nil {
+			if p := assignTargetProblem(r.Context(), db, *req.SalesOfficerID); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
+
 		// Resolve the card first: this rejects a mistyped account number instead of
 		// recording credit against a card that does not exist.
 		acct, err := db.PGQuery(r.Context(),
@@ -292,6 +303,14 @@ func cardBulkAttribution(db *core.DB) http.HandlerFunc {
 		if req.SalesOfficerID == nil && introducer == "" {
 			respondErr(w, 422, "name a sales officer, an introducer, or both")
 			return
+		}
+		// Checked once for the whole batch, before any of it is written: the account
+		// numbers below are regex-validated and the officer was not.
+		if req.SalesOfficerID != nil {
+			if p := assignTargetProblem(r.Context(), db, *req.SalesOfficerID); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 		}
 		seen := map[string]bool{}
 		accts := []string{}

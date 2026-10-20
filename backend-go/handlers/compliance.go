@@ -1821,6 +1821,12 @@ func complianceDSARUpdate(db *core.DB) http.HandlerFunc {
 			add("notes", *b.Notes)
 		}
 		if b.AssignedTo != nil {
+			// The statutory clock keeps running whoever holds it, so reassigning a DSAR
+			// to a dead account is the one way to make the deadline nobody's.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 			add("assigned_to", *b.AssignedTo)
 		}
 		args = append(args, id)
@@ -2778,6 +2784,14 @@ func complianceCreateBreachIncident(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "title is required")
 			return
 		}
+		// Raising the incident starts the 72-hour NDPC clock the moment this row lands,
+		// and the assignee is who StartStatutoryClockWorker will shout at.
+		if b.AssignedTo != nil {
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		user := core.UserFromCtx(r.Context())
 		if b.BreachType == "" {
 			b.BreachType = "unauthorized_access"
@@ -2854,6 +2868,13 @@ func complianceUpdateBreachIncident(db *core.DB) http.HandlerFunc {
 			add("ndpc_ref_number", b.NDPCRefNumber)
 		}
 		if b.AssignedTo != nil {
+			// A breach incident carries a 72-hour NDPC deadline, now watched by
+			// StartStatutoryClockWorker — which notifies the assignee. An assignee who
+			// cannot sign in makes that alarm unreachable.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 			add("assigned_to", *b.AssignedTo)
 		}
 		if b.AffectedRecords != nil {

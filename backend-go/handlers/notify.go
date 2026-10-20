@@ -132,6 +132,11 @@ const (
 	EvtVisitPlanned  = "visit_planned"   // someone put a visit in your diary
 	EvtVisitDueToday = "visit_due_today" // daily: what you planned for today
 	EvtFollowUpDue   = "follow_up_due"   // a lead's next action has come due
+
+	// Statutory clocks. These two are not backlogs and are deliberately not treated as
+	// one: each is a single deadline set by law, with a regulator at the end of it.
+	EvtBreachDeadline = "breach_notify_deadline" // NDPC's 72 hours
+	EvtDSARDeadline   = "dsar_sla_deadline"      // a data subject's response window
 )
 
 // NotifPayload carries everything needed to dispatch a notification.

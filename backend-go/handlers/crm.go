@@ -295,6 +295,13 @@ func createContact(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "first_name and last_name are required")
 			return
 		}
+		if b.AssignedTo != nil {
+			// An assignee named here has to be able to open it.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		src := coalesce(deref(b.Source), "walk_in")
 		st := coalesce(deref(b.Status), "lead")
 		user := core.UserFromCtx(r.Context())
@@ -370,6 +377,14 @@ func updateContact(db *core.DB) http.HandlerFunc {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		// Checked here, before the conversion block below, because that block reads
+		// body["assigned_to"] to decide whose book a converted customer lands on — and
+		// landing a customer on a dead account moves the relationship, and the
+		// commission that follows it, to nobody.
+		if p := assignTargetProblemIn(r.Context(), db, body, "assigned_to"); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		// R2: intercept id_number → encrypt before passing to buildSet.
@@ -911,6 +926,13 @@ func createDeal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "contact_id and title are required")
 			return
 		}
+		if b.AssignedTo != nil {
+			// An assignee named here has to be able to open it.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		if b.StageID == nil {
 			if sr, _ := db.PGQuery(r.Context(),
 				"SELECT id FROM crm_pipeline_stages WHERE is_won=FALSE AND is_lost=FALSE ORDER BY order_index LIMIT 1"); len(sr) > 0 {
@@ -946,6 +968,12 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		// assigned_to is written straight through from the raw body. Absent means
+		// unchanged and null means unassign; a number has to be somebody live.
+		if p := assignTargetProblemIn(r.Context(), db, body, "assigned_to"); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		parts, args := buildSet(body, dealUpdateCols, 1)
@@ -1290,6 +1318,13 @@ func createTask(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "title is required")
 			return
 		}
+		if b.AssignedTo != nil {
+			// An assignee named here has to be able to open it.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		pri := coalesce(deref(b.Priority), "medium")
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
@@ -1340,6 +1375,12 @@ func updateTask(db *core.DB) http.HandlerFunc {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		// assigned_to is written straight through from the raw body. Absent means
+		// unchanged and null means unassign; a number has to be somebody live.
+		if p := assignTargetProblemIn(r.Context(), db, body, "assigned_to"); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		parts, args := buildSet(body, taskUpdateCols, 1)
@@ -1782,6 +1823,13 @@ func createRequest(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "subject is required")
 			return
 		}
+		if b.AssignedTo != nil {
+			// An assignee named here has to be able to open it.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+		}
 		if !requestTypesSet[b.RequestType] {
 			b.RequestType = "general"
 		}
@@ -1831,6 +1879,12 @@ func updateRequest(db *core.DB) http.HandlerFunc {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		// assigned_to is written straight through from the raw body. Absent means
+		// unchanged and null means unassign; a number has to be somebody live.
+		if p := assignTargetProblemIn(r.Context(), db, body, "assigned_to"); p != "" {
+			respondErr(w, 422, p)
 			return
 		}
 		parts, args := buildSet(body, requestUpdateCols, 1)

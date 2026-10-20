@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/o3c/workspace/core"
 )
@@ -85,6 +86,39 @@ func assignTargetProblem(ctx context.Context, db *core.DB, id int64) string {
 		return name + " is suspended and cannot be given work"
 	}
 	return ""
+}
+
+// assignTargetProblemIn is the same check for an id arriving inside a decoded JSON
+// object, which is how the PATCH-style handlers take it: they build their SET clause
+// from whichever keys are present, so "absent" and "sent as null" have to stay
+// distinguishable and neither is an error.
+//
+//	key absent    nothing is being changed, so there is nothing to check
+//	key null      a deliberate unassignment, which all of these handlers allow
+//	key a number  it has to name somebody who can open the thing being assigned
+func assignTargetProblemIn(ctx context.Context, db *core.DB, body map[string]any, key string) string {
+	v, present := body[key]
+	if !present || v == nil {
+		return ""
+	}
+	var id int64
+	switch n := v.(type) {
+	case float64:
+		id = int64(n)
+	case int64:
+		id = n
+	case int:
+		id = int64(n)
+	case json.Number:
+		parsed, err := n.Int64()
+		if err != nil {
+			return "Whoever this is assigned to must be given as a user id"
+		}
+		id = parsed
+	default:
+		return "Whoever this is assigned to must be given as a user id"
+	}
+	return assignTargetProblem(ctx, db, id)
 }
 
 // assignTargetsProblem is the same check for a list, as the bulk and round-robin

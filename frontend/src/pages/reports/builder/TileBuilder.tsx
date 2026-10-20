@@ -242,7 +242,7 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
       ) : !ds ? (
         <div className="rb-body rb-empty">
           <EmptyState icon="table_chart" title="Choose a Data Source"
-            description="Pick a source and you get a table of its main columns. Click fields to add or remove them, drag to reorder, and click a column header to filter, sort or rename it — then choose how the tile should draw it." />
+            description="Pick a source and you get a table of its main columns. Click fields to add or remove them, drag to reorder, and click a column header to filter, sort or rename it. Then choose how the tile should draw it." />
         </div>
       ) : (
         <div className="rb-body rb-body-tile">

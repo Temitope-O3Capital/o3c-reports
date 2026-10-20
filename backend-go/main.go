@@ -178,6 +178,12 @@ func main() {
 	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
 	go handlers.StartNDPRErasureWorker(db)
 
+	// The two deadlines a regulator sets: the NDPC's 72 hours on a data breach, and a
+	// data subject's response window. Both were being stored and neither watched — the
+	// breach deadline was read only by a column in a report dataset, and sla_due_at by
+	// nothing at all. Every 15 minutes.
+	go handlers.StartStatutoryClockWorker(db)
+
 	// FX parallel-market rates — scrape NgnRates.com immediately then every hour.
 	go handlers.StartFXRatesScraper(db)
 
