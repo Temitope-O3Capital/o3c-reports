@@ -12,6 +12,8 @@ import { FilterBar } from './FilterBar'
 import { TableView } from './TableView'
 import { SummaryView } from './SummaryView'
 import { SourcePicker } from './SourcePicker'
+import { TileVizPanel } from './TileVizPanel'
+import { pruneForViz, type TileVizConfig, type VizKind } from './tileViz'
 
 /*
   Building a dashboard tile from a data source, with the Report Builder's own controls.
@@ -34,24 +36,15 @@ import { SourcePicker } from './SourcePicker'
   grid for free.
 */
 
-// How a chart reads its rows, stated where it is being chosen rather than discovered
-// afterwards. This matches DashboardView's tile renderer exactly: it takes the first
-// text column for labels and the first numeric one for values.
-const VIZ: { k: string; label: string; icon: string; note: string }[] = [
-  { k: 'table', label: 'Table', icon: 'table_rows', note: 'Every column you picked, scrollable in the tile.' },
-  { k: 'bar', label: 'Bar', icon: 'bar_chart', note: 'First text column as labels, first number as height. First 40 rows.' },
-  { k: 'line', label: 'Line', icon: 'show_chart', note: 'First text column along the axis, first number as the line. First 40 rows.' },
-  { k: 'area', label: 'Area', icon: 'area_chart', note: 'As the line chart, filled. First 40 rows.' },
-  { k: 'donut', label: 'Donut', icon: 'donut_small', note: 'One slice per row, largest first. First 8 rows only.' },
-  { k: 'kpi', label: 'Single Figure', icon: 'numbers', note: 'The first row’s number, large. Summarise to one row for this to read well.' },
-]
-
 export type TileBuilderEdit = {
   tileId: number
   name: string
   viz: string
   dataset: string
+  /** The report config: what the tile reads. */
   config: unknown
+  /** The tile config: how the tile draws it. */
+  vizConfig?: unknown
 }
 
 export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
@@ -70,10 +63,23 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
   )
   const [filterRequest, setFilterRequest] = useState<{ key: string; nonce: number } | null>(null)
   const [title, setTitle] = useState(editing?.name ?? '')
-  const [viz, setViz] = useState(editing?.viz ?? 'bar')
+  const [viz, setViz] = useState<string>(editing?.viz ?? 'bar')
   const [busy, setBusy] = useState(false)
   // Set once the title has been typed in, so picking a source stops overwriting it.
   const [titleTouched, setTitleTouched] = useState(!!editing)
+
+  // Two steps, because they are two different jobs: what the tile reads, then how it
+  // draws. Power-BI-shaped, and it keeps the dialog from being a wall of controls.
+  const [step, setStep] = useState<'data' | 'visual'>('data')
+  const [vizCfg, setVizCfg] = useState<TileVizConfig>(
+    () => ((editing?.vizConfig ?? {}) as TileVizConfig),
+  )
+  // The preview: real rows, run through the same path the saved tile will use.
+  const [pv, setPv] = useState<{
+    columns: string[]; rows: Record<string, unknown>[]; rowCount: number; trimmed: boolean
+  }>({ columns: [], rows: [], rowCount: 0, trimmed: false })
+  const [pvLoading, setPvLoading] = useState(false)
+  const [pvError, setPvError] = useState<string | null>(null)
 
   useEffect(() => {
     apiFetch<any>('/api/reports/datasets')
@@ -83,6 +89,40 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
 
   const ds = useMemo(() => datasets.find(d => d.key === dsKey) ?? null, [datasets, dsKey])
   const patch = useCallback((p: Partial<ReportState>) => setReport(r => ({ ...r, ...p })), [])
+
+  // The shape the preview depends on. Stringified so the effect below fires when the
+  // report actually changes, not on every keystroke that leaves it equivalent.
+  const cfgKey = useMemo(() => (dsKey ? JSON.stringify(toConfig(report)) : ''), [dsKey, report])
+
+  // Fetch the preview only while the Visual step is open: it is a real report run, and
+  // running it on every edit of the Data step would be a query per keystroke.
+  useEffect(() => {
+    if (step !== 'visual' || !dsKey || !cfgKey) return
+    let alive = true
+    setPvLoading(true)
+    setPvError(null)
+    apiPost('/api/dashboards/tile-preview', { dataset: dsKey, config: JSON.parse(cfgKey) })
+      .then(res => {
+        if (!alive) return
+        const d = unwrap<any>(res) ?? {}
+        setPv({
+          columns: Array.isArray(d.columns) ? d.columns : [],
+          rows: Array.isArray(d.rows) ? d.rows : [],
+          rowCount: typeof d.row_count === 'number' ? d.row_count : 0,
+          trimmed: !!d.preview_trimmed,
+        })
+      })
+      .catch(e => { if (alive) setPvError(e?.message || 'That shape could not be run') })
+      .finally(() => { if (alive) setPvLoading(false) })
+    return () => { alive = false }
+  }, [step, dsKey, cfgKey])
+
+  // Changing the visual drops settings the new kind cannot use, so a config never carries
+  // options that silently do nothing.
+  const changeViz = useCallback((v: VizKind) => {
+    setViz(v)
+    setVizCfg(c => pruneForViz(v, c))
+  }, [])
 
   // The same rule the Report Builder uses: a table needs columns, a summary needs
   // something on at least one axis.
@@ -112,7 +152,14 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
     }
     // A table of rows is not a bar chart, and a summary usually is. Nudge the visual to
     // match the shape being built, without locking the choice.
-    setViz(cur => (v === 'table' && cur !== 'table' ? 'table' : v === 'summary' && cur === 'table' ? 'bar' : cur))
+    const next = v === 'table' && viz !== 'table' ? 'table'
+      : v === 'summary' && viz === 'table' ? 'bar'
+        : viz
+    if (next !== viz) changeViz(next as VizKind)
+    // The shape changed, so columns chosen against the old one may not exist any more.
+    // Clearing is honest: resolveViz falls back to its automatic choice until the wells
+    // are set again, rather than silently drawing a column that is no longer there.
+    setVizCfg(c => ({ ...c, label: undefined, values: undefined, lines: undefined, sortBy: undefined, compare: undefined }))
   }
 
   const groupBy = (key: string) => patch({
@@ -128,12 +175,15 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
     setBusy(true)
     try {
       const config = toConfig(report)
+      // Pruned on the way out as well as on every change, so a config saved while the
+      // kind was being switched cannot carry settings the final kind ignores.
+      const viz_config = pruneForViz(viz, vizCfg)
       if (editing) {
-        await apiPut(`/api/dashboards/tiles/${editing.tileId}/dataset`, { name, config, viz })
+        await apiPut(`/api/dashboards/tiles/${editing.tileId}/dataset`, { name, config, viz, viz_config })
         toast.success('Tile updated')
       } else {
         await apiPost(`/api/dashboards/${dashboardId}/tiles/from-dataset`, {
-          name, dataset: dsKey, config, viz,
+          name, dataset: dsKey, config, viz, viz_config,
           grid_x: 0, grid_y: nextY,
           grid_w: viz === 'kpi' ? 3 : 6,
           grid_h: viz === 'kpi' ? 2 : 4,
@@ -147,8 +197,6 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
       setBusy(false)
     }
   }
-
-  const vizNote = VIZ.find(v => v.k === viz)?.note ?? ''
 
   return (
     <Modal
@@ -166,9 +214,15 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
           </label>
           <span className="rb-spacer" aria-hidden="true" />
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={save} disabled={!canSave}>
-            {busy ? 'Saving…' : editing ? 'Save Tile' : 'Add to Dashboard'}
-          </Button>
+          {step === 'data' ? (
+            <Button icon="arrow_forward" disabled={!hasShape} onClick={() => setStep('visual')}>
+              Choose the Visual
+            </Button>
+          ) : (
+            <Button onClick={save} disabled={!canSave}>
+              {busy ? 'Saving…' : editing ? 'Save Tile' : 'Add to Dashboard'}
+            </Button>
+          )}
         </div>
       }
     >
@@ -203,7 +257,7 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
             )}
           </div>
         )}
-        {ds && (
+        {ds && step === 'data' && (
           <div className="rb-seg" role="group" aria-label="Shape">
             <button type="button" aria-pressed={report.view === 'table'} onClick={() => setView('table')}>
               <span className="material-symbols-rounded" aria-hidden="true">table_rows</span>Rows
@@ -213,22 +267,23 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
             </button>
           </div>
         )}
-      </div>
-
-      {ds && (
-        <div className="rb-viz">
-          <div className="rb-viz-row" role="group" aria-label="Visual">
-            {VIZ.map(v => (
-              <button key={v.k} type="button" className={v.k === viz ? 'on' : undefined}
-                aria-pressed={v.k === viz} onClick={() => setViz(v.k)} title={v.note}>
-                <span className="material-symbols-rounded" aria-hidden="true">{v.icon}</span>
-                {v.label}
-              </button>
-            ))}
+        <span className="rb-spacer" aria-hidden="true" />
+        {/* Two steps, not one scrolling wall: choose what the tile reads, then compose how
+            it draws. The Visual step is disabled until the data has a shape, because
+            field wells over no columns are a row of empty selects. */}
+        {ds && (
+          <div className="rb-seg rb-steps" role="group" aria-label="Step">
+            <button type="button" aria-pressed={step === 'data'} onClick={() => setStep('data')}>
+              <span className="material-symbols-rounded" aria-hidden="true">dataset</span>1 · Data
+            </button>
+            <button type="button" aria-pressed={step === 'visual'} disabled={!hasShape}
+              title={hasShape ? undefined : 'Pick columns, or a grouping and a measure, first'}
+              onClick={() => setStep('visual')}>
+              <span className="material-symbols-rounded" aria-hidden="true">insights</span>2 · Visual
+            </button>
           </div>
-          {vizNote && <p className="rb-viz-note">{vizNote}</p>}
-        </div>
-      )}
+        )}
+      </div>
 
       {!dsLoaded && !dsError ? (
         <div className="rb-body rb-empty">
@@ -243,6 +298,14 @@ export function TileBuilder({ dashboardId, nextY, editing, onClose, onSaved }: {
         <div className="rb-body rb-empty">
           <EmptyState icon="table_chart" title="Choose a Data Source"
             description="Pick a source and you get a table of its main columns. Click fields to add or remove them, drag to reorder, and click a column header to filter, sort or rename it. Then choose how the tile should draw it." />
+        </div>
+      ) : step === 'visual' ? (
+        <div className="rb-body rb-body-tile">
+          <TileVizPanel
+            viz={viz} onViz={changeViz} cfg={vizCfg} onCfg={setVizCfg}
+            columns={pv.columns} rows={pv.rows} rowCount={pv.rowCount}
+            loading={pvLoading} error={pvError} trimmed={pv.trimmed}
+          />
         </div>
       ) : (
         <div className="rb-body rb-body-tile">

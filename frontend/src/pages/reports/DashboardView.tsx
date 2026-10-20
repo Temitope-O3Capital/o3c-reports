@@ -4,12 +4,15 @@ import {
   Page, SectionCard, Button, ErrBanner, EmptyState, Input, Modal, Badge, Sk, DataTable,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { EBar, ELine, EArea, EDonut } from '../../components/echarts'
+import { EBar, ELine, EArea, EDonut, EBarH, EFunnel, ECombo } from '../../components/echarts'
 import { CHART_SERIES } from '../../components/charts'
 import { apiFetch, apiPost, apiPut, apiDelete, unwrap, unwrapList } from '../../lib/api'
-import { kindOf, labelFor, fmtValue, alignFor } from '../../lib/reportFormat'
+import { labelFor, fmtValue, alignFor } from '../../lib/reportFormat'
 import { NAVY, FW, SP, TEXT } from '../../lib/design'
 import { TileBuilder, type TileBuilderEdit } from './builder/TileBuilder'
+import { VIZ_KINDS, VIZ_META, type VizKind } from './builder/tileViz'
+// One renderer for a tile, shared with the builder's live preview. See TileVisual.tsx.
+import { TileVisual } from './builder/TileVisual'
 import { toast } from 'sonner'
 
 /*
@@ -40,7 +43,7 @@ const GRID_GAP = 12
 interface Tile {
   id: number
   title: string
-  viz: 'kpi' | 'bar' | 'line' | 'area' | 'donut' | 'table'
+  viz: VizKind
   config: Record<string, any> | null
   grid_x: number
   grid_y: number
@@ -81,20 +84,9 @@ interface SourceList {
 }
 
 /** The first column whose values are numbers — the thing a chart can plot. */
-function firstNumeric(cols: string[], rows: Record<string, unknown>[]): string | undefined {
-  return cols.find(c => {
-    const k = kindOf(c)
-    if (k === 'kobo' || k === 'money' || k === 'pct' || k === 'bps' || k === 'int') return true
-    return rows.some(r => typeof r[c] === 'number')
-  })
-}
-
-/** The first column that reads as a label — what a chart puts on its axis. */
-function firstLabel(cols: string[], rows: Record<string, unknown>[]): string | undefined {
-  const numeric = firstNumeric(cols, rows)
-  return cols.find(c => c !== numeric && (kindOf(c) === 'text' || kindOf(c) === 'date'))
-    ?? cols.find(c => c !== numeric)
-}
+// firstNumeric and firstLabel moved to builder/tileViz.ts, where the builder reads them
+// too: they are the fallback a tile uses when its config names no columns, so the two
+// screens have to agree about what "no choice made" draws.
 
 // ── One tile ──────────────────────────────────────────────────────────────────
 
@@ -144,70 +136,14 @@ function TileBody({ tile }: { tile: Tile }) {
     )
   }
 
-  const cfg = tile.config ?? {}
-  const valueKey: string = cfg.value || firstNumeric(data.columns, data.rows) || data.columns[0]
-  const labelKey: string = cfg.label || firstLabel(data.columns, data.rows) || data.columns[0]
-
-  if (tile.viz === 'kpi') {
-    // The first row's value. A KPI tile over a multi-row source shows the first row and
-    // says so, rather than silently summing rows whose meaning it cannot know — summing
-    // a column of percentages or averages would invent a number.
-    const v = data.rows[0][valueKey]
-    return (
-      <div style={{
-        display: 'flex', flexDirection: 'column', justifyContent: 'center',
-        height: '100%', padding: `0 ${SP[5]}px`,
-      }}>
-        <div style={{
-          fontSize: 30, fontWeight: FW.semibold, color: 'var(--txt)',
-          fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em', lineHeight: 1.1,
-        }}>
-          {fmtValue(valueKey, v)}
-        </div>
-        <div style={{ marginTop: SP[2], fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-          {labelFor(valueKey)}
-          {data.row_count > 1 && <> · first of {data.row_count.toLocaleString('en-NG')} rows</>}
-        </div>
-      </div>
-    )
-  }
-
-  if (tile.viz === 'table') {
-    const cols: TableCol<Record<string, unknown>>[] = data.columns.map(c => ({
-      key: c, label: labelFor(c), align: alignFor(c), sortable: true,
-      render: (r: Record<string, unknown>) => fmtValue(c, r[c]),
-    }))
-    return (
-      <div style={{ padding: SP[2], height: '100%', overflow: 'auto' }}>
-        <DataTable cols={cols} rows={data.rows} />
-      </div>
-    )
-  }
-
-  // Charts. The row cap is 500 server-side; a chart is cut further because 500 bars is a
-  // smear, not a visual, and the source is one click away for the full result.
-  const rows = data.rows.slice(0, tile.viz === 'donut' ? 8 : 40)
-  const chartH = Math.max(80, tile.grid_h * ROW_H - 86)
-  const fmt = (v: number) => fmtValue(valueKey, v)
-
-  if (tile.viz === 'donut') {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <EDonut
-          data={rows} valueKey={valueKey} nameKey={labelKey}
-          colorFn={(_r, i) => CHART_SERIES[i % CHART_SERIES.length]}
-          size={Math.min(chartH + 40, 190)} legend valueFmt={fmt}
-        />
-      </div>
-    )
-  }
-
-  const series = [{ key: valueKey, name: labelFor(valueKey), color: CHART_SERIES[0] }]
-  const common = { data: rows, xKey: labelKey, series, height: chartH, valueFmt: fmt, legend: false }
-  if (tile.viz === 'bar') return <div style={{ padding: SP[2] }}><EBar {...common} /></div>
-  if (tile.viz === 'area') return <div style={{ padding: SP[2] }}><EArea {...common} /></div>
-  return <div style={{ padding: SP[2] }}><ELine {...common} /></div>
+  return (
+    <TileVisual
+      viz={tile.viz} config={tile.config} columns={data.columns} rows={data.rows}
+      rowCount={data.row_count} height={Math.max(80, tile.grid_h * ROW_H - 86)}
+    />
+  )
 }
+
 
 // ── The board ─────────────────────────────────────────────────────────────────
 
@@ -502,12 +438,15 @@ export default function DashboardView() {
                   </div>
                   {editing && board.is_mine && (
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                      {(['kpi', 'bar', 'line', 'area', 'donut', 'table'] as const).map(v => (
+                      {/* Driven by VIZ_KINDS so this row cannot fall behind the renderer
+                          when a kind is added — the old hardcoded list of six was already
+                          three short of what the chart library could draw. */}
+                      {VIZ_KINDS.map(v => (
                         <button
                           key={v}
                           onClick={() => setViz(t, v)}
-                          title={v}
-                          aria-label={`Show as ${v}`}
+                          title={VIZ_META[v].label}
+                          aria-label={`Show as ${VIZ_META[v].label}`}
                           style={{
                             width: 22, height: 22, borderRadius: 5, cursor: 'pointer',
                             border: `1px solid ${t.viz === v ? NAVY : 'var(--bdr)'}`,
@@ -516,9 +455,7 @@ export default function DashboardView() {
                           }}
                         >
                           <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 13 }}>
-                            {v === 'kpi' ? 'numbers' : v === 'bar' ? 'bar_chart'
-                              : v === 'line' ? 'show_chart' : v === 'area' ? 'area_chart'
-                              : v === 'donut' ? 'donut_small' : 'table_rows'}
+                            {VIZ_META[v].icon}
                           </span>
                         </button>
                       ))}
@@ -532,6 +469,9 @@ export default function DashboardView() {
                             edit: {
                               tileId: t.id, name: t.title, viz: t.viz,
                               dataset: t.dataset ?? '', config: t.report_config ?? {},
+                              // The tile's own config: how it draws, as opposed to what
+                              // it reads. Reopening the builder restores both.
+                              vizConfig: t.config ?? {},
                             },
                           })}
                           title="Edit this tile's data" aria-label="Edit this tile's data"

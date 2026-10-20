@@ -14,14 +14,23 @@ func TestTileFromDatasetKeepsTheTileInvariants(t *testing.T) {
 	// A tile built here must still choose from the SAME visuals the schema allows. If a
 	// new one is added to dashVizKinds without a renderer, a tile can be created that the
 	// dashboard cannot draw.
-	for _, v := range []string{"kpi", "bar", "line", "area", "donut", "table"} {
+	//
+	// THIS LIST IS THE CONTRACT between three places that must agree: this map, the CHECK
+	// constraint from migration 381, and the renderer's branches in
+	// builder/TileVisual.tsx (offered to the user by VIZ_KINDS in builder/tileViz.ts).
+	// A kind in one and not the others is a tile that stores fine and draws nothing.
+	wantKinds := []string{
+		"kpi", "bar", "line", "area", "donut", "table",
+		"barh", "combo", "funnel",
+	}
+	for _, v := range wantKinds {
 		if !dashVizKinds[v] {
 			t.Errorf("visual %q is offered by the tile builder but not accepted by the handler", v)
 		}
 	}
-	if len(dashVizKinds) != 6 {
-		t.Errorf("dashVizKinds has %d entries; the tile builder offers 6 and they must match",
-			len(dashVizKinds))
+	if len(dashVizKinds) != len(wantKinds) {
+		t.Errorf("dashVizKinds has %d entries; the tile builder offers %d and they must match",
+			len(dashVizKinds), len(wantKinds))
 	}
 
 	// The generated name is also the tile's caption, read in a grid cell.

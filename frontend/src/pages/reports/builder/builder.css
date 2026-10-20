@@ -223,6 +223,58 @@
 .rb-viz-row button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rb-viz-note { margin: 0; color: var(--txt3); font-size: 11.5px; line-height: 1.5; }
 
+/* ── Step 2: field wells beside a live preview ───────────────────────────────
+   The wells say which column is the category and which are the measures; the
+   preview is the REAL tile renderer over real rows, so the two cannot disagree. */
+.rb-vizpanel { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0; width: 100%; min-width: 0; }
+.rb-wells {
+  display: flex; flex-direction: column; gap: 14px; min-width: 0;
+  padding: 12px; overflow-y: auto;
+  border-right: 1px solid var(--bdr); background: var(--th-bg);
+}
+.rb-well { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.rb-well-head {
+  color: var(--txt3); font-size: 11px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.rb-well-sel, .rb-well-row input, .rb-well-row select {
+  height: 30px; max-width: 100%; padding: 0 6px;
+  border: 1px solid var(--bdr); border-radius: 6px;
+  background: var(--card); color: var(--txt); font: inherit; font-size: 12.5px;
+}
+.rb-well-list { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; }
+.rb-well-list label {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  padding: 5px 7px; border: 1px solid transparent; border-radius: 6px;
+  font-size: 12.5px; cursor: pointer;
+}
+.rb-well-list label:hover { background: var(--row-hvr); }
+.rb-well-list label.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.rb-well-list label span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-well-asline {
+  flex: none; padding: 1px 6px; border: 1px solid var(--bdr); border-radius: 4px;
+  background: var(--card); color: var(--txt2); font: inherit; font-size: 10.5px; cursor: pointer;
+}
+.rb-well-asline[aria-pressed="true"] { border-color: var(--accent); color: var(--txt); font-weight: 600; }
+.rb-well-opts { display: flex; flex-direction: column; gap: 5px; }
+.rb-well-opts label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
+.rb-well-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.rb-well-row .rb-ctl { height: auto; padding: 4px 8px; flex-direction: column; align-items: flex-start; gap: 2px; }
+.rb-well-row .rb-ctl input { width: 100%; min-width: 72px; }
+
+.rb-preview { display: flex; flex-direction: column; min-width: 0; }
+.rb-preview-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--bdr);
+  color: var(--txt3); font-size: 11px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.rb-preview-head i {
+  font-family: var(--font-mono); font-size: 10.5px; font-style: normal;
+  letter-spacing: 0; text-transform: none;
+}
+.rb-preview-body { flex: 1; min-width: 0; padding: 10px 12px; overflow: auto; }
+
 .rb-tile-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
 .rb-tile-name { flex: 1 1 260px; min-width: 200px; padding-right: 10px; }
 .rb-tile-name input {
@@ -239,4 +291,6 @@
   .rb-body-tile { max-height: none; }
   .rb-tile-foot { align-items: stretch; }
   .rb-tile-name { flex: 1 1 100%; }
+  .rb-vizpanel { grid-template-columns: 1fr; }
+  .rb-wells { border-right: 0; border-bottom: 1px solid var(--bdr); max-height: min(40vh, 300px); }
 }

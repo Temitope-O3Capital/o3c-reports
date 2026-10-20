@@ -29,6 +29,7 @@ adds a new way to arrive at a report row.
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -49,10 +50,14 @@ func dashTileFromDataset(db *core.DB) http.HandlerFunc {
 		Dataset string          `json:"dataset"`
 		Config  json.RawMessage `json:"config"`
 		Viz     string          `json:"viz"`
-		GridX   int             `json:"grid_x"`
-		GridY   int             `json:"grid_y"`
-		GridW   int             `json:"grid_w"`
-		GridH   int             `json:"grid_h"`
+		// How to draw it: which column is the category, which are the measures, stacked
+		// or not. Stored on the tile, not the report — two tiles may draw one report
+		// differently. Shape documented on the column (migration 381).
+		VizConfig json.RawMessage `json:"viz_config"`
+		GridX     int             `json:"grid_x"`
+		GridY     int             `json:"grid_y"`
+		GridW     int             `json:"grid_w"`
+		GridH     int             `json:"grid_h"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -96,6 +101,10 @@ func dashTileFromDataset(db *core.DB) http.HandlerFunc {
 		if len(b.Config) > 0 {
 			cfg = string(b.Config)
 		}
+		vizCfg := "{}"
+		if len(b.VizConfig) > 0 {
+			vizCfg = string(b.VizConfig)
+		}
 		if b.GridW == 0 {
 			b.GridW = 6
 		}
@@ -116,12 +125,12 @@ func dashTileFromDataset(db *core.DB) http.HandlerFunc {
 			INSERT INTO app.dashboard_tiles
 				(dashboard_id, title, viz, source_report_id,
 				 grid_x, grid_y, grid_w, grid_h, config)
-			SELECT $5, $1, $6, nr.id, $7, $8, $9, $10, '{}'::jsonb
+			SELECT $5, $1, $6, nr.id, $7, $8, $9, $10, $11::jsonb
 			  FROM new_report nr
 			RETURNING id, title, viz, source_report_id,
 			          grid_x, grid_y, grid_w, grid_h, config`,
 			b.Name, b.Dataset, cfg, u.ID,
-			id, b.Viz, b.GridX, b.GridY, b.GridW, b.GridH)
+			id, b.Viz, b.GridX, b.GridY, b.GridW, b.GridH, vizCfg)
 		if err != nil {
 			respondErrLog(w, 500, "Could not add the tile", err)
 			return
@@ -145,9 +154,10 @@ func dashTileFromDataset(db *core.DB) http.HandlerFunc {
 // used by other tiles, and a dashboard edit must never silently rewrite one of those.
 func dashTileConfigSave(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Name   string          `json:"name"`
-		Config json.RawMessage `json:"config"`
-		Viz    string          `json:"viz"`
+		Name      string          `json:"name"`
+		Config    json.RawMessage `json:"config"`
+		Viz       string          `json:"viz"`
+		VizConfig json.RawMessage `json:"viz_config"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -219,14 +229,21 @@ func dashTileConfigSave(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not save the tile", err)
 			return
 		}
-		set := `title = $1`
+		// The tile's own row carries the title, the kind, and how to draw it. Built up
+		// rather than written as one statement because viz and viz_config are each
+		// optional: a caller changing only the title must not blank the composition.
+		set := []string{"title = $1", "updated_at = now()"}
 		args := []any{b.Name, tid}
 		if b.Viz != "" {
-			set = `title = $1, viz = $3`
-			args = []any{b.Name, tid, b.Viz}
+			args = append(args, b.Viz)
+			set = append(set, fmt.Sprintf("viz = $%d", len(args)))
+		}
+		if len(b.VizConfig) > 0 {
+			args = append(args, string(b.VizConfig))
+			set = append(set, fmt.Sprintf("config = $%d::jsonb", len(args)))
 		}
 		if _, err := db.PGExec(ctx,
-			`UPDATE app.dashboard_tiles SET `+set+`, updated_at = now() WHERE id = $2`,
+			`UPDATE app.dashboard_tiles SET `+strings.Join(set, ", ")+` WHERE id = $2`,
 			args...); err != nil {
 			respondErrLog(w, 500, "Could not save the tile", err)
 			return

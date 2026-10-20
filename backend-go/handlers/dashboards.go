@@ -67,6 +67,10 @@ func RegisterDashboards(r chi.Router, db *core.DB) {
 	// for why that is the only safe way to grant it.
 	r.With(access).Post("/{id}/tiles/from-dataset", dashTileFromDataset(db))
 	r.With(access).Put("/tiles/{tid}/dataset", dashTileConfigSave(db))
+	// The builder's live preview. Runs an UNSAVED config through the same path a real
+	// tile uses, so the visual being composed and the field wells both match what the
+	// saved tile will produce — see dashboard_tile_preview.go.
+	r.With(access).Post("/tile-preview", dashTilePreview(db))
 	r.With(access).Put("/{id}/layout", dashLayoutSave(db))
 	r.With(access).Put("/tiles/{tid}", dashTileUpdate(db))
 	r.With(access).Delete("/tiles/{tid}", dashTileDelete(db))
@@ -484,8 +488,17 @@ func dashDelete(db *core.DB) http.HandlerFunc {
 
 // ── Tiles ─────────────────────────────────────────────────────────────────────
 
+// The visuals a tile may be. Widened by migration 381 to the kinds the chart library in
+// components/echarts.tsx already had: barh (EBarH, ranked horizontal bars), combo
+// (ECombo, bars plus lines with an optional right axis) and funnel (EFunnel).
+//
+// THIS MAP AND THE DATABASE CHECK MUST AGREE, and both must agree with the renderer's
+// branches in DashboardView. A kind accepted here but not drawn there produces a blank
+// tile, which is worse than a refused request — TestTileFromDatasetKeepsTheTileInvariants
+// pins the pairing.
 var dashVizKinds = map[string]bool{
 	"kpi": true, "bar": true, "line": true, "area": true, "donut": true, "table": true,
+	"barh": true, "combo": true, "funnel": true,
 }
 
 func dashTileCreate(db *core.DB) http.HandlerFunc {
@@ -793,80 +806,20 @@ func dashTileData(db *core.DB) http.HandlerFunc {
 		}
 
 		// A saved pivot report. Its config decides whether it is a flat table or a
-		// summary; both come back as columns + rows.
-		d, ok := exportDatasetByKey(str(src["dataset"]))
-		if !ok {
-			respondErr(w, 422, "That report reads a data source that no longer exists")
-			return
-		}
-		var cfg savedPivotConfig
-		if raw := str(src["config"]); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-				respondErr(w, 422, "That report's definition could not be read")
-				return
-			}
-		}
-		// A tile over a report that reaches related data needs the same expansion, and
-		// the same access check: the relationship is re-checked against THIS VIEWER, so a
-		// shared dashboard refuses a tile whose related dataset they cannot open rather
-		// than rendering it. That is the per-tile rule dashSourceReadable already applies
-		// to the base dataset, extended to the edge.
-		d, relErr := datasetWithRelations(d, cfg.Relations, u)
-		if relErr != nil {
-			respondErr(w, 403, relErr.Error())
-			return
-		}
-		now := time.Now()
-
-		if cfg.View == "table" {
-			spec := cfg.toTableSpec(now)
-			spec.Limit = dashTileRowCap
-			res, runErr := runTable(ctx, db, d, spec, false)
-			if runErr != nil {
-				if ue, isUser := runErr.(pivotUserError); isUser {
-					respondErr(w, 422, ue.Error())
-					return
-				}
-				respondErrLog(w, 500, "That report could not be run", runErr)
-				return
-			}
-			cols := make([]string, 0, len(res.Cols))
-			for _, c := range res.Cols {
-				cols = append(cols, c.Key)
-			}
-			respond(w, map[string]any{
-				"columns": cols, "rows": rowsOrEmpty(res.Rows),
-				"row_count": len(res.Rows), "truncated": res.Total > int64(len(res.Rows)),
-				"source_kind": "report", "source_name": str(src["name"]),
-			}, "pg")
-			return
-		}
-
-		spec := cfg.toSpec(now)
-		spec.Limit = dashTileRowCap
-		res, runErr := runPivot(ctx, db, d, spec)
+		// summary; both come back as columns + rows. The run itself is shared with the
+		// builder's live preview — see dashboard_tile_preview.go for why that matters.
+		out, status, runErr := runTileReport(ctx, db, u, str(src["dataset"]), str(src["config"]))
 		if runErr != nil {
-			if ue, isUser := runErr.(pivotUserError); isUser {
-				respondErr(w, 422, ue.Error())
-				return
+			if status >= 500 {
+				respondErrLog(w, status, runErr.Error(), runErr)
+			} else {
+				respondErr(w, status, runErr.Error())
 			}
-			respondErrLog(w, 500, "That report could not be run", runErr)
 			return
 		}
-		// Long format — one row per group, dimensions then measures — which is what a
-		// chart wants. The matrix form is for a page of numbers, not a visual.
-		cols := make([]string, 0, len(res.Dims)+len(res.Meas))
-		for _, dm := range res.Dims {
-			cols = append(cols, dm.Key)
-		}
-		for _, ms := range res.Meas {
-			cols = append(cols, ms.Key)
-		}
-		respond(w, map[string]any{
-			"columns": cols, "rows": rowsOrEmpty(res.Rows),
-			"row_count": len(res.Rows), "truncated": res.Truncated,
-			"source_kind": "report", "source_name": str(src["name"]),
-		}, "pg")
+		out["source_kind"] = "report"
+		out["source_name"] = str(src["name"])
+		respond(w, out, "pg")
 	}
 }
 

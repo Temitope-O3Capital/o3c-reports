@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -134,18 +138,74 @@ func TestManagementReadsASQLTile(t *testing.T) {
 // the handler would 422 on a value the CHECK allows, or the CHECK would reject a value
 // the handler waved through, surfacing as a 500 carrying a constraint name.
 func TestTheVizListMatchesTheDatabaseConstraint(t *testing.T) {
-	// The CHECK in migration 358.
-	inMigration := map[string]bool{
-		"kpi": true, "bar": true, "line": true, "area": true, "donut": true, "table": true,
+	// READ THE CONSTRAINT, DO NOT RESTATE IT. This test used to hold its own copy of
+	// migration 358's six kinds, which meant widening the CHECK (migration 381 added
+	// barh, combo and funnel) made the test fail for being out of date rather than
+	// because anything was wrong — a third list of the same thing, which is the exact
+	// failure the test exists to prevent. It now parses the live migration directory, so
+	// the next person to add a kind has one place to change.
+	inMigration, from := vizKindsFromMigrations(t)
+	if len(inMigration) == 0 {
+		t.Fatal("no migration defines dashboard_tiles_viz_check; this test cannot verify anything")
 	}
 	for v := range dashVizKinds {
 		if !inMigration[v] {
-			t.Errorf("the handler accepts viz %q, which the CHECK in migration 358 would reject", v)
+			t.Errorf("the handler accepts viz %q, which the CHECK in %s would reject", v, from)
 		}
 	}
 	for v := range inMigration {
 		if !dashVizKinds[v] {
-			t.Errorf("migration 358 allows viz %q, which the handler refuses", v)
+			t.Errorf("%s allows viz %q, which the handler refuses", from, v)
 		}
 	}
+}
+
+// vizKindsFromMigrations returns the kinds admitted by the newest migration that defines
+// dashboard_tiles_viz_check, and that file's name. Parsing the directory rather than the
+// database keeps the test hermetic — it fails on a migration written but not yet applied,
+// which is the state a developer is actually in.
+func vizKindsFromMigrations(t *testing.T) (map[string]bool, string) {
+	t.Helper()
+	// Only promoted migrations count: a .sql.draft is invisible to the migrator, so a
+	// kind that exists only in a draft must NOT be accepted by the handler yet.
+	files, err := filepath.Glob(filepath.Join("..", "migrations", "*.sql"))
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	sort.Strings(files) // numeric prefixes are zero-padded to the same width
+	var (
+		kinds map[string]bool
+		from  string
+	)
+	quoted := regexp.MustCompile(`'([a-z_]+)'`)
+	for _, f := range files {
+		body, readErr := os.ReadFile(f)
+		if readErr != nil {
+			continue
+		}
+		s := string(body)
+		// The last ADD CONSTRAINT in the file wins, so a migration that drops and
+		// re-adds is read as its final state.
+		i := strings.LastIndex(s, "dashboard_tiles_viz_check")
+		if i < 0 {
+			continue
+		}
+		rest := s[i:]
+		open := strings.Index(rest, "ARRAY[")
+		if open < 0 {
+			continue
+		}
+		end := strings.Index(rest[open:], "]")
+		if end < 0 {
+			continue
+		}
+		found := map[string]bool{}
+		for _, m := range quoted.FindAllStringSubmatch(rest[open:open+end], -1) {
+			found[m[1]] = true
+		}
+		if len(found) > 0 {
+			kinds, from = found, filepath.Base(f)
+		}
+	}
+	return kinds, from
 }
