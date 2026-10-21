@@ -986,25 +986,59 @@ func assistantTools() []assistantTool {
 		},
 		{
 			Name: "find_staff",
-			Description: "Look up a colleague in the staff directory by name, to find out who " +
-				"someone is, what they do, or which department or office they are in. Use this " +
-				"whenever a question names a person who is not a customer, such as 'who is Esther'.",
+			Description: "Look up a colleague in the staff directory, to find out who someone " +
+				"is, what they do, or which department or office they are in. Search by NAME " +
+				"('who is Esther') or by JOB TITLE ('who is the MD', 'who heads risk', 'who is " +
+				"the CFO'). Use this whenever a question names a person who is not a customer, " +
+				"or asks who holds a position.",
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"name": map[string]any{"type": "string", "description": "Full or partial name of the colleague."},
+					"role": map[string]any{"type": "string", "description": "Job title or position, e.g. MD, CEO, CFO, head of risk, sales head."},
 				},
-				"required": []string{"name"},
 			},
 			// No page key: every member of staff may look up a colleague, exactly as
 			// they can in the people directory. Only non-sensitive columns are
 			// selected -- never the password hash, MFA secret or SIP credentials that
 			// also live on this table.
 			Run: func(ctx context.Context, db *core.DB, u *core.Claims, a map[string]any) (any, error) {
-				name := argStr(a, "name")
-				if name == "" {
-					return nil, fmt.Errorf("a name is required")
+				name, role := argStr(a, "name"), argStr(a, "role")
+				if name == "" && role == "" {
+					return nil, fmt.Errorf("a name or a job title is required")
 				}
+
+				// Title search, which the directory could not do before.
+				//
+				// "Who is the CEO of O3 Capital?" used to be refused, and the refusal
+				// looked like a permission problem. The data was there the whole time:
+				// o3c_users.role is not merely an access level, it carries md, cfo,
+				// coo, cmo, risk_head, internal_control_head and the rest, so it
+				// doubles as the job title. There was simply no parameter to search it
+				// with, and name was required, so the model had to guess a name or
+				// decline. It correctly declined.
+				if role != "" {
+					rows, err := db.PGQuery(ctx, `
+						SELECT full_name, role, department, office_location,
+						       CASE WHEN is_active THEN 'active' ELSE 'inactive' END AS account_status
+						FROM o3c_users
+						WHERE deleted_at IS NULL
+						  AND role <> 'system'
+						  AND (role = ANY(string_to_array($1, ','))
+						       OR role ILIKE '%' || $2 || '%')
+						ORDER BY (role = ANY(string_to_array($1, ','))) DESC, is_active DESC, full_name
+						LIMIT 8`, strings.Join(assistantRoleCandidates(role), ","), assistantRoleToken(role))
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"matches": rows, "count": len(rows),
+						"searched_for": role,
+						"note": "Matched on job title. The title shown is the person's role on " +
+							"the system, which is also how their position is recorded. If nobody " +
+							"matched, say that nobody holds that title rather than that the " +
+							"information is unavailable."}, nil
+				}
+
 				rows, err := db.PGQuery(ctx, `
 					SELECT full_name, role, department, office_location,
 					       CASE WHEN is_active THEN 'active' ELSE 'inactive' END AS account_status
@@ -1285,7 +1319,13 @@ func assistantSystemPrompt(toolNames []string) string {
 	b.WriteString("- You do NOT know any live figures. You have no memory of balances, counts or customer records.\n")
 	b.WriteString("- To answer anything factual you MUST call a tool. Never guess, estimate or recall a number.\n")
 	b.WriteString("- State figures exactly as the tool returned them. Do not round or adjust them.\n")
-	b.WriteString("- If no tool can answer the question, say plainly that you cannot look that up.\n")
+	// Two different failures were being reported in the same words. Asked who the
+	// CEO was, and for Nigeria's 2025 inflation rate, the model answered "this
+	// information is not available to this user" -- which states a PERMISSION
+	// problem. One was a missing search parameter and the other is not company
+	// data at all. Staff hearing that wording go and ask IT for access they
+	// already have, and the real cause stays hidden.
+	b.WriteString("- If no tool can answer the question, say plainly that the workspace does not hold that information. Do NOT say it is 'not available to this user' unless a tool actually reported a permission problem: that wording means the person lacks access, and saying it otherwise sends them to IT for nothing.\n")
 	// "I cannot look up that information" was being used as a first resort, not a
 	// last one. Real examples that failed while the tools to answer them existed:
 	// "Who is Esther?" (find_staff), "How much transaction did Abimbola Pinh do
@@ -1294,6 +1334,7 @@ func assistantSystemPrompt(toolNames []string) string {
 	b.WriteString("- Before saying you cannot look something up, check whether a tool would find it. A question about a PERSON almost always can be: use find_staff for a colleague and search_customers or get_customer_transactions for a customer. Try the search first; only report that you could not find them after a tool has come back empty.\n")
 	b.WriteString("- Tools can be used one after another in the same reply. If you need a customer's CIF, search for them first and then use the result. Do not stop halfway and ask the user for the CIF.\n")
 	b.WriteString("- A name you do not recognise is a reason to search, never a reason to refuse.\n")
+	b.WriteString("- A question about a POSITION is a question about a person: 'who is the MD', 'who is the CEO', 'who heads risk', 'who is the CFO'. Call find_staff with its role parameter. The directory records positions, so these can be answered.\n")
 	b.WriteString("- If a tool reports the data is not available to this user, say so; do not speculate about the values.\n")
 	// Multi-turn is where this model breaks. Once its own earlier answer sits in
 	// the context carrying figures, it reads that as "I have data" and stops
