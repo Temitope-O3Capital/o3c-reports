@@ -260,7 +260,7 @@ export default function RecoveryPaymentApprovals() {
   const [reviewing, setReviewing] = useState<PendingPayment | null>(null)
   const [search, setSearch]       = useState('')
   const [fChannels, setFChannels] = useState(new Set<string>())
-  const [statusTab, setStatusTab] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending')
+  const [statusTab, setStatusTab] = useState<'pending' | 'approved' | 'scheduled' | 'rejected' | 'all'>('pending')
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setError(null)
@@ -353,6 +353,20 @@ export default function RecoveryPaymentApprovals() {
     {
       key: 'stage_label', label: 'Approval Stage',
       render: r => {
+        // A scheduled instalment is waiting for a DATE, not for a person, so it must not be
+        // dressed as an approval stage. Without this an admin saw the green "ready for you"
+        // treatment on money nobody has received, because `mine` is true for admin on every
+        // row whatever its required_role — and a scheduled row has no required_role at all.
+        if (r.status === 'scheduled') {
+          return (
+            <span
+              title="Dated in the future, so it is an instalment that has not fallen due. Nothing promotes it when the date arrives — a receipt has to be recorded."
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>event_upcoming</span>
+              Not Yet Due
+            </span>
+          )
+        }
         const mine = role === r.required_role || role === 'admin'
         return (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${mine ? GREEN : AMBER}1F`, color: mine ? GREEN : AMBER, whiteSpace: 'nowrap' }}>
@@ -409,7 +423,7 @@ export default function RecoveryPaymentApprovals() {
       </div>
 
       <div style={{ display: 'inline-flex', gap: 4, background: 'var(--chip-bg)', padding: 3, borderRadius: RADIUS.md, marginBottom: SP[3] }}>
-        {(['pending', 'approved', 'rejected', 'all'] as const).map(s => (
+        {(['pending', 'approved', 'scheduled', 'rejected', 'all'] as const).map(s => (
           <button key={s} onClick={() => setStatusTab(s)}
             style={{ padding: '5px 13px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold, textTransform: 'capitalize',
               background: statusTab === s ? 'var(--card)' : 'transparent', color: statusTab === s ? NAVY : 'var(--txt2)', boxShadow: statusTab === s ? '0 1px 2px rgba(0,0,0,.08)' : 'none' }}>

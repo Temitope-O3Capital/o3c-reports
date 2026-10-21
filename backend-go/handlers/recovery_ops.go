@@ -1682,10 +1682,22 @@ func chainStatusClause(status, alias string) string {
 		return alias + ".status = 'approved'"
 	case "rejected":
 		return alias + ".status = 'rejected'"
+	case "scheduled":
+		return alias + ".status = 'scheduled'"
 	case "all":
 		return "TRUE"
 	default:
-		return alias + ".status NOT IN ('approved','rejected')"
+		// 'scheduled' is TERMINAL and must be excluded here, not merely unlisted.
+		//
+		// This branch means "still moving through the chain", and it used to be written as
+		// everything that is not approved or rejected — which silently classified any new
+		// status as pending. Migration 388 reclassified five future-dated recovery payments
+		// (N140,600,000, including two N64.2m FINTRAK rows dated 2027-01-28) out of
+		// 'approved', because money that has not happened cannot have been received. With
+		// this branch unchanged, that money would have left the recovery-collected figure
+		// and arrived in the Payment Approvals queue, presented to a COO as awaiting their
+		// sign-off. A scheduled instalment is waiting for a DATE, not for a person.
+		return alias + ".status NOT IN ('approved','rejected','scheduled')"
 	}
 }
 
@@ -1700,6 +1712,11 @@ func writeOffStageLabel(status string) string {
 		return "Approved"
 	case "rejected":
 		return "Rejected"
+	case "scheduled":
+		// Says what it is AND what it is not, because the figure it used to sit inside was
+		// "recovery collected". Nothing promotes these when the date arrives: an instalment
+		// falling due is not an instalment paid. See migration 388.
+		return "Scheduled — Not Received"
 	}
 	return status
 }
