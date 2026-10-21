@@ -793,9 +793,41 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			accommodations = ar
 		}
 
+		// HOW OLD IS ANY OF THIS, which the page could not previously say.
+		//
+		// respond() stamps data_as_of with time.Now() — the moment the request was
+		// answered, not the age of what it answered with. On this page that is precisely
+		// the misleading field: it says "just now" about figures that can be weeks old,
+		// because the card half of a customer's credit arrives on file feeds and the
+		// Udara half on an API poll, and the two keep entirely different time.
+		//
+		// Measured 2026-10-21: the acct_file and txn_file feeds last delivered on
+		// 2026-10-06, so app.accounts and core.transaction — the outstanding balance this
+		// page headlines and the card ledger behind its billing-cycle schedule — were 15
+		// days behind while Udara was current to the minute. An officer reading
+		// "Outstanding Now" had no way to know which of those they were looking at.
+		//
+		// Only the four sources that actually feed this page are returned, and the age is
+		// read from app.v_pipeline_freshness rather than recomputed, so this cannot
+		// disagree with the Data Freshness screen. The UI shows an age only for the arms
+		// the customer actually holds — a loan-only borrower should not be warned about a
+		// card feed.
+		sources := make([]core.Row, 0, 4)
+		if sr, _ := db.PGQuery(ctx, `
+			SELECT source_key, label, state,
+			       last_data_at::date::text AS last_data_at,
+			       GREATEST(0, (CURRENT_DATE - last_data_at::date)) AS days_stale
+			  FROM app.v_pipeline_freshness
+			 WHERE enabled
+			   AND source_key IN ('feed_accounts','feed_transactions','cbs','cbs_repayments')
+			 ORDER BY source_key`); sr != nil {
+			sources = sr
+		}
+
 		respond(w, map[string]any{
 			"recovery_case":  recovery,
 			"accommodations": accommodations,
+			"sources":        sources,
 			"customer": map[string]any{
 				"cif":            cif,
 				"customer_id":    customerID,

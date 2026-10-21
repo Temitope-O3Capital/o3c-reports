@@ -18,7 +18,8 @@ import { LogPaymentModal } from '../../components/LogPaymentModal'
 import CallsPanel from '../../components/CallsPanel'
 import {
   useCreditDossier, ExposureStrip, FacilityRail, FacilityTerms, ScheduleTable,
-  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, idCaption, type Facility,
+  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, idCaption,
+  DataAge, CARD_SOURCES, UDARA_SOURCES, type Facility,
 } from '../../components/CreditFile'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
@@ -673,6 +674,21 @@ export default function CollectionsAccountDetail() {
     ? d.applicant_name : ''
   const linkedCount = (cust?.linked_ids?.length ?? 1) - 1
 
+  // Which feeds this particular customer's figures actually rest on. A card-only holder
+  // is governed by the file feeds, a loan-only borrower by the Udara poll, and somebody
+  // holding both is governed by whichever is stalest. Computed from the facilities that
+  // came back rather than assumed, so nobody is warned about a feed they do not depend on.
+  const governingSources = useMemo(() => {
+    const kinds = new Set((credit?.facilities ?? []).map(f => f.kind))
+    const keys = [
+      ...(kinds.has('card') ? CARD_SOURCES : []),
+      ...(kinds.has('loan') ? UDARA_SOURCES : []),
+    ]
+    // No facility resolved: the headline came from the collections book, whose age the
+    // freshness view does not track, so claim nothing.
+    return keys
+  }, [credit])
+
   // Three identifiers, and only three: the Customer ID, the card CIF, and the Udara
   // id. The account key this page was opened on is an internal handle for borrowers
   // who hold a loan and no card — it is not a CIF and is never shown as one.
@@ -855,6 +871,16 @@ export default function CollectionsAccountDetail() {
             <div style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>
               Case raised at {fmtKoboExact(d.outstanding_kobo)}
               {d.assignment_date ? ` on ${fmtDate(d.assignment_date)}` : ''}
+            </div>
+          )}
+          {/* "Outstanding Now" is only as current as the feed behind it, and the feeds
+              behind the two arms keep different time — so the label is qualified by
+              whichever of the customer's OWN sources is stalest. A borrower with no card
+              is not warned about the card feed, and nothing shows at all when the data is
+              current, so the badge means something when it does appear. */}
+          {credit && (
+            <div style={{ display: 'flex', justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
+              <DataAge sources={credit.sources} keys={governingSources} />
             </div>
           )}
           <div style={{
@@ -1077,7 +1103,7 @@ export default function CollectionsAccountDetail() {
         )}
         {activeTab === 'repayments' && (
           credit
-            ? <RepaymentLedger repayments={credit.repayments} />
+            ? <RepaymentLedger repayments={credit.repayments} sources={credit.sources} />
             : <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
         )}
         {activeTab === 'timeline' && <TimelineTab cif={d.applicant_cif} version={version} />}

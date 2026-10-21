@@ -81,6 +81,72 @@ export interface Facility {
   schedule_note: string
 }
 
+export interface SourceAge {
+  source_key: 'feed_accounts' | 'feed_transactions' | 'cbs' | 'cbs_repayments'
+  label: string
+  state: string
+  last_data_at: string | null
+  days_stale: number
+}
+
+// WHICH FEED GOVERNS WHICH HALF OF THIS PAGE.
+//
+// The card side arrives on nightly file feeds and the Udara side on an API poll, and the
+// two keep completely different time — on 2026-10-21 the card feeds were 15 days behind
+// while Udara was current to the minute. So "how old is this figure" has no single
+// answer, and the page has to say which source it means.
+//
+//   feed_accounts      app.accounts      -> the card balance, i.e. the headline outstanding
+//   feed_transactions  core.transaction  -> the card ledger, i.e. billing cycles and card receipts
+//   cbs                cbs_loans         -> Udara facilities and their schedules
+//   cbs_repayments     loan_repayments   -> Udara repayment postings
+export const CARD_SOURCES: SourceAge['source_key'][] = ['feed_accounts', 'feed_transactions']
+export const UDARA_SOURCES: SourceAge['source_key'][] = ['cbs', 'cbs_repayments']
+
+// A day is the smallest unit worth reporting here: these are nightly feeds, so "17 hours"
+// would imply a precision the pipeline does not have. Same day reads as current.
+export function sourceAgeNote(sources: SourceAge[] | undefined, keys: SourceAge['source_key'][]): string {
+  const rel = (sources ?? []).filter(s => keys.includes(s.source_key) && s.last_data_at)
+  if (rel.length === 0) return ''
+  // The OLDEST of the relevant feeds governs: a figure is only as current as the stalest
+  // input behind it, and quoting the freshest would be the flattering answer.
+  const worst = rel.reduce((a, b) => (b.days_stale > a.days_stale ? b : a))
+  if (worst.days_stale <= 0) return 'Current to today'
+  if (worst.days_stale === 1) return 'As at yesterday'
+  return `As at ${fmtDate(worst.last_data_at as string)} · ${worst.days_stale} days behind`
+}
+
+// Shown only when a feed is genuinely behind. A badge that always appears stops being
+// read, and on a page of money figures the one that matters is the one that is stale.
+export function DataAge({ sources, keys, align = 'left' }: {
+  sources: SourceAge[] | undefined
+  keys: SourceAge['source_key'][]
+  align?: 'left' | 'right'
+}) {
+  const rel = (sources ?? []).filter(s => keys.includes(s.source_key) && s.last_data_at)
+  if (rel.length === 0) return null
+  const worst = rel.reduce((a, b) => (b.days_stale > a.days_stale ? b : a))
+  if (worst.days_stale <= 1) return null
+
+  const bad = worst.days_stale > 7
+  const c = bad ? RED : AMBER
+  return (
+    <div
+      title={`${worst.label} last delivered ${fmtDate(worst.last_data_at as string)}. Every figure drawn from it is that old — it is not live.`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6,
+        padding: '2px 8px', borderRadius: RADIUS.full,
+        background: `${c}14`, color: c,
+        fontSize: TEXT['2xs'], fontWeight: FW.bold,
+        alignSelf: align === 'right' ? 'flex-end' : 'flex-start',
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 12 }}>schedule</span>
+      As at {fmtDate(worst.last_data_at as string)} · {worst.days_stale}d behind
+    </div>
+  )
+}
+
 export interface Repayment {
   date: string
   amount_kobo: number
@@ -168,6 +234,9 @@ export interface CreditDossier {
   }
   recovery_case: RecoveryCase
   accommodations: Accommodation[]
+  // How old each feed behind this page is. Not the same thing as the envelope's
+  // data_as_of, which is time.Now() and therefore always says "just now".
+  sources?: SourceAge[]
   facilities: Facility[]
   repayments: Repayment[]
   totals: {
@@ -899,7 +968,10 @@ const SOURCE_CHIP: Record<Repayment['source'], { label: string; color: string }>
   collections: { label: 'Logged',       color: NAVY },
 }
 
-export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
+export function RepaymentLedger({ repayments, sources }: {
+  repayments: Repayment[]
+  sources?: SourceAge[]
+}) {
   const counts = useMemo(() => {
     const c: Record<Lane, number> = { book: 0, logged: 0, imported: 0 }
     for (const r of repayments) c[laneOf(r)]++
@@ -957,6 +1029,28 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
           {fmtKoboExact(total)}
         </span>
       </div>
+
+      {/* The book-of-record lane is the one people will trust, so it is the one that has
+          to admit how old it is. Keyed to the sources the visible rows actually came
+          from: a lane of Udara postings is not stale because a card feed is. */}
+      {activeLane === 'book' && (() => {
+        const keys: SourceAge['source_key'][] = [
+          ...(rows.some(r => r.source === 'card') ? CARD_SOURCES : []),
+          ...(rows.some(r => r.source === 'udara') ? UDARA_SOURCES : []),
+        ]
+        const note = sourceAgeNote(sources, keys)
+        if (!note || note === 'Current to today') return null
+        return (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: `${SP[2]} ${SP[5]}`, borderBottom: '1px solid var(--bdr)',
+            fontSize: TEXT.xs, color: 'var(--txt3)',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>schedule</span>
+            {note} — a payment received since then has not reached this ledger yet.
+          </div>
+        )
+      })()}
 
       {activeLane === 'imported' && (
         <div style={{
