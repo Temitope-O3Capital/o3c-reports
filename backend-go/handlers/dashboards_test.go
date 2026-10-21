@@ -178,6 +178,12 @@ func vizKindsFromMigrations(t *testing.T) (map[string]bool, string) {
 		from  string
 	)
 	quoted := regexp.MustCompile(`'([a-z_]+)'`)
+	// ONLY A DEFINITION COUNTS. Looking for the last MENTION of the constraint name read
+	// a migration's own assertions ("AND conname = 'dashboard_tiles_viz_check'") as if
+	// they were the definition, found no ARRAY[ after them, skipped the file, and quietly
+	// reported an OLDER migration as the authority — so adding two kinds failed with a
+	// message naming migration 381, which had nothing to do with it any more.
+	defines := regexp.MustCompile(`ADD\s+CONSTRAINT\s+dashboard_tiles_viz_check`)
 	for _, f := range files {
 		body, readErr := os.ReadFile(f)
 		if readErr != nil {
@@ -186,18 +192,23 @@ func vizKindsFromMigrations(t *testing.T) (map[string]bool, string) {
 		s := string(body)
 		// The last ADD CONSTRAINT in the file wins, so a migration that drops and
 		// re-adds is read as its final state.
-		i := strings.LastIndex(s, "dashboard_tiles_viz_check")
-		if i < 0 {
+		at := defines.FindAllStringIndex(s, -1)
+		if len(at) == 0 {
 			continue
 		}
-		rest := s[i:]
+		rest := s[at[len(at)-1][0]:]
 		open := strings.Index(rest, "ARRAY[")
-		if open < 0 {
-			continue
+		end := -1
+		if open >= 0 {
+			end = strings.Index(rest[open:], "]")
 		}
-		end := strings.Index(rest[open:], "]")
-		if end < 0 {
-			continue
+		if open < 0 || end < 0 {
+			// A file that defines the constraint but cannot be parsed has to be loud. The
+			// alternative is this test grading the handler against a migration that has
+			// since been superseded, which is worse than having no test.
+			t.Fatalf("%s defines dashboard_tiles_viz_check but its kind list could not be parsed; "+
+				"re-point this parser rather than letting it grade against an older migration",
+				filepath.Base(f))
 		}
 		found := map[string]bool{}
 		for _, m := range quoted.FindAllStringSubmatch(rest[open:open+end], -1) {
@@ -208,4 +219,39 @@ func vizKindsFromMigrations(t *testing.T) (map[string]bool, string) {
 		}
 	}
 	return kinds, from
+}
+
+// vizKindsFromFrontend reads VIZ_KINDS out of builder/tileViz.ts — the list the user is
+// actually offered. This is the third leg of the contract and the one no Go test checked:
+// a kind the handler and the CHECK both accept but the frontend never offers is dead
+// code, and a kind the frontend offers that the handler refuses is a 422 on a button.
+func vizKindsFromFrontend(t *testing.T) map[string]bool {
+	t.Helper()
+	path := filepath.Join("..", "..", "frontend", "src", "pages", "reports", "builder", "tileViz.ts")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("tileViz.ts not readable (%v); the frontend leg of this contract is unchecked here", err)
+	}
+	s := string(body)
+	// Start INSIDE the array. The declaration is `VIZ_KINDS: VizKind[] = [`, so scanning
+	// from the start of the match to the first ']' stops at the one in `VizKind[]` and
+	// reads an empty list — which would make every assertion below vacuously pass.
+	const decl = "VIZ_KINDS: VizKind[] = ["
+	i := strings.Index(s, decl)
+	if i < 0 {
+		t.Fatal("could not find VIZ_KINDS in tileViz.ts — if it was renamed, re-point this test")
+	}
+	rest := s[i+len(decl):]
+	end := strings.Index(rest, "]")
+	if end < 0 {
+		t.Fatal("VIZ_KINDS in tileViz.ts is not a closed array")
+	}
+	out := map[string]bool{}
+	for _, m := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(rest[:end], -1) {
+		out[m[1]] = true
+	}
+	if len(out) == 0 {
+		t.Fatal("parsed no kinds out of VIZ_KINDS; this test would pass for the wrong reason")
+	}
+	return out
 }

@@ -18,8 +18,11 @@
 // no click handler bound, no per-datum objects in the series data. That matters
 // here more than usual — this file is imported by around fifty pages.
 // ─────────────────────────────────────────────────────────────────────────────
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
+// Only for registerMap, which is the one thing echarts-for-react does not expose. It
+// already pulls the full library in, so this import adds nothing to the bundle.
+import * as echarts from 'echarts'
 
 // Canvas can't read CSS vars, so mirror --font-sans as a concrete family (Segoe).
 export const CHART_FONT = "var(--font-sans)"
@@ -212,6 +215,22 @@ const axisTip = <T,>(t: ChartTokens, series: Series<T>[], valueFmt: (v: number) 
     return { color: p.color, name: series.length > 1 ? p.seriesName : undefined, value: (s?.fmt ?? valueFmt)(Number(p.value)) }
   }))
 
+// Values printed on the chart itself. Opt-in: a dense series labelled at every point is
+// unreadable, so this is a caller's decision, never a default. hideOverlap drops the ones
+// that would collide rather than stacking text on text.
+export function valueLabel(t: ChartTokens, position: 'top' | 'right' | 'inside', fmt: (v: number) => string) {
+  return {
+    show: true,
+    position,
+    // Inside a bar the label sits on the series colour, so it has to be light; outside it
+    // sits on the card and takes the normal text token.
+    color: position === 'inside' ? '#fff' : t.txt2,
+    fontSize: 10, fontFamily: CHART_FONT,
+    formatter: (p: any) => (typeof p.value === 'number' ? fmt(p.value) : ''),
+    hideOverlap: true,
+  }
+}
+
 function seriesRow<T extends Record<string, any>>(
   kind: 'bar' | 'line' | 'area', data: T[], s: Series<T>, extra: any = {},
   dim?: (row: T, i: number) => number | undefined,
@@ -255,6 +274,7 @@ function seriesRow<T extends Record<string, any>>(
 export function EBar<T extends Record<string, any>>({
   data, xKey, series, stack = false, height = 200, legend,
   valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat,
+  labels = false,
 }: {
   data: T[]
   xKey: keyof T
@@ -268,6 +288,7 @@ export function EBar<T extends Record<string, any>>({
   leftMargin?: number
   onPick?: Pick<T>          // opt-in: makes a column clickable
   activeCat?: unknown       // the picked category, drawn solid while the rest fade
+  labels?: boolean          // print each value on the chart
 }) {
   const showLegend = legend ?? series.length > 1
   const clickable = !!onPick
@@ -285,11 +306,12 @@ export function EBar<T extends Record<string, any>>({
         yAxis: axisVal(t, axisFmt),
         series: series.map((s) => seriesRow('bar', data, s, {
           ...(stack ? { stack: 'total' } : {}), ...(clickable ? { cursor: 'pointer' } : {}),
+          ...(labels ? { label: valueLabel(t, stack ? 'inside' : 'top', s.fmt ?? valueFmt) } : {}),
         }, dim)),
         animationDuration: 700,
       }
     },
-    [data, xKey, series, stack, showLegend, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat],
+    [data, xKey, series, stack, showLegend, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat, labels],
   )
   return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
@@ -306,12 +328,12 @@ function endChip(t: ChartTokens, color: string | undefined, fmt: (v: number) => 
 // ── Smooth area (gradient fill) ──────────────────────────────────────────────
 export function EArea<T extends Record<string, any>>({
   data, xKey, series, stack = false, height = 220, endLabel = false, endFmt, dots = false, hideYAxis = false,
-  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat,
+  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat, labels = false,
 }: {
   data: T[]; xKey: keyof T; series: Series<T>[]; stack?: boolean; height?: number
   endLabel?: boolean; endFmt?: (v: number) => string; dots?: boolean; hideYAxis?: boolean
   valueFmt?: (v: number) => string; axisFmt?: (v: number) => string; xTickSize?: number; leftMargin?: number
-  onPick?: Pick<T>; activeCat?: unknown
+  onPick?: Pick<T>; activeCat?: unknown; labels?: boolean
 }) {
   const clickable = !!onPick
   const option = useMemo(
@@ -333,11 +355,12 @@ export function EArea<T extends Record<string, any>>({
           // A line series reports a click only when the pointer lands on a symbol,
           // and symbols are off by default — so the line itself becomes the target.
           ...(clickable ? { cursor: 'pointer', triggerLineEvent: true } : {}),
+          ...(labels ? { label: valueLabel(t, 'top', s.fmt ?? valueFmt) } : {}),
         }, dim)),
         animationDuration: 700,
       }
     },
-    [data, xKey, series, stack, endLabel, endFmt, dots, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat],
+    [data, xKey, series, stack, endLabel, endFmt, dots, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat, labels],
   )
   return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
@@ -345,12 +368,12 @@ export function EArea<T extends Record<string, any>>({
 // ── Smooth multi-series line ─────────────────────────────────────────────────
 export function ELine<T extends Record<string, any>>({
   data, xKey, series, height = 220, endLabel = false, endFmt, hideYAxis = false,
-  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat,
+  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat, labels = false,
 }: {
   data: T[]; xKey: keyof T; series: Series<T>[]; height?: number
   endLabel?: boolean; endFmt?: (v: number) => string; hideYAxis?: boolean
   valueFmt?: (v: number) => string; axisFmt?: (v: number) => string; xTickSize?: number; leftMargin?: number
-  onPick?: Pick<T>; activeCat?: unknown
+  onPick?: Pick<T>; activeCat?: unknown; labels?: boolean
 }) {
   const clickable = !!onPick
   const option = useMemo(
@@ -366,10 +389,11 @@ export function ELine<T extends Record<string, any>>({
       series: series.map((s) => seriesRow('line', data, s, {
         ...(endLabel ? { endLabel: endChip(t, s.color, endFmt ?? s.fmt ?? valueFmt) } : {}),
         ...(clickable ? { cursor: 'pointer', triggerLineEvent: true } : {}),
+        ...(labels ? { label: valueLabel(t, 'top', s.fmt ?? valueFmt) } : {}),
       }, dimmer(data, xKey, activeCat))),
       animationDuration: 700,
     }),
-    [data, xKey, series, endLabel, endFmt, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat],
+    [data, xKey, series, endLabel, endFmt, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat, labels],
   )
   return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
@@ -377,7 +401,7 @@ export function ELine<T extends Record<string, any>>({
 // ── Horizontal bar — ranked categories (long labels) ─────────────────────────
 export function EBarH<T extends Record<string, any>>({
   data, catKey, series, height = 260, legend, barMax = 24,
-  valueFmt = (v) => String(v), axisFmt, onPick, activeCat,
+  valueFmt = (v) => String(v), axisFmt, onPick, activeCat, labels = false,
 }: {
   data: T[]
   catKey: keyof T
@@ -389,6 +413,7 @@ export function EBarH<T extends Record<string, any>>({
   axisFmt?: (v: number) => string
   onPick?: Pick<T>
   activeCat?: unknown
+  labels?: boolean
 }) {
   const showLegend = legend ?? series.length > 1
   const clickable = !!onPick
@@ -413,6 +438,7 @@ export function EBarH<T extends Record<string, any>>({
           type: 'bar', name: s.name ?? String(s.key), barMaxWidth: barMax,
           itemStyle: { borderRadius: br, color: s.color },
           ...(clickable ? { cursor: 'pointer' } : {}),
+          ...(labels ? { label: valueLabel(t, 'right', s.fmt ?? valueFmt) } : {}),
           data: data.map((d, i) => {
             const o = dim?.(d, i)
             if (!s.colorFn && o === undefined) return d[s.key]
@@ -429,7 +455,7 @@ export function EBarH<T extends Record<string, any>>({
         animationDuration: 700,
       }
     },
-    [data, catKey, series, showLegend, barMax, valueFmt, axisFmt, clickable, activeCat],
+    [data, catKey, series, showLegend, barMax, valueFmt, axisFmt, clickable, activeCat, labels],
   )
   return <EChart option={option} height={height} onEvents={pickEvents(data, catKey, onPick)} />
 }
@@ -568,7 +594,7 @@ export function EFunnel<T extends Record<string, any>>({
 export function ECombo<T extends Record<string, any>>({
   data, xKey, bars = [], areas = [], lines = [], height = 240, legend,
   valueFmt = (v) => String(v), axisFmt, rightAxis = false, rightFmt, stack = false, xTickSize = 11, leftMargin = 8,
-  onPick, activeCat,
+  onPick, activeCat, labels = false,
 }: {
   data: T[]
   xKey: keyof T
@@ -586,6 +612,7 @@ export function ECombo<T extends Record<string, any>>({
   leftMargin?: number
   onPick?: Pick<T>
   activeCat?: unknown
+  labels?: boolean
 }) {
   const allSeries = [...bars, ...areas, ...lines]
   const showLegend = legend ?? allSeries.length > 1
@@ -605,20 +632,223 @@ export function ECombo<T extends Record<string, any>>({
       series: [
         ...bars.map((s) => seriesRow('bar', data, s, {
           ...(stack ? { stack: 'total' } : {}), ...(clickable ? { cursor: 'pointer' } : {}),
+          ...(labels ? { label: valueLabel(t, stack ? 'inside' : 'top', s.fmt ?? valueFmt) } : {}),
         }, dimmer(data, xKey, activeCat))),
-        ...areas.map((s) => seriesRow('area', data, s,
-          clickable ? { cursor: 'pointer', triggerLineEvent: true } : {},
-          dimmer(data, xKey, activeCat))),
+        ...areas.map((s) => seriesRow('area', data, s, {
+          ...(clickable ? { cursor: 'pointer', triggerLineEvent: true } : {}),
+          ...(labels ? { label: valueLabel(t, 'top', s.fmt ?? valueFmt) } : {}),
+        }, dimmer(data, xKey, activeCat))),
         ...lines.map((s) => ({
-          ...seriesRow('line', data, s,
-            clickable ? { cursor: 'pointer', triggerLineEvent: true } : {},
-            dimmer(data, xKey, activeCat)),
+          ...seriesRow('line', data, s, {
+            ...(clickable ? { cursor: 'pointer', triggerLineEvent: true } : {}),
+            ...(labels ? { label: valueLabel(t, 'top', s.fmt ?? valueFmt) } : {}),
+          }, dimmer(data, xKey, activeCat)),
           yAxisIndex: rightAxis ? 1 : 0,
         })),
       ],
       animationDuration: 700,
     }),
-    [data, xKey, bars, areas, lines, showLegend, valueFmt, axisFmt, rightAxis, rightFmt, stack, xTickSize, leftMargin, clickable, activeCat],
+    [data, xKey, bars, areas, lines, showLegend, valueFmt, axisFmt, rightAxis, rightFmt, stack, xTickSize, leftMargin, clickable, activeCat, labels],
   )
   return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
+}
+
+// ── Scatter — two measures against each other ────────────────────────────────
+// One point per row, so this is the one chart where MORE points is the point: the shape
+// of the cloud is the finding. `nameKey` names a point in its tooltip (a state, an
+// officer) — it is not an axis, so there is no category to click; a scatter filters by
+// nothing and says what each dot is.
+export function EScatter<T extends Record<string, any>>({
+  data, xKey, yKey, nameKey, height = 240, color,
+  xFmt = (v) => String(v), yFmt = (v) => String(v), xLabel, yLabel, symbolSize = 9,
+}: {
+  data: T[]
+  xKey: keyof T
+  yKey: keyof T
+  nameKey?: keyof T
+  height?: number
+  color?: string
+  xFmt?: (v: number) => string
+  yFmt?: (v: number) => string
+  xLabel?: string
+  yLabel?: string
+  symbolSize?: number
+}) {
+  const option = useMemo(
+    () => (t: ChartTokens) => ({
+      // Room at the bottom and left for the axis names, which a scatter needs in a way a
+      // category chart does not: without them two numeric axes are unreadable.
+      grid: { top: 14, right: 18, bottom: yLabel || xLabel ? 34 : 24, left: 8, containLabel: true },
+      tooltip: {
+        trigger: 'item', ...baseTooltip(t),
+        formatter: (p: any) => {
+          const row = data[p.dataIndex]
+          const title = nameKey && row ? String(row[nameKey] ?? '') : null
+          return tipCard(t, title || null, [
+            { color: p.color, name: xLabel ?? String(xKey), value: xFmt(Number(p.value?.[0])) },
+            { color: p.color, name: yLabel ?? String(yKey), value: yFmt(Number(p.value?.[1])) },
+          ])
+        },
+      },
+      xAxis: {
+        ...axisVal(t, xFmt), scale: true,
+        name: xLabel, nameLocation: 'middle', nameGap: 26,
+        nameTextStyle: { color: t.txt3, fontSize: 10.5, fontFamily: CHART_FONT },
+      },
+      yAxis: {
+        ...axisVal(t, yFmt), scale: true,
+        name: yLabel, nameLocation: 'middle', nameGap: 42,
+        nameTextStyle: { color: t.txt3, fontSize: 10.5, fontFamily: CHART_FONT },
+      },
+      series: [
+        {
+          type: 'scatter', symbolSize,
+          itemStyle: { color: color, opacity: 0.75 },
+          emphasis: { itemStyle: { opacity: 1, shadowBlur: 8, shadowColor: 'rgba(8,15,35,0.25)' } },
+          data: data.map((d) => [d[xKey], d[yKey]]),
+        },
+      ],
+      animationDuration: 700,
+    }),
+    [data, xKey, yKey, nameKey, color, xFmt, yFmt, xLabel, yLabel, symbolSize],
+  )
+  return <EChart option={option} height={height} />
+}
+
+// ── Nigeria, by state ────────────────────────────────────────────────────────
+//
+// THE BOUNDARY FILE IS FETCHED, NOT BUNDLED. It is 107 KB of coordinates that only a
+// board with a map tile needs, so bundling it would charge every page in the workspace
+// for a visual almost none of them draw. It is fetched once per page load and registered
+// with ECharts; a second map tile on the same board reuses the registration.
+//
+// WHY THE STATE NAMES LINE UP. The file's `name` is the canonical state name — the same
+// 37 values app.canon_state folds every spelling onto (migration 376, and 383 for the
+// speed), with "Abuja Federal Capital Territory" renamed to FCT to match. That is what
+// makes a choropleth honest here: a report's states and the map's states are the same
+// list, so a state failing to colour means no data, never a spelling mismatch.
+//
+// The geometry is simplified to about 550 m of detail, which is a quarter of a pixel at
+// the size a tile draws. Each state was simplified on its own, so a shared border can
+// drift by that much on each side; pushing the tolerance further opens visible slivers
+// between neighbours.
+export const NIGERIA_MAP = 'o3c-nigeria-states'
+const NIGERIA_GEO_URL = '/geo/nigeria-states.json'
+
+let nigeriaMapLoad: Promise<boolean> | null = null
+function loadNigeriaMap(): Promise<boolean> {
+  if (!nigeriaMapLoad) {
+    nigeriaMapLoad = fetch(NIGERIA_GEO_URL)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((geo) => { echarts.registerMap(NIGERIA_MAP, geo); return true })
+      .catch(() => {
+        // Clear the memo so a later tile can try again rather than every map on the
+        // board being permanently dead because one request failed.
+        nigeriaMapLoad = null
+        return false
+      })
+  }
+  return nigeriaMapLoad
+}
+
+export function ENigeriaMap<T extends Record<string, any>>({
+  data, nameKey, valueKey, height = 280, valueFmt = (v) => String(v),
+  low = '#E3E8EF', high = '#0E2841', onPick, activeCat,
+}: {
+  data: T[]
+  nameKey: keyof T
+  valueKey: keyof T
+  height?: number
+  valueFmt?: (v: number) => string
+  low?: string
+  high?: string
+  onPick?: Pick<T>
+  activeCat?: unknown
+}) {
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  useEffect(() => {
+    let alive = true
+    loadNigeriaMap().then((ok) => { if (alive) setState(ok ? 'ready' : 'failed') })
+    return () => { alive = false }
+  }, [])
+
+  const clickable = !!onPick
+  const option = useMemo(
+    () => (t: ChartTokens) => {
+      const vals = data.map((d) => Number(d[valueKey])).filter((v) => Number.isFinite(v))
+      const min = vals.length ? Math.min(...vals) : 0
+      const max = vals.length ? Math.max(...vals) : 1
+      return {
+        tooltip: {
+          trigger: 'item', ...baseTooltip(t),
+          formatter: (p: any) => tipCard(t, String(p.name), [{
+            color: p.color,
+            // A state the report returned no row for is not zero — it is unknown, and
+            // saying "No data" is the difference between the two.
+            value: p.value === undefined || p.value === null || Number.isNaN(p.value)
+              ? 'No data' : valueFmt(Number(p.value)),
+          }]),
+        },
+        visualMap: {
+          type: 'continuous', min, max: max === min ? min + 1 : max,
+          left: 4, bottom: 4, orient: 'vertical', itemWidth: 8, itemHeight: 64,
+          calculable: false, inRange: { color: [low, high] },
+          text: [valueFmt(max), valueFmt(min)],
+          textStyle: { color: t.txt3, fontSize: 9.5, fontFamily: CHART_FONT },
+        },
+        series: [
+          {
+            type: 'map', map: NIGERIA_MAP, nameProperty: 'name', roam: false,
+            left: 6, right: 6, top: 6, bottom: 6,
+            ...(clickable ? { cursor: 'pointer' } : {}),
+            // areaColor is what a state with no row draws as, so "no data" reads as a
+            // neutral shape rather than as the bottom of the scale.
+            itemStyle: { areaColor: t.rowHvr, borderColor: t.card, borderWidth: 0.6 },
+            label: { show: false },
+            emphasis: {
+              label: { show: false },
+              itemStyle: { shadowBlur: 6, shadowColor: 'rgba(8,15,35,0.25)' },
+            },
+            select: { disabled: true },
+            data: data.map((d) => {
+              const o = dimOf(activeCat, d[nameKey])
+              return {
+                name: String(d[nameKey] ?? ''), value: d[valueKey],
+                ...(o === undefined ? {} : { itemStyle: { opacity: o } }),
+              }
+            }),
+          },
+        ],
+        animationDuration: 500,
+      }
+    },
+    [data, nameKey, valueKey, valueFmt, low, high, clickable, activeCat],
+  )
+
+  if (state === 'failed') {
+    return (
+      <div style={{
+        display: 'grid', placeItems: 'center', height,
+        fontSize: 12, color: 'var(--txt3)', textAlign: 'center', padding: 16,
+      }}>
+        The state boundaries could not be loaded, so this tile cannot draw its map.
+      </div>
+    )
+  }
+  if (state === 'loading') {
+    return <div style={{ display: 'grid', placeItems: 'center', height, fontSize: 12, color: 'var(--txt3)' }}>
+      Loading the map&hellip;
+    </div>
+  }
+  // The click carries the region name, which here IS the row's own value: the names come
+  // from our own boundary file and the canonical state list, not from an axis format.
+  return (
+    <EChart option={option} height={height}
+      onEvents={onPick ? {
+        click: (p: any) => {
+          const row = data.find((d) => String(d[nameKey] ?? '') === String(p?.name ?? ''))
+          if (row) onPick(row[nameKey], row, data.indexOf(row))
+        },
+      } : undefined} />
+  )
 }

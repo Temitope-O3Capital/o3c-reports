@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -75,6 +76,10 @@ func RegisterDashboards(r chi.Router, db *core.DB) {
 	r.With(access).Put("/tiles/{tid}", dashTileUpdate(db))
 	r.With(access).Delete("/tiles/{tid}", dashTileDelete(db))
 	r.With(access).Get("/tiles/{tid}/data", dashTileData(db))
+	// One tile as a file. Re-runs the source at the DATA SOURCE's cap rather than the
+	// tile's 500-row display cap — see dashboard_tile_export.go for why that distinction
+	// is the whole point of the endpoint existing.
+	r.With(access).Get("/tiles/{tid}/export", dashTileExport(db))
 	r.With(access).Post("/{id}/email", dashEmail(db))
 }
 
@@ -519,6 +524,21 @@ func dashDelete(db *core.DB) http.HandlerFunc {
 var dashVizKinds = map[string]bool{
 	"kpi": true, "bar": true, "line": true, "area": true, "donut": true, "table": true,
 	"barh": true, "combo": true, "funnel": true,
+	"scatter": true, "matrix": true, "map": true,
+}
+
+// dashVizProblem is the refusal for a visual the dashboard cannot draw, built FROM the
+// list so it cannot drift away from it. The four hand-written copies of this message
+// named six kinds and had done since migration 381 widened the list to nine — an error
+// message that lists fewer options than are accepted sends people looking for a feature
+// they already have.
+func dashVizProblem() string {
+	kinds := make([]string, 0, len(dashVizKinds))
+	for k := range dashVizKinds {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return "Choose a visual the dashboard can draw: " + strings.Join(kinds, ", ")
 }
 
 func dashTileCreate(db *core.DB) http.HandlerFunc {
@@ -547,7 +567,7 @@ func dashTileCreate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if !dashVizKinds[b.Viz] {
-			respondErr(w, 422, "Choose a visual: KPI, bar, line, area, donut or table")
+			respondErr(w, 422, dashVizProblem())
 			return
 		}
 		// Exactly one source. The database enforces this too (migration 358), but a 422
@@ -630,7 +650,7 @@ func dashTileUpdate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if b.Viz != nil && !dashVizKinds[*b.Viz] {
-			respondErr(w, 422, "Choose a visual: KPI, bar, line, area, donut or table")
+			respondErr(w, 422, dashVizProblem())
 			return
 		}
 		var cfg *string

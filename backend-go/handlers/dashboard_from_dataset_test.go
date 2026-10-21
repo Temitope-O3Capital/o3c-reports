@@ -11,26 +11,27 @@ import (
 // The guards that make a dashboard-built tile safe, asserted statically so they cannot be
 // loosened by accident.
 func TestTileFromDatasetKeepsTheTileInvariants(t *testing.T) {
-	// A tile built here must still choose from the SAME visuals the schema allows. If a
-	// new one is added to dashVizKinds without a renderer, a tile can be created that the
-	// dashboard cannot draw.
+	// A tile built here must choose from the same visuals the user is actually offered.
+	// The contract has three legs: dashVizKinds (this handler), the CHECK constraint
+	// (checked against the migrations by TestTheVizListMatchesTheDatabaseConstraint), and
+	// VIZ_KINDS in builder/tileViz.ts, which is what the builder shows and what
+	// TileVisual.tsx must have a branch for. A kind in one and not the others is a tile
+	// that stores fine and draws nothing, or a button that answers 422.
 	//
-	// THIS LIST IS THE CONTRACT between three places that must agree: this map, the CHECK
-	// constraint from migration 381, and the renderer's branches in
-	// builder/TileVisual.tsx (offered to the user by VIZ_KINDS in builder/tileViz.ts).
-	// A kind in one and not the others is a tile that stores fine and draws nothing.
-	wantKinds := []string{
-		"kpi", "bar", "line", "area", "donut", "table",
-		"barh", "combo", "funnel",
-	}
-	for _, v := range wantKinds {
+	// THIS TEST USED TO HOLD ITS OWN COPY of the nine kinds — a fourth list of the same
+	// thing, so widening the set made it fail for being out of date rather than because
+	// anything was wrong. That is the exact failure these tests exist to prevent, so the
+	// frontend's own list is read instead.
+	offered := vizKindsFromFrontend(t)
+	for v := range offered {
 		if !dashVizKinds[v] {
-			t.Errorf("visual %q is offered by the tile builder but not accepted by the handler", v)
+			t.Errorf("the builder offers visual %q, which this handler would refuse with a 422", v)
 		}
 	}
-	if len(dashVizKinds) != len(wantKinds) {
-		t.Errorf("dashVizKinds has %d entries; the tile builder offers %d and they must match",
-			len(dashVizKinds), len(wantKinds))
+	for v := range dashVizKinds {
+		if !offered[v] {
+			t.Errorf("the handler accepts visual %q, which the builder never offers — dead, or a list has drifted", v)
+		}
 	}
 
 	// The generated name is also the tile's caption, read in a grid cell.

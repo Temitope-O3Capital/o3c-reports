@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { EBar, ELine, EArea, EDonut, EBarH, EFunnel, ECombo } from '../../components/echarts'
 import { CHART_SERIES } from '../../components/charts'
-import { apiFetch, apiPost, apiPut, apiDelete, unwrap, unwrapList } from '../../lib/api'
+import { apiFetch, apiPost, apiPut, apiDelete, apiExport, unwrap, unwrapList } from '../../lib/api'
 import { labelFor, fmtValue, alignFor } from '../../lib/reportFormat'
 import { NAVY, FW, SP, TEXT } from '../../lib/design'
 import { TileBuilder, type TileBuilderEdit } from './builder/TileBuilder'
@@ -43,6 +43,9 @@ import { toast } from 'sonner'
 const GRID_COLS = 12
 const ROW_H = 76          // px per grid row, matching the schema's h <= 24
 const GRID_GAP = 12
+// Mirrors dashTileRowCap in the Go handler. Only ever shown to the reader, to explain why
+// a downloaded file is bigger than the tile it came from.
+const dashTileDisplayCap = 500
 
 interface Tile {
   id: number
@@ -101,6 +104,133 @@ interface SourceList {
 
 // ── One tile ──────────────────────────────────────────────────────────────────
 
+/*
+  One tile's rows, fetched once per (tile, question).
+
+  SHARED BY THE TILE AND ITS EXPANDED VIEW on purpose. The expanded view is the same tile
+  at a readable size, so if it fetched by its own path the two could disagree — most
+  obviously about the board's filters, which travel in the query string.
+*/
+function useTileData(tileId: number, query: string, enabled: boolean) {
+  const [data, setData] = useState<TileData | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setErr(null)
+    apiFetch(`/api/dashboards/tiles/${tileId}/data${query}`)
+      .then(res => setData(unwrap<TileData>(res)))
+      .catch(e => setErr(e?.message || 'This tile could not be loaded'))
+  }, [tileId, query])
+
+  useEffect(() => { if (enabled) load() }, [enabled, load])
+  return { data, err, load }
+}
+
+/** Which of the board's selected filters this tile could not answer. The server says so
+ *  rather than the page guessing: it is the side that knows what the dataset declares. */
+function IgnoredStrip({ keys }: { keys: string[] }) {
+  if (!keys.length) return null
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 5,
+      padding: `2px ${SP[3]}px`, fontSize: 10.5, color: '#8a6a16',
+    }} title={`This tile's data source has no ${keys.join(' or ')} filter`}>
+      <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 13 }}>
+        filter_alt_off
+      </span>
+      Not filtered by {keys.join(', ')}
+    </div>
+  )
+}
+
+/*
+  A tile, expanded — and the one place a tile becomes a file.
+
+  WHY THE DOWNLOAD IS A SERVER CALL AND NOT THESE ROWS. The page holds the tile's rows
+  already, so writing a CSV from them would need no endpoint. It would also be short: a
+  tile is capped at 500 rows for display, and a file that quietly stops there is the exact
+  failure that had the Report Builder's own record cap removed. The endpoint re-runs the
+  report at the data source's cap, so the file is the report's, not the tile's.
+*/
+function TileFocus({ tile, query, selectedKeys, onClose }: {
+  tile: Tile
+  query: string
+  selectedKeys: string[]
+  onClose: () => void
+}) {
+  const { data, err, load } = useTileData(tile.id, query, tile.readable)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function save(format: 'csv' | 'xlsx') {
+    setBusy(format)
+    try {
+      const qs = query ? `&${query.slice(1)}` : ''
+      const r = await apiExport(
+        `/api/dashboards/tiles/${tile.id}/export?format=${format}${qs}`,
+        { fallbackName: tile.title },
+      )
+      toast.success(
+        `${r.filename} · ${r.rows.toLocaleString('en-NG')} row${r.rows === 1 ? '' : 's'}`
+        + (r.truncated ? ' · the data source’s row cap was reached' : ''),
+      )
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not download this tile')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const ignored = (data?.ignored_filters ?? []).filter(k => selectedKeys.includes(k))
+
+  return (
+    <Modal open onClose={onClose} title={tile.title} width={1000} maxHeight="86vh"
+      footer={
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+          <Button variant="secondary" icon="download" disabled={!!busy || !tile.readable}
+            onClick={() => save('csv')}>
+            {busy === 'csv' ? 'Preparing…' : 'Download CSV'}
+          </Button>
+          <Button variant="secondary" icon="table_view" disabled={!!busy || !tile.readable}
+            onClick={() => save('xlsx')}>
+            {busy === 'xlsx' ? 'Preparing…' : 'Download Excel'}
+          </Button>
+          <span style={{ fontSize: 10.5, color: 'var(--txt3)', flex: 1, minWidth: 180 }}>
+            The file holds the whole result at the data source&rsquo;s own cap, which is more
+            than the {dashTileDisplayCap.toLocaleString('en-NG')} rows a tile draws.
+          </span>
+          <Button onClick={onClose}>Close</Button>
+        </div>
+      }>
+      <div style={{
+        fontSize: 10.5, color: 'var(--txt3)', textTransform: 'uppercase',
+        letterSpacing: '.05em', marginBottom: SP[2],
+      }}>
+        {tile.source_kind === 'sql' ? 'Saved Query' : tile.dataset || 'Saved Report'}
+        {data && <> &middot; {data.row_count.toLocaleString('en-NG')} rows{data.truncated && ' (capped)'}</>}
+      </div>
+      <IgnoredStrip keys={ignored} />
+      {!tile.readable ? (
+        <div style={{ padding: SP[5], textAlign: 'center', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          {tile.reason || 'You do not have access to this tile’s source'}
+        </div>
+      ) : err ? (
+        <ErrBanner error={err} onRetry={load} />
+      ) : !data ? (
+        <Sk h={360} />
+      ) : !data.rows.length ? (
+        <div style={{ padding: SP[5], textAlign: 'center', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          No rows in this period
+        </div>
+      ) : (
+        <TileVisual
+          viz={tile.viz} config={tile.config} columns={data.columns} rows={data.rows}
+          rowCount={data.row_count} height={440}
+        />
+      )}
+    </Modal>
+  )
+}
+
 function TileBody({ tile, query, selectedKeys, pickKeys, onPick, activeValue }: {
   tile: Tile
   /** The board's filter selection, as a query string. Empty when nothing is selected. */
@@ -113,20 +243,7 @@ function TileBody({ tile, query, selectedKeys, pickKeys, onPick, activeValue }: 
   /** The category picked from this tile, if the live cross-filter came from here. */
   activeValue?: string | null
 }) {
-  const [data, setData] = useState<TileData | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  const load = useCallback(() => {
-    setErr(null)
-    apiFetch(`/api/dashboards/tiles/${tile.id}/data${query}`)
-      .then(res => setData(unwrap<TileData>(res)))
-      .catch(e => setErr(e?.message || 'This tile could not be loaded'))
-  }, [tile.id, query])
-
-  useEffect(() => { if (tile.readable) load() }, [tile.readable, load])
-
-  // Which of the board's selected filters this tile could not answer. The server tells
-  // us rather than the page guessing: it knows which filters the dataset declares.
+  const { data, err, load } = useTileData(tile.id, query, tile.readable)
   const ignored = (data?.ignored_filters ?? []).filter(k => selectedKeys.includes(k))
 
   // A tile the reader may not see says WHY. A blank tile reads as a broken tile, and the
@@ -167,17 +284,7 @@ function TileBody({ tile, query, selectedKeys, pickKeys, onPick, activeValue }: 
       {/* A TILE THAT COULD NOT ANSWER THE BOARD'S QUESTION SAYS SO. Without this, a
           board filtered to Lagos would show this tile's national figure under a Lagos
           heading, which is the one outcome that actively misleads. */}
-      {ignored.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          padding: `2px ${SP[3]}px`, fontSize: 10.5, color: '#8a6a16',
-        }} title={`This tile's data source has no ${ignored.join(' or ')} filter`}>
-          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 13 }}>
-            filter_alt_off
-          </span>
-          Not filtered by {ignored.join(', ')}
-        </div>
-      )}
+      <IgnoredStrip keys={ignored} />
       <TileVisual
         viz={tile.viz} config={tile.config} columns={data.columns} rows={data.rows}
         rowCount={data.row_count} height={Math.max(80, tile.grid_h * ROW_H - 86)}
@@ -208,6 +315,10 @@ export default function DashboardView() {
   // tile it came from is deliberately exempt from it. See builder/DashboardFilters.tsx.
   const [cross, setCross] = useState<CrossFilter | null>(null)
   const [sources, setSources] = useState<SourceList | null>(null)
+  // The tile shown full size, if any. Not a route: expanding a tile is a look, not a
+  // place, and a URL for it would be a second way to reach a tile whose access is
+  // re-checked per fetch anyway.
+  const [focused, setFocused] = useState<Tile | null>(null)
   const [removing, setRemoving] = useState<Tile | null>(null)
   const [renaming, setRenaming] = useState<Tile | null>(null)
   const [newTitle, setNewTitle] = useState('')
@@ -568,6 +679,24 @@ export default function DashboardView() {
                       {t.source_kind === 'sql' ? 'Saved Query' : t.dataset || 'Saved Report'}
                     </div>
                   </div>
+                  {/* Expanding and downloading are READS, so they are offered to every
+                      viewer — not just the owner and not only in edit mode, which is
+                      where the tile's other controls live. A chart in a 6-by-4 cell is
+                      often too small to read, and until now the only way at the figures
+                      behind it was to go and find the report. */}
+                  {!editing && (
+                    <button onClick={() => setFocused(t)}
+                      title="Expand this tile" aria-label={`Expand ${t.title}`}
+                      style={{
+                        width: 22, height: 22, borderRadius: 5, cursor: 'pointer', flexShrink: 0,
+                        border: '1px solid var(--bdr)', background: 'var(--card)',
+                        display: 'grid', placeItems: 'center', color: 'var(--txt3)',
+                      }}>
+                      <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 13 }}>
+                        open_in_full
+                      </span>
+                    </button>
+                  )}
                   {editing && board.is_mine && (
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                       {/* Driven by VIZ_KINDS so this row cannot fall behind the renderer
@@ -666,6 +795,19 @@ export default function DashboardView() {
           editing={building.edit}
           onClose={() => setBuilding(null)}
           onSaved={() => { setBuilding(null); load() }}
+        />
+      )}
+
+      {/* ── One tile, full size, and the only place it becomes a file ── */}
+      {focused && (
+        <TileFocus
+          tile={focused}
+          // The same question the tile on the board was answering, including a
+          // cross-filter from another tile — so expanding a tile never changes what it
+          // says, only how big it says it.
+          query={tileQuery(sel, cross, focused.id)}
+          selectedKeys={cross && cross.tileId !== focused.id ? [...selectedKeys, cross.key] : selectedKeys}
+          onClose={() => setFocused(null)}
         />
       )}
 

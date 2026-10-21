@@ -4,6 +4,7 @@ import { labelFor } from '../../../lib/reportFormat'
 import { TileVisual } from './TileVisual'
 import {
   VIZ_KINDS, VIZ_META, maxSeries, numericColumns, usesCategory, defaultCap,
+  usesGoalColour, usesDataLabels,
   type TileVizConfig, type VizKind,
 } from './tileViz'
 
@@ -87,12 +88,59 @@ export function TileVizPanel({
               columns there and this tile follows.
             </p>
           </div>
+        ) : viz === 'matrix' ? (
+          <>
+            <div className="rb-well">
+              <label className="rb-well-head" htmlFor="rb-well-cat">Down The Side</label>
+              <select id="rb-well-cat" className="rb-well-sel"
+                value={cfg.label ?? ''} onChange={e => set({ label: e.target.value || undefined })}>
+                <option value="">Choose automatically</option>
+                {cats.map(c => <option key={c} value={c}>{labelFor(c)}</option>)}
+              </select>
+              <label className="rb-well-head" htmlFor="rb-well-colby" style={{ marginTop: 10 }}>
+                Across The Top
+              </label>
+              <select id="rb-well-colby" className="rb-well-sel"
+                value={cfg.colBy ?? ''} onChange={e => set({ colBy: e.target.value || undefined })}>
+                <option value="">Choose automatically</option>
+                {cats.filter(c => c !== cfg.label).map(c => (
+                  <option key={c} value={c}>{labelFor(c)}</option>
+                ))}
+              </select>
+              <p className="rb-viz-note">
+                A cell holds one figure, looked up rather than added up. If the report groups by
+                anything besides these two fields, the tile says so instead of summing rows whose
+                meaning it cannot know.
+              </p>
+            </div>
+            <div className="rb-well">
+              <div className="rb-well-head">Value In Each Cell</div>
+              {!nums.length ? (
+                <p className="rb-viz-note">
+                  Add a measure on the Data step &mdash; a count or a sum &mdash; and it will
+                  appear here.
+                </p>
+              ) : (
+                <div className="rb-well-list">
+                  {nums.map(k => (
+                    <label key={k} className={values.includes(k) ? 'on' : undefined}>
+                      <input type="radio" name="rb-well-values"
+                        checked={values.includes(k)} onChange={() => toggleValue(k)} />
+                      <span>{labelFor(k)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         ) : (
           <>
             {usesCategory(viz) && (
               <div className="rb-well">
                 <label className="rb-well-head" htmlFor="rb-well-cat">
-                  {viz === 'donut' || viz === 'funnel' ? 'Slice By' : 'Axis'}
+                  {viz === 'donut' || viz === 'funnel' ? 'Slice By'
+                    : viz === 'scatter' ? 'Name Each Point'
+                    : 'Axis'}
                 </label>
                 <select id="rb-well-cat" className="rb-well-sel"
                   value={cfg.label ?? ''} onChange={e => set({ label: e.target.value || undefined })}>
@@ -104,8 +152,15 @@ export function TileVizPanel({
 
             <div className="rb-well">
               <div className="rb-well-head">
-                {limit === 1 ? 'Value' : `Values${values.length ? ` · ${values.length} of ${limit}` : ''}`}
+                {viz === 'scatter' ? 'Values · Across, Then Up'
+                  : limit === 1 ? 'Value'
+                  : `Values${values.length ? ` · ${values.length} of ${limit}` : ''}`}
               </div>
+              {viz === 'scatter' && (
+                <p className="rb-viz-note">
+                  Order is the meaning here: the first measure runs across, the second runs up.
+                </p>
+              )}
               {!nums.length ? (
                 <p className="rb-viz-note">
                   This shape has no numeric column yet. Add a measure on the Data step — a count
@@ -160,6 +215,13 @@ export function TileVizPanel({
                     onChange={e => set({ legend: e.target.checked ? undefined : false })} />
                   <span>Show the legend</span>
                 </label>
+                {usesDataLabels(viz) && (
+                  <label>
+                    <input type="checkbox" checked={!!cfg.dataLabels}
+                      onChange={e => set({ dataLabels: e.target.checked || undefined })} />
+                    <span>Print each value on the chart</span>
+                  </label>
+                )}
               </div>
 
               {usesCategory(viz) && (
@@ -209,14 +271,6 @@ export function TileVizPanel({
                       ))}
                     </select>
                   </label>
-                  <label className="rb-ctl" htmlFor="rb-well-goal">
-                    <small>Target</small>
-                    <input id="rb-well-goal" type="number" value={cfg.goal ?? ''} placeholder="None"
-                      onChange={e => {
-                        const n = parseFloat(e.target.value)
-                        set({ goal: Number.isFinite(n) ? n : undefined })
-                      }} />
-                  </label>
                 </div>
                 <p className="rb-viz-note">
                   The comparison reads the same row, so it is a figure the report already returns
@@ -226,6 +280,62 @@ export function TileVizPanel({
               </div>
             )}
           </>
+        )}
+
+        {/* ONE TARGET PER TILE. It draws the card's progress bar and it is the same number
+            the colouring tests against, so a tile can never show a bar measured from one
+            target and a colour decided by another. */}
+        {usesGoalColour(viz) && (
+          <div className="rb-well">
+            <div className="rb-well-head">Target</div>
+            <div className="rb-well-row">
+              <label className="rb-ctl" htmlFor="rb-well-goal">
+                <small>Target</small>
+                <input id="rb-well-goal" type="number" value={cfg.goal ?? ''} placeholder="None"
+                  onChange={e => {
+                    const n = parseFloat(e.target.value)
+                    set({ goal: Number.isFinite(n) ? n : undefined })
+                  }} />
+              </label>
+              {typeof cfg.goal === 'number' && (
+                <>
+                  <label className="rb-ctl" htmlFor="rb-well-goaldir">
+                    <small>Good When</small>
+                    <select id="rb-well-goaldir" value={cfg.goalGood ?? 'above'}
+                      onChange={e => set({ goalGood: e.target.value === 'below' ? 'below' : undefined })}>
+                      <option value="above">At Or Above It</option>
+                      <option value="below">At Or Below It</option>
+                    </select>
+                  </label>
+                  <label className="rb-ctl" htmlFor="rb-well-goalcol">
+                    <small>Measured On</small>
+                    <select id="rb-well-goalcol" value={cfg.goalCol ?? ''}
+                      onChange={e => set({ goalCol: e.target.value || undefined })}>
+                      <option value="">The Value Being Drawn</option>
+                      {nums.map(c => <option key={c} value={c}>{labelFor(c)}</option>)}
+                    </select>
+                  </label>
+                </>
+              )}
+            </div>
+            {typeof cfg.goal === 'number' && (
+              <div className="rb-well-opts">
+                <label>
+                  <input type="checkbox" checked={!!cfg.colorByGoal}
+                    onChange={e => set({ colorByGoal: e.target.checked || undefined })} />
+                  <span>
+                    {viz === 'kpi' ? 'Colour the figure by it'
+                      : viz === 'table' || viz === 'matrix' ? 'Colour the cells by it'
+                      : 'Colour the bars by it'}
+                  </span>
+                </label>
+              </div>
+            )}
+            <p className="rb-viz-note">
+              A blank or non-numeric figure is left uncoloured rather than marked as a failure:
+              a missing number is no news, not bad news.
+            </p>
+          </div>
         )}
       </div>
 

@@ -83,7 +83,7 @@ func dashTileFromDataset(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if !dashVizKinds[b.Viz] {
-			respondErr(w, 422, "Choose a visual: KPI, bar, line, area, donut or table")
+			respondErr(w, 422, dashVizProblem())
 			return
 		}
 		if _, ok := exportDatasetByKey(b.Dataset); !ok {
@@ -179,7 +179,7 @@ func dashTileConfigSave(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if b.Viz != "" && !dashVizKinds[b.Viz] {
-			respondErr(w, 422, "Choose a visual: KPI, bar, line, area, donut or table")
+			respondErr(w, 422, dashVizProblem())
 			return
 		}
 

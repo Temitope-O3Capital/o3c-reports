@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  resolveViz, pruneForViz, VIZ_KINDS, VIZ_META, maxSeries, defaultCap,
+  resolveViz, pruneForViz, goalTest, VIZ_KINDS, VIZ_META, maxSeries, defaultCap,
   type TileVizConfig,
 } from './tileViz'
 
@@ -150,7 +150,10 @@ describe('pruning a config when the visual changes', () => {
   it('drops KPI-only keys off a chart', () => {
     const p = pruneForViz('bar', full)
     expect(p.compare).toBeUndefined()
-    expect(p.goal).toBeUndefined()
+    // `goal` used to be dropped here too, when a target only drew a KPI's progress bar.
+    // It now colours bars and cells as well, so a bar chart keeps it; what a visual
+    // cannot use is still dropped, which is covered below.
+    expect(p.goal).toBe(100)
   })
 
   it('drops category keys off a KPI', () => {
@@ -188,10 +191,168 @@ describe('every offered kind is described', () => {
     }
   })
 
-  it('offers exactly the nine kinds the backend accepts', () => {
-    // Mirrors dashVizKinds in handlers/dashboards.go and the CHECK from migration 381.
+  it('offers exactly the twelve kinds the backend accepts', () => {
+    // Mirrors dashVizKinds in handlers/dashboards.go and the CHECK from migration 386.
+    // A Go test reads THIS array and compares it with that map, so the two cannot drift.
     expect([...VIZ_KINDS].sort()).toEqual(
-      ['area', 'bar', 'barh', 'combo', 'donut', 'funnel', 'kpi', 'line', 'table'],
+      ['area', 'bar', 'barh', 'combo', 'donut', 'funnel', 'kpi', 'line', 'map',
+        'matrix', 'scatter', 'table'],
     )
+  })
+})
+
+describe('a matrix', () => {
+  // A crosstab needs two fields. Without a second one it would be a grid one column
+  // wide, so the renderer is told there is none and says so rather than drawing that.
+  it('picks a second label column for its columns', () => {
+    const r = resolveViz('matrix', COLUMNS, ROWS, { label: 'officer_name' })
+    expect(r.labelKey).toBe('officer_name')
+    expect(r.colByKey).toBe('state')
+  })
+
+  it('honours an explicit colBy', () => {
+    const r = resolveViz('matrix', COLUMNS, ROWS, { label: 'state', colBy: 'officer_name' })
+    expect(r.colByKey).toBe('officer_name')
+  })
+
+  it('never uses the row field as its own columns', () => {
+    const r = resolveViz('matrix', COLUMNS, ROWS, { label: 'state', colBy: 'state' })
+    expect(r.colByKey).not.toBe('state')
+  })
+
+  it('reports no column field when there is only one label column', () => {
+    const r = resolveViz('matrix', ['state', 'tickets'], ROWS, { label: 'state' })
+    expect(r.colByKey).toBe('')
+  })
+
+  it('leaves colByKey empty for every other visual', () => {
+    expect(resolveViz('bar', COLUMNS, ROWS, { colBy: 'state' }).colByKey).toBe('')
+  })
+
+  // A matrix is read, not glanced at, so it is not cut to 40 rows like a chart.
+  it('is not row-capped', () => {
+    expect(defaultCap('matrix')).toBe(0)
+  })
+})
+
+describe('a scatter', () => {
+  it('takes exactly two measures, in order', () => {
+    expect(maxSeries('scatter')).toBe(2)
+    const r = resolveViz('scatter', COLUMNS, ROWS, { values: ['tickets', 'amount_kobo'] })
+    expect(r.seriesKeys).toEqual(['tickets', 'amount_kobo'])
+  })
+
+  // The one chart where more points is the point: the shape of the cloud is the finding.
+  it('keeps far more points than a column chart', () => {
+    expect(defaultCap('scatter')).toBeGreaterThan(defaultCap('bar'))
+  })
+})
+
+describe('a map', () => {
+  it('draws every state rather than the chart default of forty', () => {
+    // There are 37 states. A cap of 40 would never bite on a clean report and would
+    // silently drop three from one that also carries a total row.
+    expect(defaultCap('map')).toBe(0)
+  })
+})
+
+describe('colouring by a target', () => {
+  it('does nothing without both a target and the switch', () => {
+    expect(goalTest({ goal: 20 }, COLUMNS, 'tickets')).toBeUndefined()
+    expect(goalTest({ colorByGoal: true }, COLUMNS, 'tickets')).toBeUndefined()
+    expect(goalTest(null, COLUMNS, 'tickets')).toBeUndefined()
+  })
+
+  it('reads the measure being drawn when no column is named', () => {
+    const t = goalTest({ goal: 20, colorByGoal: true }, COLUMNS, 'tickets')!
+    expect(t({ tickets: 30 })).toBe('good')
+    expect(t({ tickets: 20 })).toBe('good')   // at the target counts as meeting it
+    expect(t({ tickets: 10 })).toBe('bad')
+  })
+
+  it('inverts for a measure where lower is better', () => {
+    const t = goalTest({ goal: 20, colorByGoal: true, goalGood: 'below' }, COLUMNS, 'tickets')!
+    expect(t({ tickets: 10 })).toBe('good')
+    expect(t({ tickets: 30 })).toBe('bad')
+  })
+
+  it('tests the named column instead when one is given', () => {
+    const t = goalTest({ goal: 400, colorByGoal: true, goalCol: 'amount_kobo' }, COLUMNS, 'tickets')!
+    // tickets would fail this target; amount_kobo passes, and amount_kobo is the one asked for.
+    expect(t({ tickets: 1, amount_kobo: 900 })).toBe('good')
+  })
+
+  it('falls back to the drawn measure if the named column is gone', () => {
+    // A renamed or removed measure must not silently stop the colouring.
+    const t = goalTest({ goal: 20, colorByGoal: true, goalCol: 'deleted_col' }, COLUMNS, 'tickets')!
+    expect(t({ tickets: 30 })).toBe('good')
+  })
+
+  // A MISSING FIGURE IS NO NEWS, NOT BAD NEWS. Colouring a blank cell red invents a
+  // failure out of an absence, which is the one thing a traffic light must never do.
+  it('leaves a blank or non-numeric figure uncoloured', () => {
+    const t = goalTest({ goal: 20, colorByGoal: true }, COLUMNS, 'tickets')!
+    expect(t({ tickets: null })).toBeUndefined()
+    expect(t({ tickets: undefined })).toBeUndefined()
+    expect(t({ tickets: '30' })).toBeUndefined()
+    expect(t({})).toBeUndefined()
+    expect(t({ tickets: NaN })).toBeUndefined()
+  })
+
+  it('treats a zero target as a real target rather than as absent', () => {
+    const t = goalTest({ goal: 0, colorByGoal: true }, COLUMNS, 'tickets')!
+    expect(t({ tickets: 1 })).toBe('good')
+    expect(t({ tickets: -1 })).toBe('bad')
+  })
+})
+
+describe('data labels', () => {
+  it('are off unless asked for', () => {
+    expect(resolveViz('bar', COLUMNS, ROWS, null).dataLabels).toBe(false)
+  })
+
+  it('are on where the chart can print them', () => {
+    expect(resolveViz('bar', COLUMNS, ROWS, { dataLabels: true }).dataLabels).toBe(true)
+    expect(resolveViz('barh', COLUMNS, ROWS, { dataLabels: true }).dataLabels).toBe(true)
+  })
+
+  it('are ignored where it cannot', () => {
+    // A donut and a table have nowhere to put them, and a setting that does nothing is
+    // worse than no setting.
+    expect(resolveViz('donut', COLUMNS, ROWS, { dataLabels: true }).dataLabels).toBe(false)
+    expect(resolveViz('table', COLUMNS, ROWS, { dataLabels: true }).dataLabels).toBe(false)
+  })
+})
+
+describe('the target survives a change of visual only where it can be shown', () => {
+  const targeted: TileVizConfig = {
+    label: 'state', colBy: 'officer_name', values: ['tickets'], dataLabels: true,
+    goal: 20, goalGood: 'below', goalCol: 'tickets', colorByGoal: true,
+  }
+
+  it('keeps it on a visual that can show it', () => {
+    for (const k of ['kpi', 'table', 'bar', 'barh', 'matrix']) {
+      expect(pruneForViz(k, targeted).goal).toBe(20)
+      expect(pruneForViz(k, targeted).colorByGoal).toBe(true)
+    }
+  })
+
+  it('drops it and its colouring where it cannot', () => {
+    // A line's colour belongs to its series: recolouring segments of one line would read
+    // as several lines.
+    for (const k of ['line', 'area', 'combo', 'donut', 'funnel', 'scatter']) {
+      const out = pruneForViz(k, targeted)
+      expect(out.goal).toBeUndefined()
+      expect(out.colorByGoal).toBeUndefined()
+      expect(out.goalGood).toBeUndefined()
+      expect(out.goalCol).toBeUndefined()
+    }
+  })
+
+  it('drops colBy off anything but a matrix, and dataLabels off a donut', () => {
+    expect(pruneForViz('bar', targeted).colBy).toBeUndefined()
+    expect(pruneForViz('matrix', targeted).colBy).toBe('officer_name')
+    expect(pruneForViz('donut', targeted).dataLabels).toBeUndefined()
+    expect(pruneForViz('bar', targeted).dataLabels).toBe(true)
   })
 })
