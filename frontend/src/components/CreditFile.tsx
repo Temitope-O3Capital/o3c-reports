@@ -79,6 +79,9 @@ export interface Facility {
   arrears_kobo: number
   schedule: SchedRow[]
   schedule_note: string
+  // Core banking's OWN figures, independent of any posting we captured.
+  repaid_position_kobo: number
+  settled_by_cbs: boolean
 }
 
 export interface SourceAge {
@@ -968,9 +971,12 @@ const SOURCE_CHIP: Record<Repayment['source'], { label: string; color: string }>
   collections: { label: 'Logged',       color: NAVY },
 }
 
-export function RepaymentLedger({ repayments, sources }: {
+export function RepaymentLedger({ repayments, sources, cbs }: {
   repayments: Repayment[]
   sources?: SourceAge[]
+  // The selected facility, when it is a Udara loan — so the ledger can lead with core
+  // banking's position rather than with the postings it happens to hold.
+  cbs?: { repaid_position_kobo: number; settled_by_cbs: boolean } | null
 }) {
   const counts = useMemo(() => {
     const c: Record<Lane, number> = { book: 0, logged: 0, imported: 0 }
@@ -991,7 +997,23 @@ export function RepaymentLedger({ repayments, sources }: {
   )
   const total = useMemo(() => rows.reduce((s, r) => s + r.amount_kobo, 0), [rows])
 
+  // NO POSTINGS IS NOT THE SAME AS NO REPAYMENT, and this is the case that matters most.
+  //
+  // ASI Engineering repaid N400,000,000 and our ledger holds not one posting for it;
+  // Kemdio N18,000,000, the same. Saying "nothing has been received" there is not a
+  // thin answer, it is a false one — and it is the answer that keeps a settled customer
+  // in the collections queue. Where core banking records a repayment we say so, and name
+  // the gap as ours.
   if (repayments.length === 0) {
+    if (cbs && cbs.repaid_position_kobo > 0) {
+      return (
+        <EmptyState
+          icon={cbs.settled_by_cbs ? 'task_alt' : 'account_balance'}
+          title={cbs.settled_by_cbs ? 'Repaid In Full, With No Postings On File' : 'Repaid, With No Postings On File'}
+          description={`Core banking records ${fmtKoboExact(cbs.repaid_position_kobo)} of principal repaid on this facility${cbs.settled_by_cbs ? ', and holds nothing further against it' : ''}. None of those payments reached our repayment ledger, so there is no line-by-line history to show — the money is real, the gap is ours.`}
+        />
+      )
+    }
     return <EmptyState icon="payments" title="No Repayments Recorded" description="Nothing has been received on this customer's credit, from core banking, the card ledger or collections." />
   }
 
@@ -1029,6 +1051,39 @@ export function RepaymentLedger({ repayments, sources }: {
           {fmtKoboExact(total)}
         </span>
       </div>
+
+      {/* WHAT CORE BANKING SAYS, ABOVE WHAT WE MANAGED TO CAPTURE.
+
+          The lanes below list postings, and on the Udara arm those postings are
+          incomplete: of 59 loans, 26 carry principal Udara says is repaid with no
+          matching leg in our ledger — N516,517,158 in total, including one customer who
+          repaid N400,000,000 against which we hold nothing at all. An officer reading
+          only the lanes concludes the money never came.
+
+          So the facility's own position leads. loan_amount - outstanding_principal is
+          core banking's arithmetic, needs no postings, and is right even when we have
+          captured none of them. */}
+      {cbs && cbs.repaid_position_kobo > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          padding: `${SP[3]} ${SP[5]}`, borderBottom: '1px solid var(--bdr)',
+          background: cbs.settled_by_cbs ? `${GREEN}10` : 'var(--chip-bg)',
+        }}>
+          <span className="material-symbols-rounded" style={{
+            fontSize: TEXT.lg, color: cbs.settled_by_cbs ? GREEN : 'var(--txt3)',
+          }}>{cbs.settled_by_cbs ? 'task_alt' : 'account_balance'}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>
+              Core banking records {fmtKoboExact(cbs.repaid_position_kobo)} of principal repaid
+              {cbs.settled_by_cbs ? ' — this facility is settled.' : ' on this facility.'}
+            </div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3, lineHeight: 1.5 }}>
+              That is Udara&rsquo;s own figure. The postings below are what reached our ledger and
+              are known to be incomplete, so a shortfall here is ours, not the customer&rsquo;s.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* The book-of-record lane is the one people will trust, so it is the one that has
           to admit how old it is. Keyed to the sources the visible rows actually came

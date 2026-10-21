@@ -104,6 +104,13 @@ type facility struct {
 	RestructuredFrK int64 `json:"restructured_from_kobo"`  // what that facility was originally
 	WasRestructured bool  `json:"was_restructured_into"`   // this one was replaced by a later facility
 
+	// RepaidPositionK is core banking's own figure for principal repaid
+	// (loan_amount - outstanding_principal), and SettledByCBS is its verdict that nothing
+	// is left. Both are Udara-sourced and owe nothing to the postings we captured — see
+	// repaidFromPosition for why that distinction is load-bearing. Zero on a card.
+	RepaidPositionK int64 `json:"repaid_position_kobo"`
+	SettledByCBS    bool  `json:"settled_by_cbs"`
+
 	ScheduledK   int64      `json:"scheduled_kobo"` // total of the schedule
 	ExpectedK    int64      `json:"expected_kobo"`  // scheduled and already due
 	PaidK        int64      `json:"paid_kobo"`      // matched against the schedule
@@ -134,6 +141,34 @@ type repayment struct {
 	// indistinguishable from a loaded one. Always false on a card or udara row: those
 	// come from a system of record, not from a file.
 	IsImported bool `json:"is_imported"`
+}
+
+// repaidFromPosition is how much of a Udara loan's PRINCIPAL has actually been repaid,
+// taken from core banking's own arithmetic rather than from the postings we captured.
+//
+// WHY NOT SUM THE REPAYMENTS. Because the repayment ledger cannot reconstruct them, and
+// that is measured, not suspected. Across the 59 Udara loans, 26 carry principal that
+// Udara says is repaid with no matching captured leg — N516,517,158 in total. ASI
+// Engineering repaid N400,000,000 and we hold zero postings for it; Kemdio N18,000,000,
+// zero; Hammed Musa N13,333,333, zero. Others are short by the amount that posted as a
+// journal rather than a loan entry: Folti N1,700,000, Sheraton N600,000.
+//
+// Three things were ruled out before settling on this. The entry-code whitelist is NOT
+// the problem — D-LPRP and D-LIRP1 are already captured and present in the table. The
+// 2026-07-01 ledger floor is NOT the problem — N496,856,047 of the gap sits on loans that
+// started inside the window. And the C-JRNL journals do NOT close it: there are
+// N979,442,137 of them against a N516,517,158 gap, because most mirror a D-leg for the
+// same money, so adding them overshoots by N462,924,979 and would double-count.
+//
+// loan_amount - outstanding_principal is exact by construction, needs no postings at all,
+// and agrees with the postings on every loan where they are complete — verified against
+// the full ledger on Folti (N268,720,000 and N162,240,000) and on Sheraton
+// (N67,200,000, including two EarlyTermination instalments).
+func repaidFromPosition(loanAmountK, outstandingPrincipalK int64) int64 {
+	if r := loanAmountK - outstandingPrincipalK; r > 0 {
+		return r
+	}
+	return 0
 }
 
 func cdNairaKobo(v any) int64 {
@@ -478,6 +513,10 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			       COALESCE(NULLIF(cl.product_name,''),'Loan') AS product_name,
 			       COALESCE(cl.status,'') AS status,
 			       COALESCE(cl.loan_amount_kobo,0) AS loan_amount_kobo,
+			       -- Principal alone, kept separate from the all-in outstanding below:
+			       -- repaidFromPosition measures principal against principal, and netting
+			       -- interest and fees into it would understate what has been repaid.
+			       COALESCE(cl.outstanding_principal_kobo,0) AS outstanding_principal_kobo,
 			       (COALESCE(cl.outstanding_principal_kobo,0)
 			      + COALESCE(cl.outstanding_interest_kobo,0)
 			      + COALESCE(cl.outstanding_fee_kobo,0)) AS outstanding_kobo,
@@ -526,6 +565,13 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				IsSubject:      lcif == cif,
 				PrincipalK:     toInt64(l["loan_amount_kobo"]),
 				OutstandingK:   toInt64(l["outstanding_kobo"]),
+				RepaidPositionK: repaidFromPosition(
+					toInt64(l["loan_amount_kobo"]), toInt64(l["outstanding_principal_kobo"])),
+				// Settled means core banking holds nothing against this facility — not
+				// that we have seen the money arrive. Four live collections cases are
+				// chasing N306,166,621 on loans in exactly this state, Folti's N262,480,000
+				// among them, because nothing on this page ever asked Udara.
+				SettledByCBS:   toInt64(l["outstanding_kobo"]) == 0,
 				InstalmentK:    toInt64(l["installment_amount_kobo"]),
 				Rate:           str(l["interest_rate"]),
 				Tenor:          cdTenorLabel(str(l["tenor_days"])),

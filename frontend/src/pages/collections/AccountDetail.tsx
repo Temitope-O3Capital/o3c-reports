@@ -1103,7 +1103,11 @@ export default function CollectionsAccountDetail() {
         )}
         {activeTab === 'repayments' && (
           credit
-            ? <RepaymentLedger repayments={credit.repayments} sources={credit.sources} />
+            ? <RepaymentLedger
+                repayments={credit.repayments}
+                sources={credit.sources}
+                cbs={selected && selected.kind === 'loan' && selected.origin === 'Udara' ? selected : null}
+              />
             : <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
         )}
         {activeTab === 'timeline' && <TimelineTab cif={d.applicant_cif} version={version} />}
