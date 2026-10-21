@@ -1014,12 +1014,33 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 
 		// Fetch the pending payment
 		pmtRows, err := db.PGQuery(ctx,
-			`SELECT id, case_id, amount_kobo, status, posted_by FROM recovery_payments WHERE id = $1`, pid)
+			`SELECT id, case_id, amount_kobo, status, posted_by,
+			        payment_date::text AS payment_date,
+			        (payment_date > CURRENT_DATE) AS not_yet_due
+			   FROM recovery_payments WHERE id = $1`, pid)
 		if err != nil || len(pmtRows) == 0 {
 			respondErr(w, 404, "Payment not found")
 			return
 		}
 		pmt := pmtRows[0]
+
+		// A payment dated in the future cannot be approved, and this refusal has to live
+		// HERE rather than only in migration 388's trigger.
+		//
+		// The trigger coerces a future-dated row to 'scheduled', which is right for an
+		// import. On this path it would have been quietly destructive: the UPDATE below
+		// still returns its id, so the handler carries on to bump recovery_cases
+		// recovered totals AND post a GL journal — leaving a row that says the money was
+		// never received beside a ledger entry saying it was, which is worse than either
+		// outcome on its own. Refusing early, by name, is the only honest answer, and it
+		// tells the approver what to do instead.
+		if toBool(pmt["not_yet_due"]) {
+			respondErr(w, 422, fmt.Sprintf(
+				"This payment is dated %s, which has not arrived, so it cannot be approved as received. It is a scheduled instalment: approve it once the money is actually in.",
+				cdDate(pmt["payment_date"])))
+			return
+		}
+
 		currentStatus := str(pmt["status"])
 		prog, ok := paymentStageProgressions[currentStatus] // payments: HOP → COO (final, posts GL)
 		if !ok {
