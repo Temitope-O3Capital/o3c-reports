@@ -62,13 +62,13 @@ func StartAssistantWarmer() {
 // assistantWarmOnce primes the model and prefix cache. It reports whether the
 // model answered, so startup can retry while Ollama is still coming up.
 func assistantWarmOnce() bool {
-	// Never contend with a real user. Ollama runs one slot, so a warm-up racing
-	// a live turn would evict that user's cached prefix and make their question
-	// slower — the exact opposite of the point. If the slot is taken someone is
-	// already using it, which means the model is warm anyway.
+	// Never contend with a real user. A warm-up that took the last free slot
+	// while someone was asking would make their question slower -- the exact
+	// opposite of the point. If every slot is busy then someone is already
+	// using the model, which means it is warm anyway.
 	select {
-	case assistantSlot <- struct{}{}:
-		defer func() { <-assistantSlot }()
+	case assistantSlot() <- struct{}{}:
+		defer func() { <-assistantSlot() }()
 	default:
 		return true
 	}

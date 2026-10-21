@@ -73,10 +73,10 @@ const assistantHistoryTurns = 8
 // ten minutes behind a dead-looking spinner. Better to say "busy, try again".
 const assistantQueueWait = 45 * time.Second
 
-// assistantSlot is the single inference slot, mirroring OLLAMA_NUM_PARALLEL=1.
-// Queueing here rather than inside Ollama lets us return a clean 429 with a
-// useful message instead of leaving the HTTP request hanging.
-var assistantSlot = make(chan struct{}, 1)
+// The inference slot lives in assistant_fallback.go now, sized from
+// ASSISTANT_SLOTS so it can be matched to OLLAMA_NUM_PARALLEL on the model
+// host. Queueing here rather than inside Ollama is what lets a waiting
+// person be told their position instead of watching a dead-looking spinner.
 
 func assistantBaseURL() string {
 	if v := strings.TrimSpace(os.Getenv("OLLAMA_URL")); v != "" {
@@ -157,14 +157,24 @@ func assistantKeepAlive() string {
 // Returns nil for any other model. qwen3:4b-instruct does not understand the
 // field and we still rely on it as the fallback, so the field has to vanish
 // from the request rather than be sent empty.
-func assistantThink() any {
-	if v := strings.TrimSpace(os.Getenv("ASSISTANT_THINK")); v != "" {
-		if strings.EqualFold(v, "off") {
-			return nil
+func assistantThink() any { return assistantThinkFor(assistantModel()) }
+
+// assistantThinkFor answers for a NAMED model rather than the configured one,
+// because the fallback is a different model and its effort cannot be read off
+// ASSISTANT_MODEL. See assistantTargets.
+func assistantThinkFor(model string) any {
+	// The override applies to the PRIMARY model only. Carrying it onto the
+	// fallback would send qwen3 a field it does not understand at the exact
+	// moment the fallback is the only thing still answering.
+	if model == assistantModel() {
+		if v := strings.TrimSpace(os.Getenv("ASSISTANT_THINK")); v != "" {
+			if strings.EqualFold(v, "off") {
+				return nil
+			}
+			return v
 		}
-		return v
 	}
-	if strings.HasPrefix(assistantModel(), "gpt-oss") {
+	if strings.HasPrefix(model, "gpt-oss") {
 		return "low"
 	}
 	return nil
@@ -1418,7 +1428,7 @@ func ollamaChatWarm(ctx context.Context, msgs []ollamaMessage, tools []any) (*ol
 	return ollamaChatOpts(ctx, msgs, tools, map[string]any{"num_predict": 1})
 }
 
-func ollamaChatOpts(ctx context.Context, msgs []ollamaMessage, tools []any, extra map[string]any) (*ollamaChatResponse, error) {
+func ollamaChatTo(ctx context.Context, tgt assistantTarget, msgs []ollamaMessage, tools []any, extra map[string]any) (*ollamaChatResponse, error) {
 	opts := map[string]any{
 		"num_thread":  assistantThreads(),
 		"temperature": 0.2, // factual work; we want the tool call, not creativity
@@ -1428,11 +1438,11 @@ func ollamaChatOpts(ctx context.Context, msgs []ollamaMessage, tools []any, extr
 		opts[k] = v
 	}
 	body := ollamaChatRequest{
-		Model:     assistantModel(),
+		Model:     tgt.model,
 		Messages:  msgs,
 		Tools:     tools,
 		Stream:    false,
-		Think:     assistantThink(),
+		Think:     tgt.think,
 		KeepAlive: assistantKeepAlive(),
 		Options:   opts,
 	}
@@ -1440,7 +1450,7 @@ func ollamaChatOpts(ctx context.Context, msgs []ollamaMessage, tools []any, extr
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, assistantBaseURL()+"/api/chat", bytes.NewReader(buf))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tgt.url+"/api/chat", bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}
@@ -1552,7 +1562,7 @@ func assistantHealth() http.HandlerFunc {
 		respond(w, map[string]any{
 			"online": resp.StatusCode == http.StatusOK,
 			"model":  assistantModel(),
-			"queued": len(assistantSlot) > 0,
+			"queued": len(assistantSlot()) >= cap(assistantSlot()),
 		}, "assistant")
 	}
 }
@@ -1732,8 +1742,8 @@ func assistantChat(db *core.DB) http.HandlerFunc {
 		// bounding the wait here turns a silent multi-minute hang into an honest
 		// "busy right now".
 		select {
-		case assistantSlot <- struct{}{}:
-			defer func() { <-assistantSlot }()
+		case assistantSlot() <- struct{}{}:
+			defer func() { <-assistantSlot() }()
 		case <-time.After(assistantQueueWait):
 			respondErr(w, 429, "The assistant is busy answering someone else. Please try again in a moment.")
 			return

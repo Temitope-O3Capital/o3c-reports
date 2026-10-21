@@ -43,12 +43,47 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
-// assistantWaiting counts requests either holding or waiting for the inference
-// slot, so a queued caller can be told how many are ahead. Inference is
-// serialised deliberately: the CPU is already saturated by one turn, so a second
-// concurrent slot would not add throughput, it would just make both people wait
-// longer. Honest queue reporting is the fix actually available to us.
+// assistantWaiting counts requests either holding or waiting for an inference
+// slot, so a queued caller can be told how many are ahead.
+//
+// How many slots there are is now configurable (see assistantSlots) and must
+// match OLLAMA_NUM_PARALLEL on the model host. This comment used to assert that
+// a second slot "would not add throughput, it would just make both people wait
+// longer". That was never measured, and the thread scaling on the VM points the
+// other way: generation barely improved from 7 threads to 12 (8.18 to 9.47
+// tok/s) because it is memory-bandwidth-bound rather than core-bound, which is
+// the signature of a workload that DOES overlap well. Two turns on six threads
+// each should therefore run close to the speed of one on twelve. Should. The
+// number to trust is one taken on the box with OLLAMA_NUM_PARALLEL raised, not
+// this paragraph.
 var assistantWaiting int64
+
+// assistantAhead turns a queue position into the number of turns the caller
+// must actually wait through, which stops being position-1 as soon as more than
+// one turn can run at a time: with two slots the third arrival waits for one
+// turn, not two.
+func assistantAhead(position int64, slots int) int64 {
+	if slots < 1 {
+		slots = 1
+	}
+	if ahead := position - int64(slots); ahead > 0 {
+		return ahead
+	}
+	return 0
+}
+
+// assistantETA is how long those turns take when several run at once. Four
+// people ahead of you across two slots is two rounds of waiting, not four.
+func assistantETA(ahead int64, slots int) time.Duration {
+	if ahead <= 0 {
+		return 0
+	}
+	if slots < 1 {
+		slots = 1
+	}
+	rounds := (ahead + int64(slots) - 1) / int64(slots)
+	return time.Duration(rounds) * assistantTurnEstimate
+}
 
 // assistantTurnEstimate is the per-turn figure used for queue ETAs, taken from
 // the measured warm-turn range of 23-26s. Deliberately a plain constant: a
@@ -78,18 +113,19 @@ type ollamaStreamChunk struct {
 // A tool-calling round emits no text — the model returns tool_calls with empty
 // content — so forwarding every fragment straight through is safe and never
 // leaks a half-formed tool call into the user's answer.
-func ollamaChatStream(
+func ollamaChatStreamTo(
 	ctx context.Context,
+	tgt assistantTarget,
 	msgs []ollamaMessage,
 	tools []any,
 	onToken func(string),
 ) (*ollamaChatResponse, error) {
 	body := ollamaChatRequest{
-		Model:     assistantModel(),
+		Model:     tgt.model,
 		Messages:  msgs,
 		Tools:     tools,
 		Stream:    true,
-		Think:     assistantThink(),
+		Think:     tgt.think,
 		KeepAlive: assistantKeepAlive(),
 		Options: map[string]any{
 			"num_thread":  assistantThreads(),
@@ -101,7 +137,7 @@ func ollamaChatStream(
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, assistantBaseURL()+"/api/chat", bytes.NewReader(buf))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tgt.url+"/api/chat", bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +191,7 @@ func ollamaChatStream(
 		}
 	}
 
-	out.Model = assistantModel()
+	out.Model = tgt.model
 	out.Message.Role = "assistant"
 	out.Message.Content = text.String()
 	return out, nil
@@ -245,16 +281,16 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 
 		logAssistantMessage(ctx, db, convID, user, assistantLogEntry{Role: "user", Content: question})
 
-		// ── queue for the single inference slot ──────────────────────────────
+		// ── queue for an inference slot ───────────────────────────────────────
 		position := atomic.AddInt64(&assistantWaiting, 1)
 		defer atomic.AddInt64(&assistantWaiting, -1)
 		announce := func(ahead int64) {
 			send("queued", map[string]any{
 				"ahead":       ahead,
-				"eta_seconds": int((time.Duration(ahead) * assistantTurnEstimate).Seconds()),
+				"eta_seconds": int(assistantETA(ahead, assistantSlots()).Seconds()),
 			})
 		}
-		if ahead := position - 1; ahead > 0 {
+		if ahead := assistantAhead(position, assistantSlots()); ahead > 0 {
 			announce(ahead)
 		}
 
@@ -264,11 +300,11 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 		defer tick.Stop()
 		for !acquired {
 			select {
-			case assistantSlot <- struct{}{}:
+			case assistantSlot() <- struct{}{}:
 				acquired = true
-				defer func() { <-assistantSlot }()
+				defer func() { <-assistantSlot() }()
 			case <-tick.C:
-				if ahead := atomic.LoadInt64(&assistantWaiting) - 1; ahead > 0 {
+				if ahead := assistantAhead(atomic.LoadInt64(&assistantWaiting), assistantSlots()); ahead > 0 {
 					announce(ahead)
 				}
 			case <-deadline:
