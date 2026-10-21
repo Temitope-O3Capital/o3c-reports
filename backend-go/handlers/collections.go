@@ -207,6 +207,84 @@ func debtorNameSQL(alias string) string {
 		alias + ".account_cif)"
 }
 
+// debtorIdentitySQL lends the canonical identity columns to a table that has none.
+//
+// app.collection_payments is the row this exists for. It carries party_id and
+// account_cif and nothing else that names anybody — no customer_name, no data_source —
+// so NEITHER sanctioned helper can be applied to it: debtorJoinsSQL reaches cardsKeySQL,
+// cardsKeySQL reads alias.data_source, and debtorNameSQL reads alias.customer_name. The
+// query would not parse. So Payment Approvals grew an identity rule of its own,
+// COALESCE(customers.first_name||last_name, account_cif), and that is how a money
+// approval came to be labelled W000000000000022 instead of FINTRAK: the W-keys are
+// spreadsheet placeholders app.customers has never heard of, so every one of them fell
+// through to the id.
+//
+// Rather than add a second identity rule to the module, this lifts the row's own
+// ASSIGNMENT — which does carry all four columns — into an alias the sanctioned pair can
+// then be applied to verbatim. Every one of the 11 payments awaiting approval has a real
+// name sitting on its assignment; the payment row simply never copied it.
+//
+// The payment's own party_id still leads, because it is the payment's own link and 1,801
+// of 1,812 rows have one.
+//
+// TWO PROPERTIES WORTH STATING, BOTH GOT WRONG IN A FIRST DRAFT.
+//
+// It is a LATERAL taking LIMIT 1, not a join. app.collection_assignments is not unique
+// on account_cif — FINTRAK has two open against W000000000000022 — so joining it
+// MULTIPLIES the payment, and a duplicate row in a money queue is an invitation to
+// approve the same payment twice. The draft that joined directly returned 13 rows for 11
+// payments.
+//
+// The anchor row is what makes the alias always exist. (SELECT 1) LEFT JOINed to the
+// assignments yields exactly one row whether or not an assignment is found, so a payment
+// with no assignment at all still resolves through its own party_id instead of
+// disappearing into an all-NULL alias.
+func debtorIdentitySQL(alias, cifExpr, partyExpr string) string {
+	return `LEFT JOIN LATERAL (
+				SELECT ` + cifExpr + ` AS account_cif,
+				       COALESCE(` + partyExpr + `, asg.party_id)   AS party_id,
+				       asg.customer_name                           AS customer_name,
+				       COALESCE(asg.data_source,
+				                CASE WHEN ` + cifExpr + ` LIKE '` + udaraCIFPrefix + `%'
+				                     THEN 'udara' END)             AS data_source
+				  FROM (SELECT 1) AS one
+				  LEFT JOIN app.collection_assignments asg
+				         ON asg.account_cif = ` + cifExpr + `
+				 ORDER BY asg.updated_at DESC NULLS LAST, asg.id DESC
+				 LIMIT 1
+			) ` + alias + ` ON TRUE`
+}
+
+// importedPosterSQL names who put a payment on the books, and refuses to name a person
+// for a row no person touched.
+//
+// Every one of the 269 recovery payments reads "logged by Temitope Babatunde", and 264 of
+// them are spreadsheet imports: posted_by is NOT NULL, the loader had no real person to
+// credit, so it credited the admin account that ran it. The effect is that one member of
+// staff appears to have personally received ₦878m and approved it.
+//
+// The stamp is not falsified here. posted_by stays exactly as recorded and the handler
+// still returns the account behind it for audit. What changes is the LABEL: a row that
+// arrived in a batch is shown as that batch, because that is the truthful answer to "who
+// logged this".
+//
+// The label is deliberately 'Bulk import' and not the batch reference. The batch is
+// still returned, as its own import_batch field, because an auditor needs it — but
+// 'imp:loans-2026-08' is an internal token and putting it in a column a person reads is
+// the other half of the same complaint.
+//
+// ASCII only, on purpose. A middle dot in this literal travels from Go source through
+// psql and a Windows console on the way to being checked, and arrives as 0xB7 — invalid
+// UTF-8 — which fails the verification rather than the code. Not worth a separator.
+//
+// The two tables say "imported" differently and this takes the question rather than
+// assuming it. app.collection_payments has an is_imported column, NOT NULL and fully
+// populated (1,801 true / 11 false). app.recovery_payments has no such column, so there
+// the only evidence is the 'imp:' prefix on the reference.
+func importedPosterSQL(importedExpr, userExpr string) string {
+	return "(CASE WHEN " + importedExpr + " THEN 'Bulk import' ELSE " + userExpr + " END)"
+}
+
 // collectionRateToDate is THE collection rate, for every surface that shows one.
 //
 // It returns nil when there is no target to divide by, never 0.0 — a rate of zero means

@@ -128,6 +128,12 @@ type repayment struct {
 	// is the only source here that states the split at all. Blank everywhere else,
 	// because a collections receipt genuinely does not know it.
 	Component string `json:"component,omitempty"`
+	// IsImported separates a receipt somebody keyed in from one that arrived in a
+	// spreadsheet. 1,713 of the 1,812 collection_payments rows are imports, so without
+	// it the ledger is a wall of upload rows in which a real receipt is
+	// indistinguishable from a loaded one. Always false on a card or udara row: those
+	// come from a system of record, not from a file.
+	IsImported bool `json:"is_imported"`
 }
 
 func cdNairaKobo(v any) int64 {
@@ -339,6 +345,7 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			       COALESCE(p.channel,'')   AS channel,
 			       COALESCE(p.reference,'') AS reference,
 			       COALESCE(p.status,'')    AS status,
+			       p.is_imported,
 			       COALESCE(u.full_name,'') AS received_by
 			  FROM collection_payments p
 			  LEFT JOIN o3c_users u ON u.id = p.received_by
@@ -356,6 +363,7 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				Source:     "collections",
 				ReceivedBy: str(p["received_by"]),
 				Status:     str(p["status"]),
+				IsImported: toBool(p["is_imported"]),
 			}
 			repayments = append(repayments, rp)
 			c := str(p["account_cif"])
@@ -533,7 +541,7 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				RestructuredFrK: toInt64(l["restructured_from_kobo"]),
 				WasRestructured: toBool(l["was_restructured_into"]),
 			}
-			f.Schedule, f.ScheduleNote = udaraSchedule(ctx, db, acct)
+			f.Schedule, f.ScheduleNote = udaraSchedule(ctx, db, acct, f.Status)
 			rollUpFacility(&f)
 			facilities = append(facilities, f)
 		}
@@ -894,14 +902,33 @@ func rollUpFacility(f *facility) {
 // udaraSchedule reads the real amortisation schedule Udara returns per loan.
 // payment_status is authoritative here — has_processed stays false even on
 // instalments Udara has marked FullyPaid, so it is deliberately not used.
-func udaraSchedule(ctx context.Context, db *core.DB, acct string) ([]schedRow, string) {
+//
+// THE EMPTY CASE IS NOT A SYNC GAP, AND IT USED TO CLAIM IT WAS. This returned "No
+// schedule has been synced from Udara for this loan yet", which reads as "wait and it
+// will arrive" and was reported as the schedule failing to populate. Measured: of 59
+// Udara loans, 42 carry a schedule and the 17 that do not are 16 Closed and 1 Expired.
+// Not one live loan is missing one. Udara stops returning a schedule once a loan is
+// finished, which is not a defect and will never resolve itself, so the note says which
+// case the reader is actually in.
+//
+// And this is why there is no "create the schedule" button. The Udara API is READ-ONLY,
+// so nothing here could write a schedule back to the book of record; a locally invented
+// amortisation for a loan that is already closed would be a fabricated instalment plan
+// sitting in the same table as real ones. The honest answer is the sentence below.
+func udaraSchedule(ctx context.Context, db *core.DB, acct, status string) ([]schedRow, string) {
 	rows, _ := db.PGQuery(ctx, `
 		SELECT payment_date::text AS payment_date, principal_kobo, interest_kobo, fee_kobo,
 		       COALESCE(payment_status,'') AS payment_status
 		  FROM app.cbs_loan_schedules WHERE loan_account_number = $1
 		 ORDER BY payment_date`, acct)
 	if len(rows) == 0 {
-		return []schedRow{}, "No schedule has been synced from Udara for this loan yet."
+		switch strings.ToLower(strings.TrimSpace(status)) {
+		case "closed", "expired", "liquidated", "written off", "writtenoff":
+			return []schedRow{}, "This loan is " + strings.ToLower(strings.TrimSpace(status)) +
+				", and Udara keeps no repayment schedule once a loan is finished. The repayments it received are on the Repayments tab."
+		default:
+			return []schedRow{}, "Udara is holding no repayment schedule for this loan. Every live loan in the book has one, so this is worth raising with core banking rather than waiting on a sync."
+		}
 	}
 	today := time.Now().Format("2006-01-02")
 	out := make([]schedRow, 0, len(rows))

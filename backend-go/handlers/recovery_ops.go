@@ -969,7 +969,10 @@ func recoveryOpsPendingPayments(db *core.DB) http.HandlerFunc {
 			    `+debtorNameSQL("rc")+` AS customer_name,
 			    rp.amount_kobo, rp.payment_date, rp.channel, rp.reference,
 			    rp.status, rp.created_at,
-			    u.full_name AS posted_by_name
+			    `+importedPosterSQL("rp.reference LIKE 'imp:%'", "u.full_name")+` AS posted_by_name,
+			    u.full_name AS posted_by_user,
+			    (rp.reference LIKE 'imp:%') AS is_imported,
+			    CASE WHEN rp.reference LIKE 'imp:%' THEN rp.reference END AS import_batch
 			FROM recovery_payments rp
 			JOIN recovery_cases rc ON rc.id = rp.case_id
 			`+debtorJoinsSQL("rc")+`

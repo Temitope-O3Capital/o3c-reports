@@ -543,13 +543,25 @@ func postCollectionPaymentGL(ctx context.Context, tx *sql.Tx, payID int64, cif, 
 // annotated with the stage + role due to sign next (for the approvals UI).
 func collectionsOpsPendingPayments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Identity comes off the row through the module's one sanctioned pair, reached
+		// via debtorIdentitySQL because app.collection_payments carries neither
+		// customer_name nor data_source of its own. This screen used to join
+		// app.customers on account_cif directly and fall back to the id, which is why an
+		// approver was asked to release money to "W000000000000022" — see
+		// debtorIdentitySQL for what that key is and why it never resolved.
+		//
+		// logged_by_name no longer credits a person for a batch. is_imported is the
+		// honest discriminator here; posted_by/received_by is still returned beside it.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT cp.id, cp.account_cif, cp.amount_kobo, cp.payment_date, cp.channel,
-			       cp.reference, cp.status, cp.created_at, cp.reconciled,
-			       COALESCE(NULLIF(TRIM(CONCAT(c.first_name,' ',c.last_name)),''), cp.account_cif) AS customer_name,
-			       u.full_name AS logged_by_name
+			       cp.reference, cp.status, cp.created_at, cp.reconciled, cp.is_imported,
+			       `+debtorNameSQL("ident")+` AS customer_name,
+			       `+importedPosterSQL("cp.is_imported", "u.full_name")+` AS logged_by_name,
+			       u.full_name AS logged_by_user,
+			       CASE WHEN cp.is_imported THEN NULLIF(TRIM(cp.reference),'') END AS import_batch
 			FROM app.collection_payments cp
-			LEFT JOIN app.customers c ON c.cif = cp.account_cif
+			`+debtorIdentitySQL("ident", "cp.account_cif", "cp.party_id")+`
+			`+debtorJoinsSQL("ident")+`
 			LEFT JOIN o3c_users u ON u.id = cp.received_by
 			WHERE `+chainStatusClause(qstr(r, "status"), "cp")+`
 			  -- A receipt Udara has already posted is not waiting on anybody: the money
@@ -1867,7 +1879,18 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 				query += " AND (" + strings.Join(parts, " OR ") + ")"
 			}
 		}
-		if q != "" {
+		// cif is an EXACT match, and it exists because the Credit File needs one. That
+		// panel used to ask for one customer's promises through q, which is a substring
+		// search across cif_number AND the agent's name — so it could return promises
+		// belonging to a different account whose id merely contains the same run of
+		// digits, and would return the whole book for an id that happened to be a
+		// substring of an officer's name. A panel showing "this customer's promises"
+		// must be keyed on the customer, not on a text match.
+		if cif := strings.TrimSpace(qstr(r, "cif")); cif != "" {
+			query += fmt.Sprintf(" AND cp.cif_number = $%d", n)
+			args = append(args, cif)
+			n++
+		} else if q != "" {
 			if clause, sargs, nn := buildCustomerSearch(q,
 				[]string{"cp.cif_number", "u.full_name"}, "", n); clause != "" {
 				query += " AND " + clause
@@ -1921,14 +1944,14 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 				wo.reason,
 				wo.created_at,
 				rc.account_cif,
-				-- Prefer the CIF-joined customer name (the reliable source); fall back to
-				-- the assignment name only when app.customers has none.
-				COALESCE(
-					NULLIF(TRIM(CONCAT(cust.first_name,' ',cust.last_name)),''),
-					(SELECT ca.customer_name FROM collection_assignments ca
-					 WHERE ca.account_cif = rc.account_cif
-					 ORDER BY ca.updated_at DESC LIMIT 1)
-				)                                             AS customer_name,
+				-- debtorNameSQL / debtorJoinsSQL, as every other debtor name in this
+				-- module. What stood here joined app.customers on rc.account_cif
+				-- directly -- the exact unguarded join those helpers exist to make
+				-- impossible, and the one that put a card customer's name on a loan
+				-- customer's case. It called app.customers "the reliable source", which
+				-- it is only for a cards-keyed row; for a UD- case it was reading a
+				-- different person's namespace.
+				` + debtorNameSQL("rc") + `                    AS customer_name,
 				rc.outstanding_kobo,
 				CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\D','','g') AS INT)
 				                                              AS dpd,
@@ -1939,7 +1962,7 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 				req.full_name                                 AS recommended_by
 			FROM recovery_write_off_approvals wo
 			JOIN recovery_cases rc ON wo.case_id = rc.id
-			LEFT JOIN app.customers cust ON cust.cif = rc.account_cif
+			` + debtorJoinsSQL("rc") + `
 			LEFT JOIN o3c_users req ON wo.requested_by = req.id
 			WHERE ` + statusClause
 		args := []any{}

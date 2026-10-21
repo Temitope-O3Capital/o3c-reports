@@ -22,6 +22,7 @@ import {
 } from '../../components/CreditFile'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { fmtKoboExact, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { humanLabel } from '../../lib/labels'
@@ -95,17 +96,6 @@ interface PromiseEntry {
   status: string
   created_at: string
   agent_name: string | null
-}
-
-interface PaymentEntry {
-  id: number
-  amount_kobo: number
-  payment_date: string
-  payment_method: string
-  channel?: string | null
-  reference: string | null
-  received_by_name: string | null
-  status?: string | null
 }
 
 interface AgentUser { id: number; full_name: string; role: string }
@@ -257,12 +247,19 @@ export function TimelineTab({ cif, version }: { cif: string; version: number }) 
       .finally(() => setLoading(false))
   }, [cif, version])
 
-  if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
+  if (loading && events.length === 0) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
 
+  // "No Activity Recorded Yet" is true and tells the reader nothing — on this module it
+  // reads as a page that failed to load, because it is what almost every customer shows.
+  // The timeline is written by the module's own actions, and there are 28 such entries in
+  // the entire system, so it is empty because nothing has been done, not because nothing
+  // was found. Say which.
   if (events.length === 0) return (
-    <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No Activity Recorded Yet
-    </div>
+    <EmptyState
+      icon="history_toggle_off"
+      title="Nothing Has Been Worked On This Account"
+      description="The timeline records what collections does — a contact, a promise, a payment, an escalation. None of those has happened here yet, so there is nothing to show. Log a contact or create a PTP and it will appear."
+    />
   )
 
   return (
@@ -317,13 +314,24 @@ export function ContactsTab({ assignmentId, version }: { assignmentId: number | 
       .finally(() => setLoading(false))
   }, [assignmentId, version])
 
-  if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
-  if (!assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No Assignment on Record</div>
+  if (loading && contacts.length === 0) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
+  // Contacts are stored against the ASSIGNMENT, so an unassigned account cannot have
+  // any — that is a different statement from "nobody has called", and conflating the two
+  // sends an officer looking for a bug instead of asking for the case to be assigned.
+  if (!assignmentId) return (
+    <EmptyState
+      icon="person_off"
+      title="Not Assigned To Anyone"
+      description="A contact is logged against an assignment, and this account has none — so there is nowhere to record a call yet. Ask a collections head to assign it."
+    />
+  )
 
   if (contacts.length === 0) return (
-    <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No Contacts Logged Yet
-    </div>
+    <EmptyState
+      icon="phone_missed"
+      title="No Contact Attempt Logged"
+      description="Nobody has recorded calling, texting or visiting this customer. Use Log Contact above to record the first attempt, including an unsuccessful one."
+    />
   )
 
   return (
@@ -362,18 +370,22 @@ export function PromisesTab({ cif, version }: { cif: string; version: number }) 
 
   useEffect(() => {
     setLoading(true)
-    apiFetch<{ data: PromiseEntry[] }>(`/api/collections-ops/promises?q=${encodeURIComponent(cif)}`)
+    // cif=, not q=. q is a substring search over the account id AND the agent's name,
+    // so it could return another customer's promises.
+    apiFetch<{ data: PromiseEntry[] }>(`/api/collections-ops/promises?cif=${encodeURIComponent(cif)}`)
       .then(r => setPromises(r.data ?? []))
       .catch(() => setPromises([]))
       .finally(() => setLoading(false))
   }, [cif, version])
 
-  if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
+  if (loading && promises.length === 0) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
 
   if (promises.length === 0) return (
-    <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No PTPs Recorded
-    </div>
+    <EmptyState
+      icon="handshake"
+      title="No Promise To Pay On Record"
+      description="This customer has not committed to a date or an amount. Use Create PTP above once they do, and the promise will be tracked against the date they gave."
+    />
   )
 
   return (
@@ -404,62 +416,6 @@ export function PromisesTab({ cif, version }: { cif: string; version: number }) 
   )
 }
 
-// PaymentsTab is CIF-keyed. It used to read /collections-ops/{assignmentId}/payments,
-// which could only ever see payments carrying an assignment_id — and 1,721 of the
-// 1,798 rows in the book (the historical and CRM imports) carry none, so the tab
-// showed nothing while the header counted them in "total paid". The CIF is the key
-// collection_payments is actually stored under.
-export function PaymentsTab({ cif, assignmentId, version }: { cif?: string; assignmentId: number | null; version: number }) {
-  const [payments, setPayments] = useState<PaymentEntry[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!cif && !assignmentId) { setLoading(false); return }
-    setLoading(true)
-    const url = cif
-      ? `/api/collections-ops/payments/by-cif?cif=${encodeURIComponent(cif)}`
-      : `/api/collections-ops/${assignmentId}/payments`
-    apiFetch<{ data: PaymentEntry[] }>(url)
-      .then(r => setPayments(r.data ?? []))
-      .catch(() => setPayments([]))
-      .finally(() => setLoading(false))
-  }, [cif, assignmentId, version])
-
-  if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
-  if (!cif && !assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No Assignment on Record</div>
-
-  if (payments.length === 0) return (
-    <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No Payments Recorded
-    </div>
-  )
-
-  return (
-    <div>
-      {payments.map(p => (
-        <div key={p.id} style={{
-          padding: `${SP[3]} ${SP[4]}`, borderBottom: '1px solid var(--bdr)',
-          display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center',
-        }}>
-          <div>
-            <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN, marginBottom: 2 }}>
-              {fmtKoboExact(p.amount_kobo)}
-            </div>
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-              {humanLabel((p.payment_method ?? p.channel ?? ''))}
-              {p.reference ? ` · ${p.reference}` : ''}
-              {p.received_by_name ? ` · by ${p.received_by_name}` : ''}
-            </div>
-          </div>
-          <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            {fmtDate(p.payment_date)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 type ModalType =
@@ -472,6 +428,11 @@ export default function CollectionsAccountDetail() {
   const { cif } = useParams<{ cif: string }>()
   const navigate = useNavigate()
   const role = getStoredRole()
+  // The masthead is a two-column grid — facts on the left, the outstanding figure on
+  // the right — and it never stacked. At phone width the 34px naira amount and the
+  // identity column fought for the same row, so the figure wrapped badly or pushed the
+  // page sideways. Field officers open this page on a handset.
+  const isMobile = useIsMobile()
   // 'head_ops' was missing, and core/auth.go grants it collections_assign explicitly — so it
   // could open this page and simply found no bulk-assign, reassign or escalate controls for
   // work it is authorised to do. Queue.tsx's HEAD_ROLES already includes it, so the two
@@ -511,13 +472,23 @@ export default function CollectionsAccountDetail() {
   // Reassign
   const [newAgentId, setNewAgentId] = useState('')
 
-  const loadDetail = useCallback(async (silent = false) => {
+  // `bump` is separate from `silent` because version is not a loading flag — it is the
+  // signal the Timeline, Contacts and Promises panels refetch on, and it used to be
+  // raised on EVERY tick of the ten-second poll. Each of those three panels then
+  // refetched and, while it did, dropped back to a spinner. The effect was a customer's
+  // history, contacts and promises blinking out every ten seconds and reading as "this
+  // never populates", which is what it was reported as.
+  //
+  // So the poll, which exists to keep the header figures live, no longer bumps it. A
+  // realtime event does, because something genuinely changed — and it does so silently,
+  // where it used to blank the whole page as well.
+  const loadDetail = useCallback(async (silent = false, bump = true) => {
     if (!cif) return
     if (!silent) { setLoading(true); setError(null) }
     try {
       const res = await apiFetch<{ data: AccountDetail }>(`/api/collections/accounts/${cif}`)
       setDetail(res.data ?? null)
-      setVersion(v => v + 1)
+      if (bump) setVersion(v => v + 1)
     } catch (e: any) {
       if (!silent) setError(e.message)
     } finally {
@@ -526,6 +497,7 @@ export default function CollectionsAccountDetail() {
   }, [cif])
 
   const refreshAll = useCallback(() => { loadDetail(); reloadCredit() }, [loadDetail, reloadCredit])
+  const refreshQuietly = useCallback(() => { loadDetail(true, true); reloadCredit() }, [loadDetail, reloadCredit])
 
   // The 10-second poll below refreshes loadDetail and ONLY loadDetail. The credit
   // dossier — the facilities, the schedules and the repayment ledger, which is the
@@ -533,11 +505,11 @@ export default function CollectionsAccountDetail() {
   // hourly capture left exactly the figures an officer is reading mid-call stale until
   // they navigated away and back. refreshAll reloads both, and the repayments topic
   // fires on the Udara capture: loan legs, journal receipts and GL postings alike.
-  useLiveData(refreshAll, { topics: ['collections', 'loans', 'repayments'] })
+  useLiveData(refreshQuietly, { topics: ['collections', 'loans', 'repayments'] })
 
   useEffect(() => {
     loadDetail()
-    pollRef.current = window.setInterval(() => loadDetail(true), POLL_INTERVAL)
+    pollRef.current = window.setInterval(() => loadDetail(true, false), POLL_INTERVAL)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadDetail])
 
@@ -666,13 +638,16 @@ export default function CollectionsAccountDetail() {
     ['collections_agent', 'collections_head', 'head_collections'].includes(a.role)
   )
 
-  const TABS = [
-    { key: 'schedule'   as const, label: 'Repayment Schedule', icon: 'calendar_month' },
-    { key: 'repayments' as const, label: 'Repayments',         icon: 'payments'       },
-    { key: 'timeline'   as const, label: 'Timeline',           icon: 'history'        },
-    { key: 'contacts'   as const, label: 'Contacts',           icon: 'call'           },
-    { key: 'calls'      as const, label: 'Calls',              icon: 'phone_in_talk'  },
-    { key: 'promises'   as const, label: 'Promises',           icon: 'handshake'      },
+  // count is left undefined where the figure is not already known: Timeline and Calls
+  // are fetched only when their tab is opened, and a guessed number on a tab is worse
+  // than none. The other four are read off data the page already holds.
+  const TABS: { key: typeof activeTab; label: string; icon: string; count?: number }[] = [
+    { key: 'schedule',   label: 'Repayment Schedule', icon: 'calendar_month', count: selected?.schedule.length },
+    { key: 'repayments', label: 'Repayments',         icon: 'payments',       count: credit?.repayments.length },
+    { key: 'timeline',   label: 'Timeline',           icon: 'history'         },
+    { key: 'contacts',   label: 'Contacts',           icon: 'call',           count: detail?.total_contacts },
+    { key: 'calls',      label: 'Calls',              icon: 'phone_in_talk'   },
+    { key: 'promises',   label: 'Promises',           icon: 'handshake',      count: detail?.ptps_created },
   ]
 
   if (loading) return (
@@ -759,10 +734,16 @@ export default function CollectionsAccountDetail() {
       }
     >
       {/* ── Identity masthead ────────────────────────────────────────────────── */}
+      {/* This is the one elevated surface on the page, and it is the only one. Every
+          block below it is a plain bordered panel, so the eye lands here first instead
+          of on six identical cards competing at the same weight. */}
       <div style={{
         background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl,
-        padding: `${SP[4]} ${SP[5]}`, marginBottom: SP[4],
-        display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: SP[6], alignItems: 'start',
+        boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 8px 24px -12px rgba(16,24,40,0.12)',
+        padding: `${SP[5]} ${SP[5]}`, marginBottom: SP[4],
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) auto',
+        gap: isMobile ? SP[4] : SP[6], alignItems: 'start',
       }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: SP[3] }}>
@@ -814,38 +795,72 @@ export default function CollectionsAccountDetail() {
             display: 'grid', gap: `${SP[2]} ${SP[5]}`,
             gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
           }}>
+            {/* Email, Employer and Location are deliberately NOT here. They were, and
+                Customer Details below carries the same four fields — so an officer read
+                the customer's phone, email, employer and city twice on one screen. The
+                masthead now holds only what collections owns (who has the case, when it
+                was handed over, when it was last worked) plus the phone, because that is
+                the one contact detail wanted without scrolling mid-call. Everything else
+                has exactly one home. */}
             <IdLine icon="badge" label="Handler" value={d.agent_name ?? 'Unassigned'}
                     sub={d.assignment_date ? `since ${fmtDate(d.assignment_date)}` : ''} />
             {cust?.phone && <IdLine icon="call" label="Phone" value={cust.phone} />}
-            {cust?.email && <IdLine icon="mail" label="Email" value={cust.email} />}
-            {cust?.employer && <IdLine icon="apartment" label="Employer" value={cust.employer} />}
-            {d.last_contact_at && (
-              <IdLine icon="history" label="Last Contact" value={fmtDate(d.last_contact_at)}
-                      sub={d.last_contact_outcome ? humanLabel(d.last_contact_outcome) : ''} />
-            )}
-            {(cust?.city || cust?.state) && (
-              <IdLine icon="location_on" label="Location" value={[cust?.city, cust?.state].filter(Boolean).join(', ')} />
-            )}
+            {d.last_contact_at
+              ? <IdLine icon="history" label="Last Contact" value={fmtDate(d.last_contact_at)}
+                        sub={d.last_contact_outcome ? humanLabel(d.last_contact_outcome) : ''} />
+              : <IdLine icon="history" label="Last Contact" value="Never worked" />}
           </div>
         </div>
 
-        <div style={{ textAlign: 'right' }}>
+        {/* ONE outstanding figure, and it is the live one.
+
+            This screen used to print d.outstanding_kobo here at 34px and then
+            credit.totals.exposure_kobo again in the Exposure strip a few hundred pixels
+            below, as two separate headline numbers. They are not the same number and
+            they do not come from the same place: the figure above is the snapshot the
+            collections sweep stamped on the assignment, the one below is the sum of what
+            the card book and Udara hold right now. Measured across the live queue, 590
+            of 1,435 accounts — 41% — carry two different values, averaging ₦210,065
+            apart and reaching ₦22.7m on one account.
+
+            So the live total leads, because it is what the customer actually owes today,
+            and the book's snapshot is demoted to what it honestly is: the figure the case
+            was raised on, with its date beside it. A stale number is useful as
+            provenance and indefensible as a headline. Where the dossier has not loaded
+            yet the book figure still shows, clearly labelled, rather than leaving the
+            most important number on the page blank. */}
+        <div style={{
+          textAlign: isMobile ? 'left' : 'right',
+          borderTop: isMobile ? '1px solid var(--bdr)' : 'none',
+          paddingTop: isMobile ? SP[4] : 0,
+        }}>
           <div style={{
             fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', marginBottom: 6,
             letterSpacing: '0.07em', textTransform: 'uppercase',
           }}>
-            Outstanding
+            {credit ? 'Outstanding Now' : 'Outstanding (As Filed)'}
           </div>
           <div style={{
             ...NUM, fontSize: 34, fontWeight: FW.extrabold, lineHeight: 1,
             color: d.dpd_lower > 90 ? RED : d.dpd_lower > 30 ? AMBER : GREEN,
           }}>
-            {fmtKoboExact(d.outstanding_kobo)}
+            {fmtKoboExact(credit ? credit.totals.exposure_kobo : d.outstanding_kobo)}
           </div>
-          <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 6 }}>
-            {fmtKoboExact(d.total_paid_kobo)} received to date
-          </div>
-          <div style={{ display: 'flex', gap: SP[4], justifyContent: 'flex-end', marginTop: SP[3] }}>
+          {credit && (
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5 }}>
+              Across {credit.totals.facility_count} {credit.totals.facility_count === 1 ? 'facility' : 'facilities'}
+            </div>
+          )}
+          {credit && credit.totals.exposure_kobo !== d.outstanding_kobo && (
+            <div style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>
+              Case raised at {fmtKoboExact(d.outstanding_kobo)}
+              {d.assignment_date ? ` on ${fmtDate(d.assignment_date)}` : ''}
+            </div>
+          )}
+          <div style={{
+            display: 'flex', gap: SP[4], marginTop: SP[4],
+            justifyContent: isMobile ? 'flex-start' : 'flex-end',
+          }}>
             <MiniStat label="Contacts" value={d.total_contacts} />
             <MiniStat label="PTPs" value={d.ptps_created} />
             <MiniStat label="Kept" value={d.ptps_kept} color={GREEN} />
@@ -854,10 +869,14 @@ export default function CollectionsAccountDetail() {
       </div>
 
       {/* ── Action bar ───────────────────────────────────────────────────────── */}
+      {/* Not a card. It was one — bordered, filled, the same radius as the masthead
+          above and the three panels below it — so the page presented six surfaces of
+          identical weight and nothing led. A toolbar is a row of controls, not an
+          object, so it sits on the page ground and the borders are spent on the things
+          that really are separate objects. */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: SP[4],
-        padding: `${SP[3]} ${SP[4]}`,
-        background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
+        padding: `0 ${SP[1]}`,
       }}>
         {d.assignment_id && (
           <>
@@ -994,27 +1013,58 @@ export default function CollectionsAccountDetail() {
 
         {selected && <FacilityTerms f={selected} />}
 
-        {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 2, padding: '8px 16px', borderBottom: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                padding: '5px 14px', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: TEXT.sm, fontWeight: activeTab === t.key ? FW.semibold : FW.normal,
-                border: activeTab === t.key ? `1.5px solid ${NAVY}` : '1.5px solid transparent',
-                background: activeTab === t.key ? NAVY : 'transparent',
-                color: activeTab === t.key ? '#fff' : 'var(--txt2)',
-                display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-              }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{t.icon}</span>
-              {t.label}
-            </button>
-          ))}
+        {/* Tab bar.
+
+            An underline rather than six filled pills: the pills read as six buttons of
+            equal weight sitting on top of a panel, and underlining the active one makes
+            the tab strip part of the panel it controls.
+
+            THE COUNTS ARE THE POINT, not decoration. Four of the six are already on the
+            page before anything is fetched, and a tab reading "Contacts 0" answers the
+            question the officer would otherwise answer by clicking it and waiting on a
+            spinner. That matters here specifically: collection_contacts and
+            collection_promises hold no rows at all, so three of these tabs are
+            legitimately empty for every customer in the book, and the old strip gave no
+            way to know that without opening each one. Timeline and Calls carry no count
+            because neither is loaded until its tab is opened, and inventing a figure for
+            them would be worse than leaving them bare. */}
+        <div style={{
+          display: 'flex', gap: SP[1], padding: `${SP[2]} ${SP[4]} 0`,
+          borderBottom: '1px solid var(--bdr)', flexWrap: 'wrap', alignItems: 'flex-end',
+        }}>
+          {TABS.map(t => {
+            const on = activeTab === t.key
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                aria-current={on ? 'page' : undefined}
+                style={{
+                  padding: `${SP[2]} ${SP[3]}`, cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: TEXT.sm, fontWeight: on ? FW.semibold : FW.normal,
+                  border: 'none', background: 'transparent',
+                  color: on ? NAVY : 'var(--txt2)',
+                  borderBottom: `2px solid ${on ? NAVY : 'transparent'}`,
+                  marginBottom: -1,
+                  display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
+                {t.label}
+                {t.count !== undefined && (
+                  <span style={{
+                    ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold,
+                    padding: '1px 6px', borderRadius: RADIUS.full,
+                    background: t.count > 0 ? (on ? `${NAVY}18` : 'var(--chip-bg)') : 'transparent',
+                    border: t.count > 0 ? 'none' : '1px solid var(--bdr)',
+                    color: t.count > 0 ? (on ? NAVY : 'var(--txt2)') : 'var(--txt3)',
+                  }}>{t.count}</span>
+                )}
+              </button>
+            )
+          })}
           <div style={{ flex: 1 }} />
-          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', alignSelf: 'center', paddingRight: 8 }}>
+          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', alignSelf: 'center', paddingBottom: SP[2] }}>
             Live · updates every 10s
           </span>
         </div>

@@ -124,18 +124,39 @@ export default function ArrearsReminders() {
   const [saving, setSaving] = useState(false)
   const isMobile = useIsMobile()
 
+  // BOTH RESPONSES ARE ENVELOPES, and this page was reading the wrapper.
+  //
+  // Every handler here answers through respond(), which returns
+  // { data, data_source, data_as_of }, and apiFetch returns the parsed body verbatim.
+  // So `l.sends` and `l.totals` were undefined — the attempt log showed its "nothing
+  // yet" branch for ever and `previewed` was permanently 0, which permanently disabled
+  // Go Live — and `status` held the envelope, which is truthy enough to pass the
+  // `if (!status) return null` guard below and then throw on `status.policy.max_per_run`.
+  // The page crashed on render every time it was opened.
+  //
+  // The two calls are also no longer one Promise.all. The status IS the page; the
+  // attempt log is evidence beside it. A failure to read 200 log rows used to discard
+  // the status with it and replace the whole screen with an error banner.
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true); setError(null)
-    try {
-      const [s, l] = await Promise.all([
-        apiFetch<Status>('/api/collections/dunning/status'),
-        apiFetch<{ sends: Send[]; totals: Totals[] }>('/api/collections/dunning/sends?limit=200'),
-      ])
-      setStatus(s)
-      setSends(l?.sends ?? [])
-      setTotals(l?.totals ?? [])
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
+    if (!silent) setLoading(true)
+    setError(null)
+    const [s, l] = await Promise.allSettled([
+      apiFetch<{ data: Status }>('/api/collections/dunning/status'),
+      apiFetch<{ data: { sends: Send[]; totals: Totals[] } }>('/api/collections/dunning/sends?limit=200'),
+    ])
+    if (s.status === 'fulfilled') {
+      setStatus(s.value?.data ?? null)
+    } else {
+      setError(s.reason?.message ?? 'Could not read the reminder status')
+    }
+    if (l.status === 'fulfilled') {
+      setSends(l.value?.data?.sends ?? [])
+      setTotals(l.value?.data?.totals ?? [])
+    } else {
+      setSends([]); setTotals([])
+      toast.error('Could not load the attempt log')
+    }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -159,6 +180,19 @@ export default function ArrearsReminders() {
   )
   if (error && !status) return <Page title="Arrears Reminders"><ErrBanner error={error} onRetry={load} /></Page>
   if (!status) return null
+  // A status with no policy is not something to render around — every figure below is
+  // relative to the cap, the floor and the throttle. Say so instead of dereferencing it:
+  // reading the envelope instead of its payload used to land here and throw.
+  if (!status.policy) {
+    return (
+      <Page title="Arrears Reminders">
+        <ErrBanner
+          error="The reminder policy could not be read, so there is nothing to review against. Nothing has been sent."
+          onRetry={load}
+        />
+      </Page>
+    )
+  }
 
   const live = status.mode === 'live'
   const tally = (o: string) => Number(totals.find(t => t.outcome === o)?.n ?? 0)

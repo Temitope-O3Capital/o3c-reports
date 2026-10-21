@@ -32,7 +32,24 @@ interface PendingPayment {
   required_role: string
   reconciled: boolean
   created_at: string
+  // "Bulk import" for a row that arrived in a spreadsheet, otherwise the person who
+  // logged it. The account that ran the load is still returned as logged_by_user and
+  // shown in the review panel: the import is credited to nobody in the list, but it is
+  // not hidden from anyone reviewing the money.
   logged_by_name: string | null
+  logged_by_user: string | null
+  is_imported: boolean
+  import_batch: string | null
+}
+
+// A payment nobody keyed in is labelled as what it is. 1,801 of the 1,812 rows on this
+// ledger came out of a spreadsheet, and all of them used to read "logged by" whichever
+// admin account ran the loader.
+function LoggedBy({ p }: { p: PendingPayment }) {
+  if (p.is_imported) {
+    return <Pill label="Bulk Import" color={PURPLE} bg={`${PURPLE}1F`} />
+  }
+  return <span style={{ fontSize: TEXT.sm }}>{p.logged_by_name ?? '—'}</span>
 }
 
 const FINAL_ROLE = 'coo'
@@ -115,9 +132,14 @@ function ReviewModal({ payment, onClose, onSuccess }: {
                isUdaraKey(payment.account_cif) ? (payment.account_cif ?? '').slice(3) : payment.account_cif],
               ['Payment Date', fmtDate(payment.payment_date)],
               ['Channel', prettyChannel(payment.channel)],
-              ['Reference', payment.reference ?? '—'],
+              // An imported row's "reference" IS its batch token, so it is named as one
+              // rather than printed as though somebody had quoted it off a teller slip.
+              ...(payment.is_imported
+                ? [['Import Batch', payment.import_batch ?? 'Spreadsheet'],
+                   ['Loaded By', `${payment.logged_by_user ?? 'Unknown'} (ran the import)`]] as [string, string][]
+                : [['Reference', payment.reference ?? '—'],
+                   ['Logged By', payment.logged_by_name ?? '—']] as [string, string][]),
               ['Reconciled', payment.reconciled ? 'Yes (matched to Paystack)' : 'Not matched'],
-              ['Logged By', payment.logged_by_name ?? '—'],
             ].map(([k, v]) => (
               <div key={k} style={{ display: 'flex', gap: 8 }}>
                 <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', minWidth: 110 }}>{k}</span>
@@ -240,7 +262,7 @@ export default function CollectionPaymentApprovals() {
         </span>
       )
     } },
-    { key: 'logged_by_name', label: 'Logged By', render: r => <span style={{ fontSize: TEXT.sm }}>{r.logged_by_name ?? '—'}</span> },
+    { key: 'logged_by_name', label: 'Logged By', render: r => <LoggedBy p={r} /> },
     { key: 'id', label: '', render: r => (
       <button onClick={e => { e.stopPropagation(); setReviewing(r) }}
         style={{ padding: '4px 11px', borderRadius: RADIUS.sm, cursor: 'pointer', border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap' }}>

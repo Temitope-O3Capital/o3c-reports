@@ -86,10 +86,18 @@ export interface Repayment {
   amount_kobo: number
   channel: string
   reference: string
-  source: 'collections' | 'card'
+  // 'udara' was MISSING from this union, and that is most of the "repayments are
+  // scattered" complaint. The handler has been sending core-banking loan postings as
+  // source 'udara' ever since that linkage was added; the ledger below knew only two
+  // sources, so every one of them fell through a `source === 'card' ? … : 'Collections'`
+  // ternary and was labelled Collections — a Udara general-ledger posting presented as
+  // something an agent had keyed in, with no filter and no count of its own.
+  source: 'collections' | 'card' | 'udara'
   facility_key: string
   received_by: string
   status: string
+  component?: string
+  is_imported?: boolean
 }
 
 export interface RecoveryCase {
@@ -477,37 +485,66 @@ export function CaseContext({
 
 // ── Money strip ───────────────────────────────────────────────────────────────
 
+// ExposureStrip answers ONE question — is this customer keeping to the schedule — and
+// no longer repeats the two figures that are stated elsewhere on the page.
+//
+// Total Exposure left because the masthead now carries the live outstanding figure as
+// the page's single headline, and two 24px naira amounts on one screen that disagree
+// (41% of accounts) is the defect this strip was half of. Payments Received left because
+// its "Logged to collections" subtitle was the giveaway: it counted only
+// collection_payments, which is the lane the Repayments tab now labels explicitly, while
+// the customer's core-banking and card-ledger receipts were excluded from it. A figure
+// that silently means "some of the money" does not belong next to one that means all of
+// it.
+//
+// What remains is a run of schedule figures that read left to right as one sentence:
+// this much was scheduled, this much of it has landed, this much is behind, this much is
+// next.
 export function ExposureStrip({ t }: { t: CreditDossier['totals'] }) {
   const recovered = t.paid_pct
   const meterColor = recovered >= 80 ? GREEN : recovered >= 40 ? AMBER : RED
+  const nothingScheduled = t.scheduled_kobo === 0
+
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl,
       padding: `${SP[4]} ${SP[5]}`, marginBottom: SP[4],
-      display: 'grid', gap: SP[5],
-      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', alignItems: 'end',
     }}>
-      <Figure label="Total Exposure" value={fmtKoboExact(t.exposure_kobo)} color={RED} size={24}
-              sub={`${t.facility_count} ${t.facility_count === 1 ? 'facility' : 'facilities'}`} />
-      <Figure label="Scheduled" value={fmtKoboExact(t.scheduled_kobo)}
-              sub={`Due to date ${fmtKoboExact(t.expected_kobo)}`} size={20} />
-      <div>
-        <Figure label="Paid Against Schedule" value={fmtKoboExact(t.schedule_paid_kobo)} color={GREEN} size={20}
-                sub={`${recovered.toFixed(1)}% of the schedule`} />
-        <div style={{ marginTop: 8 }}><Meter pct={recovered} color={meterColor} /></div>
-      </div>
-      <Figure label="Arrears" value={fmtKoboExact(t.arrears_kobo)}
-              color={t.arrears_kobo > 0 ? RED : GREEN} size={20}
-              sub={t.arrears_kobo > 0 ? 'Behind the schedule' : 'On or ahead of schedule'} />
-      <Figure label="Next Instalment"
-              value={t.next_due_date ? fmtKoboExact(t.next_due_kobo) : '—'}
-              sub={t.next_due_date ? `Due ${fmtDate(t.next_due_date)}` : 'Nothing scheduled ahead'}
-              size={20} />
-      <Figure label="Payments Received" value={fmtKoboExact(t.paid_kobo)} color={GREEN} size={20}
-              sub="Logged to collections" />
-      {t.unallocated_kobo > 0 && (
-        <Figure label="Beyond Schedule" value={fmtKoboExact(t.unallocated_kobo)} color={AMBER} size={20}
-                sub="Received but not matched to any instalment. Check the tenor or a restructure" />
+      <div style={{
+        fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.07em',
+        textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: SP[3],
+      }}>Against The Schedule</div>
+
+      {nothingScheduled ? (
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          Nothing is scheduled on this customer&rsquo;s credit, so there is no schedule to
+          measure against. A card revolves rather than amortising; a closed loan keeps no
+          schedule. The Repayments tab still shows every receipt.
+        </div>
+      ) : (
+        <div style={{
+          display: 'grid', gap: SP[5],
+          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', alignItems: 'end',
+        }}>
+          <Figure label="Scheduled" value={fmtKoboExact(t.scheduled_kobo)}
+                  sub={`Due to date ${fmtKoboExact(t.expected_kobo)}`} size={22} />
+          <div>
+            <Figure label="Paid Against Schedule" value={fmtKoboExact(t.schedule_paid_kobo)} color={GREEN} size={22}
+                    sub={`${recovered.toFixed(1)}% of the schedule`} />
+            <div style={{ marginTop: 8 }}><Meter pct={recovered} color={meterColor} /></div>
+          </div>
+          <Figure label="Arrears" value={fmtKoboExact(t.arrears_kobo)}
+                  color={t.arrears_kobo > 0 ? RED : GREEN} size={22}
+                  sub={t.arrears_kobo > 0 ? 'Behind the schedule' : 'On or ahead of schedule'} />
+          <Figure label="Next Instalment"
+                  value={t.next_due_date ? fmtKoboExact(t.next_due_kobo) : '—'}
+                  sub={t.next_due_date ? `Due ${fmtDate(t.next_due_date)}` : 'Nothing scheduled ahead'}
+                  size={22} />
+          {t.unallocated_kobo > 0 && (
+            <Figure label="Beyond Schedule" value={fmtKoboExact(t.unallocated_kobo)} color={AMBER} size={22}
+                    sub="Received but not matched to any instalment. Check the tenor or a restructure" />
+          )}
+        </div>
       )}
     </div>
   )
@@ -732,10 +769,16 @@ export function ScheduleTable({ f }: { f: Facility }) {
   const hasSplit = f.schedule.some(s => s.interest_kobo > 0 || s.fee_kobo > 0)
 
   if (f.schedule.length === 0) {
+    // A card is not a loan with a missing schedule. It revolves: there is no
+    // amortisation to show and there never will be, so heading the panel "No Repayment
+    // Schedule" reads as a fault on 416 of the 458 accounts in the queue, which are
+    // cards. The handler's note already says which case this is; the title should agree
+    // with it rather than contradict it.
+    const isCard = f.kind === 'card'
     return (
       <EmptyState
-        icon="event_busy"
-        title="No Repayment Schedule"
+        icon={isCard ? 'credit_card' : 'event_busy'}
+        title={isCard ? 'No Billing Activity Yet' : 'No Repayment Schedule'}
         description={f.schedule_note || 'Nothing on file for this facility.'}
       />
     )
@@ -827,23 +870,64 @@ export function ScheduleTable({ f }: { f: Facility }) {
 
 // ── Repayment ledger ──────────────────────────────────────────────────────────
 
+// A repayment belongs to one of three LANES, not one of three sources, and the
+// distinction is the point.
+//
+//   book     what a system of record says was received — Udara's general ledger for a
+//            loan, the CCS card ledger for a card. Nobody typed these.
+//   logged   a receipt an officer keyed into collections by hand.
+//   imported a row that arrived in a spreadsheet upload.
+//
+// The lane decides what the reader is looking at, and the default decides what they
+// see first. 1,713 of the 1,812 collection_payments rows are imports, so "All" opened
+// on a wall of upload rows with the real receipts buried inside it — which is how a
+// ledger that is populated reads as a ledger that is wrong.
+//
+// So the book of record leads whenever there is one. The other lanes are one click
+// away and still counted, because an import is history and hiding it entirely would
+// make a customer who paid through 2025 look as though they never paid at all.
+type Lane = 'book' | 'logged' | 'imported'
+
+function laneOf(r: Repayment): Lane {
+  if (r.source === 'udara' || r.source === 'card') return 'book'
+  return r.is_imported ? 'imported' : 'logged'
+}
+
+const SOURCE_CHIP: Record<Repayment['source'], { label: string; color: string }> = {
+  udara:       { label: 'Core Banking', color: BLUE },
+  card:        { label: 'Card Ledger',  color: PURPLE },
+  collections: { label: 'Logged',       color: NAVY },
+}
+
 export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
-  const [filter, setFilter] = useState<'all' | 'collections' | 'card'>('all')
+  const counts = useMemo(() => {
+    const c: Record<Lane, number> = { book: 0, logged: 0, imported: 0 }
+    for (const r of repayments) c[laneOf(r)]++
+    return c
+  }, [repayments])
+
+  // Open on the lane that is actually worth reading, in order of authority. Deliberately
+  // not "whichever has the most rows": the imports outnumber everything on almost every
+  // customer, and they are the least authoritative thing here.
+  const initialLane: Lane = counts.book > 0 ? 'book' : counts.logged > 0 ? 'logged' : 'imported'
+  const [lane, setLane] = useState<Lane>(initialLane)
+  const activeLane = counts[lane] > 0 ? lane : initialLane
+
   const rows = useMemo(
-    () => (filter === 'all' ? repayments : repayments.filter(r => r.source === filter)),
-    [repayments, filter],
+    () => repayments.filter(r => laneOf(r) === activeLane),
+    [repayments, activeLane],
   )
   const total = useMemo(() => rows.reduce((s, r) => s + r.amount_kobo, 0), [rows])
 
   if (repayments.length === 0) {
-    return <EmptyState icon="payments" title="No Repayments Recorded" description="This customer has not repaid anything on their credit yet." />
+    return <EmptyState icon="payments" title="No Repayments Recorded" description="Nothing has been received on this customer's credit, from core banking, the card ledger or collections." />
   }
 
-  const counts = {
-    all: repayments.length,
-    collections: repayments.filter(r => r.source === 'collections').length,
-    card: repayments.filter(r => r.source === 'card').length,
-  }
+  const LANES: { key: Lane; label: string; hint: string }[] = [
+    { key: 'book',     label: 'Core Banking & Card Ledger', hint: 'What the bank’s own systems recorded' },
+    { key: 'logged',   label: 'Logged by an Officer',        hint: 'Keyed into collections by hand' },
+    { key: 'imported', label: 'Imported',                   hint: 'Loaded from a spreadsheet' },
+  ]
 
   return (
     <div>
@@ -851,56 +935,82 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
         padding: `${SP[3]} ${SP[5]}`, borderBottom: '1px solid var(--bdr)',
       }}>
-        {([
-          ['all', 'All'],
-          ['collections', 'Logged to Collections'],
-          ['card', 'Card Ledger'],
-        ] as const).map(([k, label]) => (
+        {LANES.map(l => (
           <button
-            key={k}
-            onClick={() => setFilter(k)}
+            key={l.key}
+            onClick={() => setLane(l.key)}
+            disabled={counts[l.key] === 0}
+            title={l.hint}
             style={{
-              padding: '4px 11px', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: 'inherit',
+              padding: '4px 11px', borderRadius: RADIUS.md, fontFamily: 'inherit',
+              cursor: counts[l.key] === 0 ? 'not-allowed' : 'pointer',
+              opacity: counts[l.key] === 0 ? 0.45 : 1,
               fontSize: TEXT.xs, fontWeight: FW.semibold,
-              border: `1.5px solid ${filter === k ? NAVY : 'var(--bdr)'}`,
-              background: filter === k ? NAVY : 'var(--card)',
-              color: filter === k ? '#fff' : 'var(--txt2)',
+              border: `1.5px solid ${activeLane === l.key ? NAVY : 'var(--bdr)'}`,
+              background: activeLane === l.key ? NAVY : 'var(--card)',
+              color: activeLane === l.key ? '#fff' : 'var(--txt2)',
             }}
-          >{label} ({counts[k]})</button>
+          >{l.label} ({counts[l.key]})</button>
         ))}
         <div style={{ flex: 1 }} />
         <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN }}>
           {fmtKoboExact(total)}
         </span>
       </div>
+
+      {activeLane === 'imported' && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 8,
+          padding: `${SP[3]} ${SP[5]}`, borderBottom: '1px solid var(--bdr)',
+          background: `${AMBER}12`,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: AMBER }}>upload_file</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
+            These rows came from a spreadsheet, not from a receipt. They are the only record of
+            repayments before Udara&rsquo;s call-over begins, so they are kept and shown here —
+            but where core banking also holds the payment, the core banking figure is the one
+            that counts.
+          </span>
+        </div>
+      )}
+
       <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-        {rows.map((p, i) => (
-          <div key={`${p.source}-${p.date}-${p.reference}-${i}`} style={{
-            padding: `${SP[3]} ${SP[5]}`, borderBottom: '1px solid var(--bdr)',
-            display: 'grid', gridTemplateColumns: '1fr auto', gap: SP[4], alignItems: 'center',
-          }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
-                <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN }}>
-                  {fmtKoboExact(p.amount_kobo)}
-                </span>
-                <Chip label={p.source === 'card' ? 'Card Ledger' : 'Collections'} color={p.source === 'card' ? PURPLE : NAVY} />
-                {p.status && p.status !== 'posted' && <Chip label={humanLabel(p.status)} color={p.status === 'approved' ? GREEN : AMBER} />}
+        {rows.map((p, i) => {
+          const chip = SOURCE_CHIP[p.source] ?? SOURCE_CHIP.collections
+          return (
+            <div key={`${p.source}-${p.date}-${p.reference}-${i}`} style={{
+              padding: `${SP[3]} ${SP[5]}`, borderBottom: '1px solid var(--bdr)',
+              display: 'grid', gridTemplateColumns: '1fr auto', gap: SP[4], alignItems: 'center',
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+                  <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN }}>
+                    {fmtKoboExact(p.amount_kobo)}
+                  </span>
+                  <Chip label={chip.label} color={chip.color} />
+                  {/* The core banking ledger posts principal and interest as separate
+                      entries, and it is the only source that states the split. */}
+                  {p.component && <Chip label={humanLabel(p.component)} color={BLUE} />}
+                  {p.is_imported && <Chip label="Imported" color={AMBER} />}
+                  {p.status && p.status !== 'posted' && <Chip label={humanLabel(p.status)} color={p.status === 'approved' ? GREEN : AMBER} />}
+                </div>
+                <div style={{
+                  fontSize: TEXT.xs, color: 'var(--txt3)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {p.channel || '—'}
+                  {p.reference ? ` · ${p.reference}` : ''}
+                  {/* An import is not credited to a person: the name on these rows is
+                      whichever account ran the loader, not whoever took the money. */}
+                  {p.received_by && !p.is_imported ? ` · posted by ${p.received_by}` : ''}
+                </div>
               </div>
-              <div style={{
-                fontSize: TEXT.xs, color: 'var(--txt3)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {p.channel || '—'}
-                {p.reference ? ` · ${p.reference}` : ''}
-                {p.received_by ? ` · posted by ${p.received_by}` : ''}
-              </div>
+              <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
+                {fmtDate(p.date)}
+              </span>
             </div>
-            <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
-              {fmtDate(p.date)}
-            </span>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

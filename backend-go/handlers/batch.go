@@ -409,6 +409,47 @@ func runBatch(ctx context.Context, db *core.DB) error {
 func batchGenerateCollectionAssignments(ctx context.Context, db *core.DB) (int64, error) {
 	WorkerBeat(ctx, db, "collections_generate", "running", "", "")
 
+	// WHO OPENED THIS ASSIGNMENT, and why the job could never have answered.
+	//
+	// collection_assignments.assigned_by is NOT NULL with NO DEFAULT, and the INSERT
+	// below omitted it — so the first time this job actually found a new delinquent
+	// account it would have died on a not-null violation. Proven in a rolled-back
+	// transaction: "null value in column assigned_by violates not-null constraint".
+	//
+	// It had never fired. 24 runs, no recorded error, every one ending "book already
+	// current — no new assignments": the INSERT trivially succeeds on zero rows, so the
+	// defect sat latent behind an empty result set and the heartbeat looked healthy. Do
+	// not read last_ok_at as the signal here — this job writes 'idle' rather than 'ok'
+	// when it opens nothing, deliberately, so a NULL last_ok_at was never evidence of
+	// failure either.
+	//
+	// The answer is the service account, not a person and not NULL. 42 assignments
+	// already carry O3C Automation, so the convention exists; the other 1,636 carry a
+	// real admin because migrations and imports ran under it, which is the same
+	// misattribution that made one member of staff appear to have received ₦878m of
+	// recovery payments. A machine-opened row should say a machine opened it.
+	//
+	// Resolved by email rather than by its id, because an id is a fact about this
+	// database and the email is a fact about the account. It is deliberately looked up
+	// BEFORE the insert: without this the failure mode is a constraint violation at
+	// 00:05 naming a column, instead of a message naming the missing account. And note
+	// the account is is_active = false on purpose — it must never receive work or appear
+	// in a dropdown. assigned_by is a provenance stamp, not a work assignment, so an
+	// inactive service account is exactly right here and must NOT be run through
+	// assignTargetProblem, which correctly rejects inactive users.
+	const automationEmail = "automation@o3capital.internal"
+	var assignedBy int64
+	if rows, err := db.PGQuery(ctx, `SELECT id FROM app.o3c_users WHERE email = $1 AND deleted_at IS NULL`, automationEmail); err != nil {
+		WorkerBeat(ctx, db, "collections_generate", "error", "", err.Error())
+		return 0, fmt.Errorf("resolve automation account: %w", err)
+	} else if len(rows) == 0 {
+		msg := "the " + automationEmail + " service account is missing, so a machine-opened assignment has nobody to attribute it to"
+		WorkerBeat(ctx, db, "collections_generate", "error", "", msg)
+		return 0, errors.New(msg)
+	} else {
+		assignedBy = toInt64(rows[0]["id"])
+	}
+
 	bucket := func(dpd string) string {
 		return `CASE WHEN ` + dpd + `<=30 THEN '1-30' WHEN ` + dpd + `<=60 THEN '31-60' WHEN ` + dpd + `<=90 THEN '61-90'
 			WHEN ` + dpd + `<=180 THEN '91-180' WHEN ` + dpd + `<=360 THEN '181-360' ELSE '360+' END`
@@ -441,16 +482,18 @@ func batchGenerateCollectionAssignments(ctx context.Context, db *core.DB) (int64
 	res, err := db.PGExec(ctx, armSplitDelinquency+`
 		INSERT INTO collection_assignments
 		  (cif_number, account_cif, customer_name, party_id, data_source, product_type,
-		   dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+		   dpd_bucket, outstanding_kobo, status, assignment_date, assigned_by,
+		   created_at, updated_at)
 		SELECT b.key_cif, b.key_cif, b.customer_name, b.party_id, b.data_source, b.product_type,
-		       `+bucket("b.dpd")+`, b.outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
+		       `+bucket("b.dpd")+`, b.outstanding_kobo, 'active', CURRENT_DATE, $1,
+		       NOW(), NOW()
 		FROM book b
 		WHERE `+udaraIdentityResolved+`
 		  AND NOT `+crossedOpen+`
 		  AND b.key_cif NOT IN (
 			SELECT account_cif FROM collection_assignments
 			WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
-		)`)
+		)`, assignedBy)
 	if err != nil {
 		WorkerBeat(ctx, db, "collections_generate", "error", "", err.Error())
 		return 0, fmt.Errorf("create assignments: %w", err)

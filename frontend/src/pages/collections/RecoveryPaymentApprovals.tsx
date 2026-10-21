@@ -32,7 +32,22 @@ interface PendingPayment {
   stage_label: string     // "Awaiting Head of Operations" | "Awaiting COO" (COO final for payments)
   required_role: string   // head_ops | coo — role due to sign THIS stage
   created_at: string
+  // "Bulk import" for a row that arrived in a spreadsheet, otherwise the person who
+  // posted it. 264 of these 269 payments are imports, and every one of them used to
+  // read "logged by" whichever admin account ran the loader — which made it look as
+  // though one member of staff had personally received ₦878m. posted_by is unchanged
+  // and still returned as posted_by_user for the review panel.
   posted_by_name: string | null
+  posted_by_user: string | null
+  is_imported: boolean
+  import_batch: string | null
+}
+
+function LoggedBy({ p }: { p: PendingPayment }) {
+  if (p.is_imported) {
+    return <Pill label="Bulk Import" color={PURPLE} bg={`${PURPLE}1F`} />
+  }
+  return <span style={{ fontSize: TEXT.sm }}>{p.posted_by_name ?? '—'}</span>
 }
 
 // Payments run HOP → COO (CFO removed from payments); COO is the final stage that
@@ -152,8 +167,13 @@ function ReviewModal({
               ['Case', `#${payment.case_id}`],
               ['Payment Date', fmtDate(payment.payment_date)],
               ['Channel', prettyChannel(payment.channel)],
-              ['Reference', payment.reference ?? '—'],
-              ['Logged By', payment.posted_by_name ?? '—'],
+              // An imported row's "reference" IS its batch token, so it is named as one
+              // rather than printed as though somebody had quoted it off a teller slip.
+              ...(payment.is_imported
+                ? [['Import Batch', payment.import_batch ?? 'Spreadsheet'],
+                   ['Loaded By', `${payment.posted_by_user ?? 'Unknown'} (ran the import)`]] as [string, string][]
+                : [['Reference', payment.reference ?? '—'],
+                   ['Logged By', payment.posted_by_name ?? '—']] as [string, string][]),
               ['Logged At', fmtDate(payment.created_at)],
             ].map(([k, v]) => (
               <div key={k} style={{ display: 'flex', gap: 8 }}>
@@ -344,7 +364,7 @@ export default function RecoveryPaymentApprovals() {
     },
     {
       key: 'posted_by_name', label: 'Logged By',
-      render: r => <span style={{ fontSize: TEXT.sm }}>{r.posted_by_name ?? '—'}</span>,
+      render: r => <LoggedBy p={r} />,
     },
     {
       key: 'id', label: '',
