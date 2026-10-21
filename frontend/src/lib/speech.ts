@@ -176,7 +176,27 @@ export function sayMoney(text: string): string {
     .replace(/\bNGN\s?([\d,]+(?:\.\d+)?)/gi, '$1 naira')
 }
 
+
+/**
+ * Repair a thousands separator written as a space.
+ *
+ * gpt-oss writes "21 365 accounts, 1 124 delinquent" using U+202F NARROW
+ * NO-BREAK SPACE where the tool returned 21,365 and 1,124 (measured 2026-10-21
+ * against the live card portfolio). The figures were right, but spoken, "1 124"
+ * is read as two numbers — "one, one hundred and twenty-four" — and a wrong
+ * figure said aloud in a tool that reports balances is the failure this whole
+ * file exists to prevent.
+ *
+ * The system prompt asks for commas. That is a request; this is the guarantee.
+ * Only the SPACE characters a model actually uses as separators are touched,
+ * and only between digits with exactly three following, so "41.2" and
+ * "September 2026" are left alone.
+ */
+export function fixSeparators(text: string): string {
+  return text.replace(/(\d)[\u202f\u00a0\u2009](?=\d{3}(?:\D|$))/g, '$1,')
+}
+
 /** Everything a sentence needs before it is handed to the synthesiser. */
 export function forSpeech(text: string): string {
-  return sayMoney(speakable(text))
+  return sayMoney(fixSeparators(speakable(text)))
 }

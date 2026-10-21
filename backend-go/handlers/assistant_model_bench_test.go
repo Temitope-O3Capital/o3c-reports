@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -133,38 +134,60 @@ func TestModelBench(t *testing.T) {
 		cancel()
 
 		for _, c := range cases {
-			want := ""
-			switch {
-			case len(c.truthPath) > 0:
-				// Ask the tool itself what the right answer is.
-				var tool assistantTool
-				for _, tl := range assistantTools() {
-					if tl.Name == c.wantTool {
-						tool = tl
+			// Truth is read BOTH before and after the model's turn, and either
+			// reading is accepted.
+			//
+			// The call feed lands continuously -- ~3-4 legs a minute -- and the
+			// episode CTE collapses legs inside a 15-minute window, so the
+			// figure genuinely MOVES, and can move DOWN as legs merge into one
+			// episode. A turn takes up to a minute on this hardware, so a single
+			// pre-turn reading failed gpt-oss:20b for answering 2,534 against a
+			// truth of 2,532 that was already a minute stale. Measured idle:
+			// 2,538 -> 2,537 across 60 seconds. That is the clock, not the
+			// model, and a benchmark that rejects a correct answer is worse than
+			// no benchmark at all.
+			readTruth := func() string {
+				switch {
+				case len(c.truthPath) > 0:
+					var tool assistantTool
+					for _, tl := range assistantTools() {
+						if tl.Name == c.wantTool {
+							tool = tl
+						}
 					}
-				}
-				ctx, cn := context.WithTimeout(context.Background(), 60*time.Second)
-				res, terr := tool.Run(ctx, db, &core.Claims{ID: 1, Role: "admin"}, map[string]any{})
-				cn()
-				if terr != nil {
-					t.Fatalf("%s: %v", c.wantTool, terr)
-				}
-				want = digPath(res, c.truthPath)
-				if want == "" {
-					t.Fatalf("%s: no value at %v", c.wantTool, c.truthPath)
-				}
-			case c.truthSQL != "":
-				var n int64
-				ctx, cn := context.WithTimeout(context.Background(), 60*time.Second)
-				if err := db.PG.QueryRowContext(ctx, c.truthSQL).Scan(&n); err != nil {
+					ctx, cn := context.WithTimeout(context.Background(), 60*time.Second)
+					res, terr := tool.Run(ctx, db, &core.Claims{ID: 1, Role: "admin"}, map[string]any{})
 					cn()
-					t.Fatalf("truth query failed: %v", err)
+					if terr != nil {
+						t.Fatalf("%s: %v", c.wantTool, terr)
+					}
+					v := digPath(res, c.truthPath)
+					if v == "" {
+						t.Fatalf("%s: no value at %v", c.wantTool, c.truthPath)
+					}
+					return v
+				case c.truthSQL != "":
+					var n int64
+					ctx, cn := context.WithTimeout(context.Background(), 60*time.Second)
+					if err := db.PG.QueryRowContext(ctx, c.truthSQL).Scan(&n); err != nil {
+						cn()
+						t.Fatalf("truth query failed: %v", err)
+					}
+					cn()
+					return withCommas(n)
 				}
-				cn()
-				want = withCommas(n)
+				return ""
+			}
+
+			var wants []string
+			if before := readTruth(); before != "" {
+				wants = append(wants, before)
 			}
 			ans, tools, secs := runTurn(t, db, model, c.q)
-			ok, why := judge(c, ans, tools, want)
+			if after := readTruth(); after != "" && (len(wants) == 0 || after != wants[0]) {
+				wants = append(wants, after)
+			}
+			ok, why := judge(c, ans, tools, wants)
 			results[model].total++
 			if ok {
 				results[model].passed++
@@ -239,7 +262,40 @@ func runTurn(t *testing.T, db *core.DB, model, q string) (string, []string, floa
 	return "ERROR: exceeded tool rounds", used, time.Since(start).Seconds()
 }
 
-func judge(c benchCase, ans string, tools []string, want string) (bool, string) {
+// quotesFigure looks for want as a whole number, not as a substring.
+//
+// strings.Contains was awarding marks it could not justify. A truth of "0" is
+// satisfied by any answer containing a zero anywhere: the "How many leads does
+// Ramat have?" case passed for dumping the entire owner list — "leads_owned:10"
+// — without mentioning Ramat at all. The same run FAILED the identical case on
+// the previous harness for answering "Ramat does not appear in the list", which
+// is at least true. Both verdicts were noise.
+//
+// A narrow no-break space is accepted as a thousands separator because gpt-oss
+// emits U+202F there, writing 1,124 as "1 124". That is a formatting fault, not
+// a wrong figure; it is corrected by a prompt rule and by speech.ts, and failing
+// the model here would hide a real pass behind a cosmetic one.
+func quotesFigure(ans, want string) bool {
+	variants := []string{
+		want,
+		strings.ReplaceAll(want, ",", "\u202f"), // narrow no-break space
+		strings.ReplaceAll(want, ",", "\u00a0"), // non-breaking space
+		strings.ReplaceAll(want, ",", ""),       // unseparated, e.g. 1124
+	}
+	for _, w := range variants {
+		if w == "" {
+			continue
+		}
+		// Not flanked by another digit, so "0" does not match inside "10".
+		re := regexp.MustCompile(`(^|[^0-9])` + regexp.QuoteMeta(w) + `($|[^0-9])`)
+		if re.MatchString(ans) {
+			return true
+		}
+	}
+	return false
+}
+
+func judge(c benchCase, ans string, tools []string, wants []string) (bool, string) {
 	low := strings.ToLower(ans)
 	if c.wantTool != "" {
 		found := false
@@ -252,8 +308,19 @@ func judge(c benchCase, ans string, tools []string, want string) (bool, string) 
 			return false, "did not call " + c.wantTool
 		}
 	}
-	if want != "" && !strings.Contains(ans, want) {
-		return false, fmt.Sprintf("answer does not quote the true figure %s", want)
+	// Any of the acceptable readings will do. See the readTruth comment: on a
+	// live feed the correct answer is a small range, not a point.
+	if len(wants) > 0 {
+		hit := false
+		for _, w := range wants {
+			if quotesFigure(ans, w) {
+				hit = true
+			}
+		}
+		if !hit {
+			return false, fmt.Sprintf("answer does not quote the true figure (%s)",
+				strings.Join(wants, " or "))
+		}
 	}
 	for _, m := range c.mustHave {
 		if !strings.Contains(ans, m) {
@@ -292,4 +359,33 @@ func benchTrunc(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// Guards the benchmark against awarding marks it cannot justify. A scoring bug
+// is worse than a model bug: it sends you off tuning prompts against noise.
+func TestQuotesFigureIsNotASubstringMatch(t *testing.T) {
+	cases := []struct {
+		ans, want string
+		ok        bool
+		why       string
+	}{
+		{"Ramat owns 0 leads.", "0", true, "the plain case"},
+		{"by_owner: leads_owned:10 owner:Nkem", "0", false,
+			"a zero inside 10 is not an answer of zero"},
+		{"Ramat does not appear in the list.", "0", false,
+			"true, but it never gives the figure"},
+		{"Total calls: 2,541.", "2,541", true, "comma separated, as the tools format it"},
+		{"1 124 delinquent", "1,124", true,
+			"narrow no-break space is a formatting fault, not a wrong number"},
+		{"1124 delinquent", "1,124", true, "unseparated but correct"},
+		{"balance 12,541", "2,541", false, "must not match inside a longer number"},
+		{"account 11240", "1,124", false, "nor as a prefix of one"},
+	}
+	for _, c := range cases {
+		// The narrow space has to be a real U+202F, not a typed space.
+		ans := strings.ReplaceAll(c.ans, "1 124", "1\u202f124")
+		if got := quotesFigure(ans, c.want); got != c.ok {
+			t.Errorf("quotesFigure(%q, %q) = %v, want %v — %s", ans, c.want, got, c.ok, c.why)
+		}
+	}
 }

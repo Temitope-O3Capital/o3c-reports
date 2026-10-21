@@ -138,6 +138,38 @@ func assistantKeepAlive() string {
 	return "4h"
 }
 
+// assistantThink sets the reasoning effort sent to the model.
+//
+// gpt-oss reasons before it answers and cannot be told not to: think:false
+// is ignored outright, and in a measured run it reasoned for 1,130 characters
+// and then produced no answer at all inside 300 tokens. So "low" is a
+// requirement, not a tuning preference. Measured on the VM 2026-10-21, same
+// question, same seed:
+//
+//	effort     time to first visible word
+//	default    17.7s
+//	low         3.9s
+//
+// The arithmetic was correct in both runs, so the reasoning budget buys
+// nothing here and costs fourteen seconds of silence. For a companion that
+// is meant to speak, that is the whole difference between working and not.
+//
+// Returns nil for any other model. qwen3:4b-instruct does not understand the
+// field and we still rely on it as the fallback, so the field has to vanish
+// from the request rather than be sent empty.
+func assistantThink() any {
+	if v := strings.TrimSpace(os.Getenv("ASSISTANT_THINK")); v != "" {
+		if strings.EqualFold(v, "off") {
+			return nil
+		}
+		return v
+	}
+	if strings.HasPrefix(assistantModel(), "gpt-oss") {
+		return "low"
+	}
+	return nil
+}
+
 // ── Ollama wire types ───────────────────────────────────────────────────────
 
 type ollamaFunctionCall struct {
@@ -154,6 +186,13 @@ type ollamaMessage struct {
 	Content   string           `json:"content"`
 	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
 	ToolName  string           `json:"tool_name,omitempty"`
+	// Thinking carries the model's reasoning channel, which gpt-oss emits
+	// before it answers. It is deliberately a SEPARATE field from Content and
+	// nothing ever reads it: reasoning cannot be streamed into a chat window
+	// or spoken aloud if no code path carries it there. Decoding it into a
+	// field we drop makes that guarantee explicit rather than accidental, and
+	// it is never populated on an outgoing message.
+	Thinking string `json:"thinking,omitempty"`
 }
 
 type ollamaChatRequest struct {
@@ -161,7 +200,12 @@ type ollamaChatRequest struct {
 	Messages []ollamaMessage `json:"messages"`
 	Tools    []any           `json:"tools,omitempty"`
 	Stream   bool            `json:"stream"`
-	Options  map[string]any  `json:"options,omitempty"`
+	// Think is the reasoning effort. See assistantThink: on gpt-oss this is
+	// the difference between speaking in 3.9s and sitting silent for 17.7s.
+	// Typed any, not string, so it is omitted entirely for models that do
+	// not understand the field.
+	Think   any            `json:"think,omitempty"`
+	Options map[string]any `json:"options,omitempty"`
 	// KeepAlive pins the model in RAM between questions. Ollama defaults to 5
 	// minutes, so in sporadic office use almost every question paid a cold
 	// start: measured 18-80s to reload the 3 GB model, plus the loss of the KV
@@ -1270,6 +1314,16 @@ func assistantSystemPrompt(toolNames []string) string {
 	b.WriteString("STYLE:\n")
 	b.WriteString("- Be brief and concrete. Lead with the answer, then context.\n")
 	b.WriteString("- Plain text only. No markdown, no bold, no bullet symbols other than a simple hyphen.\n")
+	// Number formatting is not cosmetic here, because the companion SPEAKS these
+	// answers. Asked for card delinquency the model wrote "21 365 accounts, 1 124
+	// delinquent", using U+202F NARROW NO-BREAK SPACE as the thousands separator
+	// (measured 2026-10-21). The figures were correct, but a voice reads "1 124"
+	// as two numbers — "one, one hundred and twenty-four" — which in a tool that
+	// reports balances is a wrong figure said out loud. It formatted the same
+	// figure with commas in a longer answer, so this is inconsistency rather than
+	// inability. frontend/src/lib/speech.ts repairs it defensively too; a style
+	// instruction is a request, and that is the guarantee.
+	b.WriteString("- Write numbers exactly as the tools format them, with a comma for thousands: 1,124 — never 1 124, and never a space of any kind inside a number.\n")
 	b.WriteString("- You assist and draft; you never approve, authorise or decide anything. For any money movement, write-off or approval, tell the user to use the proper workflow.\n")
 
 	if len(toolNames) > 0 {
@@ -1378,6 +1432,7 @@ func ollamaChatOpts(ctx context.Context, msgs []ollamaMessage, tools []any, extr
 		Messages:  msgs,
 		Tools:     tools,
 		Stream:    false,
+		Think:     assistantThink(),
 		KeepAlive: assistantKeepAlive(),
 		Options:   opts,
 	}
@@ -1610,7 +1665,7 @@ func assistantChat(db *core.DB) http.HandlerFunc {
 		ConversationID int64  `json:"conversation_id"`
 		Message        string `json:"message"`
 		// Which companion the person has chosen. Tone only; see assistantCompanionManner.
-		Companion      string `json:"companion"`
+		Companion string `json:"companion"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		// The server-wide WriteTimeout is 60s (main.go), sized for CSV exports. A

@@ -89,6 +89,7 @@ func ollamaChatStream(
 		Messages:  msgs,
 		Tools:     tools,
 		Stream:    true,
+		Think:     assistantThink(),
 		KeepAlive: assistantKeepAlive(),
 		Options: map[string]any{
 			"num_thread":  assistantThreads(),
@@ -167,7 +168,7 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 		ConversationID int64  `json:"conversation_id"`
 		Message        string `json:"message"`
 		// Which companion the person has chosen. Tone only; see assistantCompanionManner.
-		Companion      string `json:"companion"`
+		Companion string `json:"companion"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())

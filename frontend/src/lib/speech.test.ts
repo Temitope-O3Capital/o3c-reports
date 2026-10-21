@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createSentenceStream, findSentenceEnd, forSpeech, sayMoney, speakable } from './speech'
+import { createSentenceStream, findSentenceEnd, fixSeparators, forSpeech, sayMoney, speakable } from './speech'
 
 /** Feed a string a few characters at a time, the way tokens actually arrive. */
 function stream(text: string, size = 4): { spoken: string[]; left: string } {
@@ -116,5 +116,41 @@ describe('preparing a sentence for the synthesiser', () => {
   it('does the whole job in one call', () => {
     expect(forSpeech('- We collected **₦41.2m** last month'))
       .toBe('We collected 41.2 million naira last month')
+  })
+})
+
+describe('repairing a thousands separator written as a space', () => {
+  it('turns a narrow no-break space into a comma', () => {
+    // What gpt-oss actually emitted for 21,365 and 1,124.
+    expect(fixSeparators('21\u202f365 accounts, 1\u202f124 delinquent'))
+      .toBe('21,365 accounts, 1,124 delinquent')
+  })
+
+  it('handles a non-breaking and a thin space too', () => {
+    expect(fixSeparators('1\u00a0924\u00a0241')).toBe('1,924,241')
+    expect(fixSeparators('2\u2009541')).toBe('2,541')
+  })
+
+  it('leaves a decimal alone', () => {
+    // The figure this file was written to protect.
+    expect(fixSeparators('₦41.2m')).toBe('₦41.2m')
+    expect(fixSeparators('5.3 % of book')).toBe('5.3 % of book')
+  })
+
+  it('leaves a year alone', () => {
+    // "22 October 2026" has no digit before the space, so nothing to repair;
+    // "in 2026" likewise. A greedy rule would have made these 2,026.
+    expect(fixSeparators('22 October 2026')).toBe('22 October 2026')
+    expect(fixSeparators('Q3 2026 results')).toBe('Q3 2026 results')
+  })
+
+  it('does not join two separate small numbers', () => {
+    // Only a run of exactly three digits is a thousands group.
+    expect(fixSeparators('133 and 10 accounts')).toBe('133 and 10 accounts')
+  })
+
+  it('is applied by forSpeech, so the voice never says a spaced number', () => {
+    expect(forSpeech('- Delinquent accounts: 1\u202f124'))
+      .toBe('Delinquent accounts: 1,124')
   })
 })
