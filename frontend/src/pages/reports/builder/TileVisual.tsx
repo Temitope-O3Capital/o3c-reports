@@ -21,17 +21,40 @@ import { resolveViz, type TileVizConfig } from './tileViz'
   and the builder fetches for an unsaved config, so a fetch in here would be a third
   source of truth about what a tile shows.
 */
-export function TileVisual({ viz, config, columns, rows, rowCount, height }: {
+export function TileVisual({
+  viz, config, columns, rows, rowCount, height, pickKeys, onPick, activeValue,
+}: {
   viz: string
   config: Record<string, any> | null
   columns: string[]
   rows: Record<string, unknown>[]
   rowCount: number
   height: number
+  /** Column keys a click is allowed to filter the board by — the board's own slicer keys.
+   *  A category column outside this list is not clickable, which is what stops a click
+   *  reaching a filter no dataset declares. */
+  pickKeys?: string[]
+  onPick?: (key: string, value: string) => void
+  /** The category currently picked from THIS tile: drawn solid while the rest fade. */
+  activeValue?: string | null
 }) {
   const r = resolveViz(viz, columns, rows, config)
   const primary = r.seriesKeys[0] ?? columns[0] ?? ''
   const fmt = (v: number) => fmtValue(primary, v)
+
+  // What a click sends is the row's own value, not the formatted label on the axis: the
+  // board filters with an equality, and "₦1.2m" or a truncated name would match nothing.
+  const canPick = !!onPick && !!r.labelKey && (pickKeys ?? []).includes(r.labelKey)
+  const pick = canPick
+    ? (v: unknown) => {
+        // A blank category cannot be filtered by equality — that would need IS NULL — so
+        // clicking (blank) does nothing rather than quietly narrowing to no rows.
+        const s = v === null || v === undefined ? '' : String(v)
+        if (!s.trim()) return
+        onPick!(r.labelKey, s)
+      }
+    : undefined
+  const active = activeValue || undefined
 
   if (viz === 'kpi') {
     // SEVERAL MEASURES BECOME A ROW OF FIGURES. "A card showing total calls, missed
@@ -145,6 +168,7 @@ export function TileVisual({ viz, config, columns, rows, rowCount, height }: {
           data={r.rows} valueKey={primary} nameKey={r.labelKey}
           colorFn={(_row, i) => CHART_SERIES[i % CHART_SERIES.length]}
           size={Math.min(height + 40, 190)} legend valueFmt={fmt}
+          onPick={pick} activeCat={active}
         />
       </div>
     )
@@ -157,6 +181,7 @@ export function TileVisual({ viz, config, columns, rows, rowCount, height }: {
           data={r.rows} nameKey={r.labelKey} valueKey={primary}
           colorFn={(_row, i) => CHART_SERIES[i % CHART_SERIES.length]}
           height={height} valueFmt={fmt}
+          onPick={pick} activeCat={active}
         />
       </div>
     )
@@ -175,7 +200,7 @@ export function TileVisual({ viz, config, columns, rows, rowCount, height }: {
     return (
       <div style={{ padding: SP[2] }}>
         <EBarH data={r.rows} catKey={r.labelKey} series={series} height={height}
-          legend={r.legend} valueFmt={fmt} />
+          legend={r.legend} valueFmt={fmt} onPick={pick} activeCat={active} />
       </div>
     )
   }
@@ -187,14 +212,14 @@ export function TileVisual({ viz, config, columns, rows, rowCount, height }: {
       <div style={{ padding: SP[2] }}>
         <ECombo data={r.rows} xKey={r.labelKey} bars={bars} lines={lines}
           height={height} legend={r.legend} valueFmt={fmt}
-          rightAxis={r.rightAxis} stack={r.stacked} />
+          rightAxis={r.rightAxis} stack={r.stacked} onPick={pick} activeCat={active} />
       </div>
     )
   }
 
   const common = {
     data: r.rows, xKey: r.labelKey, series, height,
-    valueFmt: fmt,
+    valueFmt: fmt, onPick: pick, activeCat: active,
     // Undefined would let each chart apply its own rule; being explicit keeps the
     // builder's preview and the dashboard identical.
     legend: r.legend ?? series.length > 1,

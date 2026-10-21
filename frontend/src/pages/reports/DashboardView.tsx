@@ -14,8 +14,8 @@ import { VIZ_KINDS, VIZ_META, type VizKind } from './builder/tileViz'
 // One renderer for a tile, shared with the builder's live preview. See TileVisual.tsx.
 import { TileVisual } from './builder/TileVisual'
 import {
-  DashboardFilterBar, emptySelection, selectionQuery,
-  type DashSelection, type Slicer,
+  DashboardFilterBar, emptySelection, crossFilterKeys, tileQuery,
+  type DashSelection, type Slicer, type CrossFilter,
 } from './builder/DashboardFilters'
 import { toast } from 'sonner'
 
@@ -101,12 +101,17 @@ interface SourceList {
 
 // ── One tile ──────────────────────────────────────────────────────────────────
 
-function TileBody({ tile, query, selectedKeys }: {
+function TileBody({ tile, query, selectedKeys, pickKeys, onPick, activeValue }: {
   tile: Tile
   /** The board's filter selection, as a query string. Empty when nothing is selected. */
   query: string
   /** Which slicer keys are selected, so the tile can say if it could not honour one. */
   selectedKeys: string[]
+  /** Which category columns a click here may filter the board by. */
+  pickKeys?: string[]
+  onPick?: (key: string, value: string) => void
+  /** The category picked from this tile, if the live cross-filter came from here. */
+  activeValue?: string | null
 }) {
   const [data, setData] = useState<TileData | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -176,6 +181,7 @@ function TileBody({ tile, query, selectedKeys }: {
       <TileVisual
         viz={tile.viz} config={tile.config} columns={data.columns} rows={data.rows}
         rowCount={data.row_count} height={Math.max(80, tile.grid_h * ROW_H - 86)}
+        pickKeys={pickKeys} onPick={onPick} activeValue={activeValue}
       />
     </>
   )
@@ -198,6 +204,9 @@ export default function DashboardView() {
   // stored selection would let one person reframe a colleague's figures. See
   // builder/DashboardFilters.tsx.
   const [sel, setSel] = useState<DashSelection>(emptySelection)
+  // A filter set by clicking a tile. Separate from `sel` because it has an origin — the
+  // tile it came from is deliberately exempt from it. See builder/DashboardFilters.tsx.
+  const [cross, setCross] = useState<CrossFilter | null>(null)
   const [sources, setSources] = useState<SourceList | null>(null)
   const [removing, setRemoving] = useState<Tile | null>(null)
   const [renaming, setRenaming] = useState<Tile | null>(null)
@@ -221,11 +230,42 @@ export default function DashboardView() {
     [board],
   )
 
-  // One query string for every tile, so they all answer the same question and React
-  // re-fetches them together when it changes.
-  const filterQuery = useMemo(() => selectionQuery(sel), [sel])
   const selectedKeys = useMemo(() => Object.keys(sel.values).filter(k => sel.values[k]), [sel])
   const offered = useMemo(() => board?.config?.slicers ?? [], [board])
+
+  // Which category columns a click may filter on. Only the board's own slicer keys, so a
+  // click can never reach a filter no dataset declares — and none at all while the author
+  // is rearranging the board, where a click belongs to the drag.
+  const pickKeys = useMemo(
+    () => (editing ? [] : crossFilterKeys(board?.available_slicers ?? [], sel)),
+    [board, sel, editing],
+  )
+
+  // Setting a slicer by hand replaces a click on the same field: two answers to one
+  // question, one of them a click nobody can see, is how a board starts disagreeing
+  // with itself.
+  const chooseSel = useCallback((next: DashSelection) => {
+    setSel(next)
+    setCross(c => (c && next.values[c.key] ? null : c))
+  }, [])
+
+  const pickFrom = useCallback((tile: Tile, key: string, value: string) => {
+    const slicer = (board?.available_slicers ?? []).find(s => s.key === key)
+    if (!slicer) return  // TileVisual already gates on pickKeys; this is the second lock.
+    setCross(c => (
+      c && c.tileId === tile.id && c.key === key && c.value === value
+        // Clicking the same thing again lets go of it. Without this the only way back is
+        // Clear, and a filter you cannot undo where you set it feels like a trap.
+        ? null
+        : { tileId: tile.id, tileTitle: tile.title, key, label: slicer.label, value }
+    ))
+  }, [board])
+
+  // A cross-filter whose origin tile is gone would quietly start applying to everything,
+  // including the chart it came from, and the chip would name a tile nobody can see.
+  useEffect(() => {
+    if (cross && board && !board.tiles.some(t => t.id === cross.tileId)) setCross(null)
+  }, [board, cross])
   // A period control is only worth showing if some tile actually reads a date.
   const anyDated = useMemo(
     () => (board?.available_slicers ?? []).length > 0 || (board?.tiles ?? []).some(t => t.dataset),
@@ -460,10 +500,12 @@ export default function DashboardView() {
             slicers={board.available_slicers ?? []}
             offered={offered}
             sel={sel}
-            onSel={setSel}
+            onSel={chooseSel}
             editing={editing && board.is_mine}
             onOfferedChange={saveOffered}
             hasDate={anyDated}
+            cross={cross}
+            onClearCross={() => setCross(null)}
           />
         </div>
       )}
@@ -583,7 +625,18 @@ export default function DashboardView() {
                 </div>
 
                 <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                  <TileBody tile={t} query={filterQuery} selectedKeys={selectedKeys} />
+                  {/* Each tile asks the board's question, plus a click from ANOTHER tile.
+                      The tile a click came from keeps all its categories and fades the
+                      ones not picked — filtering it by its own click would leave the one
+                      bar you clicked and nothing to click next. */}
+                  <TileBody
+                    tile={t}
+                    query={tileQuery(sel, cross, t.id)}
+                    selectedKeys={cross && cross.tileId !== t.id ? [...selectedKeys, cross.key] : selectedKeys}
+                    pickKeys={pickKeys}
+                    onPick={pickKeys.length ? (k, v) => pickFrom(t, k, v) : undefined}
+                    activeValue={cross && cross.tileId === t.id ? cross.value : null}
+                  />
                 </div>
 
                 {editing && board.is_mine && (

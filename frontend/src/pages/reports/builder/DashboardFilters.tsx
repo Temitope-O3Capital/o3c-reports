@@ -60,8 +60,43 @@ export function isSelectionEmpty(sel: DashSelection): boolean {
   return !sel.win && !Object.values(sel.values).some(Boolean)
 }
 
+/*
+  CROSS-FILTERING: a click on one tile is a question put to the others.
+
+  It rides the filter bar's own plumbing rather than inventing a second mechanism — a
+  click becomes one more `f_<key>=value` on the other tiles' requests, so it can only
+  ever reach a filter the dataset already declares, exactly like a slicer. That is the
+  whole safety argument, and it is why `crossFilterKeys` is the only gate needed.
+
+  THE TILE YOU CLICKED IS NOT NARROWED BY ITS OWN CLICK. Filtering the source visual
+  would collapse the chart you just clicked to the single bar you clicked, leaving
+  nothing to click next and no way back except Clear. So the origin keeps all its
+  categories and fades the ones you did not pick, which is both the readable thing and
+  what Power BI does.
+*/
+export type CrossFilter = {
+  tileId: number
+  tileTitle: string
+  key: string
+  label: string
+  value: string
+}
+
+/** The keys a click is allowed to write. A key the bar already has a value for is left
+ *  out: the board is asking a narrower question on it, and a click could only either
+ *  contradict the control the viewer can see or be silently ignored. */
+export function crossFilterKeys(slicers: Slicer[], sel: DashSelection): string[] {
+  return slicers.filter(s => !sel.values[s.key]).map(s => s.key)
+}
+
+/** What one tile asks for: the bar's selection, plus a cross-filter from any OTHER tile. */
+export function tileQuery(sel: DashSelection, cross: CrossFilter | null, tileId: number): string {
+  if (!cross || cross.tileId === tileId) return selectionQuery(sel)
+  return selectionQuery({ ...sel, values: { ...sel.values, [cross.key]: cross.value } })
+}
+
 export function DashboardFilterBar({
-  slicers, offered, sel, onSel, editing, onOfferedChange, hasDate,
+  slicers, offered, sel, onSel, editing, onOfferedChange, hasDate, cross, onClearCross,
 }: {
   /** Everything this board COULD offer, from the server. */
   slicers: Slicer[]
@@ -73,6 +108,10 @@ export function DashboardFilterBar({
   onOfferedChange: (keys: string[]) => void
   /** Whether any tile has a date column, so a period control is worth showing. */
   hasDate: boolean
+  /** A filter set by clicking a tile, shown here so the board has ONE place that says
+   *  what it is currently asking. */
+  cross?: CrossFilter | null
+  onClearCross?: () => void
 }) {
   const byKey = useMemo(() => new Map(slicers.map(s => [s.key, s])), [slicers])
   const shown = useMemo(
@@ -130,7 +169,7 @@ export function DashboardFilterBar({
     )
   }
 
-  if (!shown.length && !hasDate) return null
+  if (!shown.length && !hasDate && !cross) return null
 
   return (
     <div style={{
@@ -177,8 +216,33 @@ export function DashboardFilterBar({
         </label>
       ))}
 
-      {!isSelectionEmpty(sel) && (
-        <Button variant="ghost" icon="filter_alt_off" onClick={() => onSel(emptySelection())}>
+      {/* A click on a tile is a filter the viewer did not type, so it has to be visible
+          and removable in the same place as the ones they did — and it names the tile it
+          came from, because "Direction: Inbound" with no provenance is a mystery. */}
+      {cross && (
+        <button type="button" onClick={onClearCross}
+          title={`Set by clicking ${cross.tileTitle}. Every other tile is narrowed to this.`}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'center',
+            padding: '5px 10px', borderRadius: 999, cursor: 'pointer',
+            border: '1px solid var(--accent)', background: 'var(--accent-soft)',
+            color: 'var(--txt)', fontSize: TEXT.xs, maxWidth: 320,
+          }}>
+          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 14 }}>
+            ads_click
+          </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {cross.label}: <b style={{ fontWeight: FW.semibold }}>{cross.value}</b>
+          </span>
+          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 14, color: 'var(--txt3)' }}>
+            close
+          </span>
+        </button>
+      )}
+
+      {(!isSelectionEmpty(sel) || cross) && (
+        <Button variant="ghost" icon="filter_alt_off"
+          onClick={() => { onSel(emptySelection()); onClearCross?.() }}>
           Clear
         </Button>
       )}

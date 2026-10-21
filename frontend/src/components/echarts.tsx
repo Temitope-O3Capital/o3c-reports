@@ -11,6 +11,12 @@
 // Components: EBar (single / grouped / stacked), EArea, ELine, EDonut. For
 // anything bespoke, use the exported <EChart option={…}> with the token helpers
 // (useChartTokens, baseTooltip, tipCard, axisCat, axisVal, CHART_FONT).
+//
+// CLICKING A CHART IS OPT-IN. `onPick` (and `activeCat`, which dims everything
+// else) exist for the dashboard's cross-filtering. Every chart on every page that
+// passes neither renders byte-for-byte what it rendered before: no cursor change,
+// no click handler bound, no per-datum objects in the series data. That matters
+// here more than usual — this file is imported by around fifty pages.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
@@ -143,15 +149,55 @@ const grad = (hex: string) => {
 
 // Raw chart — for bespoke option objects. `option` may be a plain object or a
 // function of the resolved tokens (so it re-themes with light/dark automatically).
-export function EChart({ option, height }: { option: any | ((t: ChartTokens) => any); height: number }) {
+// `onEvents` is passed straight to echarts-for-react; omitted, nothing is bound.
+export function EChart({ option, height, onEvents }: {
+  option: any | ((t: ChartTokens) => any)
+  height: number
+  onEvents?: Record<string, (p: any) => void>
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const tokens = useChartTokens(ref)
   const opt = useMemo(() => (typeof option === 'function' ? option(tokens) : option), [option, tokens])
   return (
     <div ref={ref} style={{ width: '100%', height }}>
-      <ReactECharts option={opt} style={{ width: '100%', height: '100%' }} notMerge lazyUpdate opts={{ renderer: 'canvas' }} />
+      <ReactECharts option={opt} style={{ width: '100%', height: '100%' }} notMerge lazyUpdate
+        opts={{ renderer: 'canvas' }} onEvents={onEvents} />
     </div>
   )
+}
+
+// ── Clicking a datum ─────────────────────────────────────────────────────────
+// What a click hands back is the ROW'S OWN VALUE at the category key, looked up in
+// the caller's data by dataIndex — never ECharts' rendered label. The label is a
+// string the axis may have formatted or truncated; filtering on it would match
+// nothing, silently. A chart with no onPick binds no handler at all.
+export type Pick<T> = (value: unknown, row: T, index: number) => void
+
+function pickEvents<T extends Record<string, any>>(data: T[], key: keyof T, onPick?: Pick<T>) {
+  if (!onPick) return undefined
+  return {
+    click: (p: any) => {
+      const row = data[p?.dataIndex]
+      if (!row) return
+      onPick(row[key], row, p.dataIndex)
+    },
+  }
+}
+
+// The opacity one datum should draw at: faded when a category is selected and this is
+// not it, undefined otherwise. Returning undefined rather than 1 is what lets the charts
+// keep their plain series data (a bare number per point) when nothing is selected.
+const DIM = 0.25
+function dimOf(activeCat: unknown, v: unknown): number | undefined {
+  if (activeCat === undefined || activeCat === null || activeCat === '') return undefined
+  return String(v ?? '') === String(activeCat) ? undefined : DIM
+}
+
+// The same test as a per-row function, or undefined when nothing is selected — the
+// charts that build series through `seriesRow` branch on its presence.
+function dimmer<T extends Record<string, any>>(data: T[], key: keyof T, activeCat: unknown) {
+  if (activeCat === undefined || activeCat === null || activeCat === '') return undefined
+  return (row: T, _i?: number) => dimOf(activeCat, row[key])
 }
 
 // One plotted metric. `color` is a flat colour; `colorFn` gives per-datum colour;
@@ -166,22 +212,41 @@ const axisTip = <T,>(t: ChartTokens, series: Series<T>[], valueFmt: (v: number) 
     return { color: p.color, name: series.length > 1 ? p.seriesName : undefined, value: (s?.fmt ?? valueFmt)(Number(p.value)) }
   }))
 
-function seriesRow<T extends Record<string, any>>(kind: 'bar' | 'line' | 'area', data: T[], s: Series<T>, extra: any = {}) {
+function seriesRow<T extends Record<string, any>>(
+  kind: 'bar' | 'line' | 'area', data: T[], s: Series<T>, extra: any = {},
+  dim?: (row: T, i: number) => number | undefined,
+) {
   const name = s.name ?? String(s.key)
   if (kind === 'bar') {
+    const br = [4, 4, 0, 0]
     return {
       type: 'bar', name, barMaxWidth: 40,
-      itemStyle: { borderRadius: [4, 4, 0, 0], color: s.color },
-      data: data.map((d, i) => (s.colorFn ? { value: d[s.key], itemStyle: { color: s.colorFn(d, i), borderRadius: [4, 4, 0, 0] } } : d[s.key])),
+      itemStyle: { borderRadius: br, color: s.color },
+      data: data.map((d, i) => {
+        const o = dim?.(d, i)
+        if (!s.colorFn && o === undefined) return d[s.key]
+        return {
+          value: d[s.key],
+          itemStyle: {
+            ...(s.colorFn ? { color: s.colorFn(d, i) } : {}),
+            borderRadius: br,
+            ...(o === undefined ? {} : { opacity: o }),
+          },
+        }
+      }),
       ...extra,
     }
   }
-  // line / area
+  // line / area. A continuous line cannot be half faded — dimming the unselected
+  // stretches would just make the line look broken — so the selected point is
+  // marked instead, which is also the only readable cue on a dense date axis.
   return {
-    type: 'line', name, smooth: true, smoothMonotone: 'x', showSymbol: false,
+    type: 'line', name, smooth: true, smoothMonotone: 'x', showSymbol: !!dim,
     lineStyle: { width: 2.5, color: s.color }, itemStyle: { color: s.color },
     areaStyle: kind === 'area' && s.color ? { color: grad(s.color) } : undefined,
-    data: data.map((d) => d[s.key]),
+    data: dim
+      ? data.map((d, i) => ({ value: d[s.key], symbolSize: dim(d, i) === undefined ? 9 : 0 }))
+      : data.map((d) => d[s.key]),
     ...extra,
   }
 }
@@ -189,7 +254,7 @@ function seriesRow<T extends Record<string, any>>(kind: 'bar' | 'line' | 'area',
 // ── Vertical bar — single, grouped, or stacked ───────────────────────────────
 export function EBar<T extends Record<string, any>>({
   data, xKey, series, stack = false, height = 200, legend,
-  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8,
+  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat,
 }: {
   data: T[]
   xKey: keyof T
@@ -201,24 +266,32 @@ export function EBar<T extends Record<string, any>>({
   axisFmt?: (v: number) => string
   xTickSize?: number
   leftMargin?: number
+  onPick?: Pick<T>          // opt-in: makes a column clickable
+  activeCat?: unknown       // the picked category, drawn solid while the rest fade
 }) {
   const showLegend = legend ?? series.length > 1
+  const clickable = !!onPick
   const option = useMemo(
-    () => (t: ChartTokens) => ({
-      grid: { top: showLegend ? 30 : 14, right: 12, bottom: 24, left: leftMargin, containLabel: true },
-      legend: showLegend ? legendCfg(t) : undefined,
-      tooltip: {
-        trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: t.rowHvr, opacity: 0.5 } }, ...baseTooltip(t),
-        formatter: axisTip(t, series, valueFmt),
-      },
-      xAxis: axisCat(t, data.map((d) => d[xKey]), xTickSize),
-      yAxis: axisVal(t, axisFmt),
-      series: series.map((s) => seriesRow('bar', data, s, stack ? { stack: 'total' } : {})),
-      animationDuration: 700,
-    }),
-    [data, xKey, series, stack, showLegend, valueFmt, axisFmt, xTickSize, leftMargin],
+    () => (t: ChartTokens) => {
+      const dim = dimmer(data, xKey, activeCat)
+      return {
+        grid: { top: showLegend ? 30 : 14, right: 12, bottom: 24, left: leftMargin, containLabel: true },
+        legend: showLegend ? legendCfg(t) : undefined,
+        tooltip: {
+          trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: t.rowHvr, opacity: 0.5 } }, ...baseTooltip(t),
+          formatter: axisTip(t, series, valueFmt),
+        },
+        xAxis: axisCat(t, data.map((d) => d[xKey]), xTickSize),
+        yAxis: axisVal(t, axisFmt),
+        series: series.map((s) => seriesRow('bar', data, s, {
+          ...(stack ? { stack: 'total' } : {}), ...(clickable ? { cursor: 'pointer' } : {}),
+        }, dim)),
+        animationDuration: 700,
+      }
+    },
+    [data, xKey, series, stack, showLegend, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat],
   )
-  return <EChart option={option} height={height} />
+  return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
 
 // The "Rails" endpoint chip: stamps a series' last value at the line's end.
@@ -233,15 +306,18 @@ function endChip(t: ChartTokens, color: string | undefined, fmt: (v: number) => 
 // ── Smooth area (gradient fill) ──────────────────────────────────────────────
 export function EArea<T extends Record<string, any>>({
   data, xKey, series, stack = false, height = 220, endLabel = false, endFmt, dots = false, hideYAxis = false,
-  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8,
+  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat,
 }: {
   data: T[]; xKey: keyof T; series: Series<T>[]; stack?: boolean; height?: number
   endLabel?: boolean; endFmt?: (v: number) => string; dots?: boolean; hideYAxis?: boolean
   valueFmt?: (v: number) => string; axisFmt?: (v: number) => string; xTickSize?: number; leftMargin?: number
+  onPick?: Pick<T>; activeCat?: unknown
 }) {
+  const clickable = !!onPick
   const option = useMemo(
     () => (t: ChartTokens) => {
       const cat = axisCat(t, data.map((d) => d[xKey]), xTickSize)
+      const dim = dimmer(data, xKey, activeCat)
       return {
         grid: { top: series.length > 1 ? 30 : 14, right: endLabel ? 80 : 14, bottom: 24, left: leftMargin, containLabel: true },
         legend: series.length > 1 && !endLabel ? legendCfg(t) : undefined,
@@ -254,24 +330,29 @@ export function EArea<T extends Record<string, any>>({
           ...(stack ? { stack: 'total' } : {}),
           ...(dots ? { showSymbol: true, symbolSize: 5 } : {}),
           ...(endLabel ? { endLabel: endChip(t, s.color, endFmt ?? s.fmt ?? valueFmt) } : {}),
-        })),
+          // A line series reports a click only when the pointer lands on a symbol,
+          // and symbols are off by default — so the line itself becomes the target.
+          ...(clickable ? { cursor: 'pointer', triggerLineEvent: true } : {}),
+        }, dim)),
         animationDuration: 700,
       }
     },
-    [data, xKey, series, stack, endLabel, endFmt, dots, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin],
+    [data, xKey, series, stack, endLabel, endFmt, dots, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat],
   )
-  return <EChart option={option} height={height} />
+  return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
 
 // ── Smooth multi-series line ─────────────────────────────────────────────────
 export function ELine<T extends Record<string, any>>({
   data, xKey, series, height = 220, endLabel = false, endFmt, hideYAxis = false,
-  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8,
+  valueFmt = (v) => String(v), axisFmt, xTickSize = 11, leftMargin = 8, onPick, activeCat,
 }: {
   data: T[]; xKey: keyof T; series: Series<T>[]; height?: number
   endLabel?: boolean; endFmt?: (v: number) => string; hideYAxis?: boolean
   valueFmt?: (v: number) => string; axisFmt?: (v: number) => string; xTickSize?: number; leftMargin?: number
+  onPick?: Pick<T>; activeCat?: unknown
 }) {
+  const clickable = !!onPick
   const option = useMemo(
     () => (t: ChartTokens) => ({
       grid: { top: series.length > 1 && !endLabel ? 30 : 14, right: endLabel ? 80 : 14, bottom: 24, left: leftMargin, containLabel: true },
@@ -282,19 +363,21 @@ export function ELine<T extends Record<string, any>>({
       },
       xAxis: { ...axisCat(t, data.map((d) => d[xKey]), xTickSize), boundaryGap: false },
       yAxis: hideYAxis ? { ...axisVal(t, axisFmt), axisLabel: { show: false } } : axisVal(t, axisFmt),
-      series: series.map((s) => seriesRow('line', data, s,
-        endLabel ? { endLabel: endChip(t, s.color, endFmt ?? s.fmt ?? valueFmt) } : {})),
+      series: series.map((s) => seriesRow('line', data, s, {
+        ...(endLabel ? { endLabel: endChip(t, s.color, endFmt ?? s.fmt ?? valueFmt) } : {}),
+        ...(clickable ? { cursor: 'pointer', triggerLineEvent: true } : {}),
+      }, dimmer(data, xKey, activeCat))),
       animationDuration: 700,
     }),
-    [data, xKey, series, endLabel, endFmt, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin],
+    [data, xKey, series, endLabel, endFmt, hideYAxis, valueFmt, axisFmt, xTickSize, leftMargin, clickable, activeCat],
   )
-  return <EChart option={option} height={height} />
+  return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
 
 // ── Horizontal bar — ranked categories (long labels) ─────────────────────────
 export function EBarH<T extends Record<string, any>>({
   data, catKey, series, height = 260, legend, barMax = 24,
-  valueFmt = (v) => String(v), axisFmt,
+  valueFmt = (v) => String(v), axisFmt, onPick, activeCat,
 }: {
   data: T[]
   catKey: keyof T
@@ -304,40 +387,58 @@ export function EBarH<T extends Record<string, any>>({
   barMax?: number
   valueFmt?: (v: number) => string
   axisFmt?: (v: number) => string
+  onPick?: Pick<T>
+  activeCat?: unknown
 }) {
   const showLegend = legend ?? series.length > 1
+  const clickable = !!onPick
   const option = useMemo(
-    () => (t: ChartTokens) => ({
-      grid: { top: showLegend ? 28 : 8, right: 16, bottom: 8, left: 8, containLabel: true },
-      legend: showLegend ? legendCfg(t) : undefined,
-      tooltip: {
-        trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: t.rowHvr, opacity: 0.5 } }, ...baseTooltip(t),
-        formatter: axisTip(t, series, valueFmt),
-      },
-      xAxis: axisVal(t, axisFmt),
-      yAxis: {
-        type: 'category', inverse: true, data: data.map((d) => d[catKey]),
-        axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: t.lbl, fontSize: 11, fontFamily: CHART_FONT },
-      },
-      series: series.map((s) => ({
-        type: 'bar', name: s.name ?? String(s.key), barMaxWidth: barMax,
-        itemStyle: { borderRadius: [0, 4, 4, 0], color: s.color },
-        data: data.map((d, i) => (s.colorFn
-          ? { value: d[s.key], itemStyle: { color: s.colorFn(d, i), borderRadius: [0, 4, 4, 0] } }
-          : d[s.key])),
-      })),
-      animationDuration: 700,
-    }),
-    [data, catKey, series, showLegend, barMax, valueFmt, axisFmt],
+    () => (t: ChartTokens) => {
+      const dim = dimmer(data, catKey, activeCat)
+      const br = [0, 4, 4, 0]
+      return {
+        grid: { top: showLegend ? 28 : 8, right: 16, bottom: 8, left: 8, containLabel: true },
+        legend: showLegend ? legendCfg(t) : undefined,
+        tooltip: {
+          trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: t.rowHvr, opacity: 0.5 } }, ...baseTooltip(t),
+          formatter: axisTip(t, series, valueFmt),
+        },
+        xAxis: axisVal(t, axisFmt),
+        yAxis: {
+          type: 'category', inverse: true, data: data.map((d) => d[catKey]),
+          axisLine: { show: false }, axisTick: { show: false },
+          axisLabel: { color: t.lbl, fontSize: 11, fontFamily: CHART_FONT },
+        },
+        series: series.map((s) => ({
+          type: 'bar', name: s.name ?? String(s.key), barMaxWidth: barMax,
+          itemStyle: { borderRadius: br, color: s.color },
+          ...(clickable ? { cursor: 'pointer' } : {}),
+          data: data.map((d, i) => {
+            const o = dim?.(d, i)
+            if (!s.colorFn && o === undefined) return d[s.key]
+            return {
+              value: d[s.key],
+              itemStyle: {
+                ...(s.colorFn ? { color: s.colorFn(d, i) } : {}),
+                borderRadius: br,
+                ...(o === undefined ? {} : { opacity: o }),
+              },
+            }
+          }),
+        })),
+        animationDuration: 700,
+      }
+    },
+    [data, catKey, series, showLegend, barMax, valueFmt, axisFmt, clickable, activeCat],
   )
-  return <EChart option={option} height={height} />
+  return <EChart option={option} height={height} onEvents={pickEvents(data, catKey, onPick)} />
 }
 
 // ── Donut — hover-expand slice; center label OR legend ───────────────────────
 export function EDonut<T extends Record<string, any>>({
   data, valueKey, nameKey, colorFn, size = 148, inner = 42, outer = 66, centerSize = 18,
   centerValue, centerLabel, legend = false, valueFmt = (v) => String(v), nameFmt, showPercent = true,
+  onPick, activeCat,
 }: {
   data: T[]
   valueKey: keyof T
@@ -353,7 +454,10 @@ export function EDonut<T extends Record<string, any>>({
   valueFmt?: (v: number) => string
   nameFmt?: (name: any) => string
   showPercent?: boolean
+  onPick?: Pick<T>
+  activeCat?: unknown
 }) {
+  const clickable = !!onPick
   const option = useMemo(
     () => (t: ChartTokens) => ({
       tooltip: {
@@ -390,20 +494,28 @@ export function EDonut<T extends Record<string, any>>({
           itemStyle: { borderRadius: 3 },
           label: { show: false },
           labelLine: { show: false },
-          data: data.map((d, i) => ({ name: d[nameKey], value: d[valueKey], itemStyle: { color: colorFn(d, i) } })),
+          ...(clickable ? { cursor: 'pointer' } : {}),
+          data: data.map((d, i) => {
+            const o = dimOf(activeCat, d[nameKey])
+            return {
+              name: d[nameKey], value: d[valueKey],
+              itemStyle: { color: colorFn(d, i), ...(o === undefined ? {} : { opacity: o }) },
+            }
+          }),
           emphasis: { scale: true, scaleSize: 8, itemStyle: { shadowBlur: 10, shadowColor: 'rgba(8,15,35,0.22)' } },
         },
       ],
       animationDuration: 700,
     }),
-    [data, valueKey, nameKey, colorFn, size, inner, outer, centerSize, centerValue, centerLabel, legend, valueFmt, nameFmt, showPercent],
+    [data, valueKey, nameKey, colorFn, size, inner, outer, centerSize, centerValue, centerLabel, legend, valueFmt, nameFmt, showPercent, clickable, activeCat],
   )
-  return <EChart option={option} height={size} />
+  return <EChart option={option} height={size} onEvents={pickEvents(data, nameKey, onPick)} />
 }
 
 // ── Funnel — pipeline / stage conversion ─────────────────────────────────────
 export function EFunnel<T extends Record<string, any>>({
   data, nameKey, valueKey, colorFn, height = 240, valueFmt = (v) => String(v), showValueLabel = true,
+  onPick, activeCat,
 }: {
   data: T[]
   nameKey: keyof T
@@ -412,7 +524,10 @@ export function EFunnel<T extends Record<string, any>>({
   height?: number
   valueFmt?: (v: number) => string
   showValueLabel?: boolean
+  onPick?: Pick<T>
+  activeCat?: unknown
 }) {
+  const clickable = !!onPick
   const option = useMemo(
     () => (t: ChartTokens) => ({
       tooltip: {
@@ -429,23 +544,31 @@ export function EFunnel<T extends Record<string, any>>({
           labelLine: { show: false },
           itemStyle: { borderColor: t.card, borderWidth: 2 },
           emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(8,15,35,0.22)' } },
-          data: data.map((d, i) => ({
-            name: String(d[nameKey]), value: Number(d[valueKey]),
-            itemStyle: colorFn ? { color: colorFn(d, i) } : undefined,
-          })),
+          ...(clickable ? { cursor: 'pointer' } : {}),
+          data: data.map((d, i) => {
+            const o = dimOf(activeCat, d[nameKey])
+            return {
+              name: String(d[nameKey]), value: Number(d[valueKey]),
+              itemStyle: {
+                ...(colorFn ? { color: colorFn(d, i) } : {}),
+                ...(o === undefined ? {} : { opacity: o }),
+              },
+            }
+          }),
         },
       ],
       animationDuration: 700,
     }),
-    [data, nameKey, valueKey, colorFn, valueFmt, showValueLabel],
+    [data, nameKey, valueKey, colorFn, valueFmt, showValueLabel, clickable, activeCat],
   )
-  return <EChart option={option} height={height} />
+  return <EChart option={option} height={height} onEvents={pickEvents(data, nameKey, onPick)} />
 }
 
 // ── Combo — bars / areas + line(s), optional right axis ──────────────────────
 export function ECombo<T extends Record<string, any>>({
   data, xKey, bars = [], areas = [], lines = [], height = 240, legend,
   valueFmt = (v) => String(v), axisFmt, rightAxis = false, rightFmt, stack = false, xTickSize = 11, leftMargin = 8,
+  onPick, activeCat,
 }: {
   data: T[]
   xKey: keyof T
@@ -461,9 +584,12 @@ export function ECombo<T extends Record<string, any>>({
   stack?: boolean              // stack the bar series
   xTickSize?: number
   leftMargin?: number
+  onPick?: Pick<T>
+  activeCat?: unknown
 }) {
   const allSeries = [...bars, ...areas, ...lines]
   const showLegend = legend ?? allSeries.length > 1
+  const clickable = !!onPick
   const option = useMemo(
     () => (t: ChartTokens) => ({
       grid: { top: showLegend ? 30 : 14, right: rightAxis ? 48 : 14, bottom: 24, left: leftMargin, containLabel: true },
@@ -477,13 +603,22 @@ export function ECombo<T extends Record<string, any>>({
         ? [axisVal(t, axisFmt), { ...axisVal(t, rightFmt ?? axisFmt), splitLine: { show: false } }]
         : axisVal(t, axisFmt),
       series: [
-        ...bars.map((s) => seriesRow('bar', data, s, stack ? { stack: 'total' } : {})),
-        ...areas.map((s) => seriesRow('area', data, s)),
-        ...lines.map((s) => ({ ...seriesRow('line', data, s), yAxisIndex: rightAxis ? 1 : 0 })),
+        ...bars.map((s) => seriesRow('bar', data, s, {
+          ...(stack ? { stack: 'total' } : {}), ...(clickable ? { cursor: 'pointer' } : {}),
+        }, dimmer(data, xKey, activeCat))),
+        ...areas.map((s) => seriesRow('area', data, s,
+          clickable ? { cursor: 'pointer', triggerLineEvent: true } : {},
+          dimmer(data, xKey, activeCat))),
+        ...lines.map((s) => ({
+          ...seriesRow('line', data, s,
+            clickable ? { cursor: 'pointer', triggerLineEvent: true } : {},
+            dimmer(data, xKey, activeCat)),
+          yAxisIndex: rightAxis ? 1 : 0,
+        })),
       ],
       animationDuration: 700,
     }),
-    [data, xKey, bars, areas, lines, showLegend, valueFmt, axisFmt, rightAxis, rightFmt, stack, xTickSize, leftMargin],
+    [data, xKey, bars, areas, lines, showLegend, valueFmt, axisFmt, rightAxis, rightFmt, stack, xTickSize, leftMargin, clickable, activeCat],
   )
-  return <EChart option={option} height={height} />
+  return <EChart option={option} height={height} onEvents={pickEvents(data, xKey, onPick)} />
 }
