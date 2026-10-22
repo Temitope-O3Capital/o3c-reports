@@ -1123,13 +1123,23 @@ func bdListAssignments(db *core.DB) http.HandlerFunc {
 				a.staff_count_at_assignment, a.notes, a.assigned_at,
 				COUNT(DISTINCT c.id)                                       AS contacts_total,
 				COUNT(DISTINCT c.id) FILTER (WHERE c.status = 'customer') AS contacts_converted,
-				COUNT(DISTINCT d.id) FILTER (WHERE d.id IS NOT NULL)       AS deals_open
+				-- Whether a deal is settled is a property of its STAGE, not of the deal:
+				-- crm_deals holds stage_id, and is_won/is_lost live on
+				-- crm_pipeline_stages. Testing d.is_won made this whole endpoint fail
+				-- with SQLSTATE 42703, so the Assignments page answered 500. A deal with
+				-- no stage still counts as open, which is what the old condition meant.
+				COUNT(DISTINCT d.id) FILTER (
+					WHERE d.id IS NOT NULL
+					  AND COALESCE(ds.is_won, false)  = false
+					  AND COALESCE(ds.is_lost, false) = false
+				)                                                          AS deals_open
 			FROM bd_assignments a
 			JOIN employers     e ON e.id = a.employer_id
 			JOIN o3c_users     u ON u.id = a.sales_agent_id
 			LEFT JOIN o3c_users bo ON bo.id = a.bd_officer_id
 			LEFT JOIN crm_contacts c ON c.bd_assignment_id = a.id
-			LEFT JOIN crm_deals    d ON d.contact_id = c.id AND (d.is_won IS NULL OR d.is_won = false) AND (d.is_lost IS NULL OR d.is_lost = false)
+			LEFT JOIN crm_deals    d ON d.contact_id = c.id
+			LEFT JOIN crm_pipeline_stages ds ON ds.id = d.stage_id
 			WHERE a.bd_officer_id = $1
 			GROUP BY a.id, e.name, bo.full_name, u.full_name
 			ORDER BY a.assigned_at DESC`, bdOfficerID)
@@ -1154,16 +1164,29 @@ func bdGetAssignment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "assignment not found")
 			return
 		}
-		contacts, _ := db.PGQuery(r.Context(), `
+		contacts, err := db.PGQuery(r.Context(), `
 			SELECT c.id, c.first_name, c.last_name, c.phone, c.email, c.status,
 			       u.full_name AS assigned_name,
-			       COUNT(d.id) AS open_deals
+			       -- Same correction as the list above: the won/lost flags belong to the
+			       -- stage, so the deal is joined to crm_pipeline_stages to read them.
+			       COUNT(d.id) FILTER (
+			         WHERE COALESCE(ds.is_won, false)  = false
+			           AND COALESCE(ds.is_lost, false) = false
+			       ) AS open_deals
 			FROM crm_contacts c
 			LEFT JOIN o3c_users u ON u.id = c.assigned_to
-			LEFT JOIN crm_deals d ON d.contact_id = c.id AND (d.is_won IS NULL OR d.is_won=false) AND (d.is_lost IS NULL OR d.is_lost=false)
+			LEFT JOIN crm_deals d ON d.contact_id = c.id
+			LEFT JOIN crm_pipeline_stages ds ON ds.id = d.stage_id
 			WHERE c.bd_assignment_id = $1
 			GROUP BY c.id, u.full_name
 			ORDER BY c.first_name`, id)
+		if err != nil {
+			// Discarding this error is why the same broken join stayed invisible here
+			// while the list endpoint returned 500: the page rendered an assignment
+			// with no contacts, which looks exactly like an assignment that has none.
+			respondErr(w, 500, err.Error())
+			return
+		}
 		respond(w, map[string]any{
 			"assignment": aRows[0],
 			"contacts":   contacts,
