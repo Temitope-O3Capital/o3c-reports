@@ -232,5 +232,8 @@ func assistantOfficerTools() []assistantTool {
 
 // assistantExtraTools carries the tools defined outside the main registry.
 func assistantExtraTools() []assistantTool {
-	return append(assistantTeamTools(), assistantOfficerTools()...)
+	out := assistantTeamTools()
+	out = append(out, assistantOfficerTools()...)
+	out = append(out, assistantCoverageTools()...)
+	return out
 }
