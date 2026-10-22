@@ -6,7 +6,7 @@ import { EBar, ELine } from './echarts'
 import { CHART_SERIES } from './charts'
 import { CompanionAvatar, companionState } from './Companion'
 import { personaOf, readCompanion } from '../lib/companions'
-import { fixSeparators } from '../lib/speech'
+import { forDisplay } from '../lib/assistantText'
 import { OPEN_ASSISTANT_EVENT } from './CompanionPresence'
 
 /**
@@ -440,14 +440,13 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
                 ) : (
                   <>
                     <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                      {/* The model writes 1 373 with U+202F NARROW NO-BREAK SPACE
-                          where the tool returned 1,373, and does it inconsistently —
-                          commas in one answer, spaces in the next. The system prompt
-                          asks for commas, but an instruction is a request. The voice
-                          path has repaired this since 2026-10-21 because a spoken
-                          "1 373" is read as two numbers; the screen was still showing
-                          it raw, so the same guarantee is applied here. */}
-                      {fixSeparators(m.content)}
+                      {/* The model is asked for plain text with commas in figures and
+                          follows both loosely: it wrote 1 373 with U+202F NARROW
+                          NO-BREAK SPACE for the dollar rate, and 4 of the first 55
+                          answers staff received contained **bold**, which a pre-wrap
+                          div shows as literal asterisks. The prompt asks; this
+                          guarantees. See lib/assistantText.ts. */}
+                      {forDisplay(m.content)}
                       {m.pending && <span style={caret} aria-hidden="true" />}
                     </div>
                     {m.charts?.map((c, ci) => <AssistantChartCard key={ci} chart={c} />)}
