@@ -50,6 +50,65 @@ interface ReconException {
   age_days: number
 }
 
+/*
+  THE EVIDENCE BEHIND ONE BREAK.
+
+  The "What the Matcher Found" column below says "10 candidate ledger rows within
+  ±3 days, none uniquely matchable on amount" — and until now that was the end of
+  the road. The ten rows were never stored, never served and never shown, so the
+  only way to work an item was to rebuild the matcher's residual join against the
+  live ledger by hand. 266 of 24,100 exceptions have ever been resolved by a
+  person, all of them on one day.
+
+  So the candidates are now served per item, re-derived from the same predicate
+  that classified the break, together with the two things that actually explain
+  the refusal: a ledger row recorded twice, or a second SOURCE row claiming the
+  same ledger row. Measured over 600 open items, those two account for roughly
+  two thirds and one third respectively — almost none of this queue is the
+  judgment call the word "ambiguous" implies.
+*/
+interface Candidate {
+  ledger_key: string
+  txn_date: string
+  amount_kobo: number
+  delta_kobo: number
+  key_hit: boolean
+  exact: boolean
+  account: string
+  narrative: string
+  balance: string
+  twins: number
+  contested: boolean
+}
+
+interface Rival {
+  ledger_key: string
+  source_key: string
+  source_ref: string
+  txn_date: string
+  amount_kobo: number
+  exception_id: number
+  status: string
+}
+
+interface CandidateSet {
+  exception_id: number
+  source: string
+  reason: string
+  source_ref: string
+  source_key: string
+  txn_date: string
+  amount_kobo: number
+  stored_n: number
+  derived_n: number
+  ledger: string
+  anchor: string
+  candidates: Candidate[]
+  rivals: Rival[]
+  complete: boolean
+  verdict: string
+}
+
 interface ExceptionSummary {
   open_n: number
   open_value_kobo: number
@@ -189,6 +248,11 @@ export default function SettlementExceptions() {
   const [resolveNote, setResolveNote] = useState('')
   const [resolving, setResolving]     = useState(false)
 
+  // The evidence behind one break — see the CandidateSet note above.
+  const [evidenceFor, setEvidenceFor]         = useState<ReconException | null>(null)
+  const [evidence, setEvidence]               = useState<CandidateSet | null>(null)
+  const [evidenceLoading, setEvidenceLoading] = useState(false)
+
   // Raising a correcting entry from a break — see the _actions column.
   const [postingFor, setPostingFor]         = useState<ReconException | null>(null)
   const [postingType, setPostingType]       = useState<'Debit' | 'Credit'>('Debit')
@@ -296,6 +360,22 @@ export default function SettlementExceptions() {
     }
   }
 
+  // Loaded per item rather than with the page: the derivation is a date-range
+  // scan over a million-row ledger, around 160ms, which is fine on demand and
+  // would be 100 of them on a page load.
+  const openEvidence = async (e: ReconException) => {
+    setEvidenceFor(e)
+    setEvidence(null)
+    setEvidenceLoading(true)
+    try {
+      setEvidence(await apiFetch<CandidateSet>(`/api/recon/exceptions/${e.id}/candidates`))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not load the candidate rows')
+    } finally {
+      setEvidenceLoading(false)
+    }
+  }
+
   // ── Columns ─────────────────────────────────────────────────────────────────
   const excCols: TableCol<ReconException>[] = [
     { key: 'source_ref', label: 'Reference', sortable: true, width: 150,
@@ -343,14 +423,24 @@ export default function SettlementExceptions() {
       //
       // Not offered on a feed gap: there is no entry to make when the counterparty
       // simply has not sent the day.
-      key: '_actions', label: '', width: 120, sortable: false,
+      key: '_actions', label: '', width: 200, sortable: false,
       render: e => e.reason === 'master_no_data'
         ? null
         : (
-          <Button size="sm" variant="secondary" icon="post_add"
-            onClick={() => { setPostingFor(e); setPostingAccount(''); setPostingType('Debit') }}>
-            Entry
-          </Button>
+          <span style={{ display: 'inline-flex', gap: SP[2] }}>
+            {/* Offered only where there is something to show. A no_candidate item
+                has no rows by definition, and its reason already says so. */}
+            {Number(e.candidate_n) > 0 && (
+              <Button size="sm" variant="secondary" icon="search"
+                onClick={() => openEvidence(e)}>
+                Evidence
+              </Button>
+            )}
+            <Button size="sm" variant="secondary" icon="post_add"
+              onClick={() => { setPostingFor(e); setPostingAccount(''); setPostingType('Debit') }}>
+              Entry
+            </Button>
+          </span>
         ),
     },
   ]
@@ -567,6 +657,174 @@ export default function SettlementExceptions() {
           </SectionCard>
         </>
       )}
+
+      {/* ── The evidence behind one break ── */}
+      <Modal open={evidenceFor !== null} onClose={() => { setEvidenceFor(null); setEvidence(null) }}
+        title={evidenceFor
+          ? `Evidence for ${evidenceFor.source_ref || `#${evidenceFor.id}`}`
+          : 'Evidence'}
+        width={920}
+        footer={
+          <Button variant="secondary" onClick={() => { setEvidenceFor(null); setEvidence(null) }}>
+            Close
+          </Button>
+        }>
+        {evidenceLoading && (
+          <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            Re-deriving the candidate rows from the ledger…
+          </p>
+        )}
+
+        {!evidenceLoading && evidence && (
+          <>
+            <div style={{
+              display: 'flex', gap: SP[5], flexWrap: 'wrap', padding: SP[3], marginBottom: SP[4],
+              borderRadius: RADIUS.md, background: 'var(--th-bg)',
+            }}>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>This transaction</div>
+                <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold }}>
+                  {fmtKobo(evidence.amount_kobo)}
+                </div>
+                <div style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+                  {fmtDate(evidence.txn_date)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Break</div>
+                <div style={{ marginTop: 2 }}><ReasonChip reason={evidence.reason} /></div>
+              </div>
+              <div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Compared against</div>
+                <div style={{ fontSize: TEXT.sm, marginTop: 2 }}>{evidence.ledger}</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                  anchored on {evidence.anchor}, within ±3 days
+                </div>
+              </div>
+            </div>
+
+            {/* What the evidence shows, in words. The table underneath is the proof. */}
+            <div style={{
+              padding: SP[3], marginBottom: SP[4], borderRadius: RADIUS.md,
+              background: `${AMBER}0F`, borderLeft: `3px solid ${AMBER}`,
+              fontSize: TEXT.sm, lineHeight: 'var(--lh-relaxed)',
+            }}>
+              {evidence.verdict}
+            </div>
+
+            {/* The ledger moves under a stored exception. Where today's evidence is
+                no longer what the run recorded, say so rather than quietly showing
+                a different set of rows than the one the break was classified on. */}
+            {!evidence.complete && (
+              <div style={{
+                padding: SP[3], marginBottom: SP[4], borderRadius: RADIUS.md,
+                background: `${RED}0F`, borderLeft: `3px solid ${RED}`,
+                fontSize: TEXT.sm, lineHeight: 'var(--lh-relaxed)',
+              }}>
+                The run recorded <strong>{fmtNum(evidence.stored_n)}</strong> candidate
+                {evidence.stored_n === 1 ? '' : 's'} and the ledger now returns{' '}
+                <strong>{fmtNum(evidence.derived_n)}</strong>. The ledger has changed since this
+                break was raised, so this is today's evidence rather than the matcher's.
+              </div>
+            )}
+
+            <DataTable<Candidate>
+              cols={[
+                { key: 'ledger_key', label: 'Ledger Row', width: 170, render: c => (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{c.ledger_key}</span>
+                ) },
+                { key: 'txn_date', label: 'Date', width: 105, sortable: true,
+                  render: c => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDate(c.txn_date)}</span> },
+                { key: 'amount_kobo', label: 'Amount', align: 'right', width: 125, sortable: true,
+                  render: c => <span style={{ ...NUM }}>{fmtKobo(c.amount_kobo)}</span> },
+                { key: 'delta_kobo', label: 'Vs This Txn', align: 'right', width: 130, sortable: true,
+                  render: c => c.delta_kobo === 0
+                    ? <span style={{ color: GREEN, fontWeight: FW.semibold, fontSize: TEXT.sm }}>same amount</span>
+                    : (
+                      <span style={{ ...NUM, color: Math.abs(c.delta_kobo) < 100000 ? AMBER : 'var(--txt2)' }}>
+                        {c.delta_kobo > 0 ? '+' : '−'}{fmtKobo(Math.abs(c.delta_kobo))}
+                      </span>
+                    ) },
+                { key: 'key_hit', label: 'Anchor', width: 110, render: c => c.key_hit
+                  ? <Badge variant="success">{evidence.anchor} agrees</Badge>
+                  : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>no</span> },
+                { key: 'narrative', label: 'Narration', render: c => (
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{c.narrative || '—'}</span>
+                ) },
+                // The evidence that decides a duplicate. Blank is not "equal" —
+                // the card book records no balance on most of these rows, and an
+                // officer must be able to tell those apart.
+                { key: 'balance', label: 'Balance', align: 'right', width: 120, render: c => c.balance
+                  ? <span style={{ ...NUM, fontSize: TEXT.sm }}>{c.balance}</span>
+                  : <span title="The ledger recorded no running balance on this row"
+                      style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>not recorded</span> },
+                { key: '_flags', label: '', width: 170, sortable: false, render: c => (
+                  <span style={{ display: 'inline-flex', gap: SP[2], flexWrap: 'wrap' }}>
+                    {c.twins > 1 && (
+                      <span title="Indistinguishable from another candidate on account, date, amount and narration">
+                        <Badge variant="warning">identical ×{c.twins}</Badge>
+                      </span>
+                    )}
+                    {c.contested && (
+                      <span title="Another source row claims this same ledger row">
+                        <Badge variant="danger">contested</Badge>
+                      </span>
+                    )}
+                  </span>
+                ) },
+              ]}
+              rows={evidence.candidates}
+              keyFn={c => c.ledger_key}
+              emptyText={
+                <EmptyState icon="search_off" title="No candidate rows"
+                  description="The ledger holds nothing for this customer within ±3 days." />
+              }
+            />
+
+            {evidence.rivals.length > 0 && (
+              <div style={{ marginTop: SP[5] }}>
+                <h4 style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, marginBottom: SP[2] }}>
+                  Other source rows claiming the same ledger row
+                </h4>
+                <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: SP[3], lineHeight: 'var(--lh-relaxed)' }}>
+                  This is why the match was refused. Resolve one of these as the real
+                  settlement and the rest as <strong style={{ color: 'var(--txt)' }}>Duplicate in Feed</strong>.
+                </p>
+                <DataTable<Rival>
+                  cols={[
+                    { key: 'source_ref', label: 'Reference', width: 170, render: v => (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{v.source_ref || '—'}</span>
+                    ) },
+                    { key: 'source_key', label: 'Feed Key', render: v => (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                        {v.source_key}
+                      </span>
+                    ) },
+                    { key: 'txn_date', label: 'Date', width: 105,
+                      render: v => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtDate(v.txn_date)}</span> },
+                    { key: 'amount_kobo', label: 'Amount', align: 'right', width: 125,
+                      render: v => <span style={NUM}>{fmtKobo(v.amount_kobo)}</span> },
+                    { key: 'ledger_key', label: 'Contested Row', width: 170, render: v => (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{v.ledger_key}</span>
+                    ) },
+                    { key: 'exception_id', label: 'Its Break', width: 130, render: v => v.exception_id
+                      ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
+                          <span style={{ ...NUM, fontSize: TEXT.sm }}>#{v.exception_id}</span>
+                          <StatusBadge status={v.status} size="sm" />
+                        </span>
+                      )
+                      : <span title="Matched cleanly, or never raised as a break"
+                          style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>none</span> },
+                  ]}
+                  rows={evidence.rivals}
+                  keyFn={v => `${v.ledger_key}|${v.source_key}`}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </Modal>
 
       {/* ── Raise a correcting entry from a break ── */}
       <Modal open={postingFor !== null} onClose={() => setPostingFor(null)}

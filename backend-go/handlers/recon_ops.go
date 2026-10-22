@@ -35,6 +35,8 @@ func RegisterRecon(r chi.Router, db *core.DB) {
 	r.With(access).Get("/exceptions/summary", reconExceptionSummary(db))
 	r.With(access).Post("/exceptions/{id}/assign", reconExceptionAssign(db))
 	r.With(access).Post("/exceptions/{id}/resolve", reconExceptionResolve(db))
+	// The evidence an officer needs to resolve the item above. See recon_candidates.go.
+	r.With(access).Get("/exceptions/{id}/candidates", reconExceptionCandidates(db))
 	r.With(access).Post("/exceptions/bulk-resolve", reconExceptionBulkResolve(db))
 
 	// Supervising the desk is a head's job, like sign-off: it is about who owns
