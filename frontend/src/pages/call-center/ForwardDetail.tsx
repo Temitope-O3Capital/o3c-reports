@@ -72,7 +72,8 @@ interface Forward {
   estimated_value_kobo: number | null
   last_activity_at: string | null
   sales_entered_at: string | null
-  open_hours: number | null
+  // Numeric in Postgres, so it arrives as a string — see age() below.
+  open_hours: number | string | null
 }
 
 interface Call {
@@ -115,12 +116,21 @@ interface Dossier {
   events: Event[]
 }
 
-/** Hours as something a person reads. 0.2 is "12 minutes", not "0.2 hours". */
-function age(hours: number | null): string {
-  if (hours == null) return '—'
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`
-  if (hours < 48) return `${hours.toFixed(1)} hrs`
-  return `${Math.round(hours / 24)} days`
+/** Hours as something a person reads. 0.2 is "12 minutes", not "0.2 hours".
+ *
+ * Takes the raw value rather than a number, because open_hours is
+ * ROUND(EXTRACT(EPOCH …) / 3600.0, 1) — a Postgres NUMERIC, and a numeric column
+ * reaches the browser as a STRING: core.DB hands back []byte as text so a UUID is
+ * never mangled into a float. The comparisons below coerced a string silently, so
+ * only the band between 1 and 48 hours ever called .toFixed on one and threw. That
+ * is why this page broke for some hand-offs and rendered perfectly for others.
+ */
+function age(hours: number | string | null): string {
+  const h = typeof hours === 'number' ? hours : Number(hours)
+  if (hours == null || hours === '' || !Number.isFinite(h)) return '—'
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`
+  if (h < 48) return `${h.toFixed(1)} hrs`
+  return `${Math.round(h / 24)} days`
 }
 
 const dur = (s: number | null) =>
