@@ -42,6 +42,9 @@ func TestToolResultSizes(t *testing.T) {
 			continue // needs a real CIF
 		case "get_agent_call_stats":
 			args["days"] = 7.0
+		case "get_team":
+			// Needs a team to resolve; with no argument it correctly refuses.
+			args["team"] = "Jennifer"
 		case "find_staff":
 			args["name"] = "a"
 		case "get_customer_transactions":

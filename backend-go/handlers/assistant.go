@@ -323,7 +323,9 @@ func assistantCallEpisodeCTE() string {
 }
 
 func assistantTools() []assistantTool {
-	return []assistantTool{
+	// Teams and the outreach ledger are registered from assistant_team.go,
+	// appended rather than inlined to keep this registry readable.
+	return append([]assistantTool{
 		{
 			Name: "get_current_datetime",
 			Description: "Returns the current date, time and weekday in Lagos. " +
@@ -474,10 +476,11 @@ func assistantTools() []assistantTool {
 		},
 		{
 			Name: "get_agent_call_stats",
-			Description: "Call activity per agent for the last N days: how many calls each agent " +
-				"handled, how many connected, and total talk time. Use this for questions about " +
-				"one person's or the team's call performance. Pass agent to narrow to one person " +
-				"by name; leave it out for the whole team.",
+			Description: "Call activity per CALL-CENTRE agent for the last N days: how many calls " +
+				"each agent handled, how many connected, and total talk time. This is the " +
+				"call-centre dialler ONLY -- sales and relationship officers never appear " +
+				"here, so use get_outreach_activity for what THEY recorded. Pass agent to " +
+				"narrow to one person by name; leave it out for the whole call centre.",
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1242,7 +1245,7 @@ func assistantTools() []assistantTool {
 				return out, nil
 			},
 		},
-	}
+	}, assistantTeamTools()...)
 }
 
 // userCanUseTool re-checks page access at execution time. Registration-time
