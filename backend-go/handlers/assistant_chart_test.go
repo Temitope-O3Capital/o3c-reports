@@ -36,6 +36,8 @@ func TestChartExtraction(t *testing.T) {
 		switch tl.Name {
 		case "search_customers":
 			args["query"] = "john"
+		case "get_team":
+			args["team"] = "Jennifer"
 		case "find_staff":
 			args["name"] = "a"
 		case "get_customer_transactions", "get_customer_overview":

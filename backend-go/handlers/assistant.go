@@ -1080,6 +1080,23 @@ func assistantTools() []assistantTool {
 				}
 				days := argInt(a, "days", 30, 1, 365)
 
+				// A COLLEAGUE'S NAME IS NOT A CUSTOMER'S NAME, and two people can
+				// share one. "How much has Kehinde Ajayi brought in Fd" matched two
+				// members of the public who happen to share a sales officer's name
+				// and reported their money as his production. Checked before any
+				// figure is read, because the figure itself is the disclosure.
+				if staff, err := assistantStaffByName(ctx, db, who); err == nil && len(staff) > 0 {
+					return map[string]any{
+						"searched_for":                  who,
+						"is_a_colleague_not_a_customer": staff,
+						"note": "That name belongs to a member of staff, so this tool is the wrong " +
+							"one: it would report a CUSTOMER of the same name. For what a " +
+							"colleague brought in as account officer, call " +
+							"get_officer_production. Never present a customer's balances as a " +
+							"colleague's performance.",
+					}, nil
+				}
+
 				// Resolve to a PERSON first, then to all of that person's cards.
 				//
 				// Keying straight off the argument was the bug. A CIF identifies a
@@ -1245,7 +1262,7 @@ func assistantTools() []assistantTool {
 				return out, nil
 			},
 		},
-	}, assistantTeamTools()...)
+	}, assistantExtraTools()...)
 }
 
 // userCanUseTool re-checks page access at execution time. Registration-time
@@ -1375,6 +1392,8 @@ func assistantSystemPrompt(toolNames []string) string {
 	// different count two turns later. The rules below are aimed squarely at that.
 	b.WriteString("- Figures you gave earlier in this conversation came from tools, NOT from your own knowledge. You still know nothing.\n")
 	b.WriteString("- For EVERY new figure — including a follow-up, a comparison, or a 'what about X' — you MUST call the tool again. Never reuse, adjust or extrapolate an earlier number to answer a new question.\n")
+	b.WriteString("- NEVER offer a breakdown, a list or further detail unless a tool you can call actually returns it. An offer you cannot fulfil wastes the person's next question.\n")
+	b.WriteString("- If the person accepts an offer you made — 'yes', 'go ahead', 'show me' — you MUST produce something NEW: a different tool, different arguments, or detail you did not already give. Repeating your previous answer with the same offer on the end is a failure. If nothing can produce what you offered, say plainly that we do not hold that breakdown.\n")
 	b.WriteString("- Never compare two things unless a tool has returned data for BOTH of them in this same reply. If you can only get one side, give that side and say you could not look up the other.\n\n")
 	// Writing prose is where this model stops being careful. Asked for a
 	// two-paragraph board summary of the card portfolio it produced accurate
@@ -1445,8 +1464,8 @@ func assistantCompanionManner(id string) string {
 			"mean two things, ask which rather than picking one."
 	case "temitope":
 		return "Answer in the first sentence, with the number in it, then the detail " +
-			"underneath. Keep it short. Afterwards offer the single most obvious " +
-			"follow-up question, and only when there plainly is one."
+			"underneath. Keep it short. Do not end on an offer of more detail unless " +
+			"a tool can actually produce it."
 	}
 	return ""
 }

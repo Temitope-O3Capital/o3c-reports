@@ -380,11 +380,15 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 					} else {
 						payload = result
 						used = append(used, name)
-						// Chart straight off the tool's rows, before the model sees
-						// them. Nothing the model writes can change the picture, so a
-						// chart can never disagree with the answer printed beside it.
-						if ch := assistantChartFrom(name, result); ch != nil {
-							send("chart", ch)
+						// Chart straight off the tool rows, before the model sees them,
+						// so a chart can never disagree with the answer printed beside
+						// it -- but ONLY when the question asked for a picture. Sending
+						// one every time put a graph under answers nobody wanted one
+						// for; a figure is the answer, a chart is a request.
+						if assistantWantsVisual(question) {
+							if ch := assistantChartFrom(name, result); ch != nil {
+								send("chart", ch)
+							}
 						}
 					}
 				}
