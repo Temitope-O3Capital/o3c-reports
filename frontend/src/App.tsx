@@ -6,6 +6,7 @@ import {
   BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation,
 } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
+import { reportClientError } from './lib/reportError'
 
 import Sidebar          from './components/Sidebar'
 import { RouteSkeleton } from './components/Skeleton'
@@ -411,6 +412,12 @@ function PageFade({ children }: { children: ReactNode }) {
 class PageErrorBoundary extends Component<{ children: ReactNode }, { err: string | null }> {
   state = { err: null }
   static getDerivedStateFromError(e: Error) { return { err: e.message } }
+  // The message shown below is all a user can tell us, and in a production build it is
+  // a bare React error number. Report the route and the component stack instead, so
+  // diagnosing a fault does not depend on someone copying a number off their screen.
+  componentDidCatch(e: Error, info: { componentStack?: string | null }) {
+    reportClientError(e, 'page', info?.componentStack ?? undefined)
+  }
   render() {
     if (this.state.err) return (
       <div style={{ padding: 32, color: 'var(--nav-dot)', fontFamily: 'var(--font-sans)' }}>

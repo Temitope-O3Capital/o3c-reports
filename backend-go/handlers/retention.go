@@ -56,13 +56,25 @@ func runRetentionRecompute(db *core.DB) {
 	// for the life of the process while the hub still reports it as running.
 	defer recoverPanic(retentionWorkerKey)
 
-	ctx := context.Background()
-	WorkerBeat(ctx, db, retentionWorkerKey, "running", "", "")
+	// Heartbeats deliberately do NOT ride the work's context. If the rebuild's deadline
+	// expires, an expired context cannot record the very failure it caused, and the
+	// Sync Status page would show the job still "running" for ever.
+	beatCtx := context.Background()
+
+	// A full rebuild, not a web request, so it sets its own deadline. core.DB applies a
+	// 15-second ceiling to any caller that names none, and this job has outgrown it: it
+	// takes about six seconds, but on 2026-10-22 it ran past fifteen under contention
+	// and was recorded as failed even though Postgres had committed the rebuild. Ten
+	// minutes is far longer than the work needs and still bounded, so a genuinely stuck
+	// rebuild cannot sit on a connection for the life of the process.
+	ctx, cancel := context.WithTimeout(beatCtx, 10*time.Minute)
+	defer cancel()
+	WorkerBeat(beatCtx, db, retentionWorkerKey, "running", "", "")
 
 	rows, err := db.PGQuery(ctx, `SELECT app.compute_customer_lifecycle() AS n`)
 	if err != nil {
 		slog.Error("retention: lifecycle recompute failed", "err", err)
-		WorkerBeat(ctx, db, retentionWorkerKey, "error", err.Error(), "")
+		WorkerBeat(beatCtx, db, retentionWorkerKey, "error", err.Error(), "")
 		return
 	}
 	written := int64(0)
@@ -91,7 +103,7 @@ func runRetentionRecompute(db *core.DB) {
 		written, workable, formatKoboShort(workableKobo), unknown)
 	slog.Info("retention: lifecycle recomputed",
 		"parties", written, "workable", workable, "unmeasured", unknown)
-	WorkerBeat(ctx, db, retentionWorkerKey, "ok", detail, "")
+	WorkerBeat(beatCtx, db, retentionWorkerKey, "ok", detail, "")
 }
 
 // formatKoboShort renders a kobo amount as naira for a log or heartbeat line.

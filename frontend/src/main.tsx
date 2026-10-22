@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App'
+import { reportClientError } from './lib/reportError'
 
 async function enableMocking() {
   if (import.meta.env.VITE_MOCK !== 'true') return
@@ -44,7 +45,11 @@ function isDomSyncError(e: Error) {
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
   static getDerivedStateFromError(e: Error) { return { error: e } }
-  componentDidCatch(e: Error) {
+  componentDidCatch(e: Error, info: { componentStack?: string | null }) {
+    // Chunk errors are reported too, even though they are a stale tab after a deploy
+    // rather than a fault in the code: a sudden flood of them is how a bad deploy
+    // announces itself, and this boundary reloads the page before anyone can look.
+    reportClientError(e, 'root', info?.componentStack ?? undefined)
     if (isChunkError(e)) { window.location.reload() }
   }
   render() {

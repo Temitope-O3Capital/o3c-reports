@@ -39,6 +39,30 @@ type Row = map[string]any
 
 const pgTimeout = 15 * time.Second
 
+// withPGTimeout applies the pgTimeout ceiling ONLY when the caller has not set a
+// deadline of its own.
+//
+// The wrap used to be unconditional, which meant a caller could narrow the limit but
+// never widen it: a nightly batch job asking for five minutes had it cut straight back
+// to fifteen seconds. That is how retention_lifecycle came to report failure on
+// 2026-10-22 while the data it writes was complete and fresh — the rebuild runs in
+// about six seconds, went past fifteen under contention on a cluster shared with
+// Phoenix, and Go gave up while Postgres finished and committed anyway. A red light on
+// a job that worked is the mild version. The dangerous one is the night the
+// cancellation lands first, nothing is written, and the light is already red so nobody
+// looks at it.
+//
+// Web requests are unaffected. Nothing in the chain gives a request context a deadline
+// — http.Server's ReadTimeout/WriteTimeout do not, and no timeout middleware is
+// mounted — so r.Context() still gets the fifteen seconds it always had, and a handler
+// that wants less can still ask for less.
+func withPGTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, pgTimeout)
+}
+
 // DB holds the PostgreSQL connection. MSSQL/Sage support was removed once the card
 // system's data was ported into Postgres (feed.* — see docs/DATA_FEED_INGESTION.md);
 // Postgres is now the sole datastore.
@@ -87,7 +111,7 @@ func Open(cfg *Config) (*DB, error) {
 // A missing table yields an empty result rather than an error, so a module whose schema
 // is still being built shows a clean empty state. Any other failure is returned.
 func (d *DB) DualQuery(ctx context.Context, pgQ string, args ...any) ([]Row, string, error) {
-	pgCtx, cancel := context.WithTimeout(ctx, pgTimeout)
+	pgCtx, cancel := withPGTimeout(ctx)
 	defer cancel()
 	rows, err := queryRows(pgCtx, d.PG, pgQ, args)
 	if err != nil {
@@ -137,7 +161,7 @@ func truncQuery(q string) string {
 // Returns empty rows (not an error) when the table doesn't exist yet — allows pages
 // to show a clean empty state while the schema is being built out.
 func (d *DB) PGQuery(ctx context.Context, q string, args ...any) ([]Row, error) {
-	pgCtx, cancel := context.WithTimeout(ctx, pgTimeout)
+	pgCtx, cancel := withPGTimeout(ctx)
 	defer cancel()
 	rows, err := queryRows(pgCtx, d.PG, q, args)
 	if isTableMissing(err) {
@@ -149,7 +173,7 @@ func (d *DB) PGQuery(ctx context.Context, q string, args ...any) ([]Row, error) 
 
 // PGExec executes a statement against PostgreSQL (INSERT/UPDATE/DELETE).
 func (d *DB) PGExec(ctx context.Context, q string, args ...any) (sql.Result, error) {
-	pgCtx, cancel := context.WithTimeout(ctx, pgTimeout)
+	pgCtx, cancel := withPGTimeout(ctx)
 	defer cancel()
 	return d.PG.ExecContext(pgCtx, q, args...)
 }

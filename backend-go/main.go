@@ -908,6 +908,12 @@ func main() {
 		r.Route("/api/retention", func(r chi.Router) {
 			handlers.RegisterRetention(r, db)
 		})
+		// Browser error reports. Before this, a page that broke in someone's browser
+		// left no trace anywhere — see handlers/client_errors.go for why these are
+		// logged rather than stored, and why the route sits behind authentication.
+		r.Route("/api/client-errors", func(r chi.Router) {
+			handlers.RegisterClientErrors(r)
+		})
 		r.Route("/api/cbs", func(r chi.Router) {
 			handlers.RegisterCoreBanking(r, cbsClient)
 			handlers.RegisterCBSSync(r, cbsClient, db)
@@ -944,6 +950,17 @@ func main() {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(`{"error":"not found"}`))
+				return
+			}
+			// Source maps are never served. The build emits them with
+			// sourcemap:'hidden' — generated for our own debugging and deliberately
+			// not referenced by the bundle — but the deploy copies the whole dist
+			// directory, so all 271 of them were publicly downloadable and together
+			// reconstruct the readable source of the platform, comments included.
+			// Refused here rather than only deleted from the directory, because the
+			// next frontend deploy would copy them straight back.
+			if strings.HasSuffix(req.URL.Path, ".map") {
+				http.NotFound(w, req)
 				return
 			}
 			full := filepath.Join(frontendDir, filepath.Clean(req.URL.Path))
