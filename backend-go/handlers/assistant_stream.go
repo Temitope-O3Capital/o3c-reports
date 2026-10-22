@@ -329,7 +329,7 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 
 		msgs := []ollamaMessage{{Role: "system", Content: assistantSystemPrompt(names)}}
 		msgs = append(msgs, assistantHistory(ctx, db, convID)...)
-		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user, req.Companion) + question})
+		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user) + question})
 
 		started := time.Now()
 		used := make([]string, 0, 2)

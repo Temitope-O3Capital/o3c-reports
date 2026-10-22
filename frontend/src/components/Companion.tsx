@@ -45,21 +45,13 @@ const BG_IDLE = '#E8EDF2'
  * and one path cannot be on both sides of the face.
  */
 const HAIR_BACK: Record<CompanionLook['hairStyle'], string> = {
-  // A full afro: one continuous shape, six pixels proud of the face on every side.
-  //
-  // An earlier version added two braids falling beside the ears. Rendered, that is
-  // a headset — a pair of vertical bars flanking a head at ear height reads as
-  // headphones to everyone, every time, and no amount of colour fixes it. The halo
-  // alone separates the two characters perfectly well.
-  afro: 'M12 26a20 18 0 1 1 40 0 20 18 0 1 1-40 0z',
   // A close fade, barely proud of the skull, so the head keeps a clean round
-  // outline. Beside the afro the difference is obvious even at 22px.
+  // outline. The only silhouette now; a second one existed for the assistant
+  // staff could pick instead, and there is no longer a choice to make.
   fade: 'M16.4 27a15.6 14.5 0 1 1 31.2 0 15.6 14.5 0 1 1-31.2 0z',
 }
 
 const HAIR_FRONT: Record<CompanionLook['hairStyle'], string> = {
-  // A soft, slightly peaked hairline.
-  afro: 'M18.8 28.4c1.4-6.6 6.6-10.2 13.2-10.2s11.8 3.6 13.2 10.2c-2.8-4.2-7.6-6.2-13.2-6.2s-10.4 2-13.2 6.2z',
   // A straight, sharp hairline, which is what a fade actually looks like.
   fade: 'M19.6 26.2c0-5.4 5.6-8.6 12.4-8.6s12.4 3.2 12.4 8.6c-2.6-2.6-7.2-3.8-12.4-3.8s-9.8 1.2-12.4 3.8z',
 }

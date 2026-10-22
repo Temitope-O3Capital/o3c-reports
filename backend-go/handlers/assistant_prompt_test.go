@@ -34,7 +34,7 @@ func TestPreambleIsStable(t *testing.T) {
 	if strings.Contains(a, "You are speaking with") || strings.Contains(a, "Today is") {
 		t.Fatalf("volatile identity/date leaked back into the system prompt")
 	}
-	ctxA := assistantTurnContext(&core.Claims{FullName: "Amaka Obi", Role: "admin"}, "")
+	ctxA := assistantTurnContext(&core.Claims{FullName: "Amaka Obi", Role: "admin"})
 	if !strings.Contains(ctxA, "Amaka Obi") || !strings.Contains(ctxA, "Today is") {
 		t.Fatalf("turn context lost the identity/date: %q", ctxA)
 	}

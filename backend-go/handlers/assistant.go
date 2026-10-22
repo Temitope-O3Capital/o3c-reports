@@ -1428,6 +1428,32 @@ func assistantSystemPrompt(toolNames []string) string {
 	b.WriteString("- Write numbers exactly as the tools format them, with a comma for thousands: 1,124 — never 1 124, and never a space of any kind inside a number.\n")
 	b.WriteString("- You assist and draft; you never approve, authorise or decide anything. For any money movement, write-off or approval, tell the user to use the proper workflow.\n")
 
+
+	// TONE, which until now rode on every single question.
+	//
+	// There were two assistants and staff picked one, so the tone instruction had
+	// to travel in the turn context — appended to the user's own message, where it
+	// could differ per person without invalidating the shared prefix. That cost
+	// ~65 tokens of prefill on EVERY question, roughly 1.8s at the ~35 tok/s this
+	// box prefills at, paid again and again for a string that never changed for
+	// that person.
+	//
+	// One assistant means one tone, identical for everybody, so it belongs here in
+	// the cached prefix where it is read once and is then free. The careful half is
+	// deliberately kept rather than deleted with the persona it came from: saying
+	// what a figure does not cover, and asking which of two readings was meant,
+	// were the better behaviour of the assistant that was removed, and were never
+	// a matter of taste. Offering them as a preference meant half the staff never
+	// got them.
+	//
+	// TONE ONLY. These lines may change the order and the phrasing of an answer.
+	// They may not change a figure, a conclusion, or whether a tool is called.
+	b.WriteString("\nHOW YOU ANSWER\n")
+	b.WriteString("- Answer the question asked in the first sentence, with the number in it, then the detail underneath. Keep it short.\n")
+	b.WriteString("- Say what the figure does not cover — the date range, the exclusions, the rows that were empty — rather than leaving it to be discovered.\n")
+	b.WriteString("- When a number looks unusual against the rest of the answer, say so rather than letting it pass.\n")
+	b.WriteString("- When the question could mean two things, ask which. Never pick one and answer confidently.\n")
+	b.WriteString("- Do not pad: no 'great question', no closing offer of further help.\n")
 	if len(toolNames) > 0 {
 		fmt.Fprintf(&b, "\nTools available to this user: %s.\n", strings.Join(toolNames, ", "))
 	}
@@ -1439,38 +1465,8 @@ func assistantSystemPrompt(toolNames []string) string {
 // staff member or a midnight rollover costs a handful of tokens of prefill
 // rather than invalidating the whole cached preamble. Keep it out of the system
 // message; see the note on assistantSystemPrompt.
-// assistantCompanionManner returns the chosen persona's tone instruction.
-//
-// Deliberately NOT part of assistantSystemPrompt. That preamble has to be
-// byte-identical for every user: the chat template renders it before the tool
-// schemas, so one differing byte discards ~1,750 tokens of cached tool
-// definitions and costs 28 seconds of re-prefill instead of 0.12. Two colleagues
-// with different companions would have thrown the cache away on alternate
-// requests — the persona would have made the assistant feel personal and made it
-// unusable in the same change.
-//
-// So it rides in the turn context instead, after the tools, where changing it
-// costs a handful of tokens.
-//
-// TONE ONLY. These lines may change the order and the phrasing of an answer. They
-// may not change a figure, a conclusion, or whether a tool is called: two people
-// asking the same question through different companions must get the same number.
-func assistantCompanionManner(id string) string {
-	switch id {
-	case "esther":
-		return "Lead with the figure, then say straight away what it does not cover: " +
-			"the date range, the exclusions, the rows that were empty. Say so when a " +
-			"number looks unusual against the rest of the answer. If the question could " +
-			"mean two things, ask which rather than picking one."
-	case "temitope":
-		return "Answer in the first sentence, with the number in it, then the detail " +
-			"underneath. Keep it short. Do not end on an offer of more detail unless " +
-			"a tool can actually produce it."
-	}
-	return ""
-}
 
-func assistantTurnContext(user *core.Claims, companion string) string {
+func assistantTurnContext(user *core.Claims) string {
 	loc, err := time.LoadLocation("Africa/Lagos")
 	if err != nil {
 		loc = time.UTC
@@ -1488,11 +1484,6 @@ func assistantTurnContext(user *core.Claims, companion string) string {
 	}
 	out := fmt.Sprintf("(You are speaking with %s, role: %s. Today is %s, %s.)\n\n",
 		name, role, now.Format("Monday"), now.Format("2 January 2006"))
-	// Before the who-and-when line, so the tone instruction is the first thing read
-	// in the turn rather than trailing after the date.
-	if m := assistantCompanionManner(companion); m != "" {
-		out = fmt.Sprintf("(%s)\n", m) + out
-	}
 	return out
 }
 
@@ -1856,7 +1847,7 @@ func assistantChat(db *core.DB) http.HandlerFunc {
 
 		msgs := []ollamaMessage{{Role: "system", Content: assistantSystemPrompt(names)}}
 		msgs = append(msgs, assistantHistory(ctx, db, convID)...)
-		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user, req.Companion) + question})
+		msgs = append(msgs, ollamaMessage{Role: "user", Content: assistantTurnContext(user) + question})
 
 		started := time.Now()
 		used := make([]string, 0, 2)

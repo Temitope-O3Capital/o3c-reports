@@ -38,7 +38,7 @@ func TestAssistantEndToEnd(t *testing.T) {
 	} {
 		msgs := []ollamaMessage{
 			{Role: "system", Content: assistantSystemPrompt(names)},
-			{Role: "user", Content: assistantTurnContext(u, "") + q},
+			{Role: "user", Content: assistantTurnContext(u) + q},
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		t0 := time.Now()
