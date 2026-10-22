@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CompanionAvatar } from './Companion'
-import { personaOf, readCompanion, roamEnabled } from '../lib/companions'
+import { introDue, markIntroShown, personaOf, readCompanion, roamEnabled } from '../lib/companions'
 import { NAVY, TEXT, FW } from '../lib/design'
 
 /**
@@ -14,7 +14,9 @@ import { NAVY, TEXT, FW } from '../lib/design'
  *
  * So it may only appear when ALL of these hold:
  *
- *   - the person switched it on. Off by default, always.
+ *   - they have not switched it off. ON by default since 2026-10-22, because a
+ *     feature nobody discovers is a feature nobody has — which is only
+ *     defensible because every rule below still holds.
  *   - they have done nothing for IDLE_MS. Not "a while" — no key, no click, no
  *     pointer movement.
  *   - nothing is focused that they might be typing into.
@@ -39,6 +41,13 @@ const COOLDOWN_MS = 20 * 60 * 1000
 
 /** How long it stays if left alone. */
 const VISIT_MS = 14 * 1000
+
+/**
+ * An introduction stays longer, because it is three sentences rather than six
+ * words and fourteen seconds is not enough to read it. Still dismissed by the
+ * first mouse move like anything else.
+ */
+const INTRO_VISIT_MS = 26 * 1000
 
 /** Opening the assistant from here, without this component knowing how. */
 export const OPEN_ASSISTANT_EVENT = 'o3c:open-assistant'
@@ -107,9 +116,18 @@ export default function CompanionPresence() {
       })) return
 
       lastSeen.current = now
-      setLine(persona.idleLines[Math.floor(Math.random() * persona.idleLines.length)])
+      // First appearance ever, or the first in a fortnight, says who he is.
+      // After that he goes back to offering a figure, because somebody who has
+      // been introduced twice does not need a third time.
+      const intro = introDue(now)
+      if (intro) {
+        setLine(persona.intro)
+        markIntroShown(now)
+      } else {
+        setLine(persona.idleLines[Math.floor(Math.random() * persona.idleLines.length)])
+      }
       setVisible(true)
-      timer.current = window.setTimeout(() => setVisible(false), VISIT_MS)
+      timer.current = window.setTimeout(() => setVisible(false), intro ? INTRO_VISIT_MS : VISIT_MS)
     }, 15_000)
     return () => window.clearInterval(tick)
   }, [visible, persona])

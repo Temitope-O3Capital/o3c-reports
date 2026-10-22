@@ -69,6 +69,15 @@ export type Persona = {
   manner: string
   /** Said when strolling, and only when there is nothing more useful to say. */
   idleLines: string[]
+  /**
+   * Who he is, for somebody who has never opened the panel.
+   *
+   * Deliberately says what he can DO and what he cannot. Staff were asking IT
+   * for access to things they already had, and an assistant that introduces
+   * itself without saying it answers from live data gets asked to do magic and
+   * then blamed for failing.
+   */
+  intro: string
 }
 
 export const COMPANIONS: Record<CompanionId, Persona> = {
@@ -101,7 +110,14 @@ export const COMPANIONS: Record<CompanionId, Persona> = {
     idleLines: [
       'Need a number? Ask away.',
       'I can check the book, the queue or the calls.',
+      'Ask me anything about the workspace — I read the live data.',
     ],
+    intro:
+      "Hello — I'm Temitope, your assistant here. Ask me anything about the " +
+      "workspace in plain English: the loan book, collections, cards, deposits, " +
+      "who heads a team, what a campaign did, today's rate. I can draft an email " +
+      "or a note for you too. I read the live data and I only tell you what the " +
+      "records actually say — I never approve or change anything.",
   },
 }
 
@@ -125,19 +141,65 @@ const ROAM_KEY = 'o3c_companion_roam'
 /**
  * Whether the assistant may appear outside the panel.
  *
- * Defaults to OFF. Something that moves across the screen unbidden has to be opted
- * into by the person it will interrupt — staff here are on calls and in the middle
- * of reconciliations, and a surprise is a cost, not a delight.
+ * ON by default since 2026-10-22, at the user's instruction: staff were not
+ * discovering that the assistant existed, and a feature nobody switches on is a
+ * feature nobody has. The toggle stays, so anyone who finds it distracting can
+ * turn it off and it remembers.
+ *
+ * This reverses the earlier default, and the reasoning behind that default was
+ * not wrong — it is just answered differently now. Appearing unbidden is a cost
+ * imposed on someone mid-task, so being on by default is only defensible
+ * BECAUSE the appearance rules in CompanionPresence.tsx are strict: four minutes
+ * of complete inactivity, never over a dialog, never while a field is focused,
+ * never while the tab is hidden, at most once every twenty minutes, and gone the
+ * instant the mouse moves. Loosen those and the default becomes indefensible.
  */
 export function roamEnabled(): boolean {
-  try { return localStorage.getItem(ROAM_KEY) === '1' } catch {
-    // Private window, or site data blocked. Off is the safe reading.
-    return false
+  try {
+    return localStorage.getItem(ROAM_KEY) !== '0'
+  } catch {
+    // Private window, or site data blocked. On is the default, so on is also the
+    // right reading when the stored preference cannot be read at all.
+    return true
   }
 }
 
 export function setRoamEnabled(on: boolean) {
   try { localStorage.setItem(ROAM_KEY, on ? '1' : '0') } catch { /* see roamEnabled */ }
+}
+
+const INTRO_KEY = 'o3c_companion_intro'
+
+/**
+ * How often he says who he is, rather than just offering a figure.
+ *
+ * The idle lines ("Need a number? Ask away.") assume you already know what he is.
+ * Somebody who has never opened the panel does not, and a stranger waving from
+ * the corner of the screen is noise. So the FIRST appearance introduces him
+ * properly, and then it repeats occasionally — people forget, and staff join.
+ *
+ * Fortnightly, not daily: an introduction you have read twice is a greeting, and
+ * one you have read twenty times is Clippy.
+ */
+const INTRO_EVERY_MS = 14 * 24 * 60 * 60 * 1000
+
+/** Has he never introduced himself, or not for a fortnight? */
+export function introDue(now = Date.now()): boolean {
+  try {
+    const raw = localStorage.getItem(INTRO_KEY)
+    if (!raw) return true
+    const then = Number(raw)
+    if (!Number.isFinite(then)) return true
+    return now - then > INTRO_EVERY_MS
+  } catch {
+    // Cannot tell, so introduce him. Being introduced to twice is a smaller
+    // failure than never being introduced at all.
+    return true
+  }
+}
+
+export function markIntroShown(now = Date.now()) {
+  try { localStorage.setItem(INTRO_KEY, String(now)) } catch { /* see introDue */ }
 }
 
 export function personaOf(_id: CompanionId = DEFAULT_COMPANION): Persona {

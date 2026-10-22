@@ -107,10 +107,11 @@ export default function CompanionPicker() {
               Allow {p.name} to appear on screen
             </span>
             <br />
-            Off by default, and worth leaving off if you spend your day on calls.
-            When on, he only appears after a few minutes of no typing or clicking,
-            never over a dialog, and never while a call is being logged. One click
-            sends him away.
+            On by default, so everyone knows he is here. He only appears after a
+            few minutes of no typing or clicking, never over a dialog, never while
+            a call is being logged, and he goes the moment you move the mouse. The
+            first time he appears he introduces himself. Turn this off if you would
+            rather he stayed in the panel.
           </span>
         </label>
       </SectionCard>
