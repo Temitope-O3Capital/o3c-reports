@@ -660,32 +660,62 @@ func salesTaskKPIs(db *core.DB) http.HandlerFunc {
 		// Every placeholder below has to be referenced by the predicate that ships with
 		// it — the driver rejects a statement supplied more parameters than it binds — so
 		// the args are built alongside the clause rather than up front.
+		// The lead-follow-up half needs its own clause: it scopes on
+		// crm_contacts.sales_owner_id rather than crm_tasks.assigned_to, and there is no
+		// created_by to fall back on — the rep who set the follow-up IS the owner.
 		u := core.UserFromCtx(r.Context())
 		args := []any{from, to}
 		scope := "FALSE" // no session → count nothing rather than everything
+		leadScope := "FALSE"
 		if u != nil {
 			mode, ids := salesLeadScope(r, db, u)
 			switch {
 			case mode == scopeAll:
-				scope = "TRUE"
+				scope, leadScope = "TRUE", "TRUE"
 			case mode == scopeTeam && len(ids) > 0:
 				scope = "t.assigned_to = ANY($3)"
+				leadScope = "c.sales_owner_id = ANY($3)"
 				args = append(args, ids)
 			default:
 				scope = "(t.assigned_to = $3 OR t.created_by = $3)"
+				leadScope = "c.sales_owner_id = $3"
 				args = append(args, u.ID)
 			}
 		}
+		// The tiles have to count what the table shows. listTasks now appends the
+		// follow-ups reps actually set — crm_contacts.next_action_at, 256 live rows against
+		// ONE in crm_tasks — so counting crm_tasks alone put "0 overdue" above a table
+		// listing 248 of them. A tile that contradicts the list underneath it is worse than
+		// no tile, because it is the half that gets quoted in a meeting.
+		//
+		// completed_this_month counts tasks only, and that is right rather than a gap: a
+		// cleared follow-up leaves no row behind, so there is nothing to add. Inventing a
+		// completion record would mean writing history the system never captured.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT
-				COUNT(*)                                                                        AS total,
-				COUNT(*) FILTER (WHERE t.status='open')                                         AS open,
-				COUNT(*) FILTER (WHERE t.status NOT IN ('done','cancelled') AND t.due_date<NOW()) AS overdue,
-				COUNT(*) FILTER (WHERE t.status='done'
-				    AND ($1='' OR t.updated_at::date >= $1::date)
-				    AND ($2='' OR t.updated_at::date <= $2::date))                              AS completed_this_month
-			FROM crm_tasks t
-			WHERE %s`, scope), args...)
+			WITH tasks AS (
+				SELECT
+					COUNT(*)                                                                        AS total,
+					COUNT(*) FILTER (WHERE t.status='open')                                         AS open,
+					COUNT(*) FILTER (WHERE t.status NOT IN ('done','cancelled') AND t.due_date<NOW()) AS overdue,
+					COUNT(*) FILTER (WHERE t.status='done'
+					    AND ($1='' OR t.updated_at::date >= $1::date)
+					    AND ($2='' OR t.updated_at::date <= $2::date))                              AS completed_this_month
+				FROM crm_tasks t
+				WHERE %s
+			), leads AS (
+				SELECT COUNT(*)                                         AS total,
+				       COUNT(*)                                         AS open,
+				       COUNT(*) FILTER (WHERE c.next_action_at < NOW()) AS overdue
+				  FROM crm_contacts c
+				 WHERE c.next_action_at IS NOT NULL
+				   AND c.sales_entered_at IS NOT NULL
+				   AND %s
+			)
+			SELECT tasks.total   + leads.total   AS total,
+			       tasks.open    + leads.open    AS open,
+			       tasks.overdue + leads.overdue AS overdue,
+			       tasks.completed_this_month    AS completed_this_month
+			  FROM tasks, leads`, scope, leadScope), args...)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total": int64(0), "open": int64(0),

@@ -56,6 +56,9 @@ interface Task {
   description?: string
   linked_type?: string
   linked_id?: number
+  /** 'lead' = set on the lead itself (crm_contacts.next_action_at), not a crm_tasks row.
+   *  Those arrive with a NEGATED contact id so they can never collide with a task id. */
+  source?: string
 }
 
 interface CRMUser { id: number; full_name: string }
@@ -314,11 +317,20 @@ export default function CRMTasks() {
     { key: 'assigned_name', label: 'Owner', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
     {
       key: '_actions', label: '', sortable: false,
-      render: r => <ActionRow actions={[
-        { icon: 'edit', label: 'Edit', onClick: () => { setEditing(r); setEditForm({ title: r.title, contact_id: String(r.contact_id ?? ''), due_date: r.due_date?.slice(0, 10) ?? '', priority: r.priority, assigned_to: String(r.assigned_to ?? ''), description: r.description ?? '' }) } },
-        { icon: 'check_circle', label: 'Complete', onClick: () => markDone(r.id) },
-        { icon: 'delete', label: 'Delete', danger: true, onClick: () => deleteTask(r.id) },
-      ]} />,
+      // A follow-up set on the lead itself (source 'lead', negative id) has no title,
+      // priority or assignee of its own to edit, and nothing to delete — it exists only
+      // while crm_contacts.next_action_at is set. Complete IS meaningful, because the
+      // server clears that date, so it stays. Edit and Delete would both come back 422,
+      // and an action that always fails is worse than one that was never offered.
+      render: r => <ActionRow actions={r.source === 'lead'
+        ? [
+          { icon: 'check_circle', label: 'Complete', onClick: () => markDone(r.id) },
+        ]
+        : [
+          { icon: 'edit', label: 'Edit', onClick: () => { setEditing(r); setEditForm({ title: r.title, contact_id: String(r.contact_id ?? ''), due_date: r.due_date?.slice(0, 10) ?? '', priority: r.priority, assigned_to: String(r.assigned_to ?? ''), description: r.description ?? '' }) } },
+          { icon: 'check_circle', label: 'Complete', onClick: () => markDone(r.id) },
+          { icon: 'delete', label: 'Delete', danger: true, onClick: () => deleteTask(r.id) },
+        ]} />,
     },
   ]
 

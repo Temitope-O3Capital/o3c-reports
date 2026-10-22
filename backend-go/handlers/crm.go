@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1293,8 +1295,108 @@ func listTasks(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
+
+		// THE FOLLOW-UPS THIS PAGE EXISTS FOR WERE NEVER IN crm_tasks.
+		//
+		// Reps set a follow-up through SalesActivityModal, which posts to
+		// /api/sales/activity and /api/sales/leads/{id}/activity. Both write
+		// crm_contacts.next_action_at and neither creates a crm_tasks row — only this
+		// page's own New Task button and POST /api/activities ever do. The result:
+		// crm_tasks held ONE row company-wide while next_action_at held 256 live
+		// follow-ups, 248 of them overdue, across 14 officers. The page was faithfully
+		// rendering an empty table.
+		//
+		// Appended in Go rather than UNIONed, because the query above selects t.* and
+		// matching that shape in SQL would mean enumerating every crm_tasks column and
+		// keeping the list in step for ever. The frontend's Task interface is the real
+		// contract and it is small, so these rows satisfy it directly.
+		//
+		// id is the NEGATED contact id. crm_tasks ids are a positive serial, so a negative
+		// id can never collide, and updateTask/deleteTask read the sign to know which kind
+		// of thing they were handed. A `source` field alone would not be enough: a client
+		// that ignored it would PUT a lead's follow-up against a task id belonging to
+		// somebody else's work.
+		leadFollowUps, lerr := leadFollowUpRows(r, db, user, view, teamIDs, limit)
+		if lerr != nil {
+			// The crm_tasks half already succeeded. Losing the lead half is worth a log and
+			// a partial answer, not a 500 that re-empties a page which finally has
+			// something to show.
+			slog.Error("listTasks: could not load lead follow-ups", "err", lerr)
+		} else {
+			rows = append(rows, leadFollowUps...)
+		}
+
 		jsonRows(w, rows)
 	}
+}
+
+// leadFollowUpRows reads the follow-ups reps actually set — crm_contacts.next_action_at —
+// and shapes them like a task. Scoped exactly as listTasks scopes crm_tasks, through
+// salesLeadScope, so widening remains something you have to be permitted to do.
+func leadFollowUpRows(
+	r *http.Request, db *core.DB, user *core.Claims, view string, teamIDs []int64, limit int,
+) ([]map[string]any, error) {
+	where := "c.next_action_at IS NOT NULL AND c.sales_entered_at IS NOT NULL"
+	var args []any
+	n := 1
+	switch {
+	case view == "all":
+		// permitted by the caller: no owner predicate
+	case view == "team" && len(teamIDs) > 0:
+		where += fmt.Sprintf(" AND c.sales_owner_id = ANY($%d)", n)
+		args = append(args, teamIDs)
+		n++
+	default:
+		where += fmt.Sprintf(" AND c.sales_owner_id = $%d", n)
+		args = append(args, user.ID)
+		n++
+	}
+
+	// The page's buckets. A lead follow-up has no lifecycle of its own: it exists while
+	// next_action_at is set and is gone once cleared, so it is always 'open' and can never
+	// be 'done'. Asking for done or cancelled must return none of these rather than all.
+	switch qstr(r, "status") {
+	case "done", "cancelled":
+		return nil, nil
+	}
+	// priority is a crm_tasks concept. A lead follow-up has none, so it reports 'medium'
+	// and a request for any other priority excludes them all.
+	if p := qstr(r, "priority"); p != "" && p != "medium" {
+		return nil, nil
+	}
+	if r.URL.Query().Get("overdue") == "true" {
+		where += " AND c.next_action_at < NOW()"
+	}
+	if v := qstr(r, "contact_id"); v != "" {
+		where += fmt.Sprintf(" AND c.id = $%d", n)
+		args = append(args, v)
+		n++
+	}
+
+	args = append(args, limit)
+	return db.PGQuery(r.Context(), fmt.Sprintf(`
+		SELECT -c.id                                            AS id,
+		       'Follow up: ' || NULLIF(btrim(COALESCE(c.first_name,'') || ' ' ||
+		                                     COALESCE(c.last_name,'')), '')
+		                                                        AS title,
+		       'open'                                           AS status,
+		       'medium'                                         AS priority,
+		       c.next_action_at                                 AS due_date,
+		       u.full_name                                      AS assigned_name,
+		       c.sales_owner_id                                 AS assigned_to,
+		       c.id                                             AS contact_id,
+		       c.first_name, c.last_name,
+		       (c.next_action_at < NOW())                       AS is_overdue,
+		       'Set on the lead. Marking it done here clears the follow-up date.'
+		                                                        AS description,
+		       'crm_contact'                                    AS linked_type,
+		       c.id                                             AS linked_id,
+		       'lead'                                           AS source
+		  FROM crm_contacts c
+		  LEFT JOIN o3c_users u ON u.id = c.sales_owner_id
+		 WHERE %s
+		 ORDER BY c.next_action_at ASC
+		 LIMIT $%d`, where, n), args...)
 }
 
 func createTask(db *core.DB) http.HandlerFunc {
@@ -1375,6 +1477,49 @@ func updateTask(db *core.DB) http.HandlerFunc {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+
+		// A negative id is a lead follow-up, not a task row — see leadFollowUpRows. It has
+		// no lifecycle of its own, so the only meaningful change is "done", and done means
+		// exactly one thing: clear the follow-up date on the lead. Making that work is what
+		// lets these rows sit in the same queue as real tasks instead of being decoration
+		// the rep cannot act on.
+		if n, err := strconv.ParseInt(id, 10, 64); err == nil && n < 0 {
+			contactID := -n
+			if s, _ := body["status"].(string); s != "done" && s != "cancelled" {
+				respondErr(w, 422, "This follow-up was set on the lead itself, so it carries "+
+					"no title, priority or assignee to change here. Mark it done to clear the "+
+					"date, or open the lead to set a different one.")
+				return
+			}
+			user := core.UserFromCtx(r.Context())
+			if user == nil {
+				respondErr(w, 401, "sign in first")
+				return
+			}
+			// Scoped in the WHERE, not read-then-check, so two reps racing cannot clear
+			// each other's follow-up. A rep who may see every row may clear any of them;
+			// anyone else may clear only their own.
+			scope := "AND sales_owner_id = $2"
+			args := []any{contactID, user.ID}
+			if mode, _ := salesLeadScope(r, db, user); mode == scopeAll {
+				scope = ""
+				args = args[:1]
+			}
+			res, err := db.PGExec(r.Context(), `
+				UPDATE crm_contacts
+				   SET next_action_at = NULL, updated_at = NOW()
+				 WHERE id = $1 AND next_action_at IS NOT NULL `+scope, args...)
+			if err != nil {
+				respondErrLog(w, 500, "Could not clear the follow-up", err)
+				return
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				respondErr(w, 404, "That follow-up is already cleared, or it is not yours.")
+				return
+			}
+			respond(w, map[string]any{"ok": true, "id": -contactID, "status": "done"}, "pg")
 			return
 		}
 		// assigned_to is written straight through from the raw body. Absent means
