@@ -102,6 +102,7 @@ const SECTIONS: Section[] = [
           // decides: an officer sees these only if they hold sales_team, which the backend
           // grants at login to whoever heads an active team (withStructuralPages).
           { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
+          { label: 'The Desk',         to: '/sales/desk', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
@@ -573,7 +574,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // every sales officer holds — so the roster link passed the page gate for the whole
   // floor and was only hidden by its role list. '/sales/supervisor' had no mapping at
   // all, so it fell through to the role gate alone.
-  '/sales/teams': 'sales_team', '/sales/supervisor': 'sales_team',
+  '/sales/teams': 'sales_team', '/sales/supervisor': 'sales_team', '/sales/desk': 'sales_team',
   '/sales/crm': 'crm_pipeline', '/sales/tasks': 'crm_tasks', '/sales/applications': 'loans',
   '/sales/targets': 'sales', '/sales/reports': 'crm_reports', '/sales/cohort': 'cohort',
   // Contact Centre

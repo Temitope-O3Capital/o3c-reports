@@ -101,9 +101,20 @@ const CLOSED_STAGES: Record<string, string> = {
   disqualified: 'Disqualified',
 }
 
-// Record-only kinds. These never touch the stage — the server's leadActivityStage map
-// has no entry for them — and the dialog says so rather than leaving it ambiguous.
+// Record-only kinds. These never move the stage DIRECTLY — the server's leadActivityStage
+// map has no entry for them — though their outcome still can, which is the point of Visit.
+//
+// VISIT WAS MISSING FROM THIS LIST, and it was the most consequential gap in the module.
+// Going to see a customer is the central act of field sales, and salesDispositions carries
+// six outcomes for it — the richest set in the vocabulary — including "Collected Documents",
+// which advances the lead, and "Did Not Get Past Reception", which deliberately does not.
+// None of them were reachable here, so an officer who visited a lead they own could either
+// log it on My Day (where the call option's own blurb says that path is for work NOT against
+// a lead you own, leaving the lead looking stalled) or log it against the lead as a plain
+// note and lose both the outcome and the stage move. The second is the one that makes a
+// working officer look idle, and it was the easier of the two to reach.
 const RECORD_KINDS: { kind: string; label: string; icon: string }[] = [
+  { kind: 'visit',   label: 'Visit',   icon: 'directions_walk' },
   { kind: 'call',    label: 'Call',    icon: 'call' },
   { kind: 'meeting', label: 'Meeting', icon: 'groups' },
   { kind: 'email',   label: 'Email',   icon: 'mail' },
@@ -376,6 +387,9 @@ export default function SalesActivityModal({
           // for Lagos. Sent only for the kinds that can be backdated — the server refuses
           // a date on a forward step rather than quietly ignoring it.
           ...(canBackdate && when ? { occurred_at: new Date(when).toISOString() } : {}),
+          // Only for a visit. The server ignores it on every other kind rather than
+          // trusting the client, so this is belt and braces on both sides.
+          ...(kind === 'visit' && location.trim() ? { location: location.trim() } : {}),
         },
       )
       // Name the stage the server says it landed on. chosenStep is null for a record-only
@@ -684,6 +698,18 @@ export default function SalesActivityModal({
                   </button>
                 ))}
               </div>
+
+              {/* Where, for a visit. Same field My Day offers and the same destination —
+                  activities.metadata.location — so a visit logged here and a visit logged
+                  there read identically afterwards. Shown only for a visit: a location on
+                  a phone call is noise. */}
+              {kind === 'visit' && (
+                <div style={{ marginTop: SP[3] }}>
+                  <Input label="Where" value={location} onChange={e => setLocation(e.target.value)}
+                    placeholder="e.g. Ikeja, Lagos"
+                    hint="Optional, and worth having — a visit with no place reads as a phone call later." />
+                </div>
+              )}
             </div>
 
             {/* When it happened, and what came of it. Both of these were My Day's alone.

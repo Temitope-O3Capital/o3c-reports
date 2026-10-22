@@ -1775,11 +1775,24 @@ var leadActivityStage = map[string]string{
 }
 
 // leadActivityLabel is every kind that can be logged, forward-moving or record-only.
+//
+// "visit" was missing here until now, and it was the most consequential omission in the
+// module. Visiting a customer is the central act of field sales, and salesDispositions
+// carries SIX outcomes for it -- the richest set in the whole vocabulary, including
+// "Collected Documents", which advances the lead to documents_requested, and "Did Not Get
+// Past Reception", which deliberately does not move it. None of those were reachable from
+// the lead, because this map rejected the kind before the dispositions were ever consulted.
+//
+// So an officer who visited a customer whose lead they own had nowhere correct to put it.
+// They could log it on My Day -- where the call option's own blurb says it is for work "not
+// against a lead you own", so the lead stayed looking stalled -- or log it against the lead
+// as a plain note, losing the outcome and the stage move with it. Both choices lose
+// something, and the second is the one that makes a working officer look idle.
 var leadActivityLabel = map[string]string{
 	"interested": "Interested", "handed_to_sales": "Handed to sales",
 	"documents_requested": "Documents requested", "application_submitted": "Application submitted",
 	"approved": "Approved",
-	"call": "Call", "meeting": "Meeting", "email": "Email", "note": "Note",
+	"visit": "Visit", "call": "Call", "meeting": "Meeting", "email": "Email", "note": "Note",
 }
 
 // leadStageShown is how a stored stage reads to people. 'qualified' is shown as
@@ -1859,6 +1872,10 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 			// When it happened, RFC3339, for the officer writing up the day's calls that
 			// evening. Bounded exactly as logSalesActivity bounds it.
 			OccurredAt string `json:"occurred_at"`
+			// Where, for a visit. Carried in metadata rather than a column, exactly as
+			// logSalesActivity does it -- a dedicated column would be empty on every other
+			// kind, and the jsonb column already exists for this.
+			Location string `json:"location"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -1867,7 +1884,7 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 		kind := strings.ToLower(strings.TrimSpace(req.Kind))
 		label, known := leadActivityLabel[kind]
 		if !known {
-			respondErr(w, 400, "Unknown activity. Choose one of: interested, handed_to_sales, documents_requested, application_submitted, approved, call, meeting, email, note.")
+			respondErr(w, 400, "Unknown activity. Choose one of: interested, handed_to_sales, documents_requested, application_submitted, approved, visit, call, meeting, email, note.")
 			return
 		}
 		note := strings.TrimSpace(req.Note)
@@ -1972,10 +1989,16 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 				// addable instead of merely adjacent.
 				outcome = disp.Code
 			}
+			// Where it happened, for a visit. Kept off every other kind so a stray value
+			// cannot put a location on a phone call.
+			var meta map[string]any
+			if loc := strings.TrimSpace(req.Location); loc != "" && kind == "visit" {
+				meta = map[string]any{"location": loc}
+			}
 			id, err := LogActivity(r.Context(), db, Activity{
 				ContactID: &cid, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
 				Type: kind, Subject: label, Body: note, Outcome: outcome, Source: "manual",
-				OccurredAt: occurred,
+				OccurredAt: occurred, Metadata: meta,
 				EntityType: "crm_contact", EntityID: fmt.Sprintf("%d", contactID),
 			})
 			if err != nil {
@@ -2056,6 +2079,29 @@ func logLeadActivity(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+
+		// A stage move is work, and it has to count as work. Until now this branch wrote the
+		// contact and the lead event and nothing else, so the five kinds that move a lead --
+		// interested, handed_to_sales, documents_requested, application_submitted, approved --
+		// never reached app.activities, and therefore never reached the officer's day. The
+		// effect was backwards: logging a note counted, submitting an application did not, so
+		// the officers doing the most consequential work looked the least busy.
+		//
+		// logActivitySafe rather than LogActivity: the move is already committed and this is
+		// a record OF it, so a failure here is logged and swallowed instead of being handed
+		// back as a 500 for work that did happen.
+		//
+		// OccurredAt is deliberately nil, not `occurred`. A forward kind changes state now
+		// whatever date was typed, exactly as the comment on the backdating bounds above
+		// says -- stamping it Friday would have the activity disagree with crm_contacts.
+		aid, aname, ateam := actorOf(u)
+		cid := contactID
+		logActivitySafe(r.Context(), db, Activity{
+			ContactID: &cid, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: kind, Subject: label, Body: note, Source: "manual",
+			EntityType: "crm_contact", EntityID: fmt.Sprintf("%d", contactID),
+		})
+
 		respond(w, map[string]any{"ok": true, "moved": true, "from": current, "to": stage, "follow_up_at": followUp}, "pg")
 	}
 }

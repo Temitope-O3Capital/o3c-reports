@@ -649,6 +649,19 @@ func main() {
 			r.Use(core.RequireManagementOrPage("executive")) // exec drill-downs
 			handlers.RegisterExecutive(r, db)
 		})
+		// The management desk: what needs a judgement, and the conversation about it.
+		//
+		// Deliberately NO r.Use gate. There is no single page key that covers every subject
+		// type, and hardcoding the union here would put the gate in a second place that has
+		// to be kept in step with app.management_subject_types. Every handler in
+		// management_desk.go resolves the subject type page_keys from that registry and
+		// refuses before it reads anything, so a new subject type carries its own access
+		// with it. ANYTHING added to RegisterManagementDesk must do the same -- an
+		// unenforced handler here is readable by every authenticated user, which is exactly
+		// the state /api/approvals below is in today.
+		r.Route("/api/management", func(r chi.Router) {
+			handlers.RegisterManagementDesk(r, db)
+		})
 		r.Route("/api/cards/interswitch", func(r chi.Router) {
 			// Was unguarded: any authenticated user could read the card feed and POST
 			// an EOD import. Read is settlement/cards; import is gated further inside.
