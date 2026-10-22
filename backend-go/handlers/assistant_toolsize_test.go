@@ -44,6 +44,8 @@ func TestToolResultSizes(t *testing.T) {
 			args["days"] = 7.0
 		case "get_officer_production":
 			// No officer argument is the league table, which is the heavier path.
+		case "add_customer_note":
+			continue // a WRITE tool; exercised by its own test, never by enumeration
 		case "query_workspace_data":
 			// Needs a dataset; with none it correctly asks for one.
 			args["dataset"] = "card_disputes"

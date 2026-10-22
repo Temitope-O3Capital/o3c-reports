@@ -232,6 +232,11 @@ func assistantTeamTools() []assistantTool {
 					}
 				}
 
+				// NOTES THE ASSISTANT WROTE ARE EXCLUDED from customers_contacted below.
+				// A note counts as customer contact, so without that exclusion asking the
+				// assistant to log something would raise an officer's contact figure, and a
+				// note written on a misunderstanding would become evidence of work nobody
+				// did. add_customer_note marks every row source='assistant' for this.
 				// An EMPTY id list must not read as "no rows". It is built as a comma
 				// string so a single query serves the scoped and unscoped cases alike,
 				// and an empty string means no filter.
@@ -244,7 +249,7 @@ func assistantTeamTools() []assistantTool {
 					       COUNT(*) FILTER (WHERE a.type = 'note')         AS notes,
 					       COUNT(*) FILTER (WHERE a.type = 'stage_change') AS stage_changes,
 					       COUNT(DISTINCT COALESCE(a.party_id::text, a.contact_id::text, NULLIF(a.phone, '')))
-					         FILTER (WHERE a.type IN ('call','visit','note')) AS customers_contacted
+					         FILTER (WHERE a.type IN ('call','visit','note') AND COALESCE(a.source,'') <> 'assistant') AS customers_contacted
 					FROM activities a
 					JOIN o3c_users u ON u.id = a.actor_user_id AND u.deleted_at IS NULL
 					WHERE a.occurred_at >= now() - make_interval(days => $1)
@@ -265,7 +270,7 @@ func assistantTeamTools() []assistantTool {
 				tot, err := db.PGQuery(ctx, `
 					SELECT COUNT(*) FILTER (WHERE a.type = 'call') AS calls,
 					       COUNT(DISTINCT COALESCE(a.party_id::text, a.contact_id::text, NULLIF(a.phone, '')))
-					         FILTER (WHERE a.type IN ('call','visit','note')) AS customers_contacted,
+					         FILTER (WHERE a.type IN ('call','visit','note') AND COALESCE(a.source,'') <> 'assistant') AS customers_contacted,
 					       COALESCE(MAX(a.occurred_at)::date::text, 'none in this window') AS last_activity
 					FROM activities a
 					WHERE a.occurred_at >= now() - make_interval(days => $1)
