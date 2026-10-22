@@ -23,6 +23,42 @@ import { API, getCsrfToken } from './api'
 //     thousands of copies of itself. The server throttles too, but the cheapest place
 //     to stop a storm is before it leaves the browser.
 
+// A lazily-loaded page whose chunk no longer exists. This is not a fault in the code:
+// it is a tab that was open when a new version was deployed, asking for a file whose
+// name carried the old build's content hash. The deploy replaces those files, so the
+// request falls through to the HTML shell and the import fails.
+//
+// It lived privately in main.tsx, which is why the per-page boundary never recovered
+// from it: routes sit inside PageErrorBoundary, so that boundary catches the failure
+// first and the root boundary's reload never runs. Every stale tab therefore showed a
+// dead "Page error" on each new page until someone thought to force a refresh.
+export function isChunkError(e: Error): boolean {
+  return (
+    e.name === 'ChunkLoadError' ||
+    /Failed to fetch dynamically imported module/.test(e.message) ||
+    /Loading chunk \d+ failed/.test(e.message) ||
+    /Importing a module script failed/.test(e.message)
+  )
+}
+
+const RELOAD_MARK = 'o3c_chunk_reload_at'
+
+// Reloads once to pick up the new build. Returns false if a reload was already tried
+// recently, in which case the caller should show the error rather than keep reloading:
+// a chunk that is missing for any reason OTHER than a fresh deploy would otherwise put
+// the tab in a refresh loop, which is a worse failure than an honest message.
+export function reloadForStaleChunk(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(RELOAD_MARK) || 0)
+    if (Number.isFinite(last) && Date.now() - last < 30_000) return false
+    sessionStorage.setItem(RELOAD_MARK, String(Date.now()))
+  } catch {
+    /* Private windows refuse sessionStorage. Reloading once is still the right move. */
+  }
+  window.location.reload()
+  return true
+}
+
 const reported = new Set<string>()
 
 // Names the build that broke, so a report can be tied to a deploy. The entry bundle's

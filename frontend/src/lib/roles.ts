@@ -120,3 +120,27 @@ export function isCallCentreSupervisor(user: AuthUser | null = currentUser()): b
   if (allRoles(user).some(r => r === 'call_center_head' || MGMT.has(r))) return true
   return hasPage('call_center_stats', user)
 }
+
+// extra_roles arrives in TWO different shapes, so every reader has to cope with both.
+// The column is jsonb, and the db layer returns a jsonb value as TEXT — it hands []byte
+// back as a string so that an identifier which happens to look numeric is never mangled
+// into a float — so a list endpoint sends the literal string
+// '["call_center_head","care_head"]'. Login builds the same field in Go and sends a real
+// array.
+//
+// Not theoretical: the People register did `(r.extra_roles ?? []).map(...)`, and `??`
+// does not help because a string is not null. That page crashed outright for anyone
+// whose row carries a secondary role. Anything reading extra_roles off an API response
+// goes through here.
+export function asRoleArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v as string[]
+  if (typeof v === 'string' && v.trim()) {
+    try {
+      const p = JSON.parse(v)
+      return Array.isArray(p) ? (p as string[]) : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App'
-import { reportClientError } from './lib/reportError'
+import { isChunkError, reportClientError } from './lib/reportError'
 
 async function enableMocking() {
   if (import.meta.env.VITE_MOCK !== 'true') return
@@ -25,14 +25,8 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   })
 }
 
-function isChunkError(e: Error) {
-  return (
-    e.name === 'ChunkLoadError' ||
-    /Failed to fetch dynamically imported module/.test(e.message) ||
-    /Loading chunk \d+ failed/.test(e.message) ||
-    /Importing a module script failed/.test(e.message)
-  )
-}
+// isChunkError now lives in lib/reportError.ts, because the per-page boundary in
+// App.tsx needs it too and is the boundary that actually catches these.
 
 function isDomSyncError(e: Error) {
   return (

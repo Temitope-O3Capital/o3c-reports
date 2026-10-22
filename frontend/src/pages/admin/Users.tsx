@@ -6,7 +6,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
-import { roleLabel } from '../../lib/roles'
+import { asRoleArray, roleLabel } from '../../lib/roles'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,15 +43,9 @@ function isSuspended(u: Pick<User, 'suspended_at'>): boolean {
   return !!u.suspended_at
 }
 
-// Normalize extra_roles, which the users-list API returns as a JSON *string*
-// (jsonb stringified by the db layer) while login returns it as a real array.
-function asRoleArray(v: unknown): string[] {
-  if (Array.isArray(v)) return v as string[]
-  if (typeof v === 'string' && v.trim()) {
-    try { const p = JSON.parse(v); return Array.isArray(p) ? p : [] } catch { return [] }
-  }
-  return []
-}
+// asRoleArray moved to lib/roles.ts. It lived here as a local helper, and the People
+// register then read extra_roles without it and crashed — so the knowledge, not just
+// the code, needed to be somewhere both pages could find it.
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

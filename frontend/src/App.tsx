@@ -6,7 +6,7 @@ import {
   BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation,
 } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
-import { reportClientError } from './lib/reportError'
+import { isChunkError, reloadForStaleChunk, reportClientError } from './lib/reportError'
 
 import Sidebar          from './components/Sidebar'
 import { RouteSkeleton } from './components/Skeleton'
@@ -409,16 +409,30 @@ function PageFade({ children }: { children: ReactNode }) {
   )
 }
 
-class PageErrorBoundary extends Component<{ children: ReactNode }, { err: string | null }> {
-  state = { err: null }
-  static getDerivedStateFromError(e: Error) { return { err: e.message } }
+class PageErrorBoundary extends Component<{ children: ReactNode }, { err: string | null, stale: boolean }> {
+  state = { err: null, stale: false }
+  static getDerivedStateFromError(e: Error) {
+    return { err: e.message, stale: isChunkError(e) }
+  }
   // The message shown below is all a user can tell us, and in a production build it is
   // a bare React error number. Report the route and the component stack instead, so
   // diagnosing a fault does not depend on someone copying a number off their screen.
   componentDidCatch(e: Error, info: { componentStack?: string | null }) {
     reportClientError(e, 'page', info?.componentStack ?? undefined)
+    // A stale chunk means this tab predates a deploy: the page is not broken, and the
+    // fix is to fetch the new build. The root boundary already did exactly this, but it
+    // never saw one, because every route sits inside THIS boundary and it caught them
+    // first. That is why a deploy left open tabs showing a dead error on each new page.
+    if (isChunkError(e)) reloadForStaleChunk()
   }
   render() {
+    // Reloading. Saying so beats an error box for something that is about to fix
+    // itself, and beats a blank space in the moment before the page goes away.
+    if (this.state.stale) return (
+      <div style={{ padding: 32, color: 'var(--txt2)', fontFamily: 'var(--font-sans)', fontSize: 13 }}>
+        Loading the latest version of this page…
+      </div>
+    )
     if (this.state.err) return (
       <div style={{ padding: 32, color: 'var(--nav-dot)', fontFamily: 'var(--font-sans)' }}>
         <p style={{ fontWeight: 600, marginBottom: 8 }}>Page error</p>

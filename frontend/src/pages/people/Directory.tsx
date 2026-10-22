@@ -5,7 +5,7 @@ import {
 import type { TableCol, FilterDef } from '../../components/UI'
 import { apiFetch, unwrapList } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
-import { roleLabel } from '../../lib/roles'
+import { asRoleArray, roleLabel } from '../../lib/roles'
 import { NAVY, BLUE, GREEN, AMBER, SP, TEXT, FW } from '../../lib/design'
 
 // PEOPLE DIRECTORY — the staff register, read-only.
@@ -32,7 +32,8 @@ interface Staff {
   full_name: string
   email: string
   role: string
-  extra_roles: string[] | null
+  // jsonb, so the list endpoint sends it as a JSON string — read it via asRoleArray.
+  extra_roles: string[] | string | null
   department: string | null
   phone: string | null
   office_location: string | null
@@ -112,7 +113,7 @@ export default function PeopleDirectory() {
           <span>{roleLabel(r.role)}</span>
           {/* Secondary roles are what the person actually also does — the page system
               honours them (core.Claims.AllRoles), so the register shows them too. */}
-          {(r.extra_roles ?? []).map(x => (
+          {asRoleArray(r.extra_roles).map(x => (
             <Pill key={x} label={roleLabel(x)} color={BLUE} bg="rgba(37,99,235,.10)" />
           ))}
         </div>
