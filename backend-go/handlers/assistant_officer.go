@@ -235,5 +235,6 @@ func assistantExtraTools() []assistantTool {
 	out := assistantTeamTools()
 	out = append(out, assistantOfficerTools()...)
 	out = append(out, assistantCoverageTools()...)
+	out = append(out, assistantDatasetTools()...)
 	return out
 }

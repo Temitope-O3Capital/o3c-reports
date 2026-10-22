@@ -104,22 +104,37 @@ func assistantCoverageTools() []assistantTool {
 			Pages: []string{"mail"},
 			Run: func(ctx context.Context, db *core.DB, u *core.Claims, a map[string]any) (any, error) {
 				days := argInt(a, "days", 7, 1, 365)
-				rows, err := db.PGQuery(ctx, `
-					SELECT kind, status, COUNT(*) AS messages,
+				// ONE AXIS PER BREAKDOWN. kind x status repeated "queued" down the
+				// status column, and the chart builder takes the first text column as
+				// its x axis and would have silently merged those rows into one bar --
+				// caught by TestChartExtraction, which checks for exactly that. Two
+				// lists also cost fewer tokens than one grid.
+				byStatus, err := db.PGQuery(ctx, `
+					SELECT status, COUNT(*) AS messages,
 					       COUNT(*) FILTER (WHERE opened_at IS NOT NULL)  AS opened,
 					       COUNT(*) FILTER (WHERE bounced_at IS NOT NULL) AS bounced
 					FROM mail_messages
 					WHERE created_at >= now() - make_interval(days => $1)
-					GROUP BY 1, 2
+					GROUP BY 1
 					ORDER BY messages DESC
-					LIMIT 12`, days)
+					LIMIT 8`, days)
 				if err != nil {
 					return nil, err
 				}
-				// Anything that has been "sending" for over a day is wedged, not in
-				// flight. Surfaced separately because it is the one thing in this tool
-				// somebody has to act on, and it would otherwise hide inside a status
-				// count that looks like normal traffic.
+				byKind, err := db.PGQuery(ctx, `
+					SELECT kind, COUNT(*) AS messages
+					FROM mail_messages
+					WHERE created_at >= now() - make_interval(days => $1)
+					GROUP BY 1
+					ORDER BY messages DESC
+					LIMIT 8`, days)
+				if err != nil {
+					return nil, err
+				}
+				// Anything that has been sending or queued for over a day is wedged,
+				// not in flight. Surfaced separately because it is the one thing in
+				// this tool somebody has to act on, and inside a status count it looks
+				// like normal traffic.
 				stuck, err := db.PGQuery(ctx, `
 					SELECT COUNT(*) AS stuck_messages,
 					       MIN(created_at)::date::text AS oldest
@@ -129,9 +144,9 @@ func assistantCoverageTools() []assistantTool {
 				if err != nil {
 					return nil, err
 				}
-				out := map[string]any{"by_kind_and_status": rows, "days": days,
-					"note": "Counts of messages we recorded sending. 'opened' is only tracked " +
-						"for email and only when the recipient loads images, so it is a floor."}
+				out := map[string]any{"by_status": byStatus, "by_kind": byKind, "days": days,
+					"note": "Counts of messages we recorded sending. 'opened' is only tracked for " +
+						"email and only when the recipient loads images, so it is a floor."}
 				if len(stuck) > 0 {
 					out["wedged"] = stuck[0]
 				}
@@ -150,23 +165,39 @@ func assistantCoverageTools() []assistantTool {
 			Pages: []string{"payments"},
 			Run: func(ctx context.Context, db *core.DB, u *core.Claims, a map[string]any) (any, error) {
 				days := argInt(a, "days", 30, 1, 365)
-				rows, err := db.PGQuery(ctx, `
-					SELECT status, COALESCE(NULLIF(channel, ''), 'unknown') AS channel,
-					       COUNT(*)                            AS payments,
-					       ROUND(SUM(amount_kobo)/100.0, 2)    AS amount_ngn,
-					       ROUND(SUM(fees_kobo)/100.0, 2)      AS fees_ngn
+				// Split for the same reason as the email tool: status x channel repeated
+				// "abandoned" down the status column and a chart would have merged those
+				// bars into one.
+				byStatus, err := db.PGQuery(ctx, `
+					SELECT status,
+					       COUNT(*)                         AS payments,
+					       ROUND(SUM(amount_kobo)/100.0, 2) AS amount_ngn,
+					       ROUND(SUM(fees_kobo)/100.0, 2)   AS fees_ngn
 					FROM paystack_transactions
 					WHERE COALESCE(paid_at, created_at_ps) >= now() - make_interval(days => $1)
-					GROUP BY 1, 2
+					GROUP BY 1
 					ORDER BY payments DESC
-					LIMIT 12`, days)
+					LIMIT 8`, days)
 				if err != nil {
 					return nil, err
 				}
-				return map[string]any{"by_status_and_channel": rows, "days": days,
-					"note": "Paystack only — this is not every payment the bank takes, and must " +
-						"not be described as total collections. Amounts are what the customer " +
-						"was charged; fees are what the gateway kept."}, nil
+				byChannel, err := db.PGQuery(ctx, `
+					SELECT COALESCE(NULLIF(channel, ''), 'unknown') AS channel,
+					       COUNT(*)                                 AS payments,
+					       ROUND(SUM(amount_kobo)/100.0, 2)         AS amount_ngn
+					FROM paystack_transactions
+					WHERE COALESCE(paid_at, created_at_ps) >= now() - make_interval(days => $1)
+					GROUP BY 1
+					ORDER BY payments DESC
+					LIMIT 8`, days)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"by_status": byStatus, "by_channel": byChannel, "days": days,
+					"note": "Paystack only — this is not every payment the bank takes, and must not " +
+						"be described as total collections. Amounts are what the customer was " +
+						"charged; fees are what the gateway kept. Only the success rows are " +
+						"money we received."}, nil
 			},
 		},
 		{

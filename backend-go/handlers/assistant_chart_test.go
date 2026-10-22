@@ -36,6 +36,9 @@ func TestChartExtraction(t *testing.T) {
 		switch tl.Name {
 		case "search_customers":
 			args["query"] = "john"
+		case "query_workspace_data":
+			// Needs a dataset; with none it correctly asks for one.
+			args["dataset"] = "card_disputes"
 		case "get_team":
 			args["team"] = "Jennifer"
 		case "find_staff":
