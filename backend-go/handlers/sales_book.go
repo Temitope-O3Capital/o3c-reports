@@ -206,10 +206,16 @@ func bookOrderBy(r *http.Request) string {
 // perform on themselves — setting targets, above all. Hiding the button in the UI
 // is not sufficient: the endpoint is reachable directly, and the person with the
 // clearest motive to move their own target is the one being measured by it.
+// requireSalesHead gates target setting. salesCanSupervise rather than isSalesHead, because
+// supervision in this module is headship of an active team, not the sales_head ROLE — and
+// two of the four teams are headed by officers whose role is sales_officer. Under the role
+// test those two could open Team (Live), read their team's leads and their team's days, and
+// then get a 403 setting their own team's targets. Half the floor's supervisors could watch
+// their people and not act for them.
 func requireSalesHead(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isSalesHead(core.UserFromCtx(r.Context())) {
-			respondErr(w, 403, "Only a sales head or administrator can change targets")
+		if !salesCanSupervise(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Only a sales head, a team head or an administrator can change targets")
 			return
 		}
 		next.ServeHTTP(w, r)

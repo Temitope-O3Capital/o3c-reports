@@ -133,7 +133,7 @@ export default function ManagementDesk() {
         }}>
           <h1 style={{
             margin: 0, fontSize: TEXT['2xl'], fontWeight: FW.semibold, color: 'var(--txt)',
-          }}>The Desk</h1>
+          }}>Needs Attention</h1>
           <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
             {user?.name} &middot; week of {from ? fmtDate(from) : '—'} to {to ? fmtDate(to) : '—'}
           </span>

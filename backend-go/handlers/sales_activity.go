@@ -623,8 +623,33 @@ func teamDays(db *core.DB) http.HandlerFunc {
 		if roster == nil {
 			roster = []map[string]any{}
 		}
+		// The days the business was CLOSED, from app.business_calendar — weekends and
+		// declared public holidays together.
+		//
+		// The grid worked this out in the browser with `new Date(iso).getDay()`, dimming
+		// only Saturday and Sunday. So 25 August and 1 October — both declared holidays,
+		// both weekdays — rendered as ordinary working days on which the whole floor logged
+		// nothing, and a head reading the month saw a wall of misses that were nothing of
+		// the kind. The calendar already knew; the page never asked it.
+		closed, cerr := db.PGQuery(r.Context(), `
+			SELECT d::text AS day
+			  FROM app.business_calendar
+			 WHERE d BETWEEN $1::date AND $2::date AND open_minutes = 0
+			 ORDER BY d`, from, to)
+		if cerr != nil {
+			// Degrade to "no closures known" rather than fail the grid: a month that dims
+			// nothing is still readable; a month that does not load is not.
+			slog.Error("teamDays: could not read the business calendar", "err", cerr)
+			closed = []map[string]any{}
+		}
+		nonWorking := make([]string, 0, len(closed))
+		for _, c := range closed {
+			nonWorking = append(nonWorking, str(c["day"]))
+		}
+
 		respond(w, map[string]any{
 			"days": rows, "officers": roster, "from": from, "to": to,
+			"non_working_days": nonWorking,
 		}, "pg")
 	}
 }

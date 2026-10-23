@@ -180,6 +180,7 @@ const RecoveryAgentDash   = lazy(() => import('./pages/recovery-ops/Agent'))
 const SalesMyDashboard    = lazy(() => import('./pages/sales/MyDashboard'))
 const SalesSupervisor     = lazy(() => import('./pages/sales/Supervisor'))
 const SalesManagementDesk = lazy(() => import('./pages/sales/ManagementDesk'))
+const SalesDailyReports   = lazy(() => import('./pages/sales/DailyReports'))
 const HelpdeskOverview    = lazy(() => import('./pages/helpdesk/Overview'))
 const HelpdeskMyDashboard = lazy(() => import('./pages/helpdesk/MyDashboard'))
 const BDMyDashboard       = lazy(() => import('./pages/bd/MyDashboard'))
@@ -1322,6 +1323,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                       the route let them straight through. */}
                   <Route path="/sales/supervisor"       element={<RequireAccess page="sales_team" user={user}><PageErrorBoundary><SalesSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/desk"             element={<RequireAccess page="sales_team" user={user}><PageErrorBoundary><SalesManagementDesk /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/daily-reports"    element={<RequireAccess page="sales_team" user={user}><PageErrorBoundary><SalesDailyReports /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/my-dashboard"  element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/my-dashboard"        element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/my-queue"         element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMyQueue /></PageErrorBoundary></RequireAccess>} />

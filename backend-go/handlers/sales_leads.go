@@ -298,8 +298,12 @@ type distributeReq struct {
 func distributeLeads(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if !isSalesHead(user) {
-			respondErr(w, 403, "Only a sales head can distribute leads")
+		// salesCanSupervise: dealing out the unowned pool is a supervisor's act, and
+		// supervision here is headship of an active team rather than the sales_head role.
+		// Two of the four teams are headed by officers, who under the role test could see
+		// the pool on Team (Live) and then get a 403 dealing any of it to their own people.
+		if !salesCanSupervise(user) {
+			respondErr(w, 403, "Only a sales head, a team head or an administrator can distribute leads")
 			return
 		}
 

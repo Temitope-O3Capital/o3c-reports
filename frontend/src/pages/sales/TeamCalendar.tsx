@@ -77,7 +77,16 @@ function monthDays(anchor: Date): string[] {
   }
   return out
 }
-const isWeekend = (iso: string) => {
+// Closed days come from the SERVER (app.business_calendar via /team-days
+// non_working_days), which carries weekends AND declared public holidays. This used to be
+// `new Date(iso).getDay()`, so 25 Aug and 1 Oct — both declared holidays, both weekdays —
+// rendered as ordinary working days the whole floor had missed. A grid that invents misses
+// is worse than one that shows none.
+//
+// The day-of-week fallback survives for the case where the calendar has not been built for
+// a month yet: dimming Saturday and Sunday is still better than dimming nothing.
+const isDayOff = (iso: string, closed: Set<string>) => {
+  if (closed.size > 0) return closed.has(iso)
   const d = new Date(iso + 'T00:00:00').getDay()
   return d === 0 || d === 6
 }
@@ -86,6 +95,7 @@ export function TeamCalendar() {
   const [anchor, setAnchor] = useState(() => new Date())
   const [cells, setCells] = useState<DayCell[]>([])
   const [officers, setOfficers] = useState<Officer[]>([])
+  const [closedDays, setClosedDays] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<{ officerId: number; day: string } | null>(null)
 
@@ -96,10 +106,11 @@ export function TeamCalendar() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await apiFetch<{ days: DayCell[]; officers: Officer[] }>(
+      const r = await apiFetch<{ days: DayCell[]; officers: Officer[]; non_working_days?: string[] }>(
         `/api/sales/team-days?from=${from}&to=${to}`)
       setCells(r?.days ?? [])
       setOfficers(r?.officers ?? [])
+      setClosedDays(new Set(r?.non_working_days ?? []))
     } catch (e: any) { toast.error(e.message) }
     finally { setLoading(false) }
   }, [from, to])
@@ -123,7 +134,7 @@ export function TeamCalendar() {
 
   // Only days up to today count towards "missing": a head should not see the rest of the
   // month flagged as unreported on the 3rd.
-  const elapsed = days.filter(d => d <= today && !isWeekend(d))
+  const elapsed = days.filter(d => d <= today && !isDayOff(d, closedDays))
   const totals = useMemo(() => {
     let worked = 0, noted = 0, silent = 0
     officers.forEach(o => {
@@ -193,7 +204,7 @@ export function TeamCalendar() {
                     <th key={d} title={fmtDate(d)} style={{
                       padding: '6px 0', width: 26, fontSize: TEXT['2xs'],
                       fontWeight: d === today ? FW.bold : FW.normal,
-                      color: d === today ? NAVY : isWeekend(d) ? 'var(--txt3)' : 'var(--txt2)',
+                      color: d === today ? NAVY : isDayOff(d, closedDays) ? 'var(--txt3)' : 'var(--txt2)',
                       borderBottom: '1px solid var(--bdr)',
                     }}>{Number(d.slice(8, 10))}</th>
                   ))}
@@ -223,7 +234,7 @@ export function TeamCalendar() {
                       </td>
                       {days.map(d => (
                         <td key={d} style={{ padding: 1, borderBottom: '1px solid var(--bdr)', textAlign: 'center' }}>
-                          <DaySquare cell={m?.get(d)} day={d} today={today}
+                          <DaySquare closedDays={closedDays} cell={m?.get(d)} day={d} today={today}
                             onClick={() => setOpen({ officerId: o.id, day: d })} />
                         </td>
                       ))}
@@ -261,11 +272,13 @@ function Legend({ color, label, count }: { color: string; label: string; count: 
 }
 
 /** One square. Colour says the state; the tooltip says the detail without a click. */
-function DaySquare({ cell, day, today, onClick }: {
-  cell?: DayCell; day: string; today: string; onClick: () => void
+function DaySquare({ cell, day, today, closedDays, onClick }: {
+  cell?: DayCell; day: string; today: string; closedDays: Set<string>; onClick: () => void
 }) {
   const future = day > today
-  const weekend = isWeekend(day)
+  // "closed", not "weekend": a declared public holiday is a closed day too, and calling it
+  // a working day is how 1 Oct showed as a floor-wide miss.
+  const weekend = isDayOff(day, closedDays)
   const worked = !!cell && cell.activities > 0
   const noted = !!cell?.report_submitted // an end-of-day remark, on top of the work
 

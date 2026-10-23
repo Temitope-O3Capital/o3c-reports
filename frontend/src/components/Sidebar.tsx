@@ -102,7 +102,8 @@ const SECTIONS: Section[] = [
           // decides: an officer sees these only if they hold sales_team, which the backend
           // grants at login to whoever heads an active team (withStructuralPages).
           { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
-          { label: 'The Desk',         to: '/sales/desk', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
+          { label: 'Daily Reports',    to: '/sales/daily-reports', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
+          { label: 'Needs Attention',  to: '/sales/desk', vis: ['sales_head', 'cmo', 'md', 'admin', 'sales_officer'] },
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
@@ -561,6 +562,22 @@ const SECTIONS: Section[] = [
 // Keep in step with the route→page map in App.tsx. Entries with no mapping here are
 // left to the role (`vis`) gate alone. admin & md bypass entirely.
 const PAGE_FOR: Record<string, string | string[]> = {
+  // Destinations that had NO mapping. canOpen returns true for an unmapped path, so each
+  // of these was visible in the nav to everyone and then bounced at the route — the one
+  // thing this map exists to prevent. Keys copied from the RequireAccess gate on the
+  // matching route in App.tsx, so the menu and the route now agree.
+  '/loans/approvals': ['los', 'los_all', 'los_risk_review', 'los_risk_head',
+                       'los_finance', 'los_finance_approve', 'los_booking'],
+  '/mobile-analytics/blink': ['campaigns', 'reports', 'executive'],
+  '/mobile-analytics/app': ['campaigns', 'reports', 'executive'],
+
+  // DELIBERATELY UNMAPPED, and they must stay that way: '/', '/leave' and '/handoffs'
+  // belong to everyone. The first is home; the second is every employee's own leave; the
+  // third is the hand-off inbox, and handoffList scopes it to the signed-in viewer, so
+  // there is nothing there that is not already theirs. '/reports' is resolved by
+  // ReportsHome to a report page the user can actually open, so gating it here would
+  // hide a destination that resolves itself correctly.
+
   // The central approvals queue. It has no nav entry — it is reached from the bell and
   // from module links — so this mapping is what makes canOpen answer correctly for it
   // instead of defaulting to true, which is part of how the page ended up reachable by
@@ -581,6 +598,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // floor and was only hidden by its role list. '/sales/supervisor' had no mapping at
   // all, so it fell through to the role gate alone.
   '/sales/teams': 'sales_team', '/sales/supervisor': 'sales_team', '/sales/desk': 'sales_team',
+  '/sales/daily-reports': 'sales_team',
   '/sales/crm': 'crm_pipeline', '/sales/tasks': 'crm_tasks', '/sales/applications': 'loans',
   '/sales/targets': 'sales', '/sales/reports': 'crm_reports', '/sales/cohort': 'cohort',
   // Contact Centre
