@@ -466,9 +466,43 @@ function OfficerDay({ o, onClose }: { o: Officer; onClose: () => void }) {
           </div>
         )}
 
+        {/* THIS IS THE REPORT, and it has to say so. app.sales_daily_reports holds zero
+            rows and always has, so own_note is NULL for every officer on every day — which
+            meant the "in their own words" panel never rendered and the expansion opened
+            onto a bare list under a quiet heading. A reader looking for "the report" found
+            no report. The day composed from logged work IS the report on this floor; the
+            heading now states that, and the absence of a written note is stated rather
+            than left as a gap. */}
         {o.entries.length > 0 && (
           <div>
-            <div style={{ ...EYEBROW, marginBottom: SP[3] }}>The day, as it was logged</div>
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: SP[2],
+              alignItems: 'baseline', marginBottom: SP[3],
+            }}>
+              <h3 style={{
+                margin: 0, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)',
+              }}>The Report</h3>
+              <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>
+                composed from the {o.entries.length} thing{o.entries.length === 1 ? '' : 's'} they
+                logged · {[
+                  o.visits && `${o.visits} visit${o.visits === 1 ? '' : 's'}`,
+                  o.calls && `${o.calls} call${o.calls === 1 ? '' : 's'}`,
+                  o.meetings && `${o.meetings} meeting${o.meetings === 1 ? '' : 's'}`,
+                  o.emails && `${o.emails} email${o.emails === 1 ? '' : 's'}`,
+                  o.notes && `${o.notes} note${o.notes === 1 ? '' : 's'}`,
+                  o.moves && `${o.moves} lead move${o.moves === 1 ? '' : 's'}`,
+                ].filter(Boolean).join(', ')}
+              </span>
+            </div>
+            {!o.own_note && (
+              <p style={{
+                margin: `0 0 ${SP[4]}`, fontSize: TEXT.base, color: 'var(--txt3)',
+                lineHeight: 1.65, fontStyle: 'italic', maxWidth: '72ch',
+              }}>
+                No end-of-day note was written, and none is expected — officers are not asked
+                to type up a day they have already logged. What follows is the day itself.
+              </p>
+            )}
             <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: SP[4] }}>
               {shown.map((e, i) => (
                 <li key={i} style={{ display: 'flex', gap: SP[4], alignItems: 'flex-start' }}>

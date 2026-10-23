@@ -67,9 +67,17 @@ export function MyDay({ onLogged }: { onLogged?: () => void }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await apiFetch<{ activities: DayActivity[]; report: DayReport | null }>('/api/sales/my-day')
-      setActivities(r?.activities ?? [])
-      setReport(r?.report ?? null)
+      // getMyDay answers through respond(), which wraps as { data: ... }. This read
+      // r.activities off the ENVELOPE, so the officer's own day was always empty — no
+      // activities, no note — on the one page they open about their own work. The same
+      // mismatch sat behind the team calendar, the officer-day drawer, and the lead-tag
+      // and lead-campaign filters: a handler on respond() and a caller reading the top
+      // level. Tolerant of both shapes so it cannot break again if the handler changes.
+      const r = await apiFetch<{ data?: { activities?: DayActivity[]; report?: DayReport | null } }
+        & { activities?: DayActivity[]; report?: DayReport | null }>('/api/sales/my-day')
+      const d = r?.data ?? r
+      setActivities(d?.activities ?? [])
+      setReport(d?.report ?? null)
     } catch (e: any) { toast.error(e.message) }
     finally { setLoading(false) }
   }, [])

@@ -461,6 +461,13 @@ func managementAddNote(db *core.DB) http.HandlerFunc {
 			ThreadRootID *int64 `json:"thread_root_id"`
 			PeriodStart  string `json:"period_start"`
 			PeriodEnd    string `json:"period_end"`
+			// An ASK: who owes the answer, and by when. Both optional — a plain comment
+			// addresses nobody, which is a different kind of note rather than a defective
+			// one. Deliberately NOT the subject of the note: a question about an officer's
+			// week is normally asked of their HEAD, and addressing it to the officer would
+			// send it to the one person who cannot answer it.
+			AskedUserID *int64 `json:"asked_user_id"`
+			DueAt       string `json:"due_at"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -476,14 +483,39 @@ func managementAddNote(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// An ask has to be answerable by somebody who can actually open it, so the
+		// recipient is checked the way every other assignment target in the module is —
+		// assignTargetProblem, which is the only one of these tests that also covers
+		// suspended_at. A question owed by a deactivated account is a question nobody owes.
+		var askedID *int64
+		if b.AskedUserID != nil && *b.AskedUserID > 0 {
+			if b.ThreadRootID != nil && *b.ThreadRootID > 0 {
+				respondErr(w, 422, "A reply answers a question; it cannot ask a new one. "+
+					"Start a new note to ask somebody something.")
+				return
+			}
+			if p := assignTargetProblem(r.Context(), db, *b.AskedUserID); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
+			askedID = b.AskedUserID
+		}
+		if strings.TrimSpace(b.DueAt) != "" && askedID == nil {
+			respondErr(w, 422, "A date to answer by needs somebody to answer it. "+
+				"Choose who you are asking.")
+			return
+		}
+
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO app.management_notes
 			  (subject_type, subject_key, period_start, period_end, thread_root_id,
-			   author_user_id, body)
-			VALUES ($1, $2, NULLIF($3,'')::date, NULLIF($4,'')::date, $5, $6, $7)
+			   author_user_id, body, asked_user_id, due_at)
+			VALUES ($1, $2, NULLIF($3,'')::date, NULLIF($4,'')::date, $5, $6, $7,
+			        $8, NULLIF($9,'')::timestamptz)
 			RETURNING id, created_at`,
 			st.SubjectType, chi.URLParam(r, "key"),
-			b.PeriodStart, b.PeriodEnd, b.ThreadRootID, u.ID, body)
+			b.PeriodStart, b.PeriodEnd, b.ThreadRootID, u.ID, body,
+			askedID, b.DueAt)
 		if err != nil || len(rows) == 0 {
 			respondErrLog(w, 500, "Could not save the note", err)
 			return
@@ -516,6 +548,30 @@ func managementAddNote(db *core.DB) http.HandlerFunc {
 					Priority: "normal",
 				})
 			}
+		}
+
+		// The person who OWES the answer is told, separately and more pointedly than the
+		// subject. This is what makes an ask an ask: without it the question sits on a page
+		// the recipient has no reason to open, which is exactly what the button used to do
+		// while its own copy claimed it created "an owned question with an answer due".
+		if askedID != nil && *askedID != u.ID {
+			due := ""
+			if d := strings.TrimSpace(b.DueAt); d != "" {
+				if t, perr := time.Parse(time.RFC3339, d); perr == nil {
+					due = " Answer by " + t.Format("Mon 2 Jan") + "."
+				}
+			}
+			NotifyUsers(r.Context(), db, []int64{*askedID}, NotifPayload{
+				EventType: "management_ask",
+				Title:     u.FullName + " asked you a question",
+				Body:      noteFirstLine(body, 160) + due,
+				ActionURL: "/sales/desk",
+				EntityRef: st.SubjectType + ":" + chi.URLParam(r, "key"),
+				// Ungrouped and high: it is addressed to one person, it names them, and it
+				// is waiting on them. A digest would bury the one notification in this
+				// module that somebody actually owes an answer to.
+				Priority: "high",
+			})
 		}
 
 		respond(w, map[string]any{"ok": true, "id": rows[0]["id"]}, "pg")

@@ -326,8 +326,12 @@ function DayDrawer({ officerId, day, onClose }: { officerId: number; day: string
 
   useEffect(() => {
     setLoading(true)
-    apiFetch<DayDetail>(`/api/sales/team-days/${officerId}/${day}`)
-      .then(setData)
+    // officerDay answers through respond(), which wraps as { data: ... }. setData was
+    // handed the ENVELOPE, so every field came back undefined and a green square — a day
+    // with activity — opened onto "Nothing was logged and no report was filed for this
+    // day". The square was right and the drawer was reading the wrong object.
+    apiFetch<{ data?: DayDetail } & DayDetail>(`/api/sales/team-days/${officerId}/${day}`)
+      .then(r => setData((r?.data ?? r) as DayDetail))
       .catch((e: any) => toast.error(e.message))
       .finally(() => setLoading(false))
   }, [officerId, day])
