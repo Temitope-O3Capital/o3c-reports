@@ -626,26 +626,13 @@ export default function SalesLeads() {
               ariaLabel="Filter by location" leadingIcon="location_on"
             />
           </div>
-          {/* Which campaign brought the lead in. Offers only campaigns present in this
-              caller's own queue, with counts, so it never lists a campaign that would
-              return nothing. */}
-          {campaigns.length > 0 && (
-            <div style={{ width: 210 }}>
-              <SelectMenu
-                value={campaignId}
-                onChange={v => {
-                  const p = new URLSearchParams(params)
-                  v ? p.set('campaign_id', v) : p.delete('campaign_id')
-                  setParams(p); setOffset(0)
-                }}
-                options={campaigns.map(c => ({
-                  value: String(c.id), label: c.name, hint: `${c.leads} lead${c.leads === 1 ? '' : 's'}`,
-                }))}
-                clearLabel="All Campaigns"
-                ariaLabel="Filter by campaign" leadingIcon="campaign"
-              />
-            </div>
-          )}
+          {/* The campaign filter was removed on request. It had never actually been
+              visible: /api/sales/lead-campaigns answered with a bare array while this read
+              .data, so `campaigns` was permanently empty and the control never rendered.
+              Correcting that shape would have made it appear for the first time, which is
+              not what anyone asked for. The campaign a lead came from still shows on the
+              row, where it answers "why am I calling this person", and ?campaign_id= is
+              still honoured so existing deep links keep working. */}
           {isHead && <Button variant="secondary" icon="shuffle" onClick={() => setDistOpen(true)}>Distribute</Button>}
           <Button variant="primary" icon="person_add" onClick={() => setNewOpen(true)}>New Lead</Button>
         </div>

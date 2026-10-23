@@ -325,6 +325,7 @@ export default function CRMTasks() {
       render: r => <ActionRow actions={r.source === 'lead'
         ? [
           { icon: 'check_circle', label: 'Complete', onClick: () => markDone(r.id) },
+          { icon: 'open_in_new', label: 'Open Lead', onClick: () => navigate(`/sales/leads/${r.contact_id}`) },
         ]
         : [
           { icon: 'edit', label: 'Edit', onClick: () => { setEditing(r); setEditForm({ title: r.title, contact_id: String(r.contact_id ?? ''), due_date: r.due_date?.slice(0, 10) ?? '', priority: r.priority, assigned_to: String(r.assigned_to ?? ''), description: r.description ?? '' }) } },
@@ -399,7 +400,13 @@ export default function CRMTasks() {
             cols={cols}
             rows={filtered}
             keyFn={r => r.id}
-            onRowClick={r => setParams(p => { p.set('task', String(r.id)); return p }, { replace: false })}
+            // A lead-derived row (source 'lead', NEGATIVE id) has no crm_tasks row behind
+            // it, so the shared ?task= modal fetched /api/crm/tasks/-123 and errored on
+            // every click. Those rows open the lead they belong to, which is where the
+            // follow-up was set and the only place it can be changed.
+            onRowClick={r => r.source === 'lead'
+              ? navigate(`/sales/leads/${r.contact_id}`)
+              : setParams(p => { p.set('task', String(r.id)); return p }, { replace: false })}
             selectable
             selectedIds={selected}
             onSelect={setSelected}

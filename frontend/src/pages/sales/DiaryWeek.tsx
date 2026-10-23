@@ -180,6 +180,22 @@ export function DiaryWeek({ mode }: { mode: 'mine' | 'team' }) {
           description="Add officers to a team to plan their week from here." />
       ) : (
         <div style={{ overflowX: 'auto' }}>
+          {/* An empty week rendered as a blank seven-column grid reads as broken rather
+              than as empty — and app.sales_visit_plans has never held a row, so this is
+              the state everybody sees. The grid stays, because it is the thing you plan
+              INTO; the line says why it is bare. */}
+          {plans.length === 0 && (
+            <div style={{
+              marginBottom: SP[3], padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md,
+              background: 'var(--bg2)', border: '1px solid var(--bdr)',
+              fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6,
+            }}>
+              <b style={{ color: 'var(--txt)' }}>Nothing planned this week.</b>{' '}
+              {mode === 'team'
+                ? 'Plan a visit for an officer and it appears on their row here, and on their own diary.'
+                : 'Plan a visit and it appears here, and on your head’s team week.'}
+            </div>
+          )}
           <div style={{ minWidth: isMobile ? 640 : undefined }}>
             {/* Day headings */}
             <div style={{

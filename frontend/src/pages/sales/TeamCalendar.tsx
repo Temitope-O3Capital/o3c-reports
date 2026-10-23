@@ -106,11 +106,19 @@ export function TeamCalendar() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await apiFetch<{ days: DayCell[]; officers: Officer[]; non_working_days?: string[] }>(
-        `/api/sales/team-days?from=${from}&to=${to}`)
-      setCells(r?.days ?? [])
-      setOfficers(r?.officers ?? [])
-      setClosedDays(new Set(r?.non_working_days ?? []))
+      // teamDays answers through respond(), which wraps the payload as { data: ... }.
+      // This read r.days off the ENVELOPE instead of out of it, so cells and officers were
+      // always undefined and the grid has never shown a single square — while
+      // v_sales_officer_days held 7 officer-days across 4 officers for October. Exactly the
+      // bug the lead-tags and lead-campaigns filters had: a handler on respond() and a
+      // caller reading the top level.
+      const r = await apiFetch<{
+        data?: { days?: DayCell[]; officers?: Officer[]; non_working_days?: string[] }
+      }>(`/api/sales/team-days?from=${from}&to=${to}`)
+      const d = r?.data ?? {}
+      setCells(d.days ?? [])
+      setOfficers(d.officers ?? [])
+      setClosedDays(new Set(d.non_working_days ?? []))
     } catch (e: any) { toast.error(e.message) }
     finally { setLoading(false) }
   }, [from, to])
