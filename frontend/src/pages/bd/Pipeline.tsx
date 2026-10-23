@@ -266,8 +266,11 @@ export default function BDPipeline() {
 
   // Sales agents for the bulk-assign picker (same source/roles as the Employers page).
   useEffect(() => {
-    apiFetch<BDAgent[]>('/api/admin/users?limit=200')
-      .then(r => setAgents((r ?? []).filter(u => u.role === 'sales_officer' || u.role === 'sales_head')))
+    // /api/sales/officers, NOT /api/admin/users — which is gated on admin_users/admin and
+    // therefore 403s for every BD role, leaving this picker silently empty. Same fix as the
+    // two on the Employers page.
+    apiFetch<{ data: BDAgent[] }>('/api/sales/officers')
+      .then(r => setAgents(Array.isArray(r) ? r : (r?.data ?? [])))
       .catch(() => setAgents([]))
   }, [])
 

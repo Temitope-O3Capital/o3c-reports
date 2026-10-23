@@ -5776,8 +5776,20 @@ func hdAgentDetail(db *core.DB) http.HandlerFunc {
 }
 
 // hdSupervisor returns a live snapshot of agent load and queue health for the supervisor view.
+// Head/supervisor only (call_center_stats) — the same guard hdAgentDetail and hdAgentStats
+// carry, and the one this handler was missing. Its route sits in the `helpdesk` group, and
+// `helpdesk` is held by care, cards, finance and settlement staff as well as the contact
+// centre, so every one of them could read the whole live wallboard — each agent, their call
+// activity, their ticket load and their status — by typing the URL. The sidebar hid it
+// behind vis: ['call_center_head'], and the comment beside that entry claimed it gated on
+// call_center_stats, which it did not: PAGE_FOR maps the path to `helpdesk`. Hiding a nav
+// item is not access control.
 func hdSupervisor(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.HasPage("call_center_stats") && !u.CanSeeAllRows() {
+			respondErr(w, 403, "Supervisor access required")
+			return
+		}
 		ctx := r.Context()
 
 		// Queue depth / unassigned / active agents are live "right now" figures — they

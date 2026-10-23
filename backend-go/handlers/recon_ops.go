@@ -28,7 +28,10 @@ func RegisterRecon(r chi.Router, db *core.DB) {
 	r.With(access).Post("/runs", reconRunStart(db))
 	r.With(access).Get("/runs", reconRunList(db))
 	r.With(access).Get("/runs/{id}", reconRunDetail(db))
-	r.With(core.RequirePages("reconciliation")).Post("/runs/{id}/signoff", reconRunSignoff(db))
+	// Sign-off is a head decision. `reconciliation` cannot express that -- settlement_officer
+	// and finance_officer both hold it -- so every officer on both desks could sign off a run
+	// against a comment three files over saying this was head-only.
+	r.With(core.RequirePages("reconciliation_signoff")).Post("/runs/{id}/signoff", reconRunSignoff(db))
 
 	r.With(access).Get("/activity", reconActivityLog(db))
 	r.With(access).Get("/exceptions", reconExceptionList(db))
@@ -41,7 +44,7 @@ func RegisterRecon(r chi.Router, db *core.DB) {
 
 	// Supervising the desk is a head's job, like sign-off: it is about who owns
 	// what and whether the queue is moving, not about working an item.
-	head := core.RequirePages("reconciliation")
+	head := core.RequirePages("reconciliation_signoff")
 	r.With(head).Get("/supervisor", reconSupervisor(db))
 	r.With(head).Post("/exceptions/bulk-assign", reconExceptionBulkAssign(db))
 }

@@ -602,6 +602,7 @@ func main() {
 			handlers.RegisterSalesOverview(r, db)     // the team lead's dashboard
 			handlers.RegisterSalesApplications(r, db) // raise loan/card applications for a customer
 			handlers.RegisterSalesActivity(r, db)     // the officer's logged day + the head's calendar over it
+			handlers.RegisterSalesDailyReports(r, db) // what the floor did on a day, written to be read
 			// Deal the unowned pool out: by state to the office that can actually
 			// visit it, evenly round-robin within that office (migration 353).
 			handlers.RegisterSalesLeadDistribute(r, db)
@@ -849,7 +850,24 @@ func main() {
 		r.Route("/api/credit-accommodations", func(r chi.Router) {
 			handlers.RegisterCreditAccommodations(r, db)
 		})
+		// Was mounted with NO gate, and neither /pending nor /summary carried one of its
+		// own, so the central approvals queue — pending LOS decisions, write-offs and leave
+		// requests — was readable by every authenticated user in the company. There is no
+		// sidebar entry for /approvals and the route carried no RequireAccess either, so
+		// nobody reached it through the UI; the exposure was entirely by typed URL, which is
+		// why it went unnoticed. POST /batch was already guarded in-body by approverRoles,
+		// so this closes a read hole rather than a write one — pending loan decisions and
+		// colleagues' leave requests are not a small thing to leave open.
+		//
+		// Gated on the page key that already exists for exactly this, held by coo, head_ops
+		// and cfo (admin and md bypass). The four approver-only roles in approverRoles —
+		// finance_head, compliance_head, collections_head, recovery_head — do NOT hold this
+		// page, and los_head is not a real role at all. None of those five has a live
+		// holder today, so nothing is locked out by this; but the disagreement between who
+		// may act and who may look is a live trap, and the first person made
+		// collections_head will be able to approve a write-off they cannot read.
 		r.Route("/api/approvals", func(r chi.Router) {
+			r.Use(core.RequirePages("approvals"))
 			handlers.RegisterApprovals(r, db)
 		})
 		r.Route("/api/risk", func(r chi.Router) {

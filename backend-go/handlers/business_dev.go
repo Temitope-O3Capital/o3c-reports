@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -301,7 +303,24 @@ func bdGetEmployer(db *core.DB) http.HandlerFunc {
 // BD → Sales assignment flow above are unchanged — they already write crm_contacts.
 //
 // The "BD-sourced subset" is any contact tagged as coming from Business Development.
-const bdLeadSubset = `(c.lead_source = 'business_dev' OR c.source_type IN ('bd_assigned','bd_self_sourced') OR c.bd_assignment_id IS NOT NULL)`
+// bdLeadSubset is what BD's pages treat as theirs.
+//
+// IT USED TO MATCH EVERY CONTACT IN THE COMPANY. The middle clause was
+// `source_type IN ('bd_assigned','bd_self_sourced')`, and when 'bd_self_sourced' turned out
+// to violate crm_contacts_source_type_check it was corrected to 'self_sourced' — which is
+// the value on ALL 36,571 rows, because the CHECK permits only two and nothing writes the
+// other. So the predicate became effectively TRUE: "All Leads" listed 16,752 Zoho Desk
+// help-desk contacts as BD leads, bdPipelineKPIs reported 36,571 for a department that has
+// originated none, and PATCH /api/bd/leads/{id} — which carries no owner check and no
+// sales_entered_at gate — could restage any of them.
+//
+// source_type is dropped from the test entirely. It cannot distinguish anything: two
+// permitted values, one of which is unused. What actually marks a BD lead is how it got
+// here — lead_source / sales_source 'business_dev', set by all three BD creation paths — or
+// a direct link to a BD assignment.
+const bdLeadSubset = `(c.lead_source = 'business_dev'
+	OR c.sales_source = 'business_dev'
+	OR c.bd_assignment_id IS NOT NULL)`
 
 // bdLeadSelect projects crm_contacts into the exact JSON shape bd/Pipeline.tsx expects
 // (title, entity_type, company_name, stage, potential_value_kobo, contact_* …). Columns
@@ -490,7 +509,7 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 			  assigned_to, sales_owner_id, created_by, created_at, updated_at,
 			  sales_entered_at, sales_source)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,'lead',
-			         $8,'business_dev','business_dev','bd_self_sourced',$9,
+			         $8,'business_dev','business_dev','self_sourced',$9,
 			         $10,$10,$11,NOW(),NOW(),
 			         NOW(),'business_dev')
 			 RETURNING id`,
@@ -586,6 +605,16 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 			q += fmt.Sprintf(", stage_changed_at=CASE WHEN c.lead_stage IS DISTINCT FROM $%d THEN NOW() ELSE c.stage_changed_at END", n-1)
 		}
 		if b.AssignedTo != nil {
+			// An assignee named here has to be able to open the lead. This accepted any
+			// integer, so a BD lead could be handed to a deleted, deactivated or SUSPENDED
+			// account and then belong to nobody who can work it. assignTargetProblem is the
+			// same check bdAssignToSales, forwardLeadToSales and the call-centre assign all
+			// use — and the only one of the three tests that covers suspended_at, which the
+			// hand-rolled "deleted_at IS NULL AND is_active" checks elsewhere miss.
+			if p := assignTargetProblem(r.Context(), db, *b.AssignedTo); p != "" {
+				respondErr(w, 422, p)
+				return
+			}
 			// Keep assigned_to and sales_owner_id in step so BD and Sales agree on owner.
 			// sales_owner_id, not lead_owner_id: reassigning a BD lead must move it in the
 			// Sales queue, and must not touch the call centre's own book.
@@ -610,6 +639,36 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Lead not found")
 			return
 		}
+
+		// The timeline. transferLead, bulkAssignLeads and distributeLeads all write a
+		// crm_lead_events row; this path wrote none, so a BD lead could be dragged across
+		// the kanban or handed to a different officer with no record of who did it or when.
+		// crm_lead_events is also what the activities trigger reads to put the move on the
+		// lead's own history, so a silent restage is invisible on the lead as well.
+		//
+		// logged after the UPDATE and never allowed to fail the request: the move is already
+		// committed, and losing the audit line is worth a log, not a 500 for work that
+		// happened.
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			actor := sql.NullInt64{Int64: u.ID, Valid: u.ID != 0}
+			if b.Stage != nil {
+				if _, err := db.PGExec(r.Context(), `
+					INSERT INTO crm_lead_events (contact_id, event, to_stage, note, created_by)
+					VALUES ($1,'stage_changed',$2,$3,$4)`,
+					id, bdStageToLead(*b.Stage), "Moved on the BD pipeline", actor); err != nil {
+					slog.Error("bdUpdateLead: stage move not recorded", "lead", id, "err", err)
+				}
+			}
+			if b.AssignedTo != nil {
+				if _, err := db.PGExec(r.Context(), `
+					INSERT INTO crm_lead_events (contact_id, event, to_owner, note, created_by)
+					VALUES ($1,'assigned',$2,$3,$4)`,
+					id, *b.AssignedTo, "Reassigned from the BD pipeline", actor); err != nil {
+					slog.Error("bdUpdateLead: reassignment not recorded", "lead", id, "err", err)
+				}
+			}
+		}
+
 		// Echo the updated row in the same shape as GET.
 		rows, err := db.PGQuery(r.Context(), bdLeadSelect+" WHERE c.id=$1", id)
 		if err != nil || len(rows) == 0 {
@@ -857,7 +916,7 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 					 assigned_to, sales_owner_id, created_by, created_at, updated_at,
 					 sales_entered_at, sales_source)
 				VALUES ($1,$2,$3,$4,$5,$6,'lead',$7,
-				        'business_dev','business_dev','bd_self_sourced',$8,
+				        'business_dev','business_dev','self_sourced',$8,
 				        $9,$9,$9,NOW(),NOW(),
 				        NOW(),'business_dev')`,
 				firstName, lastName, coalesce(phone, ""), coalesce(email, ""),
@@ -1091,10 +1150,23 @@ func bdAssignToSales(db *core.DB) http.HandlerFunc {
 			if len(parts) > 1 {
 				lastName = parts[1]
 			}
+			// This set assigned_to and nothing else the Sales queue reads: no lead_stage, no
+			// sales_owner_id, no sales_entered_at, no lead_source. Every lead it created was
+			// handed to a named sales agent and then invisible to them, because
+			// applyLeadScope gates the queue on sales_entered_at. It has never fired, so no
+			// rows are stranded today — but it would have failed silently the first time.
+			//
+			// lead_stage is 'new' deliberately: an employer-scheme staff list is COLD.
+			// Nobody has spoken to these people, so 'qualified' would put names on the floor
+			// as warm when the first call is still to be made.
 			_, cErr := db.PGExec(ctx, `
 				INSERT INTO crm_contacts
-					(first_name, last_name, phone, email, source, source_type, bd_assignment_id, employer_id, assigned_to, status, created_by)
-				VALUES ($1,$2,$3,$4,'bd_assigned','bd_assigned',$5,$6,$7,'lead',$8)
+					(first_name, last_name, phone, email, source, source_type, bd_assignment_id,
+					 employer_id, assigned_to, sales_owner_id, status, lead_stage, lead_source,
+					 stage_changed_at, sales_entered_at, sales_source, created_by)
+				VALUES ($1,$2,$3,$4,'bd_assigned','bd_assigned',$5,
+				        $6,$7,$7,'lead','new','business_dev',
+				        NOW(),NOW(),'business_dev',$8)
 				ON CONFLICT DO NOTHING`,
 				firstName, lastName, s["phone"], s["email"],
 				assignmentID, employerID, b.SalesAgentID, bdOfficerID)

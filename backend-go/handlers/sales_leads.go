@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -604,7 +605,15 @@ func listLeads(db *core.DB) http.HandlerFunc {
 
 		// Customers are excluded: this is the lead queue, not the customer book. Without
 		// this the 1,794 already-converted rows would sit permanently at the top.
-		where := []string{"c.lead_stage <> 'converted'"}
+		//
+		// But asking for them EXPLICITLY has to work. This was a flat exclusion, and the
+		// stage filter below then ANDs `c.lead_stage = $n` onto it — so the Converted chip
+		// was a self-contradiction that returned zero rows by construction, for ever, above
+		// a book holding 1,456 of them.
+		where := []string{}
+		if qstr(r, "stage") != "converted" {
+			where = append(where, "c.lead_stage <> 'converted'")
+		}
 		args := []any{}
 		n := 1
 
@@ -908,7 +917,7 @@ func listLeadTags(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not load tags", err)
 			return
 		}
-		jsonRows(w, rows)
+		respond(w, rows, "pg")
 	}
 }
 
@@ -935,7 +944,7 @@ func listLeadCampaigns(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not load campaigns", err)
 			return
 		}
-		jsonRows(w, rows)
+		respond(w, rows, "pg")
 	}
 }
 
@@ -1123,6 +1132,28 @@ type leadReq struct {
 	// Which of the three product lines this lead is an opportunity for. Stored as a
 	// canonical sub-code (see handlers/products.go); free-text is normalized on write.
 	ProductInterest string `json:"product_interest"`
+	// Where in the pipeline this lead starts, chosen by whoever creates it.
+	//
+	// It has to be a choice rather than a constant, because the two things that reach this
+	// endpoint are not the same kind of lead. A walk-in an officer profiles has usually
+	// already said yes in principle, which is 'qualified' (shown "Interested") and the exact
+	// point the call-centre hand-off delivers a lead at. A name off a BD list is cold and
+	// belongs at 'new'. Defaulting either way mislabels the other, and a lead that enters
+	// at the wrong stage is either chased as warm when it is cold or left to go cold when
+	// somebody was ready to buy.
+	//
+	// Only the three ENTRY stages are accepted. A lead cannot be created already at
+	// documents_requested or approved: those stages are reached by logging the work that
+	// gets a lead there, which is what writes the timeline nobody can reconstruct later.
+	LeadStage string `json:"lead_stage"`
+}
+
+// leadCreateStages are the only stages a lead may be CREATED at, with the label the
+// officer sees. Narrower than leadStageOrder on purpose — see leadReq.LeadStage.
+var leadCreateStages = map[string]string{
+	"new":       "Not yet contacted",
+	"contacted": "Contacted, no decision",
+	"qualified": "Interested",
 }
 
 // createLead lets a sales officer or BD officer profile a lead directly.
@@ -1159,6 +1190,20 @@ func createLead(db *core.DB) http.HandlerFunc {
 			`SELECT EXISTS (SELECT 1 FROM crm_lead_sources WHERE code=$1 AND is_active)`,
 			req.LeadSource).Scan(&validSource); err != nil || !validSource {
 			respondErr(w, 400, "Unknown lead_source")
+			return
+		}
+
+		// The entry stage. Defaults to 'new' rather than 'qualified' when omitted, because
+		// 'new' is the claim that cannot be wrong in the officer's favour: calling a cold
+		// name Interested inflates the qualified count and sends it to a floor expecting
+		// somebody who has already said yes.
+		stage := strings.TrimSpace(req.LeadStage)
+		if stage == "" {
+			stage = "new"
+		}
+		if _, ok := leadCreateStages[stage]; !ok {
+			respondErr(w, 422, "A lead starts as Not Yet Contacted, Contacted or Interested. "+
+				"The later stages are reached by logging the work that gets it there.")
 			return
 		}
 
@@ -1209,19 +1254,33 @@ func createLead(db *core.DB) http.HandlerFunc {
 			    status, lead_stage, lead_source, source, source_type,
 			    sales_owner_id, assigned_to, estimated_value_kobo, next_action_at,
 			    product_interest, notes, created_by, last_activity_at, created_at, updated_at,
+			    stage_changed_at,
 			    sales_entered_at, sales_source
 			) VALUES (
 			    $1,$2,$3,$4,$5,$6,$7,
 			    $8,$9,$10,$11,
-			    'lead','new',$12,'workspace','manual',
+			    -- source_type is 'self_sourced', NOT 'manual'. crm_contacts_source_type_check
+			    -- permits only 'bd_assigned' or 'self_sourced', so 'manual' failed the check
+			    -- constraint EVERY time: not one row with source='workspace' has ever
+			    -- existed, no 'created' lead event has ever been written, and an officer who
+			    -- filled in the New Lead form got a 500 and no lead. It is also the right
+			    -- word — a lead an officer types in themselves is self-sourced, which is
+			    -- exactly what sales_source='self' two lines below already says.
+			    -- The stage is the creator's, not a constant: $19. A walk-in an officer
+			    -- profiles is usually already Interested ('qualified'), which is the exact
+			    -- point the call-centre hand-off delivers at and where 296 of the 392 leads
+			    -- Sales can see sit. A name off a BD list is cold and belongs at 'new'.
+			    -- Hardcoding either mislabels the other.
+			    'lead',$19,$12,'workspace','self_sourced',
 			    $13,$13,$14,NULLIF($15,'')::timestamptz,
 			    $16,$17,$18,NOW(),NOW(),NOW(),
+			    NOW(),
 			    NOW(),'self'
 			) RETURNING id`,
 			req.FirstName, req.LastName, req.Phone, req.Email, req.State, req.City, req.Address,
 			req.Occupation, req.Employer, req.EmployerID, req.IncomeRange,
 			req.LeadSource, owner, req.EstValueKobo, req.NextActionAt,
-			productInterest, req.Notes, createdBy).Scan(&id)
+			productInterest, req.Notes, createdBy, stage).Scan(&id)
 		if err != nil {
 			respondErr(w, 500, "Could not create lead: "+err.Error())
 			return
@@ -1229,8 +1288,8 @@ func createLead(db *core.DB) http.HandlerFunc {
 
 		if _, err := tx.ExecContext(r.Context(), `
 			INSERT INTO crm_lead_events (contact_id, event, to_stage, to_owner, note, created_by)
-			VALUES ($1,'created','new',$2,$3,$4)`,
-			id, owner, nullIfEmpty(req.Notes), createdBy); err != nil {
+			VALUES ($1,'created',$5,$2,$3,$4)`,
+			id, owner, nullIfEmpty(req.Notes), createdBy, stage); err != nil {
 			respondErr(w, 500, "Could not record lead event")
 			return
 		}
@@ -1239,7 +1298,7 @@ func createLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		out := map[string]any{"id": id, "lead_stage": "new"}
+		out := map[string]any{"id": id, "lead_stage": stage}
 		if dupID.Valid {
 			out["possible_duplicate_of"] = dupID.Int64
 			out["warning"] = "Another contact already has this phone number"
@@ -1616,11 +1675,20 @@ func claimLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "This lead is already owned by another officer")
 			return
 		}
+		// CLAIMING IS NOT AN INTEREST SIGNAL, so it no longer moves the stage. This carried
+		// the same CASE as forwardLeadToSales, where it IS correct — that route refuses
+		// anything but status='interested', so by the time it runs the interest is already
+		// established. Claiming establishes nothing except who owns the lead.
+		//
+		// It mattered most for a lead a rep deliberately created at 'new': the rep chooses
+		// the entry stage, and this silently promoted their cold lead to "Interested" the
+		// moment anybody picked it up. It also never set qualified_at, so the lead showed as
+		// Interested with no Interested date — and app.regrade_unqualified_leads, which
+		// inspects only leads at 'qualified' and consults only call_center_dispositions,
+		// would find no call-centre evidence for it and demote it again on its next run.
 		if _, err := db.PGExec(r.Context(), `
 			UPDATE crm_contacts
-			   SET sales_owner_id    = $2,
-			       lead_stage       = CASE WHEN lead_stage IN ('new','contacted') THEN 'qualified' ELSE lead_stage END,
-			       stage_changed_at = CASE WHEN lead_stage IN ('new','contacted') THEN NOW() ELSE stage_changed_at END,
+			   SET sales_owner_id   = $2,
 			       last_activity_at = NOW(), updated_at = NOW()
 			 WHERE id = $1`, id, user.ID); err != nil {
 			respondErr(w, 500, "Could not claim the lead")
@@ -1672,6 +1740,11 @@ func updateLead(db *core.DB) http.HandlerFunc {
 		// The guards below are transferLead's, in the same order and for the same reasons.
 		// Deliberately NOT removing the field from the allowlist: that would break the live
 		// assign control rather than secure it.
+		// Carried out of the reassignment block below so the timeline write after the
+		// UPDATE can name who moved the lead and to whom. Zero means this request did not
+		// reassign, so no event is written.
+		var reassignTo, reassignBy int64
+
 		if v, changing := body["sales_owner_id"]; changing {
 			user := core.UserFromCtx(r.Context())
 			if user == nil {
@@ -1724,6 +1797,9 @@ func updateLead(db *core.DB) http.HandlerFunc {
 						respondErr(w, 400, "That officer is not an active user")
 						return
 					}
+					// Carried out of this block so the timeline write after the UPDATE can
+					// name who moved the lead and to whom.
+					reassignTo, reassignBy = toID, user.ID
 				}
 			}
 		}
@@ -1746,6 +1822,27 @@ func updateLead(db *core.DB) http.HandlerFunc {
 		if n, _ := res.RowsAffected(); n == 0 {
 			respondErr(w, 404, "Lead not found")
 			return
+		}
+
+		// The timeline. transferLead, bulkAssignLeads and distributeLeads all write an
+		// 'assigned' event; this PATCH did not — and it is the path BOTH single-lead
+		// reassign buttons use (Leads.tsx assignTo and Customers.tsx bulkAssign). So a lead
+		// could change hands with no record of who moved it, while the same move made from
+		// the drawer or the distribute screen was fully logged. The trigger on
+		// crm_lead_events is also what puts the move on the lead's own history, so a
+		// reassignment through this route was invisible there too.
+		//
+		// Written after the UPDATE and never allowed to fail the request: the move is
+		// committed, and losing the audit line is worth a log rather than a 500 for work
+		// that happened.
+		if reassignTo != 0 {
+			if _, err := db.PGExec(r.Context(), `
+				INSERT INTO crm_lead_events (contact_id, event, to_owner, note, created_by)
+				VALUES ($1,'assigned',$2,$3,$4)`,
+				chi.URLParam(r, "id"), reassignTo, "Reassigned", reassignBy); err != nil {
+				slog.Error("updateLead: reassignment not recorded",
+					"lead", chi.URLParam(r, "id"), "err", err)
+			}
 		}
 		respond(w, map[string]any{"ok": true}, "pg")
 	}
@@ -2129,8 +2226,19 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var current string
 		var owner sql.NullInt64
+		// sales_entered_at is part of the lookup, not an afterthought. Without it this read
+		// ANY crm_contacts row by id — and because a contact that never reached Sales has
+		// sales_owner_id NULL, canWorkLead returns true for EVERY caller. So any holder of
+		// sales, crm_contacts or bd could restage, convert or disqualify one of the 31,316
+		// call-centre prospects still being worked. Disqualifying is close to irreversible:
+		// the reason is not prefixed "Call centre: ", so crmCallMoveAllowed will not let a
+		// later interested call reopen it.
+		//
+		// A contact that has not reached Sales is not a Sales lead, so 404 is the honest
+		// answer rather than a 403 that confirms it exists.
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage, sales_owner_id FROM crm_contacts WHERE id=$1`, id).
+			`SELECT lead_stage, sales_owner_id FROM crm_contacts
+			  WHERE id=$1 AND sales_entered_at IS NOT NULL`, id).
 			Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
@@ -2290,8 +2398,19 @@ func convertLead(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var current string
 		var owner sql.NullInt64
+		// sales_entered_at is part of the lookup, not an afterthought. Without it this read
+		// ANY crm_contacts row by id — and because a contact that never reached Sales has
+		// sales_owner_id NULL, canWorkLead returns true for EVERY caller. So any holder of
+		// sales, crm_contacts or bd could restage, convert or disqualify one of the 31,316
+		// call-centre prospects still being worked. Disqualifying is close to irreversible:
+		// the reason is not prefixed "Call centre: ", so crmCallMoveAllowed will not let a
+		// later interested call reopen it.
+		//
+		// A contact that has not reached Sales is not a Sales lead, so 404 is the honest
+		// answer rather than a 403 that confirms it exists.
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage, sales_owner_id FROM crm_contacts WHERE id=$1`, id).
+			`SELECT lead_stage, sales_owner_id FROM crm_contacts
+			  WHERE id=$1 AND sales_entered_at IS NOT NULL`, id).
 			Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
@@ -2433,8 +2552,19 @@ func disqualifyLead(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var current string
 		var owner sql.NullInt64
+		// sales_entered_at is part of the lookup, not an afterthought. Without it this read
+		// ANY crm_contacts row by id — and because a contact that never reached Sales has
+		// sales_owner_id NULL, canWorkLead returns true for EVERY caller. So any holder of
+		// sales, crm_contacts or bd could restage, convert or disqualify one of the 31,316
+		// call-centre prospects still being worked. Disqualifying is close to irreversible:
+		// the reason is not prefixed "Call centre: ", so crmCallMoveAllowed will not let a
+		// later interested call reopen it.
+		//
+		// A contact that has not reached Sales is not a Sales lead, so 404 is the honest
+		// answer rather than a 403 that confirms it exists.
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage, sales_owner_id FROM crm_contacts WHERE id=$1`, id).Scan(&current, &owner); err != nil {
+			`SELECT lead_stage, sales_owner_id FROM crm_contacts
+			  WHERE id=$1 AND sales_entered_at IS NOT NULL`, id).Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
 		}

@@ -99,6 +99,12 @@ var PageCatalog = []CatalogModule{
 	{Key: "settlement", Label: "Settlement & Reconciliation", Icon: "compare_arrows", Pages: []CatalogPage{
 		{"settlement", "Settlement"},
 		{"reconciliation", "Reconciliation"},
+		// ACTION key, in the sense documented on RolePages. Signing off a recon run and
+		// reassigning other people's exceptions are head decisions, and `reconciliation`
+		// cannot express that because settlement_officer and finance_officer both hold it.
+		// Three files declared those routes head-only and gated them on `reconciliation`
+		// anyway, so every officer on both desks could sign off a run.
+		{"reconciliation_signoff", "Reconciliation — Sign-Off"},
 	}},
 	// "payroll" was removed on 2026-10-12. Its three pages were built against
 	// /api/payroll, which was registered nowhere in the backend, with no payroll or
@@ -190,6 +196,44 @@ func IsValidPage(key string) bool { return catalogPageSet[key] }
 func AllCatalogPages() []string {
 	out := make([]string, 0, len(catalogPageSet))
 	for k := range catalogPageSet {
+		out = append(out, k)
+	}
+	return out
+}
+
+// adminOnlyPages run the system rather than the business: who has an account, what the API
+// keys are, the integration sync log, the bulk uploader, the settings table.
+//
+// They are excluded from the MD's grant. Holding every page in the catalogue put User
+// Management, API Keys, Sync Status and Uploads in the MD's sidebar, and an executive
+// scanning a nav list for the figures they came for should not have to step over the
+// plumbing. It is not a trust question — it is that a menu which offers everything offers
+// no guidance about what matters.
+//
+// Narrowing the grant is what makes this real: hiding a nav item while leaving the page
+// held is cosmetic, and the route and the API would both still serve it.
+// "uploads" is NOT here, though it sits in the Administration module. buildRolePages grants
+// it explicitly to admin, the whole C-suite, IT and every module head, with the stated
+// reason that bulk import is "a senior/oversight tool, not a line-agent page". That is a
+// deliberate prior decision, and withholding it from the MD alone would also make him the
+// only member of the C-suite without it. Left as it is rather than quietly reversed — if
+// bulk import should leave the executive tier, it should leave all of them together.
+var adminOnlyPages = map[string]bool{
+	"admin_users":    true,
+	"admin_api_keys": true,
+	"settings":       true,
+	"sync_status":    true,
+}
+
+// BusinessCatalogPages is every page EXCEPT the administrative ones — the whole business,
+// none of the plumbing. Used for the MD, who reads everything the company does and
+// administers none of it.
+func BusinessCatalogPages() []string {
+	out := make([]string, 0, len(catalogPageSet))
+	for k := range catalogPageSet {
+		if adminOnlyPages[k] {
+			continue
+		}
 		out = append(out, k)
 	}
 	return out

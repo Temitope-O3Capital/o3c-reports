@@ -228,6 +228,58 @@ func isSalesHead(u *core.Claims) bool {
 	return false
 }
 
+// salesCanSupervise answers ONE question: may this person act on work that is not theirs —
+// convert, disqualify, restage or reassign another officer's lead.
+//
+// It exists because canWorkLead answered that question with u.CanSeeAllRows(), and
+// CanSeeAllRows is a READ-scope predicate. Its own doc comment says so: "how many rows it
+// may see". DataScopeForRole returns ScopeAll for every role ending "_head" or starting
+// "head_", so twenty roles satisfied it — and nine live people outside Sales could convert
+// or permanently disqualify any officer's lead. Sheriff Oladokun is settlement_head with
+// sales_officer in his extra roles, so he held the sales pages AND whole-row read scope:
+// the head of Settlements could kill a lead in anybody's book.
+//
+// Seeing everything and being allowed to change everything are different permissions. This
+// is the second one, and it is deliberately narrow:
+//
+//   - admin, or sales_head in any of the caller's roles — which is how the CMO qualifies,
+//     since she carries sales_head in extra_roles and actually runs Sales.
+//   - the head of an active sales team, signalled by the sales_team page that
+//     withStructuralPages grants at login. Keyed on headship rather than the sales_head
+//     ROLE, because two of the four teams are headed by officers whose role is
+//     sales_officer and a role test strands both of them.
+//
+// Management is excluded on purpose: the MD, COO and CMO read everything and operate
+// nothing. Reassigning a book moves commission; disqualifying a lead is irreversible. Their
+// version of "move that" is to ask the head who owns it. admin and sales_head are matched
+// BEFORE the exclusion, so someone senior who genuinely runs Sales still supervises.
+func salesCanSupervise(u *core.Claims) bool {
+	if u == nil || u.ID == 0 {
+		return false
+	}
+	for _, r := range u.AllRoles() {
+		if r == "admin" || r == "sales_head" {
+			return true
+		}
+	}
+	if core.IsManagement(u.Role) {
+		return false
+	}
+	return u.HasPage("sales_team")
+}
+
+// salesCanReadAll is the other half: may this person SEE the whole book.
+//
+// Management must — that is the whole of "the MD reads everything" — and the narrow
+// salesHeadRoles set contains neither md, coo nor cmo, which is why the MD opening My Book
+// fell through to the own-rows branch and saw zero customers.
+func salesCanReadAll(u *core.Claims) bool {
+	if u == nil {
+		return false
+	}
+	return isSalesHead(u) || u.CanSeeAllRows()
+}
+
 func RegisterSalesBook(r chi.Router, db *core.DB) {
 	access := core.RequirePages("sales", "crm_contacts")
 
@@ -264,7 +316,7 @@ func listBook(db *core.DB) http.HandlerFunc {
 
 		// Scope. A head may look at one officer's book via ?officer_id=; an officer is
 		// pinned to their own regardless of what they pass.
-		if isSalesHead(user) {
+		if salesCanReadAll(user) {
 			switch q := qstr(r, "officer_id"); q {
 			case "":
 				// whole book
@@ -364,7 +416,7 @@ func listBook(db *core.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"data": rows, "total": total, "limit": limit, "offset": offset,
-			"scope": map[string]any{"is_head": isSalesHead(user), "user_id": user.ID},
+			"scope": map[string]any{"is_head": salesCanReadAll(user), "user_id": user.ID},
 		})
 	}
 }
@@ -381,7 +433,7 @@ func bookSummary(db *core.DB) http.HandlerFunc {
 
 		scope := "TRUE"
 		args := []any{}
-		if isSalesHead(user) {
+		if salesCanReadAll(user) {
 			if q := qstr(r, "officer_id"); q == "unassigned" {
 				scope = "a.officer_id IS NULL"
 			} else if q != "" {

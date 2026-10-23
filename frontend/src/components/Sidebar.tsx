@@ -561,6 +561,12 @@ const SECTIONS: Section[] = [
 // Keep in step with the route→page map in App.tsx. Entries with no mapping here are
 // left to the role (`vis`) gate alone. admin & md bypass entirely.
 const PAGE_FOR: Record<string, string | string[]> = {
+  // The central approvals queue. It has no nav entry — it is reached from the bell and
+  // from module links — so this mapping is what makes canOpen answer correctly for it
+  // instead of defaulting to true, which is part of how the page ended up reachable by
+  // URL for every signed-in user.
+  '/approvals': 'approvals',
+
   // Sales & BD
   '/bd': 'bd', '/bd/my-dashboard': 'bd', '/bd/pipeline': 'bd_pipeline',
   '/bd/leads': 'bd', '/bd/employers': 'bd_employers', '/bd/assignments': 'bd',
@@ -680,9 +686,18 @@ function canSeeSub(vis: string[] | undefined, roles: string[]): boolean {
 
 // makeCanOpen returns a predicate that answers "will this destination actually open
 // for the signed-in user". user.pages (baked into the JWT at login) is authoritative;
-// ROLE_PAGES is only the dev/empty-token fallback. admin & md are unrestricted.
+// ROLE_PAGES is only the dev/empty-token fallback.
+//
+// ONLY ADMIN IS UNRESTRICTED NOW. md used to bypass this, so narrowing what the MD holds
+// would have changed nothing in the nav — every destination was shown regardless. His grant
+// is now BusinessCatalogPages() (core/catalog.go): the whole business, without User
+// Management, API Keys, Sync Status, Uploads or Settings. An executive scanning a menu for
+// the figures they came for should not have to step over the plumbing, and a menu that
+// offers everything offers no guidance about what matters.
+//
+// admin keeps the bypass, because admin is the super-user that administers the rest.
 function makeCanOpen(user: AuthUser, roles: string[]): (to: string) => boolean {
-  if (roles.some(r => r === 'admin' || r === 'md')) return () => true
+  if (roles.some(r => r === 'admin')) return () => true
   const pages = user.pages?.length ? user.pages : roles.flatMap(r => ROLE_PAGES[r] ?? [])
   const held = new Set(pages)
   return (to: string) => {

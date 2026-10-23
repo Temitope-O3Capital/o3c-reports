@@ -619,7 +619,7 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "No customer with that CIF")
 			return
 		}
-		if !isSalesHead(user) && (!ownerID.Valid || ownerID.Int64 != user.ID) {
+		if !salesCanReadAll(user) && (!ownerID.Valid || ownerID.Int64 != user.ID) {
 			respondErr(w, 403, "That customer is not on your book")
 			return
 		}
@@ -926,7 +926,7 @@ func fmtKoboServer(kobo int64) string {
 // draftScope returns the WHERE fragment + args that restrict a draft to the caller:
 // an officer may only touch their own drafts; a head may touch any.
 func draftScope(user *core.Claims, startArg int) (string, []any) {
-	if isSalesHead(user) {
+	if salesCanReadAll(user) {
 		return "", nil
 	}
 	return fmt.Sprintf(" AND sales_officer_id = $%d", startArg), []any{user.ID}

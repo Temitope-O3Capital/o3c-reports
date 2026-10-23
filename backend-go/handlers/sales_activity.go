@@ -95,14 +95,11 @@ var salesDispositions = map[string][]salesDisposition{
 			Advances: "handed_to_sales",
 			Hint:     "They said yes in principle. This is what qualifies the lead."},
 		{Code: "callback", Label: "Callback Requested", NeedsFollowUp: true,
-			Advances: "handed_to_sales",
-			Hint:     "They asked you to come back at a specific time."},
+			Hint: "They asked you to come back at a specific time."},
 		{Code: "not_ready", Label: "Interested, Not Now", NeedsFollowUp: true,
-			Advances: "handed_to_sales",
-			Hint:     "Interested but not this cycle — stays in your queue for later."},
+			Hint: "Interested but not this cycle — stays in your queue for later."},
 		{Code: "price_objection", Label: "Price Objection", NeedsNote: true,
-			Advances: "handed_to_sales",
-			Hint:     "Say what they objected to; it is the most useful thing you can record."},
+			Hint: "Say what they objected to; it is the most useful thing you can record."},
 		{Code: "documents_requested", Label: "Asked For Documents", NeedsFollowUp: true,
 			Advances: "documents_requested",
 			Hint:     "You asked them to send paperwork. Set the date you expect it."},
@@ -122,8 +119,7 @@ var salesDispositions = map[string][]salesDisposition{
 			Advances: "handed_to_sales",
 			Hint:     "You saw the decision maker and they said yes in principle."},
 		{Code: "visit_met_no_decision", Label: "Met Them — No Decision", NeedsFollowUp: true,
-			Advances: "handed_to_sales",
-			Hint:     "You got in front of them but nothing was settled."},
+			Hint: "You got in front of them but nothing was settled."},
 		// No stage: never reached the decision maker, so the lead has not moved even though
 		// the officer's day has. The visit is still recorded as work done.
 		{Code: "visit_gatekeeper", Label: "Did Not Get Past Reception", NeedsFollowUp: true,
@@ -141,14 +137,12 @@ var salesDispositions = map[string][]salesDisposition{
 			Advances: "handed_to_sales",
 			Hint:     "They committed in principle."},
 		{Code: "meeting_proposal", Label: "Wants A Proposal", NeedsFollowUp: true,
-			Advances: "handed_to_sales",
-			Hint:     "Asked for something in writing. Set the date you will send it."},
+			Hint: "Asked for something in writing. Set the date you will send it."},
 		{Code: "meeting_documents", Label: "Asked For Documents", NeedsFollowUp: true,
 			Advances: "documents_requested",
 			Hint:     "You asked them for paperwork. Set the date you expect it."},
 		{Code: "meeting_deferred", Label: "Deferred", NeedsFollowUp: true,
-			Advances: "handed_to_sales",
-			Hint:     "Parked for now, with a date to return to it."},
+			Hint: "Parked for now, with a date to return to it."},
 		{Code: "meeting_not_interested", Label: "Not Interested", Closes: true, NeedsNote: true,
 			Hint: "They declined. Say why."},
 	},
@@ -415,6 +409,20 @@ func getMyDay(db *core.DB) http.HandlerFunc {
 			          FROM app.crm_contacts c WHERE c.id = a.contact_id) AS contact_name
 			  FROM app.activities a
 			 WHERE a.actor_user_id = $1 AND COALESCE(a.actor_team,'') = 'sales'
+			   -- source and type, which this was missing while app.v_sales_officer_days —
+			   -- the view behind Daily Reports and the team calendar — filters on both.
+			   -- 12,372 of the 12,435 sales-attributed activity rows are 'stage_change'
+			   -- written by the crm_lead_events trigger, so My Day was counting the
+			   -- system's own bookkeeping as the officer's work: Jennifer's 12 Oct read
+			   -- "107 logged" with 0 visits, 0 calls, 0 meetings and 0 notes, while her
+			   -- head's view of the same day correctly said quiet.
+			   --
+			   -- A headline that disagrees with the breakdown directly beneath it teaches
+			   -- people to trust neither.
+			   AND a.source = 'manual'
+			   AND a.type = ANY (ARRAY['visit','call','meeting','note','email',
+			                           'interested','handed_to_sales','documents_requested',
+			                           'application_submitted','approved'])
 			   AND (a.occurred_at AT TIME ZONE 'Africa/Lagos')::date = `+dayExpr+`
 			 ORDER BY a.occurred_at DESC`, args...)
 

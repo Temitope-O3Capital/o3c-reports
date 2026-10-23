@@ -67,7 +67,7 @@ func distributableOfficers(r *http.Request, db *core.DB, u *core.Claims, want []
 		for _, id := range ids {
 			allowed[id] = true
 		}
-	} else if u.CanSeeAllRows() || isSalesHead(u) {
+	} else if salesCanReadAll(u) {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT DISTINCT m.user_id FROM app.sales_teams t
 			  JOIN app.sales_team_members m ON m.team_id = t.id

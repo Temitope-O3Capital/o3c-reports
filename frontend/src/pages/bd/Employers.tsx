@@ -415,9 +415,17 @@ function AssignToSalesModal({
   const [saving, setSaving]             = useState(false)
 
   useEffect(() => {
-    apiFetch<SalesAgent[]>('/api/admin/users?limit=200')
-      .then(r => setAgents((r ?? []).filter(u => u.role === 'sales_officer' || u.role === 'sales_head')))
-      .catch(() => {})
+    // /api/sales/officers, NOT /api/admin/users. RegisterAdmin gates on
+    // admin_users/admin, which bd_officer, bd_head and cmo all lack — so this 403'd, the
+    // error was swallowed by the catch, the dropdown stayed empty, and submit() stopped at
+    // "Select a Sales Agent". The BD→Sales hand-off was unusable by BD itself and worked
+    // only for admin and md. /api/sales/officers is gated sales+crm_contacts, which
+    // bd_officer satisfies through crm_contacts, and it lists who can actually hold a book
+    // rather than filtering on a role label. Targets.tsx carries this exact fix and its
+    // reasoning; it was never applied here.
+    apiFetch<{ data: SalesAgent[] }>('/api/sales/officers')
+      .then(r => setAgents(Array.isArray(r) ? r : (r?.data ?? [])))
+      .catch(() => setAgents([]))
   }, [])
 
   function toggleStaff(id: number) {
@@ -613,8 +621,9 @@ export default function Employers() {
 
   // Sales agents for the bulk-assign picker (same source/roles as AssignToSalesModal).
   useEffect(() => {
-    apiFetch<SalesAgent[]>('/api/admin/users?limit=200')
-      .then(r => setBulkAgents((r ?? []).filter(u => u.role === 'sales_officer' || u.role === 'sales_head')))
+    // Same source as the single-assign picker above, and for the same reason.
+    apiFetch<{ data: SalesAgent[] }>('/api/sales/officers')
+      .then(r => setBulkAgents(Array.isArray(r) ? r : (r?.data ?? [])))
       .catch(() => setBulkAgents([]))
   }, [])
 

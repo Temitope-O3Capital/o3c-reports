@@ -711,12 +711,12 @@ func buildRolePages() map[string][]string {
 	cardsAgent := []string{"cards", "card_trends", "los_booking", "blink_card"}
 	cardsHead := []string{"los_assign", "mobile_app", "kpi_dashboard", "statements", "executive", "surveys"}
 	finAgent := []string{"income", "finance", "transactions", "fixed_deposit", "fx_rates", "eod", "settlement", "reconciliation", "core-banking", "credit_portfolio", "los_finance"}
-	finHead := []string{"los_finance_approve", "kpi_dashboard", "statements", "executive"}
+	finHead := []string{"los_finance_approve", "kpi_dashboard", "statements", "executive", "reconciliation_signoff"}
 	// Settlement & Reconciliation is its OWN Operations module (not a Finance
 	// sub-team): the clearing/recon surface only, no P&L / payroll / FD desk. The
 	// officer does the daily matching; the head runs the desk with the oversight pages.
 	settleAgent := []string{"settlement", "reconciliation", "eod", "transactions", "credit_portfolio"}
-	settleHead := []string{"kpi_dashboard", "statements", "executive"}
+	settleHead := []string{"kpi_dashboard", "statements", "executive", "reconciliation_signoff"}
 	ccAgent := []string{"call_center", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts"}
 	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "surveys", "retention"}
 	// Care (customer email) is a separate team from Call Center (phone) — its own
@@ -802,8 +802,8 @@ func buildRolePages() map[string][]string {
 	}
 
 	// ── Executive / C-suite ──
-	m["admin"] = AllCatalogPages() // super-user (also bypasses gating)
-	m["md"] = AllCatalogPages()
+	m["admin"] = AllCatalogPages()   // super-user (also bypasses gating)
+	m["md"] = BusinessCatalogPages() // the whole business, none of the plumbing — see adminOnlyPages
 	m["coo"] = union(util, collAgent, collHead, recAgent, recHead, cardsAgent, cardsHead,
 		finAgent, finHead, ccAgent, ccHead, riskAgent, riskHead,
 		[]string{"kpi_dashboard", "statements", "executive", "approvals", "active_loan_book",
@@ -812,7 +812,20 @@ func buildRolePages() map[string][]string {
 			// cost figure means anything.
 			"fleet", "fleet_admin",
 			// How quickly the floor attends to work. The COO asked for it.
-			"staff_performance"})
+			"staff_performance",
+			// Sales, READ. The COO held no Sales page at all, which produced the worst
+			// kind of gap: the Overview renders a Sales panel for them and the
+			// /executive/sales drill-down opens, so the figure was visible while the
+			// module behind it answered 403. They could see the number and never the
+			// work underneath it.
+			//
+			// `sales` opens the module; `sales_team` opens the supervision surfaces — the
+			// floor view and Daily Reports. Neither carries authority: reassigning a book
+			// is gated separately on isSalesHead (sales_book.go) and targets on
+			// requireSalesHead, so this is oversight without the power to move another
+			// officer's customers. crm_contacts is deliberately NOT granted — the customer
+			// book is the officers' working surface, and the COO reads outcomes not rows.
+			"sales", "sales_team"})
 	// Head of Operations — oversight of the operational floor (Collections, Recovery,
 	// Cards, Settlement, Contact Centre, Care) with the exec dashboards + approvals. An
 	// explicit set rather than composed head blocks, so it does NOT pick up loan booking,
@@ -822,7 +835,7 @@ func buildRolePages() map[string][]string {
 		"collections", "collections_assign", "collections_payment", "collections_payment_approve",
 		"recovery", "recovery_assign", "recovery_write_off",
 		"cards", "card_trends", "blink_card", "mobile_app",
-		"settlement", "reconciliation",
+		"settlement", "reconciliation", "reconciliation_signoff",
 		"call_center", "call_center_stats", "helpdesk", "helpdesk_stats", "helpdesk_canned", "helpdesk_kb", "care",
 		"credit_portfolio", "loans", "crm_contacts",
 		"kpi_dashboard", "statements", "executive", "approvals", "surveys",

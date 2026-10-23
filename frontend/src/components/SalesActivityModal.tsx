@@ -871,6 +871,7 @@ function LeadField({ leadId, leadName, onPick }: {
 }) {
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<LeadHit[]>([])
+  const [hitTotal, setHitTotal] = useState(0)
   const [busy, setBusy] = useState(false)
   const [openList, setOpenList] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -881,8 +882,19 @@ function LeadField({ leadId, leadName, onPick }: {
     if (leadId || dq.trim().length < 2) { setHits([]); return }
     let cancelled = false
     setBusy(true)
-    apiFetch<{ data: LeadHit[] }>(`/api/sales/leads?limit=8&q=${encodeURIComponent(dq.trim())}`)
-      .then(r => { if (!cancelled) { setHits(r?.data ?? []); setOpenList(true) } })
+    // total comes back alongside the rows, so the list can say when it is showing a
+    // slice. Capping at 8 with no indicator means an officer who searches "Ibrahim",
+    // sees eight Ibrahims and not theirs, concludes the lead is not in the system —
+    // and creates a duplicate. The cap is right; staying silent about it is not.
+    apiFetch<{ data: LeadHit[]; total: number }>(
+      `/api/sales/leads?limit=8&q=${encodeURIComponent(dq.trim())}`)
+      .then(r => {
+        if (!cancelled) {
+          setHits(r?.data ?? [])
+          setHitTotal(r?.total ?? (r?.data?.length ?? 0))
+          setOpenList(true)
+        }
+      })
       .catch(() => { if (!cancelled) setHits([]) })
       .finally(() => { if (!cancelled) setBusy(false) })
     return () => { cancelled = true }
@@ -983,6 +995,17 @@ function LeadField({ leadId, leadName, onPick }: {
               No lead matches “{q.trim()}”.
             </div>
           )}
+          {/* Say so when this is a slice. Eight results with no indication that there are
+              forty is how an officer concludes their lead is missing and creates a second
+              copy of it. */}
+          {!busy && hitTotal > hits.length && (
+            <div style={{
+              padding: '8px 11px', fontSize: TEXT['2xs'], color: 'var(--txt3)',
+              borderTop: '1px solid var(--bdr)', background: 'var(--bg2)',
+            }}>
+              Showing {hits.length} of {hitTotal}. Keep typing to narrow it.
+            </div>
+          )}
           <button type="button" onClick={() => { setCreating(true); setOpenList(false) }}
             style={{
               display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
@@ -1041,19 +1064,30 @@ function NewLeadInline({ initialName, onCancel, onCreated }: {
     if (!source) { setErr('Pick where this lead came from, so the origination is credited.'); return }
     setErr(null); setSaving(true)
     try {
-      const res = await apiPost<{ id: number; possible_duplicate_of?: number | null }>('/api/sales/leads', {
-        first_name: first.trim(), last_name: last.trim(),
-        phone: phone.trim(), lead_source: source,
-      })
+      // createLead answers through respond(), which wraps the payload as { data: ... }.
+      // This read the fields off the envelope instead of out of it, so res.id was always
+      // undefined and onCreated attached the activity to lead `undefined`, while the toast
+      // said it had worked. The duplicate warning could never fire for the same reason.
+      // Leads.tsx reads r.data.id correctly; this copy did not.
+      const res = await apiPost<{ data: { id: number; possible_duplicate_of?: number | null } }>(
+        '/api/sales/leads', {
+          first_name: first.trim(), last_name: last.trim(),
+          phone: phone.trim(), lead_source: source,
+        })
+      const created = res?.data
+      if (!created?.id) {
+        setErr('The lead was not created. Nothing has been attached to this activity.')
+        return
+      }
       const name = [first.trim(), last.trim()].filter(Boolean).join(' ')
       // createLead warns rather than blocks on a matching phone — the same person can come
       // back as a fresh opportunity — so surface it instead of swallowing it.
-      if (res?.possible_duplicate_of) {
+      if (created.possible_duplicate_of) {
         toast.warning('Created, but someone with this number already exists. Worth checking.')
       } else {
         toast.success(`${name} added to your leads`)
       }
-      onCreated(res.id, name)
+      onCreated(created.id, name)
     } catch (e: any) {
       const msg = e?.message || 'Could not create the lead'
       setErr(msg); toast.error(msg)

@@ -121,6 +121,18 @@ func overviewSummary(db *core.DB) http.HandlerFunc {
 			           COALESCE(SUM(estimated_value_kobo) FILTER (
 			               WHERE lead_stage NOT IN ('converted','disqualified')), 0)           AS pipeline_value_kobo
 			      FROM crm_contacts
+			     -- THE GATE THIS CTE WAS MISSING. Unqualified, it counted every contact in
+			     -- the company: 36,571 rows, of which 16,752 are Zoho Desk help-desk
+			     -- contacts and 19,417 are call-centre prospects nobody has handed over.
+			     -- The KPI strip read "31,638 open leads" above a funnel on the SAME PAGE
+			     -- totalling 322, because the funnel comes from /leads/funnel, which is
+			     -- gated and owner-scoped. 93x overstated, and the two halves of one page
+			     -- describing different companies.
+			     --
+			     -- Third time this exact gate has had to be added: migration 302 introduced
+			     -- the column for it, and salesSupervisor carries a comment about the same
+			     -- mistake being fixed there.
+			     WHERE sales_entered_at IS NOT NULL
 			), apps AS (
 			    SELECT COUNT(*) FILTER (WHERE created_at >= date_trunc('month', CURRENT_DATE)) AS submitted_mtd,
 			           COUNT(*) FILTER (WHERE status = 'active')                               AS active,

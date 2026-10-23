@@ -170,7 +170,7 @@ export default function SalesLeads() {
   const [form, setForm] = useState({
     first_name: '', last_name: '', phone: '', email: '',
     state: '', city: '', occupation: '', employer: '',
-    lead_source: '', product_interest: '', estimated_value: '', next_action_at: '', notes: '',
+    lead_source: '', lead_stage: '', product_interest: '', estimated_value: '', next_action_at: '', notes: '',
   })
   // Only the fields the create actually requires — a name, a way to reach them, and a
   // source — are shown up front. The other seven are enrichment and sit behind this
@@ -217,7 +217,13 @@ export default function SalesLeads() {
     try {
       const [l, f, s, o] = await Promise.all([
         apiFetch<{ data: Lead[]; total: number }>(`/api/sales/leads?${query}`),
-        apiFetch<{ data: Funnel }>('/api/sales/leads/funnel'),
+        // THE COUNTS HAVE TO COUNT WHAT THE TABLE SHOWS. This was called with no query
+        // string, so every pill, every funnel bar and every KPI card was a whole-book
+        // figure sitting above a filtered 50-row page. Filter to one campaign and the
+        // headline never moved; Abigail's "Open Leads" read 47 above a table listing 83.
+        // leadFunnel shares applyLeadScope, so it was correctly scoped and completely
+        // unfiltered — the worst combination, because it looks right.
+        apiFetch<{ data: Funnel }>(`/api/sales/leads/funnel?${query}`),
         apiFetch<{ data: Source[] }>('/api/sales/leads/sources'),
         apiFetch<{ data: Officer[] }>('/api/sales/officers'),
       ])
@@ -240,7 +246,15 @@ export default function SalesLeads() {
   useEffect(() => { load() }, [load])
   // Live: the queue's own rows, and a teammate logging work on one of them.
   useLiveData(load, { topics: ['crm', 'activities', 'sales_visits'] })
-  useEffect(() => { setOffset(0) }, [stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq])
+  // Every filter that narrows the list has to reset the page, or a filter applied while on
+  // page 2 leaves offset at 50 and shows an empty table despite matches. campaignId,
+  // leadState and activeTags were missing from this list, so those three did exactly that.
+  // search is here too: typing now narrows live, and a narrowing result set strands the
+  // same way.
+  useEffect(() => { setOffset(0) }, [
+    stage, owner, due, line, source, salesSource, stalled, includeCustomers, dq,
+    campaignId, leadState, activeTags,
+  ])
 
   // Picked leads, for handing a batch to one officer.
   //
@@ -304,7 +318,7 @@ export default function SalesLeads() {
       setMoreOpen(false)
       setForm({
         first_name: '', last_name: '', phone: '', email: '', state: '', city: '',
-        occupation: '', employer: '', lead_source: '', product_interest: '', estimated_value: '',
+        occupation: '', employer: '', lead_source: '', lead_stage: '', product_interest: '', estimated_value: '',
         next_action_at: '', notes: '',
       })
       if (res.data?.warning) setNotice(res.data.warning)
@@ -546,10 +560,17 @@ export default function SalesLeads() {
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{groupView ? 'view_list' : 'category'}</span>
             {groupView ? 'Flat List' : 'By Product'}
           </button>
+          {/* Controlled, with onChange. This was an UNCONTROLLED input carrying only
+              onKeyDown, so typing changed no state and fired nothing — the list sat
+              still until Enter, and nothing on screen said Enter was required. The
+              useDebouncedValue(search, 300) above was doing nothing useful either:
+              `search` only ever changed on Enter, so the debounce added 300ms AFTER the
+              keypress rather than collapsing a burst of typing. It now earns its
+              comment — one request per pause. */}
           <input
             placeholder="Search name, phone, email…"
-            defaultValue={search}
-            onKeyDown={e => { if (e.key === 'Enter') setSearch((e.target as HTMLInputElement).value) }}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             style={{
               padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, width: 220,
               border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
@@ -872,16 +893,34 @@ export default function SalesLeads() {
 
       {/* New lead */}
       <Modal
-        open={newOpen} onClose={() => { setNewOpen(false); setMoreOpen(false) }} title="New Lead" width={620}
+        open={newOpen} onClose={() => { setNewOpen(false); setErr(null); setMoreOpen(false) }} title="New Lead" width={620}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Button variant="secondary" onClick={() => { setNewOpen(false); setMoreOpen(false) }}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setNewOpen(false); setErr(null); setMoreOpen(false) }}>Cancel</Button>
             <Button variant="primary" loading={saving}
-              disabled={(!form.first_name && !form.last_name) || (!form.phone && !form.email) || !form.lead_source}
+              disabled={(!form.first_name && !form.last_name) || (!form.phone && !form.email) || !form.lead_source || !form.lead_stage}
               onClick={createLead}>Create Lead</Button>
           </div>
         }
       >
+        {/* THE FAILURE HAS TO BE VISIBLE WHERE THE WORK HAPPENED. createLead puts its
+            error in `err`, which renders in a page banner far above — BEHIND this dialog
+            while it is open — and no toast fires. The dialog also stays open, because
+            setNewOpen(false) only runs on success. So a failed save looked exactly like a
+            successful one: the officer saw no error, closed the dialog, and believed the
+            lead was created. For the whole life of the New Lead form every single save
+            failed on a check constraint, and this is why nobody reported it as an error —
+            they reported it as a lead that vanished. */}
+        {err && (
+          <div role="alert" style={{
+            marginBottom: SP[4], padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md,
+            background: `${RED}14`, border: `1px solid ${RED}`, color: RED,
+            fontSize: TEXT.sm, lineHeight: 1.5,
+          }}>
+            <strong style={{ display: 'block', marginBottom: 2 }}>The lead was not created.</strong>
+            {err}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Input label="First Name" value={form.first_name} onChange={e => setForm({ ...form, first_name: e.target.value })} />
           <Input label="Last Name" value={form.last_name} onChange={e => setForm({ ...form, last_name: e.target.value })} />
@@ -890,6 +929,20 @@ export default function SalesLeads() {
           <Select label="Lead Source" value={form.lead_source} onChange={e => setForm({ ...form, lead_source: e.target.value })}>
             <option value="">Choose a Source…</option>
             {sources.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+          </Select>
+          {/* Required, and deliberately not defaulted. The two things created here are not
+              the same kind of lead: a walk-in has usually already said yes in principle,
+              which is Interested — the exact point a call-centre hand-off delivers at — and
+              a name off a BD list is cold. Guessing either way mislabels the other, and a
+              lead that enters at the wrong stage is chased as warm when it is cold or left
+              to go cold when somebody was ready to buy. Only these three are offered: the
+              later stages are reached by logging the work that gets a lead there, which is
+              what writes the timeline nobody can reconstruct afterwards. */}
+          <Select label="Stage" value={form.lead_stage} onChange={e => setForm({ ...form, lead_stage: e.target.value })}>
+            <option value="">Where Do They Stand…</option>
+            <option value="new">Not Yet Contacted</option>
+            <option value="contacted">Contacted, No Decision</option>
+            <option value="qualified">Interested</option>
           </Select>
           <Select label="Product Interest" value={form.product_interest} onChange={e => setForm({ ...form, product_interest: e.target.value })}>
             <option value="">Which Product…</option>

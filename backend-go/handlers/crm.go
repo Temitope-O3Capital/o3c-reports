@@ -306,6 +306,27 @@ func createContact(db *core.DB) http.HandlerFunc {
 		}
 		src := coalesce(deref(b.Source), "walk_in")
 		st := coalesce(deref(b.Status), "lead")
+
+		// A SALES LEAD CANNOT BE BORN HERE. The insert below sets none of the columns the
+		// Sales queue reads — no lead_stage, no sales_owner_id, no sales_entered_at, no
+		// source_type — so a lead created through it is invisible on every Sales page,
+		// including to whoever was assigned it, and indistinguishable from a call-centre
+		// prospect still being worked.
+		//
+		// Refusing beats filling those columns in here. This endpoint is gated on the crm_*
+		// pages, which no sales officer holds, so a lead arriving here came from outside
+		// Sales; stamping it into the Sales queue on their behalf would be a guess about
+		// whose book it belongs in and how warm it is. The sales endpoint asks for the
+		// entry stage and the owner precisely because both are decisions, not defaults.
+		//
+		// No frontend file posts to this endpoint today, so this breaks no caller — it
+		// closes the path before one gets written against it.
+		if st == "lead" {
+			respondErr(w, 422, "A sales lead is created through the Sales module, which asks for "+
+				"its stage and its owner — created here it would be invisible to Sales. "+
+				"Use POST /api/sales/leads, or pass an explicit status.")
+			return
+		}
 		user := core.UserFromCtx(r.Context())
 
 		// R2: encrypt BVN/NIN at rest; store HMAC blind index for lookup.
@@ -560,7 +581,7 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 
 		// Load the contact so we can scope the delete and check for dependents.
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT assigned_to, created_by,
+			`SELECT assigned_to, created_by, sales_owner_id,
 			        COALESCE(NULLIF(converted_cif,''), NULLIF(cif_number,'')) AS cif
 			   FROM crm_contacts WHERE id=$1`, id)
 		if err != nil {
@@ -572,10 +593,25 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Non-heads may only delete contacts assigned to or created by themselves.
-		if !isSalesHead(user) {
-			if toInt64(rows[0]["assigned_to"]) != user.ID && toInt64(rows[0]["created_by"]) != user.ID {
-				respondErr(w, 403, "You can only delete contacts assigned to or created by you")
+		// Non-supervisors may only archive a contact that is theirs.
+		//
+		// sales_owner_id is now part of that test, and it is the whole fix. The check read
+		// assigned_to and created_by only — the CALL CENTRE's owner column and a column
+		// nothing ever wrote — and both are NULL on all 392 sales leads. toInt64(nil) is 0,
+		// so the condition evaluated to `0 != user.ID && 0 != user.ID`: always true, always
+		// a 403. Archive was dead for every officer on every lead they own, and worked only
+		// for admin, sales_head, head_ops and cfo. That confusion between assigned_to and
+		// sales_owner_id is exactly what migration 302 was written to end.
+		//
+		// salesCanSupervise rather than isSalesHead: a team head whose role is
+		// sales_officer supervises their team's work, and two of the four teams are headed
+		// by one.
+		if !salesCanSupervise(user) {
+			mine := toInt64(rows[0]["sales_owner_id"]) == user.ID ||
+				toInt64(rows[0]["assigned_to"]) == user.ID ||
+				toInt64(rows[0]["created_by"]) == user.ID
+			if !mine {
+				respondErr(w, 403, "You can only archive a contact that is yours")
 				return
 			}
 		}

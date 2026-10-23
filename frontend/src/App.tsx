@@ -365,12 +365,19 @@ function homeFor(role: string): string {
 
 function RequireAccess({ page, user, children }: { page: string | string[]; user: AuthUser; children: ReactNode }) {
   const roles = allRoles(user)
-  // Only admin & MD are unrestricted (admin bypasses backend gating; MD holds
-  // every page). All other roles — including coo/cfo/cmo — are gated by their
-  // actual pages so frontend access matches the backend exactly (no more
-  // "nav opens but the API 403s"). user.pages (baked at login) is authoritative;
-  // ROLE_PAGES is only a dev/empty-token fallback and now mirrors the backend.
-  if (roles.some(r => r === 'admin' || r === 'md')) return <>{children}</>
+  // ONLY ADMIN is unrestricted. Every other role — md, coo, cfo, cmo included — is gated by
+  // the pages it actually holds, so the frontend matches the backend exactly and there is
+  // no "nav opens but the API 403s".
+  //
+  // md lost its bypass deliberately. Its grant is now BusinessCatalogPages(): the whole
+  // business, without User Management, API Keys, Sync Status, Uploads or Settings. While
+  // the bypass stood, narrowing that grant would have changed nothing — the route opened
+  // regardless, and the MD could still reach the API-keys page by typing the URL.
+  //
+  // user.pages (baked at login) is authoritative; ROLE_PAGES is only a dev/empty-token
+  // fallback and mirrors the backend. One consequence of baking worth remembering: a role
+  // change does not take effect until that person signs in again.
+  if (roles.some(r => r === 'admin')) return <>{children}</>
   const pages = Array.isArray(page) ? page : [page]
   const userPages = user.pages?.length ? user.pages : roles.flatMap(r => ROLE_PAGES[r] ?? [])
   const allowed = pages.some(p => userPages.includes(p))
@@ -1096,7 +1103,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Re-homed under the central Data Management hub */}
                   <Route path="/settlements/interswitch/import"    element={<Navigate to="/reports/uploads/interswitch" replace />} />
 
-                  <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
+                  {/* Carried no RequireAccess at all, so the central approvals queue was
+                      reachable by URL for anyone signed in — pending loan decisions,
+                      write-offs and colleagues' leave requests. The API is now gated on the
+                      same key (main.go, /api/approvals), so the two agree rather than one
+                      hiding what the other serves. */}
+                  <Route path="/approvals" element={<RequireAccess page="approvals" user={user}><PageErrorBoundary><ApprovalsPage /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/handoffs"  element={<PageErrorBoundary><HandoffsPage /></PageErrorBoundary>} />
 
                   {/* Sales & BD */}

@@ -172,7 +172,11 @@ func canWorkLead(u *core.Claims, owner sql.NullInt64) bool {
 	if u == nil || u.ID == 0 {
 		return false
 	}
-	if isSalesHead(u) || u.CanSeeAllRows() {
+	// salesCanSupervise, NOT CanSeeAllRows — see its doc comment in sales_book.go. The old
+	// test let every "*_head" role change the fate of any officer's lead, because whole-row
+	// READ scope was standing in for write authority. Nine people outside Sales could
+	// convert or irreversibly disqualify a lead in anybody's book.
+	if salesCanSupervise(u) {
 		return true
 	}
 	if !owner.Valid {

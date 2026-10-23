@@ -42,13 +42,23 @@ const salesOfficerPredicate = `
 // The post-qualification stages fold in by how far the deal has got: handed to sales
 // is still Qualified, documents requested is Proposal, and a submitted or approved
 // application is Negotiation (everything short of Won).
+// The 'proposal', 'negotiation' and 'won' branches are gone: none of those three is a
+// value lead_stage can hold. The column is constrained by migration 246 to the nine stages
+// in leadStageOrder, so those arms could never match and only made the folding look like it
+// understood a vocabulary the database does not have.
+//
+// WORTH KNOWING WHEN THESE NUMBERS ARE COMPARED. This folds nine stored stages into five
+// display buckets, and the Leads page filters on the nine. So the Overview and Supervisor
+// funnels legitimately do not line up row-for-row with the Leads page: "Qualified" here is
+// qualified + handed_to_sales, and "Negotiation" is application_submitted + approved.
+// Neither is wrong, but anyone reconciling the two needs to know the buckets differ.
 const crmLeadStageCase = `CASE lower(COALESCE(lead_stage,'new'))
 	WHEN 'new' THEN 'Prospect' WHEN 'contacted' THEN 'Prospect'
 	WHEN 'qualified' THEN 'Qualified' WHEN 'handed_to_sales' THEN 'Qualified'
-	WHEN 'proposal' THEN 'Proposal' WHEN 'documents_requested' THEN 'Proposal'
-	WHEN 'negotiation' THEN 'Negotiation'
+	WHEN 'documents_requested' THEN 'Proposal'
 	WHEN 'application_submitted' THEN 'Negotiation' WHEN 'approved' THEN 'Negotiation'
-	WHEN 'converted' THEN 'Won' WHEN 'won' THEN 'Won'
+	WHEN 'converted' THEN 'Won'
+	WHEN 'disqualified' THEN 'Lost'
 	ELSE initcap(COALESCE(lead_stage,'Prospect')) END`
 
 func RegisterSales(r chi.Router, db *core.DB) {
@@ -133,8 +143,23 @@ func RegisterSales(r chi.Router, db *core.DB) {
 // "Officer" here is anyone the salesOfficerPredicate recognises — holding a book, a
 // target, or a sales role. Before the first distribution nobody qualifies and the
 // wallboard is empty by design; the page shows a distribute prompt in that state.
+// Supervision only. The route sits in the `sales` group, and all 14 sales_officers hold
+// `sales`, so any of them could read the whole floor — every colleague's open leads, overdue
+// count, stalled leads, conversions MTD, pipeline value and book size — by calling this
+// directly. The PAGE on /sales/supervisor is correctly gated on sales_team in App.tsx and
+// the sidebar; only the API was open, which is the gap that matters, since the page being
+// hidden is what stops anyone noticing.
+//
+// sales_team rather than the sales_head role, deliberately: withStructuralPages grants that
+// key at login to whoever heads an active team, and two of the four teams are headed by
+// officers whose role is sales_officer. A role test would lock both of those heads out of
+// their own floor.
 func salesSupervisor(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.HasPage("sales_team") && !u.CanSeeAllRows() {
+			respondErr(w, 403, "The floor view is for team leads. Your own book is on My Dashboard.")
+			return
+		}
 		ctx := r.Context()
 		out := map[string]any{
 			"totals":        map[string]any{},
@@ -185,11 +210,18 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 			SELECT stage, cnt, value_kobo FROM (
 			  SELECT `+crmLeadStageCase+` AS stage, COUNT(*) AS cnt,
 			         COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
-			  FROM crm_contacts WHERE status='lead' GROUP BY 1
+			  -- sales_entered_at, which this funnel was missing while the totals query
+			  -- immediately above it carries it. So Team (Live) drew a funnel over 35,114
+			  -- leads under a tile reading 392 — the two figures on one screen differing by
+			  -- a factor of 90, and the larger one mostly call-centre prospects and Zoho
+			  -- help-desk contacts that have never been Sales' to work.
+			  FROM crm_contacts
+			 WHERE status='lead' AND sales_entered_at IS NOT NULL
+			 GROUP BY 1
 			) s
 			ORDER BY CASE stage WHEN 'Prospect' THEN 1 WHEN 'Qualified' THEN 2
 			                    WHEN 'Proposal' THEN 3 WHEN 'Negotiation' THEN 4
-			                    WHEN 'Won' THEN 5 ELSE 6 END`); len(rows) > 0 {
+			                    WHEN 'Won' THEN 5 WHEN 'Lost' THEN 6 ELSE 7 END`); len(rows) > 0 {
 			out["funnel"] = rows
 		}
 
