@@ -936,10 +936,20 @@ func buildRolePages() map[string][]string {
 		return out
 	}()
 
-	// Uploads (bulk data import) is a senior/oversight tool, not a line-agent page.
-	// Grant it to admin/C-suite, IT, and every module head — never officers or agents.
+	// Uploads (bulk data import) is an OPERATOR's tool: the person who runs a desk and has
+	// to get a file of rows into it. admin, IT, head of operations and every module head —
+	// never officers or agents, and no longer the C-suite.
+	//
+	// md, coo, cfo and cmo were dropped on 2026-10-25. The original note here reasoned that
+	// bulk import is "a senior/oversight tool", and seniority is why the C-suite held it —
+	// but importing a file is not oversight, it is operating, and the instruction that an
+	// executive should not be shown pages they have no business with is the later and more
+	// specific one. They keep the ability to SEE everything the business does; what they
+	// lose is a button that writes rows into it.
+	//
+	// head_ops keeps it deliberately: operations is the desk that actually does this.
 	for _, r := range []string{
-		"admin", "md", "coo", "cfo", "cmo", "head_ops", "it_admin",
+		"admin", "head_ops", "it_admin",
 		"sales_head", "bd_head", "collections_head", "recovery_head", "cards_head",
 		"finance_head", "settlement_head", "call_center_head", "care_head",
 		"risk_head", "compliance_head", "bi_head",
