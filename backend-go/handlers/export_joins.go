@@ -67,6 +67,39 @@ const joinKeySep = "__"
 
 var exportJoinEdges = []joinEdge{
 	{
+		Key:      "cardholder",
+		From:     "card_accounts",
+		Requires: "customers",
+		Label:    "Cardholder",
+		Note: "The cardholder on the customer master, joined on CIF. Added 2026-10-25 for " +
+			"the MD's expired-card request, which needed a BVN column the card book does " +
+			"not carry. CIF is unique on the customer master -- 21,877 distinct across " +
+			"22,249 rows with 372 blank and no value repeated -- so this is a plain join " +
+			"and cannot duplicate a card: verified at 21,365 joined rows against 21,365 " +
+			"cards. The blank guard is deliberate rather than defensive. Four cards hold " +
+			"no CIF and 372 customers hold none either, and today those card values are " +
+			"NULL so nothing matches; the day a loader writes '' instead, blank would " +
+			"silently match blank and fan 4 cards into 1,488 rows. BVN IS NEVER RETURNED " +
+			"WHOLE here -- only its last four digits, and a plain yes/no for whether we " +
+			"hold one at all, which is what tells you whether a bureau check is even " +
+			"possible for that customer.",
+		Join: "LEFT JOIN app.customers cu ON cu.cif = a.cif AND COALESCE(btrim(a.cif),'') <> ''",
+		Cols: []exportCol{
+			{Key: "full_name", Label: "Customer Name", Type: colText, Expr: "cu.full_name"},
+			{Key: "phone", Label: "Phone", Type: colText, Expr: "cu.phone"},
+			{Key: "email", Label: "Email", Type: colText, Expr: "cu.email"},
+			// The feasibility column. A bureau search needs the whole BVN, which this
+			// report will never carry; what a reader needs from a list of 13,000 is
+			// which of them could be searched at all.
+			{Key: "bvn_on_record", Label: "BVN On Record", Type: colText,
+				Expr: `CASE WHEN COALESCE(NULLIF(btrim(cu.bvn), ''), '') = '' THEN 'No' ELSE 'Yes' END`},
+			{Key: "bvn_masked", Label: "BVN (Masked)", Type: colText,
+				Expr: `CASE WHEN NULLIF(btrim(cu.bvn),'') IS NULL THEN NULL
+				            ELSE '*******' || RIGHT(btrim(cu.bvn), 4) END`},
+			{Key: "account_status", Label: "Customer Account Status", Type: colText, Expr: "cu.account_status"},
+		},
+	},
+	{
 		Key:      "loan",
 		From:     "loan_repayments",
 		Requires: "loan_book",

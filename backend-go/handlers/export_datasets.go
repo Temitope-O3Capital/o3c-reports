@@ -249,10 +249,31 @@ var exportDatasets = []exportDataset{
 			{Key: "opened_date", Label: "Opened", Type: colDate, Expr: "a.opened_date"},
 			{Key: "last_payment_date", Label: "Last Payment", Type: colDate, Expr: "a.last_payment_date"},
 			{Key: "payment_due_date", Label: "Payment Due", Type: colDate, Expr: "a.payment_due_date"},
+			// Expiry, which this dataset did not expose until 2026-10-25.
+			//
+			// The MD asked for "all expired O3 credit cards with zero balance" and the
+			// Report Builder could not express it: the card book had limit, balance,
+			// utilisation and days overdue, but not the expiry date, and the date-range
+			// filter is wired to opened_date. Expiry is the most natural thing to filter
+			// a card book on, and it was the one date missing.
+			{Key: "card_expiry_date", Label: "Card Expiry", Type: colDate, Expr: "a.card_expiry_date"},
+			{Key: "card_issue_date", Label: "Card Issued", Type: colDate, Expr: "a.card_issue_date"},
 		},
 		Filters: []exportFilter{
 			{Key: "status", Label: "Status", Kind: filterSelect, Expr: "a.status = ?",
 				Options: []string{"Open", "Active", "Inactive", "Closed", "Terminated", "Legal Suspended"}},
+			// A STATE rather than a date, so the report is repeatable.
+			//
+			// A column filter on card_expiry_date can already do "before 2026-10-25",
+			// but a saved report built that way is wrong the day after it is saved, and
+			// silently: it keeps returning cards that expired before that fixed date and
+			// quietly omits everything that has expired since. Comparing to current_date
+			// inside the predicate means the same saved report is still correct next
+			// quarter.
+			{Key: "expiry_state", Label: "Card Expiry", Kind: filterSelect,
+				Expr: "CASE WHEN a.card_expiry_date IS NULL THEN 'No expiry date' " +
+					"WHEN a.card_expiry_date < current_date THEN 'Expired' ELSE 'Current' END = ?",
+				Options: []string{"Expired", "Current", "No expiry date"}},
 			{Key: "product_name", Label: "Product", Kind: filterText, Expr: "a.product_name ILIKE '%' || ? || '%'"},
 			{Key: "cif", Label: "CIF", Kind: filterText, Expr: "a.cif = ?"},
 			{Key: "currency", Label: "Currency", Kind: filterSelect, Expr: cardCurrency + " = ?",
