@@ -378,7 +378,14 @@ export default function SalesLeads() {
       key: 'first_name', label: 'Lead', sortable: true,
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* THE NAME AND WHAT THEY WANT LEAD THE ROW. This cell used to set the name at
+              14px semibold and then stack phone, age, campaign and labels beneath it at
+              12px, all at roughly equal weight — so nothing read first, and the one thing
+              an officer scans for ("who is this and what do they want") carried no more
+              emphasis than the dialler list that found them. The name is now 19px and the
+              product interest sits directly under it as its own line, because those two
+              together are the row. */}
+          <div style={{ fontSize: TEXT.xl, fontWeight: FW.semibold, color: 'var(--txt)', lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}
             {r.already_customer && (
               <span title={r.matched_customer_cif ? `Already customer CIF ${r.matched_customer_cif}` : 'Already a customer'}
@@ -387,7 +394,15 @@ export default function SalesLeads() {
               </span>
             )}
           </div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          {/* What they want, on its own line and in the accent, because it is the other
+              half of the headline. product_interest is a canonical sub-code, so it is
+              humanised here rather than printed raw. */}
+          {r.product_interest && (
+            <div style={{ marginTop: 2, fontSize: TEXT.md, fontWeight: FW.medium, color: NAVY }}>
+              {humanLabel(r.product_interest)}
+            </div>
+          )}
+          <div style={{ marginTop: 2, fontSize: TEXT.sm, color: 'var(--txt3)' }}>
             {r.phone || r.email}{r.created_at ? <span style={{ color: 'var(--txt3)' }}> · {leadAge(r.created_at)}</span> : null}
             {/* Where this lead came from. Worth a line on the row because the answer to
                 "why am I calling this person" is usually the campaign that found them. */}

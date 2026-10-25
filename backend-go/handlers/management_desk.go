@@ -52,6 +52,8 @@ type managementSubject struct {
 	ReviewedBy  string   `json:"reviewed_by,omitempty"`
 	ReviewedAt  string   `json:"reviewed_at,omitempty"`
 	OpenThreads int      `json:"open_threads"`
+	OpenAsks    int      `json:"open_asks"`
+	OverdueAsks int      `json:"overdue_asks"`
 	Notes       int      `json:"notes"`
 	Severity    string   `json:"severity"`
 }
@@ -386,7 +388,14 @@ func decorateWithReviewAndNotes(
 		SELECT subject_key,
 		       COUNT(*)                                                      AS notes,
 		       COUNT(*) FILTER (WHERE thread_root_id IS NULL
-		                          AND status = 'open')                       AS open_threads
+		                          AND status = 'open')                       AS open_threads,
+		       -- Questions somebody owes an answer to, and of those the ones already past
+		       -- their date. An unanswered ask is the only thing on this desk that is
+		       -- waiting on a named person, so it is counted separately from a comment.
+		       COUNT(*) FILTER (WHERE thread_root_id IS NULL AND status = 'open'
+		                          AND asked_user_id IS NOT NULL)              AS open_asks,
+		       COUNT(*) FILTER (WHERE thread_root_id IS NULL AND status = 'open'
+		                          AND due_at IS NOT NULL AND due_at < NOW())  AS overdue_asks
 		  FROM app.management_notes
 		 WHERE subject_type = $1 AND subject_key = ANY($2)
 		 GROUP BY subject_key`, st, keys)
@@ -407,6 +416,8 @@ func decorateWithReviewAndNotes(
 		if row, ok := counts[subs[i].SubjectKey]; ok {
 			subs[i].Notes = int(toInt64(row["notes"]))
 			subs[i].OpenThreads = int(toInt64(row["open_threads"]))
+			subs[i].OpenAsks = int(toInt64(row["open_asks"]))
+			subs[i].OverdueAsks = int(toInt64(row["overdue_asks"]))
 		}
 	}
 	return subs, nil
@@ -430,9 +441,17 @@ func managementListNotes(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT n.id, n.thread_root_id, n.body, n.status, n.created_at,
-			       n.author_user_id, u.full_name AS author_name, u.role AS author_role
+			       n.author_user_id, u.full_name AS author_name, u.role AS author_role,
+			       -- Who owes the answer, and by when. Without these the thread shows a
+			       -- question with no visible addressee, which is how the old Ask button
+			       -- looked like a comment: the recipient existed nowhere the reader
+			       -- could see, so nobody could tell a question from a remark.
+			       n.asked_user_id, a.full_name AS asked_name, n.due_at,
+			       (n.due_at IS NOT NULL AND n.due_at < NOW()
+			        AND n.status = 'open')              AS answer_overdue
 			  FROM app.management_notes n
 			  JOIN app.o3c_users u ON u.id = n.author_user_id
+			  LEFT JOIN app.o3c_users a ON a.id = n.asked_user_id
 			 WHERE n.subject_type = $1 AND n.subject_key = $2
 			 ORDER BY COALESCE(n.thread_root_id, n.id), n.id`,
 			st.SubjectType, chi.URLParam(r, "key"))
