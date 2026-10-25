@@ -30,37 +30,47 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 
-function Invoke-Low {
-    param([string]$File, [string[]]$Args, [string]$Cwd, [string]$Label)
+# Lower THIS process, and let the build inherit it.
+#
+# Windows gives a child process its parent's priority class, so this covers npm, node,
+# esbuild, go and every compiler they spawn. The earlier version launched each build
+# through Start-Process so it could set the priority on the child directly, which works
+# but costs the exit code: a process started with -PassThru and no -Wait reads its
+# ExitCode back as empty, so a build that succeeded reported itself as failed. Calling
+# the tools directly keeps $LASTEXITCODE meaningful, which matters more than setting the
+# priority on the child rather than on us.
+try {
+    (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
+    Write-Host "[build-low] priority lowered to BelowNormal; children inherit it"
+} catch {
+    Write-Warning "[build-low] could not lower priority - the build will run at normal priority"
+}
 
-    Write-Host "[build-low] $Label starting at BelowNormal priority"
-    $p = Start-Process -FilePath $File -ArgumentList $Args -WorkingDirectory $Cwd `
-        -PassThru -NoNewWindow
-    # Set after launch: Start-Process has no priority parameter. A failure here is not
-    # fatal, but it is reported, because a build running at normal priority is the
-    # exact thing this script exists to prevent.
-    try {
-        $p.PriorityClass = 'BelowNormal'
-    } catch {
-        Write-Warning "[build-low] could not lower priority for $Label - it is running at normal priority"
-    }
-    $p.WaitForExit()
-    if ($p.ExitCode -ne 0) {
-        throw "[build-low] $Label failed with exit code $($p.ExitCode)"
+function Invoke-Low {
+    # NOT $Args: that is a PowerShell automatic variable holding a function's unbound
+    # arguments, so a parameter of that name is silently shadowed and arrives empty.
+    param([string]$Label, [scriptblock]$Body)
+
+    Write-Host "[build-low] $Label starting"
+    & $Body
+    if ($LASTEXITCODE -ne 0) {
+        throw "[build-low] $Label failed with exit code $LASTEXITCODE"
     }
     Write-Host "[build-low] $Label done"
 }
 
 if ($Target -eq 'frontend' -or $Target -eq 'both') {
-    Invoke-Low -File 'npm.cmd' -Args @('run', 'build') `
-        -Cwd (Join-Path $repo 'frontend') -Label 'frontend build'
+    Push-Location (Join-Path $repo 'frontend')
+    try { Invoke-Low -Label 'frontend build' -Body { & npm.cmd run build } }
+    finally { Pop-Location }
 }
 
 if ($Target -eq 'backend' -or $Target -eq 'both') {
     # Writes the staging binary, not the live one. run_backend.ps1 promotes it when the
     # scheduled task is stopped, so building here never swaps a running server.
-    Invoke-Low -File 'go.exe' -Args @('build', '-o', 'o3c-backend-new.exe', '.') `
-        -Cwd (Join-Path $repo 'backend-go') -Label 'backend build'
+    Push-Location (Join-Path $repo 'backend-go')
+    try { Invoke-Low -Label 'backend build' -Body { & go.exe build -o o3c-backend-new.exe . } }
+    finally { Pop-Location }
 }
 
 Write-Host "[build-low] complete"
