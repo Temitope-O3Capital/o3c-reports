@@ -219,7 +219,12 @@ export default function AgentDashboard() {
       // minimum due, while Credit Portfolio prints the same Tier vocabulary from repaid
       // over total exposure. The same customer could read "Cleared" on one screen and
       // "Minimal" on the other. Naming it for what it measures keeps both honest.
-      key: 'min_payment', label: '% of Min Due', align: 'right',
+      // Unique key, for the reason set out on the Tier column below. This was the one
+      // remaining collision with the 'min_payment' column above, so cols.map still
+      // emitted a duplicate React key on every header cell and every row. React calls
+      // that unsupported, and it is what desyncs the DOM into the removeChild error
+      // main.tsx currently attributes to a browser extension.
+      key: 'pct_of_min_due', label: '% of Min Due', align: 'right',
       render: r => {
         const pct = r.min_payment && r.min_payment > 0 ? Math.min(Math.round(((r.last_payment_amount ?? 0) / r.min_payment) * 100), 100) : 0
         return <PctBar pct={pct} tier={tierFromPct(pct)} />

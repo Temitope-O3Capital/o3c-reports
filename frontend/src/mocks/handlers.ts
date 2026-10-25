@@ -269,6 +269,27 @@ const LOS_ROWS = Array.from({ length: 28 }, (_, i) => {
 
 const LOS = [
   http.get(u('/api/los/queue'), () => wd(LOS_ROWS)),
+  // MUST stay above /api/los/:id. Without it, ":id" matched the literal "inbox" and
+  // answered with a single application object, so the approvals page called .reduce on
+  // something that was not a list and crashed. A wildcard route swallowing a sibling is
+  // not a missing mock, it is a wrong one, and it reads as a broken page.
+  http.get(u('/api/los/inbox'), () => ok({
+    data: LOS_ROWS.slice(0, 14).map((r, i) => ({
+      ...r,
+      applicant_cif: `CIF${String(i + 200000).padStart(7, '0')}`,
+      amount_approved_kobo: r.amount_requested_kobo,
+      eye_score: pick([rng(520, 820), null]),
+      risk_band: pick(['A', 'B', 'C', 'D', null]),
+      dti_pct: rng(12, 58),
+      decision: pick(['approve', 'decline', null]),
+      phoenix_sync_state: pick(['synced', 'pending', 'failed', null]),
+      source_system: pick(['phoenix', 'manual', null]),
+      monthly_income_kobo: rng(2, 25) * 100_000_00,
+      // The page reduces over this to find the oldest item in a stage.
+      days_in_stage: rng(0, 34),
+    })),
+    total: 14,
+  })),
   http.get(u('/api/los/stats'), () => wd({
     by_stage: LOS_STAGES.map(s => ({ stage: s, count: rng(4,30) })),
     by_status: [
@@ -380,14 +401,31 @@ const COLLECTIONS = [
       status: i < 3 ? 'Paid' : i === 3 ? 'Missed' : 'Scheduled',
     }))
   )),
+  // stage_label and required_role are what the approval badge reads, and it reads them
+  // WITHOUT a guard — correctly, because writeOffStageLabel always returns a string, so
+  // the real API can never omit them. The mock omitted both, which took the page down
+  // and read as a product bug. amount_kobo and status were missing for the same reason.
   http.get(u('/api/collections-ops/writeoffs'), () => wd(
-    Array.from({ length: 10 }, (_, i) => ({
-      id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
-      outstanding_kobo: rng(20,200)*1_000_000_00, dpd: rng(90,900),
-      last_payment_date: pick([dateStr(rng(30,180)), null]),
-      recovery_attempts: rng(2,15),
-      recommended_by: name(),
-    }))
+    Array.from({ length: 10 }, (_, i) => {
+      const stage = pick([
+        { status: 'pending_head_ops', stage_label: 'Awaiting Head of Operations', required_role: 'head_ops' },
+        { status: 'pending_coo',       stage_label: 'Awaiting COO',                required_role: 'coo' },
+        { status: 'pending_cfo',       stage_label: 'Awaiting CFO',                required_role: 'cfo' },
+      ])
+      const outstanding = rng(20,200)*1_000_000_00
+      return {
+        id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
+        outstanding_kobo: outstanding,
+        // What is being written off, which is not always the whole balance.
+        amount_kobo: outstanding,
+        reason: pick(['Deceased', 'Absconded', 'Uneconomic To Pursue', null]),
+        ...stage,
+        dpd: rng(90,900),
+        last_payment_date: pick([dateStr(rng(30,180)), null]),
+        recovery_attempts: rng(2,15),
+        recommended_by: name(),
+      }
+    })
   )),
   http.post(u('/api/collections-ops/repayment-plans'), () => ok({ id: rng(100, 999) })),
   http.post(u('/api/collections-ops/writeoffs/bulk-approve'), () => new HttpResponse(null, { status: 204 })),
@@ -960,10 +998,20 @@ const COMPLIANCE = [
   )),
   http.post(u('/api/compliance/watch-list'), () => ok({ id: 99 })),
   http.put(u('/api/compliance/watch-list/:id'), () => new HttpResponse(null, { status: 204 })),
+  // AMLRule, in full. `action` and `rule_type` drive badges that index a style map and
+  // then case the value, so they must be one of the real vocabularies and never absent:
+  // the badge reads action.charAt(0) with no guard. `active` was also wrong here, mocked
+  // as is_active, which is not the field the page reads.
   http.get(u('/api/compliance/aml-rules'), () => ok(
     Array.from({ length: 8 }, (_, i) => ({
       id: i+1, name: pick(['Cash Transaction Report','STR Threshold','PEP Screening','Sanctions Check']),
-      threshold_kobo: pick([5_000_000_00, 1_000_000_00, null]), is_active: Math.random() > 0.2,
+      rule_type: pick(['amount_threshold', 'velocity', 'pattern']),
+      threshold_kobo: pick([5_000_000_00, 1_000_000_00, 0]),
+      velocity_count: rng(3, 20),
+      time_window_hours: pick([1, 6, 24, 72]),
+      action: pick(['flag', 'block', 'escalate']),
+      active: Math.random() > 0.2,
+      created_at: isoDate(rng(90, 400)),
       updated_at: isoDate(rng(0,90)),
     }))
   )),
@@ -1575,10 +1623,18 @@ const ADMIN = [
   http.put(u('/api/admin/roles/:name'), () => new HttpResponse(null, { status: 204 })),
   http.delete(u('/api/admin/roles/:name'), () => new HttpResponse(null, { status: 204 })),
 
+  // key_name is this registry's identity and the table's keyFn, so picking at random
+  // from a list of four produced repeats and React warned about duplicate keys on every
+  // load. Taken in order, which is also truer to the real thing: a credential registry
+  // cannot hold the same key twice.
   http.get(u('/api/admin/api-keys'), () => ok(
-    Array.from({ length: 4 }, (_, i) => ({
-      key_name: pick(['Production Key','Test Key','Integration Key','Staging Key']),
-      description: 'API access key', category: pick(['internal','external']), is_active: Math.random() > 0.2,
+    ['Production Key', 'Test Key', 'Integration Key', 'Staging Key'].map((key_name, i) => ({
+      key_name,
+      description: 'API access key',
+      category: i % 2 === 0 ? 'internal' : 'external',
+      is_active: i !== 3,
+      is_secret: true,
+      has_value: i !== 3,
     }))
   )),
   http.post(u('/api/admin/api-keys'), () => ok({ key_name: 'New Key', raw_key: 'o3k_XXXXXXXXXXXXXXXX' })),
@@ -2204,11 +2260,12 @@ const COMPLIANCE_EXTRA = [
   http.get(u('/api/compliance/concentration-risk'), () => ok({
     total_loan_book_kobo: 4_820_000_000_00,
     cbn_single_obligor_limit_pct: 20,
-    top_obligors: Array.from({ length: 8 }, (_, i) => ({
-      obligor: `CIF${String(i+100000).padStart(7,'0')}`,
-      name: pick(['Shell Nigeria','MTN Nigeria','Dangote Group','Access Bank','NNPC','NLNG','Flour Mills','Nestlé']),
-      exposure_kobo: rng(20,250)*1_000_000_00, exposure_pct: rng(1,15), loan_count: rng(1,5),
-    })),
+    top_obligors: ['Shell Nigeria','MTN Nigeria','Dangote Group','Access Bank','NNPC','NLNG','Flour Mills','Nestlé']
+      .map((name, i) => ({
+        obligor: `CIF${String(i+100000).padStart(7,'0')}`,
+        name,
+        exposure_kobo: rng(20,250)*1_000_000_00, exposure_pct: rng(1,15), loan_count: rng(1,5),
+      })),
     by_loan_type: [
       { loan_type:'Payday Loan',   exposure_kobo: 1_840_000_000_00, exposure_pct: 38.2, count: 1842 },
       { loan_type:'Salary Advance',exposure_kobo: 1_200_000_000_00, exposure_pct: 24.9, count: 984  },
@@ -2216,8 +2273,12 @@ const COMPLIANCE_EXTRA = [
       { loan_type:'Education Loan',exposure_kobo: 480_000_000_00,   exposure_pct: 10.0, count: 240  },
       { loan_type:'Auto Loan',     exposure_kobo: 320_000_000_00,   exposure_pct: 6.6,  count: 84   },
     ],
-    by_employer: Array.from({ length: 8 }, () => ({
-      employer: pick(['Shell Nigeria','MTN','Dangote','NNPC','Access Bank','FirstBank','NLNG','Flour Mills']),
+    // Taken in order, not picked at random: the report GROUPS by employer, so a name
+    // cannot appear twice, and eight random picks from a list of eight guaranteed it
+    // would. The table keys its rows on the employer name, so the repeats showed up as
+    // React duplicate-key warnings on every load.
+    by_employer: ['Shell Nigeria','MTN','Dangote','NNPC','Access Bank','FirstBank','NLNG','Flour Mills'].map(employer => ({
+      employer,
       exposure_kobo: rng(50,500)*1_000_000_00, exposure_pct: rng(1,12), borrower_count: rng(10,200),
     })),
   })),
@@ -2232,6 +2293,14 @@ const COMPLIANCE_EXTRA = [
       third_country_transfers: Math.random() < 0.2,
       retention_period: pick(['7 years','5 years','Until account closure']),
       security_measures: 'AES-256 encryption, access control', created_at: isoDate(rng(10,180)),
+      // status drives a pill that cases the value with .replace, so it must always be
+      // present and must be one of the three the register actually uses. It was absent,
+      // which took the page down. dpo_reviewed, created_by_name and updated_at complete
+      // DPAEntry.
+      status: pick(['active', 'under_review', 'discontinued']),
+      dpo_reviewed: Math.random() > 0.35,
+      created_by_name: name(),
+      updated_at: isoDate(rng(0,10)),
     }))
   )),
   http.post(u('/api/compliance/dpa-register'), () => ok({ id: 99 })),
@@ -2865,18 +2934,28 @@ const GAP_FILL = [
   })),
 
   // ── Admin modules ─────────────────────────────────────────────────────────────
-  http.get(u('/api/admin/modules'), () => ok([
-    { id: 'loans',       name: 'Loan Origination',  enabled: true,  roles: ['admin','los_officer','credit_analyst'] },
-    { id: 'cards',       name: 'Cards',              enabled: true,  roles: ['admin','cards_ops'] },
-    { id: 'collections', name: 'Collections',        enabled: true,  roles: ['admin','collections_officer'] },
-    { id: 'recovery',    name: 'Recovery',           enabled: true,  roles: ['admin','recovery_agent'] },
-    { id: 'compliance',  name: 'Compliance',         enabled: true,  roles: ['admin','compliance_officer'] },
-    { id: 'hr',          name: 'HR & Payroll',       enabled: true,  roles: ['admin','hr_manager'] },
-    { id: 'finance',     name: 'Finance',            enabled: true,  roles: ['admin','finance_manager'] },
-    { id: 'campaigns',   name: 'Campaigns',          enabled: true,  roles: ['admin','marketing_officer'] },
-    { id: 'helpdesk',    name: 'Helpdesk',           enabled: true,  roles: ['admin','helpdesk_agent'] },
-    { id: 'risk',        name: 'Risk',               enabled: true,  roles: ['admin','risk_officer'] },
-  ])),
+  // `key` and `label`, not id/name: the page keys the list on mod.key and renders
+  // mod.label. With id/name it keyed every row on undefined, which is the same as no
+  // key at all, and drew ten rows with blank titles. React said so and nobody was
+  // listening, because a console warning in a mock is nobody's job.
+  http.get(u('/api/admin/modules'), () => ok(
+    [
+      ['loans',       'Loan Origination'],
+      ['cards',       'Cards'],
+      ['collections', 'Collections'],
+      ['recovery',    'Recovery'],
+      ['compliance',  'Compliance'],
+      ['hr',          'HR & Payroll'],
+      ['finance',     'Finance'],
+      ['campaigns',   'Campaigns'],
+      ['helpdesk',    'Helpdesk'],
+      ['risk',        'Risk'],
+    ].map(([key, label], i) => ({
+      key, label, enabled: true, sort_order: i + 1,
+      updated_at: pick([isoDate(rng(0, 60)), null]),
+      updated_by: pick([name(), null]),
+    }))
+  )),
 
   // ── Settings — Zoho Voice ─────────────────────────────────────────────────────
   http.get(u('/api/settings/zoho-voice'), () => ok({
@@ -3342,6 +3421,27 @@ const MOCK_GAPS = [
 
 const EXECUTIVE_DEPT = [
   http.get(u('/api/executive/cards'), () => wd({
+    period: { type: 'custom', start: '2026-10-01', end: '2026-10-25' },
+    // Billing-cycle position. Gross and net are deliberately different facts in
+    // ExecCards, so the mock keeps them different rather than repeating one number.
+    cycle_date: '2026-10-05', cycle_accounts: 1_612,
+    gross_receivable_kobo: 2_612_400_000, debit_accounts: 1_438,
+    credit_balance_kobo: -427_900_000, credit_accounts: 174,
+    credit_limit_kobo: 5_940_000_000, utilisation_pct: 36.8,
+    overdue_kobo: 318_700_000, overdue_accounts: 206, over_limit_accounts: 23,
+    delinquency_pct: 12.8, min_payment_kobo: 184_200_000,
+    cycle_interest_kobo: 41_800_000, cycle_fees_kobo: 9_600_000,
+    spend_kobo: 477_189_230_00, spend_change_pct: 8.4,
+    repayments_kobo: 392_460_000_00, interest_kobo: 41_800_000,
+    fees_kobo: 9_600_000, revenue_kobo: 51_400_000,
+    category_mix: [
+      { category: 'Supermarket',   volume_kobo: 148_200_000_00, count: 9_412 },
+      { category: 'Fuel',          volume_kobo: 96_400_000_00,  count: 6_180 },
+      { category: 'Airtime',       volume_kobo: 71_800_000_00,  count: 8_247 },
+      { category: 'Travel',        volume_kobo: 64_300_000_00,  count: 1_104 },
+      { category: 'Online',        volume_kobo: 52_900_000_00,  count: 2_476 },
+      { category: 'Other',         volume_kobo: 43_589_230_00,  count: 1_000 },
+    ],
     total_cards: 1842, active_cards: 1654, activation_rate_pct: 89.8,
     credit_book_kobo: 2_184_500_000, prepaid_ngn_balance_kobo: 847_200_000, prepaid_usd_balance_cents: 124_800,
     disputes_open: 12, disputes_resolved_mtd: 48,
@@ -3388,7 +3488,28 @@ const EXECUTIVE_DEPT = [
     ],
   })),
 
+  // Every field in ExecSales (pages/executive/Sales.tsx) must be present. The page
+  // reduces acquisition_mix and maps acquisition_trend without guarding, which is
+  // correct — the handler builds both with make([]map[string]any, 0), so the real API
+  // always sends an array. A mock that omits them is the mock being wrong, and it read
+  // as a broken page for three days.
   http.get(u('/api/executive/sales'), () => wd({
+    period: { type: 'custom', start: '2026-10-01', end: '2026-10-25' },
+    new_accounts: 312, acquisition_change_pct: 8.4,
+    new_deposits: 64, new_deposit_value_kobo: 1_284_000_000_00,
+    cards_opened: 148, credit_cards_opened: 37, credit_book_kobo: 412_600_000_00,
+    acquisition_mix: [
+      { product_line: 'Savings',        opened: 184, total: 9_420 },
+      { product_line: 'Fixed Deposit',  opened: 64,  total: 1_870 },
+      { product_line: 'Credit Card',    opened: 37,  total: 612 },
+      { product_line: 'Loan',           opened: 27,  total: 1_248 },
+    ],
+    acquisition_trend: ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'].map((month, i) => ({
+      month,
+      accounts: [214, 241, 268, 252, 297, 312][i],
+      deposits: [38, 44, 51, 47, 58, 64][i],
+      loans:    [19, 22, 24, 21, 26, 27][i],
+    })),
     pipeline_value_kobo: 847_200_000_00, pipeline_count: 124,
     conversions_mtd: 18, conversion_rate_pct: 14.5,
     calls_made_mtd: 312, meetings_held_mtd: 87,
@@ -3414,6 +3535,29 @@ const EXECUTIVE_DEPT = [
   })),
 
   http.get(u('/api/executive/collections'), () => wd({
+    period: { type: 'custom', start: '2026-10-01', end: '2026-10-25' },
+    // The assigned book. The page reduces assigned_ladder for the 181-360 and 360+
+    // buckets, so those two bucket labels have to exist by those exact names or the
+    // "deep" figure silently reads zero.
+    assigned_kobo: 1_284_600_000_00, assigned_count: 418,
+    assigned_target_kobo: 1_500_000_000_00, agent_count: 11,
+    assigned_ladder: [
+      { bucket: '1-30',    count: 112, value_kobo: 184_200_000_00 },
+      { bucket: '31-90',   count: 96,  value_kobo: 241_800_000_00 },
+      { bucket: '91-180',  count: 84,  value_kobo: 298_400_000_00 },
+      { bucket: '181-360', count: 72,  value_kobo: 306_100_000_00 },
+      { bucket: '360+',    count: 54,  value_kobo: 254_100_000_00 },
+    ],
+    card_overdue_kobo: 318_700_000, card_overdue_accounts: 206,
+    activity_contacts: 1_842, activity_promises: 624, activity_payments: 287,
+    loan_overdue_kobo: 412_800_000_00, loan_overdue_count: 164,
+    loan_partial_kobo: 96_400_000_00, loan_collected_kobo: 184_720_000_00,
+    loan_due_7d_kobo: 48_200_000_00, loan_due_30d_kobo: 214_600_000_00,
+    loan_overdue_list: [
+      { account: 'LN-004812', customer_name: 'Chidera Nwosu',   product: 'Payday Loan', amount_kobo: 2_840_000_00, days_overdue: 42 },
+      { account: 'LN-004937', customer_name: 'Hauwa Danjuma',   product: 'Asset Finance', amount_kobo: 6_120_000_00, days_overdue: 118 },
+      { account: 'LN-005104', customer_name: 'Segun Adeyemi',   product: 'Payday Loan', amount_kobo: 1_460_000_00, days_overdue: 17 },
+    ],
     collected_mtd_kobo: 184_720_000_00, collected_change_pct: 9.2,
     collection_rate_pct: 87.4, promise_rate_pct: 64.2,
     par30_count: 142, par60_count: 87, par90_count: 54,
@@ -3441,6 +3585,29 @@ const EXECUTIVE_DEPT = [
   })),
 
   http.get(u('/api/executive/risk'), () => wd({
+    period: { type: 'custom', start: '2026-10-01', end: '2026-10-25' },
+    loan_par: {
+      par30_kobo: 284_000_000_00, par60_kobo: 148_000_000_00, par90_kobo: 98_400_000_00,
+      par30_pct: 6.7, par60_pct: 3.5, par90_pct: 2.3,
+    },
+    loan_repayment_ladder: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'].map((month, i) => ({
+      month,
+      principal_kobo: [214_600_000_00, 198_400_000_00, 182_100_000_00, 164_800_000_00, 151_200_000_00, 138_900_000_00][i],
+      interest_kobo:  [38_200_000_00, 34_900_000_00, 31_600_000_00, 28_400_000_00, 25_700_000_00, 23_100_000_00][i],
+    })),
+    loan_interest_forward_kobo: 181_900_000_00, loan_due_30d_kobo: 214_600_000_00,
+    // The card book is the larger credit asset, which is the point of this section.
+    card_exposure_kobo: 2_612_400_000, card_accounts: 1_612,
+    card_overdue_kobo: 318_700_000, card_npl_pct: 12.2,
+    card_top10_pct: 28.4, card_top50_pct: 61.8,
+    card_products: [
+      { product: 'Blink Classic',  count: 1_104, outstanding_kobo: 1_284_600_000, overdue_kobo: 164_200_000, delinquency_pct: 12.8 },
+      { product: 'Blink Gold',     count: 384,   outstanding_kobo: 918_400_000,   overdue_kobo: 108_600_000, delinquency_pct: 11.8 },
+      { product: 'Blink Platinum', count: 124,   outstanding_kobo: 409_400_000,   overdue_kobo: 45_900_000,  delinquency_pct: 11.2 },
+    ],
+    credit_assets_kobo: 6_830_800_000_00, fd_liability_kobo: 8_412_600_000_00,
+    fd_count: 1_870, fd_maturing_30d_kobo: 684_200_000_00, fd_maturing_90d_kobo: 1_842_900_000_00,
+    asset_coverage_pct: 81.2,
     portfolio_outstanding_kobo: 4_218_400_000_00, npl_rate_pct: 8.2,
     concentration_top10_pct: 34.7, avg_loan_size_kobo: 148_400_000,
     new_accounts_mtd: 47, churn_rate_pct: 2.4,
@@ -3487,6 +3654,23 @@ const EXECUTIVE_DEPT = [
   })),
 
   http.get(u('/api/executive/settlements'), () => wd({
+    period: { type: 'custom', start: '2026-10-01', end: '2026-10-25' },
+    payouts_kobo: 1_842_600_000_00, payouts_count: 18_412, payouts_change_pct: 6.8,
+    payout_fees_kobo: 4_210_000_00, failed_value_kobo: 18_400_000_00,
+    collections_kobo: 2_104_800_000_00, collections_count: 24_186,
+    collection_fees_kobo: 6_480_000_00, net_flow_kobo: 262_200_000_00,
+    settled_period_kobo: 1_824_200_000_00, settled_period_count: 18_398,
+    recon_matched: 42_412, recon_unmatched: 186, recon_last_run: '2026-10-25T06:15:00Z',
+    exception_reasons: [
+      { reason: 'Amount Mismatch',   count: 4, value_kobo: 184_000_00 },
+      { reason: 'Missing Statement', count: 3, value_kobo: 148_000_00 },
+      { reason: 'Duplicate Entry',   count: 1, value_kobo: 52_000_00 },
+    ],
+    exception_ageing: [
+      { bucket: '0-2 days',  count: 3, value_kobo: 118_000_00 },
+      { bucket: '3-7 days',  count: 3, value_kobo: 164_000_00 },
+      { bucket: '8+ days',   count: 2, value_kobo: 102_000_00 },
+    ],
     paystack_wallet_kobo: 48_200_000_00, nip_success_rate_pct: 98.4,
     settled_today_kobo: 8_420_000_00, pending_kobo: 1_240_000_00,
     failed_count: 14, recon_rate_pct: 97.8,
@@ -3719,8 +3903,11 @@ const EXECUTIVE_DEPT = [
   })),
 
   // BD — my dashboard (BD officer view)
-  http.get(u('/api/bd/my-dashboard'), () => ok({
-    my_dashboard: {
+  // The payload goes under `data`, which is what respond() emits — "my_dashboard" is
+  // the data_source LABEL, not a wrapper key. Wrapping it as the key meant the page
+  // unwrapped nothing and read urgency off the envelope, so it crashed on a mock whose
+  // contents were otherwise complete and correct.
+  http.get(u('/api/bd/my-dashboard'), () => wd({
       kpis: {
         employers_managed: 12, mou_signed: 9, mou_expiring_soon: 2,
         staff_referred_mtd: 48, staff_referred_lm: 61,
@@ -3728,7 +3915,9 @@ const EXECUTIVE_DEPT = [
         calls_made_mtd: 87,  calls_lm: 94,
         meetings_mtd: 14,    meetings_lm: 18,
       },
-      funnel_all: { staff_referred: 340, crm_contacts: 284, applications: 116, converted: 78 },
+      // `funnel` is the key the page reads (ReferralFunnel). funnel_mtd is kept because
+      // the handler sends it too; funnel_all was never a field of BDDash.
+      funnel:     { staff_referred: 340, crm_contacts: 284, applications: 116, converted: 78 },
       funnel_mtd: { staff_referred: 48,  crm_contacts: 39,  applications: 14,  converted: 7  },
       urgency: {
         mou_expiring: [
@@ -3765,7 +3954,6 @@ const EXECUTIVE_DEPT = [
         contacts_created: rng(5, 120),
         converted: rng(0, 30),
       })),
-    },
   })),
 
   // BD — single employer detail (for employer drawer)

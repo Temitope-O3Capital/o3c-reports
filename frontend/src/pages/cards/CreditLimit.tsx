@@ -19,7 +19,9 @@ interface CreditReview {
   current_limit_kobo: number
   proposed_limit_kobo: number
   utilization_pct: number
-  eye_score: number
+  // Declared as it actually arrives: the column is numeric in Postgres, which the db
+  // layer returns as text, and an unscored applicant has no value at all.
+  eye_score: number | string | null
   status: string
   recommended_by: string
   submitted_date: string
@@ -32,12 +34,20 @@ const STATUS_LABELS: Record<string, string> = {
   declined:       'Declined',
 }
 
-function EyeScoreBar({ score }: { score: number }) {
+// An applicant with no Eye score is not an applicant who scored nothing. The call site
+// passes Number(r.eye_score), which turns a missing field into NaN and a null into 0 —
+// so this drew either the literal text "NaN" with a NaN% bar width, or a full-width red
+// bar reading 0 for somebody who has simply not been scored. Both state a credit fact
+// that is not true, and 0 is the more dangerous of the two because it looks deliberate.
+function EyeScoreBar({ score }: { score: number | null | undefined }) {
+  if (score == null || !Number.isFinite(score)) {
+    return <span style={{ color: 'var(--txt3)' }}>&ndash;</span>
+  }
   const color = score >= 700 ? GREEN : score >= 550 ? AMBER : RED
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
       <div style={{ width: 52, height: 5, borderRadius: 3, background: 'var(--bdr)', flexShrink: 0 }}>
-        <div style={{ width: `${Math.min(100, (score / 850) * 100)}%`, height: '100%', borderRadius: 3, background: color }} />
+        <div style={{ width: `${Math.min(100, Math.max(0, (score / 850) * 100))}%`, height: '100%', borderRadius: 3, background: color }} />
       </div>
       <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color }}>{score}</span>
     </div>
@@ -271,7 +281,11 @@ export default function CardsCreditLimit() {
         )
       },
     },
-    { key: 'eye_score', label: 'Eye Score', render: r => <EyeScoreBar score={Number(r.eye_score)} /> },
+    // Not Number(...): that converts "no score" into 0 or NaN before the bar can tell
+    // the difference. The column is numeric in Postgres, so it may also arrive as text.
+    { key: 'eye_score', label: 'Eye Score', render: r => (
+      <EyeScoreBar score={r.eye_score == null || r.eye_score === '' ? null : Number(r.eye_score)} />
+    ) },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={STATUS_LABELS[r.status] ?? r.status} /> },
     { key: '_actions', label: '', render: r => <ReviewActions review={r} onReload={load} /> },
   ], [load])

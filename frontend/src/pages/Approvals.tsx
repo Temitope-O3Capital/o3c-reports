@@ -143,7 +143,11 @@ export default function Approvals() {
 
   const cols: TableCol<ApprovalItem>[] = [
     {
-      key: 'module', label: (
+      // 'select', not 'module': the checkbox column had borrowed the Module column's
+      // key, so every header cell and every row emitted a duplicate React key. The key
+      // is only a render key here, never a data lookup, because this column supplies
+      // its own render.
+      key: 'select', label: (
         <input type="checkbox" checked={allSelected} onChange={toggleAll}
           style={{ cursor: 'pointer', width: 15, height: 15 }} />
       ) as any,
