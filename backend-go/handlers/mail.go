@@ -77,6 +77,43 @@ type SendMailOptions struct {
 	InReplyToMessageID string
 }
 
+// The four purposes app.email_senders actually holds, one default each.
+const (
+	senderPurposeHelpdesk      = "helpdesk"      // care@          — the support desk
+	senderPurposeInternal      = "internal"      // notifications@ — staff, not customers
+	senderPurposePromo         = "promo"         // promo@         — marketing
+	senderPurposeTransactional = "transactional" // care@          — statements, auth
+)
+
+// senderPurposeForKind maps a mail's Kind onto the purpose that picks its From address.
+//
+// The split that matters is who receives it. A report or a board pack goes to staff,
+// which is what notifications@ exists for; a campaign goes to a customer who opted in,
+// which is promo@; everything else a customer receives unprompted is the desk or a
+// transaction. Getting this wrong is not cosmetic: a statement arriving from the
+// promotions address invites an unsubscribe, and marketing arriving from the support
+// address borrows trust it has not earned.
+//
+// NOTE on ordering: this is read before opt.Kind is defaulted to "transactional" a few
+// dozen lines below, so an empty Kind must land on the same answer. It does, via
+// default.
+func senderPurposeForKind(kind string) string {
+	switch kind {
+	case "campaign":
+		return senderPurposePromo
+	case "report", "board_pack", "notification":
+		return senderPurposeInternal
+	// Including the surveys the desk sends after a ticket: to the customer those are
+	// part of the same conversation, so they should come from the same address.
+	case "helpdesk", "care", "csat", "survey":
+		return senderPurposeHelpdesk
+	default:
+		// Statements, card and loan mail, password resets, a one-off staff send, and an
+		// unset Kind.
+		return senderPurposeTransactional
+	}
+}
+
 type SendMailResult struct {
 	OK         bool
 	ProviderID string
@@ -906,13 +943,45 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		return SendMailResult{Error: "SENDGRID_API_KEY not configured"}
 	}
 	if opt.FromEmail == "" {
-		// Prefer the active default sender from the email_senders table (UI-configurable).
-		if senderRows, _ := db.PGQuery(ctx, `
-			SELECT address, display_name FROM email_senders
-			WHERE is_active=TRUE AND is_default=TRUE LIMIT 1`); len(senderRows) > 0 {
+		// The active default sender for THIS KIND of mail, from email_senders.
+		//
+		// This table had never once been read. The query asked for a column called
+		// display_name, which does not exist — the column is `name` — so it errored on
+		// every send, the error was discarded into `_`, and the address silently fell
+		// through to SENDGRID_FROM_EMAIL. That is why every report has been leaving
+		// under the care address.
+		//
+		// It also ignored `purpose` and took LIMIT 1 with no ORDER BY. Correcting only
+		// the column name would therefore have picked arbitrarily between four senders,
+		// and could have put an internal report out under the promotions address. The
+		// purpose is what chooses: there is exactly one default per purpose, enforced by
+		// a unique index on purpose WHERE is_default AND is_active.
+		purpose := senderPurposeForKind(opt.Kind)
+		senderRows, err := db.PGQuery(ctx, `
+			SELECT address, name FROM email_senders
+			 WHERE is_active = TRUE AND is_default = TRUE AND purpose = $1
+			 LIMIT 1`, purpose)
+		if err != nil {
+			// Logged, not discarded. Silence here is what hid the broken column.
+			slog.Error("mail: could not read email_senders", "purpose", purpose, "err", err)
+		}
+		if len(senderRows) == 0 && purpose != senderPurposeTransactional {
+			// Fall back to the transactional sender rather than to any row that happens
+			// to be first: an unconfigured purpose should borrow the address customers
+			// already receive statements from, never the promotions one.
+			senderRows, _ = db.PGQuery(ctx, `
+				SELECT address, name FROM email_senders
+				 WHERE is_active = TRUE AND is_default = TRUE AND purpose = $1
+				 LIMIT 1`, senderPurposeTransactional)
+			if len(senderRows) > 0 {
+				slog.Warn("mail: no sender configured for purpose, using the transactional sender",
+					"kind", opt.Kind, "purpose", purpose)
+			}
+		}
+		if len(senderRows) > 0 {
 			opt.FromEmail = str(senderRows[0]["address"])
 			if opt.FromName == "" {
-				opt.FromName = str(senderRows[0]["display_name"])
+				opt.FromName = str(senderRows[0]["name"])
 			}
 		}
 	}
