@@ -3210,6 +3210,303 @@ const GAP_FILL = [
   http.get(u('/api/voice/at-token'), () => ok({ token: 'mock-at-voice-token-for-demo' })),
 ]
 
+// ── Fleet ─────────────────────────────────────────────────────────────────────
+//
+// The fleet module had NO fixtures at all, rather than stale ones: every endpoint fell
+// through to CATCH_ALL below, so all four pages showed an error banner and the module
+// could not be demonstrated at all.
+//
+// Everything here is derived from ONE list of vehicles, so the pages agree with each
+// other: a registration on the overview is the same vehicle on the cards page, in the
+// workshop list and on its own detail page. Fixtures that disagree between screens are
+// how you end up chasing a reconciliation bug that does not exist.
+
+const FLEET_VEHICLES = [
+  { id: 1, reg_no: 'LAG-412-KJA', make: 'Toyota',   model: 'Hilux',      year: 2022, status: 'active',      dept: 'Operations' },
+  { id: 2, reg_no: 'ABJ-887-YAB', make: 'Toyota',   model: 'Corolla',    year: 2021, status: 'active',      dept: 'Sales & BD' },
+  { id: 3, reg_no: 'LAG-230-FKJ', make: 'Ford',     model: 'Ranger',     year: 2020, status: 'in_workshop', dept: 'Operations' },
+  { id: 4, reg_no: 'LAG-905-MUS', make: 'Honda',    model: 'CR-V',       year: 2023, status: 'active',      dept: 'Executive' },
+  { id: 5, reg_no: 'KAN-118-KNA', make: 'Mitsubishi', model: 'L200',     year: 2019, status: 'active',      dept: 'Collections' },
+  { id: 6, reg_no: 'LAG-771-AAA', make: 'Toyota',   model: 'Hiace',      year: 2018, status: 'disposed',    dept: 'Operations' },
+  { id: 7, reg_no: 'PHC-344-RVS', make: 'Nissan',   model: 'Navara',     year: 2021, status: 'active',      dept: 'Recovery' },
+  { id: 8, reg_no: 'LAG-556-IKJ', make: 'Toyota',   model: 'Land Cruiser', year: 2023, status: 'active',    dept: 'Executive' },
+]
+
+const FLEET_DRIVERS = [
+  { id: 41, full_name: 'Ifeoma Ibrahim' },
+  { id: 42, full_name: 'Musa Adeyinka' },
+  { id: 43, full_name: 'Blessing Obi' },
+  { id: 44, full_name: 'Tunde Alabi' },
+]
+
+const FLEET_DEPARTMENTS = ['Operations', 'Sales & BD', 'Executive', 'Collections', 'Recovery']
+  .map((name, i) => ({ id: i + 1, name }))
+
+// Cover state is four-valued on purpose: the register not holding a policy is NOT
+// evidence that a vehicle is uninsured, which is why 'unknown' sits apart from
+// 'expired'. The fixture carries one of each so the distinction is visible.
+const FLEET_COVER_STATE = ['covered', 'covered', 'expiring', 'covered', 'expired', 'unknown', 'covered', 'covered']
+
+const fleetSpendKobo = (i: number) => [184_200, 96_400, 41_800, 212_600, 128_900, 0, 164_300, 248_700][i] * 100
+
+const FLEET = [
+  http.get(u('/api/fleet/overview'), () => ok({
+    vehicles: {
+      vehicles: FLEET_VEHICLES.length,
+      active: FLEET_VEHICLES.filter(v => v.status === 'active').length,
+      in_workshop: FLEET_VEHICLES.filter(v => v.status === 'in_workshop').length,
+      disposed: FLEET_VEHICLES.filter(v => v.status === 'disposed').length,
+      fleet_cost_kobo: 184_600_000_00,
+    },
+    card_coverage: { with_card: 6, without_card: 2 },
+    spend: {
+      txns: 418, spend_kobo: FLEET_VEHICLES.reduce((s, _, i) => s + fleetSpendKobo(i), 0),
+      vehicles_spending: 7, first_txn: isoDate(28), last_txn: isoDate(1),
+    },
+    by_vehicle: FLEET_VEHICLES.map((v, i) => {
+      const spend = fleetSpendKobo(i)
+      const km = [2840, 1620, 410, 3180, 2240, 0, 2610, 3920][i]
+      return {
+        vehicle_id: v.id, reg_no: v.reg_no, make: v.make, model: v.model, status: v.status,
+        spend_kobo: spend, txns: [74, 41, 12, 88, 56, 0, 63, 84][i], km,
+        readings: [12, 8, 3, 14, 10, 0, 11, 15][i],
+        // Null rather than zero where there is no distance to divide by: a cost per km
+        // of 0 would read as a free vehicle.
+        kobo_per_km: km > 0 ? Math.round(spend / km) : null,
+      }
+    }),
+    spend_by_code: [
+      { txn_code: 'PMS', code_label: 'Petrol',      txns: 268, spend_kobo: 684_200_00 },
+      { txn_code: 'AGO', code_label: 'Diesel',      txns: 96,  spend_kobo: 312_400_00 },
+      { txn_code: 'LUB', code_label: 'Lubricants',  txns: 38,  spend_kobo: 48_600_00 },
+      { txn_code: 'WSH', code_label: 'Car Wash',    txns: 16,  spend_kobo: 6_700_00 },
+    ],
+    top_merchants: [
+      { merchant: 'Total Energies Ikeja',  txns: 118, spend_kobo: 296_400_00 },
+      { merchant: 'NNPC Retail Maryland',  txns: 84,  spend_kobo: 214_800_00 },
+      { merchant: 'Conoil Lekki',          txns: 61,  spend_kobo: 162_200_00 },
+      { merchant: 'Mobil Victoria Island', txns: 47,  spend_kobo: 128_600_00 },
+    ],
+    maintenance: { jobs: 14, cost_kobo: 184_600_00 },
+    incidents: { incidents: 5, open_incidents: 2, cost_kobo: 96_200_00 },
+    due: [
+      { id: 1, vehicle_id: 3, reg_no: 'LAG-230-FKJ', kind: 'service',   next_due_on: dateStr(-4),  next_due_km: 92_000, current_km: 91_480, days_to_due: 4,   km_to_due: 520 },
+      { id: 2, vehicle_id: 5, reg_no: 'KAN-118-KNA', kind: 'tyres',     next_due_on: dateStr(-21), next_due_km: null,   current_km: 148_200, days_to_due: 21, km_to_due: null },
+      { id: 3, vehicle_id: 1, reg_no: 'LAG-412-KJA', kind: 'service',   next_due_on: dateStr(6),   next_due_km: 64_000, current_km: 64_310, days_to_due: -6,  km_to_due: -310 },
+    ],
+    cover: {
+      covered:  FLEET_COVER_STATE.filter(s => s === 'covered').length,
+      expiring: FLEET_COVER_STATE.filter(s => s === 'expiring').length,
+      expired:  FLEET_COVER_STATE.filter(s => s === 'expired').length,
+      unknown:  FLEET_COVER_STATE.filter(s => s === 'unknown').length,
+    },
+    feed: { card_feed_last_day: dateStr(1) },
+    period: { from: dateStr(30), to: dateStr(0) },
+  })),
+
+  http.get(u('/api/fleet/lookups'), () => ok({
+    departments: FLEET_DEPARTMENTS,
+    drivers: FLEET_DRIVERS,
+  })),
+
+  // MUST stay above /api/fleet/vehicles, or that one matches first and the cards page
+  // receives a vehicle list where it expects cards.
+  http.get(u('/api/fleet/cards/available'), () => wd(
+    Array.from({ length: 9 }, (_, i) => {
+      const v = i < 6 ? FLEET_VEHICLES[i] : null
+      return {
+        cif: `CIF${String(i + 440000).padStart(7, '0')}`,
+        name_on_card: pick(['O3 CAPITAL FLEET', 'O3C OPERATIONS']),
+        product_name: 'Fleet Fuel Card',
+        opened_date: dateStr(rng(120, 900)),
+        lifetime_txns: rng(40, 820),
+        lifetime_spend_kobo: rng(40, 900) * 1_000_00,
+        last_txn: pick([isoDate(rng(1, 20)), null]),
+        // Three cards are deliberately unmapped: mapping a card to a vehicle is the
+        // whole job of this page, so a fixture where everything is already mapped
+        // demonstrates nothing.
+        vehicle_id: v ? v.id : null,
+        mapped_to: v ? v.reg_no : null,
+      }
+    })
+  )),
+
+  http.get(u('/api/fleet/vehicles'), () => wd(
+    FLEET_VEHICLES.map(v => ({ id: v.id, reg_no: v.reg_no, make: v.make, model: v.model }))
+  )),
+
+  http.get(u('/api/fleet/maintenance'), () => wd(
+    Array.from({ length: 14 }, (_, i) => {
+      const v = FLEET_VEHICLES[i % FLEET_VEHICLES.length]
+      return {
+        id: i + 1, vehicle_id: v.id, reg_no: v.reg_no,
+        kind: pick(['service', 'tyres', 'brakes', 'bodywork', 'battery']),
+        performed_on: dateStr(rng(3, 160)),
+        vendor: pick(['Elizade Autoland', 'Coscharis Service', 'Weststar Workshop', null]),
+        cost_kobo: rng(18, 420) * 1_000_00,
+        odometer_km: rng(20_000, 180_000),
+        next_due_on: pick([dateStr(-rng(5, 120)), null]),
+        next_due_km: pick([rng(60_000, 200_000), null]),
+        description: pick(['Routine 10,000km service', 'Two front tyres replaced', 'Brake pads and discs', null]),
+        invoice_ref: pick([`INV-${rng(10000, 99999)}`, null]),
+      }
+    })
+  )),
+
+  http.get(u('/api/fleet/incidents'), () => wd(
+    Array.from({ length: 5 }, (_, i) => {
+      const v = FLEET_VEHICLES[i]
+      const resolved = i >= 2
+      return {
+        id: i + 1, vehicle_id: v.id, reg_no: v.reg_no,
+        occurred_on: dateStr(rng(4, 200)),
+        kind: pick(['collision', 'theft', 'breakdown', 'vandalism']),
+        description: pick(['Rear bumper damaged in car park', 'Windscreen cracked on Third Mainland', 'Alternator failure on route', null]),
+        cost_kobo: rng(0, 180) * 1_000_00,
+        resolved_on: resolved ? dateStr(rng(1, 60)) : null,
+        reported_by_name: name(),
+      }
+    })
+  )),
+
+  http.get(u('/api/fleet/cover'), () => wd(
+    FLEET_VEHICLES.map((v, i) => {
+      const state = FLEET_COVER_STATE[i]
+      const known = state !== 'unknown'
+      const days = state === 'expiring' ? rng(4, 28) : state === 'expired' ? -rng(5, 90) : rng(60, 300)
+      return {
+        vehicle_id: v.id, reg_no: v.reg_no, vehicle_status: v.status,
+        policy_id: known ? i + 1 : null,
+        insurer: known ? pick(['AIICO Insurance', 'Leadway Assurance', 'AXA Mansard']) : null,
+        policy_no: known ? `POL/${2026}/${String(i + 1).padStart(4, '0')}` : null,
+        cover_type: known ? pick(['comprehensive', 'third_party']) : null,
+        sum_insured_kobo: known ? rng(8, 60) * 1_000_000_00 : null,
+        premium_kobo: known ? rng(180, 900) * 1_000_00 : null,
+        cover_from: known ? dateStr(rng(120, 360)) : null,
+        cover_to: known ? dateStr(-days) : null,
+        cover_state: state,
+        days_to_expiry: known ? days : null,
+      }
+    })
+  )),
+
+  http.get(u('/api/fleet/insurance'), () => wd(
+    FLEET_VEHICLES.slice(0, 6).map((v, i) => ({
+      id: i + 1, vehicle_id: v.id, reg_no: v.reg_no,
+      insurer: pick(['AIICO Insurance', 'Leadway Assurance', 'AXA Mansard']),
+      policy_no: `POL/2026/${String(i + 1).padStart(4, '0')}`,
+      cover_type: 'comprehensive',
+      sum_insured_kobo: rng(8, 60) * 1_000_000_00,
+      premium_kobo: rng(180, 900) * 1_000_00,
+      cover_from: dateStr(rng(120, 360)), cover_to: dateStr(-rng(30, 300)),
+      note: null, is_current: true,
+    }))
+  )),
+
+  // Odometer must stay above /api/fleet/vehicles/:id for the same ordering reason.
+  http.get(u('/api/fleet/vehicles/:id/odometer'), () => wd(
+    Array.from({ length: 12 }, (_, i) => {
+      const reading = 64_000 - i * 640
+      return {
+        id: i + 1, read_on: dateStr(i * 7 + 2), reading_km: reading,
+        km_since: i === 11 ? null : 640,
+        days_since: i === 11 ? null : 7,
+        // Deliberately a STRING on some rows: litres is numeric in Postgres and the db
+        // layer returns numerics as text, so a fixture that only ever sends numbers
+        // hides the shape the page actually receives.
+        litres: i % 3 === 0 ? String(rng(38, 62)) : rng(38, 62),
+        filled_to_full: i % 3 === 0,
+        litres_per_100km: i % 3 === 0 ? String((rng(90, 140) / 10).toFixed(1)) : rng(9, 14),
+        source: pick(['card_txn', 'manual']),
+      }
+    })
+  )),
+
+  http.get(u('/api/fleet/vehicles/:id'), ({ params }) => {
+    const id = Number(params.id)
+    const v = FLEET_VEHICLES.find(x => x.id === id) ?? FLEET_VEHICLES[0]
+    const i = FLEET_VEHICLES.indexOf(v)
+    const state = FLEET_COVER_STATE[i]
+    const driver = FLEET_DRIVERS[i % FLEET_DRIVERS.length]
+    return ok({
+      vehicle: {
+        id: v.id, reg_no: v.reg_no, make: v.make, model: v.model, model_year: v.year,
+        vin: `VIN${String(v.id).padStart(14, '0')}`,
+        engine_no: `ENG-${rng(100000, 999999)}`,
+        colour: pick(['White', 'Silver', 'Black', 'Grey']),
+        acquired_on: dateStr(rng(400, 1800)),
+        acquisition_cost_kobo: rng(12, 85) * 1_000_000_00,
+        disposed_on: v.status === 'disposed' ? dateStr(rng(10, 120)) : null,
+        disposal_proceeds_kobo: v.status === 'disposed' ? rng(3, 20) * 1_000_000_00 : 0,
+        status: v.status,
+        department: v.dept,
+        department_id: (FLEET_DEPARTMENTS.find(d => d.name === v.dept) ?? FLEET_DEPARTMENTS[0]).id,
+        assigned_to: driver.id,
+        assigned_driver_name: driver.full_name,
+        driver: driver.full_name,
+        notes: null,
+      },
+      cards: [
+        { id: 1, cif: `CIF${String(i + 440000).padStart(7, '0')}`, card_label: 'Fleet Fuel Card', valid_from: dateStr(400), valid_to: null, txns: rng(40, 300) },
+      ],
+      assignments: FLEET_DRIVERS.slice(0, 2).map((d, j) => ({
+        id: j + 1,
+        valid_from: dateStr(j === 0 ? 120 : 540),
+        valid_to: j === 0 ? null : dateStr(121),
+        note: null, driver: d.full_name, is_staff: true,
+      })),
+      insurance: [
+        { id: 1, insurer: 'Leadway Assurance', policy_no: `POL/2026/${String(i + 1).padStart(4, '0')}`,
+          cover_type: 'comprehensive', sum_insured_kobo: rng(8, 60) * 1_000_000_00,
+          premium_kobo: rng(180, 900) * 1_000_00, cover_from: dateStr(300), cover_to: dateStr(-60),
+          note: null, is_current: true },
+      ],
+      cover: state === 'unknown' ? null : {
+        cover_state: state,
+        days_to_expiry: state === 'expired' ? -rng(5, 90) : rng(4, 300),
+        insurer: 'Leadway Assurance',
+        policy_no: `POL/2026/${String(i + 1).padStart(4, '0')}`,
+        cover_to: dateStr(-60),
+      },
+      spend: Array.from({ length: 10 }, (_, j) => ({
+        txn_date: isoDate(j * 3 + 1),
+        amount_kobo: rng(8, 42) * 1_000_00,
+        txn_code: pick(['PMS', 'AGO', 'LUB']),
+        merchant_name: pick(['Total Energies Ikeja', 'NNPC Retail Maryland', 'Conoil Lekki']),
+        description: null,
+        card_label: 'Fleet Fuel Card',
+      })),
+      monthly: ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'].map((month, j) => ({
+        month, txns: [9, 12, 11, 14, 10, 13][j], spend_kobo: [24, 31, 28, 38, 26, 34][j] * 1_000_00,
+      })),
+      odometer: Array.from({ length: 6 }, (_, j) => ({
+        id: j + 1, read_on: dateStr(j * 7 + 2), reading_km: 64_000 - j * 640,
+        km_since: j === 5 ? null : 640, days_since: j === 5 ? null : 7,
+        litres: j % 3 === 0 ? String(rng(38, 62)) : rng(38, 62),
+        filled_to_full: j % 3 === 0,
+        litres_per_100km: j % 3 === 0 ? String((rng(90, 140) / 10).toFixed(1)) : rng(9, 14),
+        source: 'card_txn',
+      })),
+      maintenance: Array.from({ length: 3 }, (_, j) => ({
+        id: j + 1, vehicle_id: v.id, reg_no: v.reg_no,
+        kind: pick(['service', 'tyres', 'brakes']),
+        performed_on: dateStr(rng(10, 180)),
+        vendor: 'Elizade Autoland', cost_kobo: rng(18, 420) * 1_000_00,
+        odometer_km: rng(20_000, 180_000), next_due_on: dateStr(-rng(10, 120)),
+        next_due_km: rng(60_000, 200_000), description: null, invoice_ref: null,
+      })),
+      incidents: Array.from({ length: 2 }, (_, j) => ({
+        id: j + 1, vehicle_id: v.id, reg_no: v.reg_no,
+        occurred_on: dateStr(rng(20, 200)),
+        kind: pick(['collision', 'breakdown']),
+        description: null, cost_kobo: rng(0, 180) * 1_000_00,
+        resolved_on: j === 0 ? dateStr(rng(1, 40)) : null,
+        reported_by_name: name(),
+      })),
+    })
+  }),
+]
+
 // ── Catch-all ─────────────────────────────────────────────────────────────────
 
 const CATCH_ALL = [
@@ -4055,5 +4352,6 @@ export const handlers = [
   ...GAP_FILL,
   ...EXECUTIVE_DEPT,
   ...MOCK_GAPS,
+  ...FLEET,
   ...CATCH_ALL,
 ]
